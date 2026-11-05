@@ -121,11 +121,7 @@ public func coro_bt_table(coro: &CoroProgram, word_bits: Int) -> Vector<Int> {
         // State 0 is the entry, before the first resume; state `s` the `s`th
         // suspension, in block order. A suspension lowered to no point, an
         // effect-only call, keeps its number and no line.
-        var s = 0
-        while s <= frame.suspend_count {
-            coro_bt_state(&coro, &folds, &index, r - 1, s, &var states)
-            s = s + 1
-        }
+        coro_bt_states(&coro, &folds, &index, r - 1, frame.suspend_count, &var states)
         let node = coro.item_node(resume.item)
         let site = coro_bt_site(&coro, node)
         coro_bt_u32(&var frames, strings.add(coro.mono.item_name(resume.item)))
@@ -166,33 +162,48 @@ public func coro_bt_with_word_bits(bytes: &Vector<Int>, word_bits: Int) -> Vecto
     move out
 }
 
-// State `s` of resume function `r`'s frame into `states`: its line, then the
-// child it drives, unless that child folds, and the child's offset.
-func coro_bt_state(coro: &CoroProgram, folds: &Vector<Bool>, index: &Vector<Int>, r: Int, s: Int,
-                   states: &var Vector<Int>) {
+// States 0 through `count` of resume function `r`'s frame into `states`, each
+// its line, then the child it drives, unless that child folds, and the
+// child's offset: the last of the frame's points in that state to name each.
+// The points are read once for every state rather than once per state
+// (SL-970).
+func coro_bt_states(coro: &CoroProgram, folds: &Vector<Bool>, index: &Vector<Int>, r: Int, count: Int,
+                    states: &var Vector<Int>) {
     let resume = coro.resumes[r]
-    var line = 0
-    var child = 0
-    var offset = 0
+    var lines = Vector<Int>()
+    var children = Vector<Int>()
+    var offsets = Vector<Int>()
+    var s = 0
+    while s <= count {
+        try! lines.push(0)
+        try! children.push(0)
+        try! offsets.push(0)
+        s = s + 1
+    }
     var p = 0
-    while s > 0 && p < resume.point_count {
+    while p < resume.point_count {
         let point = coro.points[resume.point_first + p]
         p = p + 1
-        if point.state != s {
+        let at = point.state
+        if at <= 0 || at > count {
             continue
         }
         if point.call >= 0 {
             let node = coro.mono.dp.bc.mir.calls[point.call].node
-            line = coro_bt_site(&coro, node).line
+            lines[at] = coro_bt_site(&coro, node).line
         }
         if point.kind == CoroPointKind.Drive && not (folds.get(point.child) ?? true) {
-            child = (index.get(point.child) ?? -1) + 1
-            offset = point.slot
+            children[at] = (index.get(point.child) ?? -1) + 1
+            offsets[at] = point.slot
         }
     }
-    coro_bt_u32(&var states, line)
-    coro_bt_u32(&var states, child)
-    coro_bt_u32(&var states, offset)
+    s = 0
+    while s <= count {
+        coro_bt_u32(&var states, lines[s])
+        coro_bt_u32(&var states, children[s])
+        coro_bt_u32(&var states, offsets[s])
+        s = s + 1
+    }
 }
 
 // The offset of the state word among a frame's values.

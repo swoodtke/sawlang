@@ -33,10 +33,12 @@ public struct CoroProgram {
     frame_of: Vector<Int>
     frames: Vector<CoroFrame>
     // The frames' runs: their values, their suspension points, and each
-    // value's storage lifetime, one entry per program point of its item.
+    // value's storage lifetime over its item's program points, as its span
+    // count and then each span's first point and the point past its last
+    // (`compiler/coro/src/lifetimes.saw`).
     values: Vector<CoroValue>
     suspends: Vector<CoroSuspend>
-    live: Vector<Bool>
+    live: Vector<Int>
     // By item: whether its frame is lowered (`coro_decide_lowering`), and
     // when it is not, what is not: a `CoroUnlowered`.
     lowered: Vector<Bool>
@@ -72,7 +74,7 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
     let blocked = mono.blocked || mono.diags.len() > 0 || mono.problems.len() > 0
     CoroProgram(mono: move mono, blocked: blocked, suspending: Vector<Bool>(), cause_call: Vector<Int>(),
                 cause_item: Vector<Int>(), cyclic: false, frame_of: Vector<Int>(), frames: Vector<CoroFrame>(),
-                values: Vector<CoroValue>(), suspends: Vector<CoroSuspend>(), live: Vector<Bool>(),
+                values: Vector<CoroValue>(), suspends: Vector<CoroSuspend>(), live: Vector<Int>(),
                 lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
                 spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
@@ -97,8 +99,10 @@ public struct CoroBefore {
     // Runs per body: each drop statement and the block holding it.
     drops: Vector<Int>
     drop_blocks: Vector<Int>
-    // Runs per body: the suspension points, and per point a run of
-    // `local_count` entries, each local's conditions there.
+    // Runs per body: the suspension points, and per point a run of the
+    // locals' conditions there: -1 for a point no path reaches, else how many
+    // locals' conditions differ from the last point with a run, then each
+    // such local and its conditions (`coro_verify_condition_runs`).
     points: Vector<CoroBeforePoint>
     conditions: Vector<Int>
 }

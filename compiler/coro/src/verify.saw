@@ -24,6 +24,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
+import sawcoro.lifetimes.{CoroSpans}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
                       coro_child_offset, coro_context_shape, coro_frame_lowered, coro_offload_done_item,
                       coro_offload_park_item, coro_past_target}
@@ -33,10 +34,11 @@ import sawcoro.suspends.{coro_call_suspends}
 import sawdrops.program.{DropsProgram}
 import sawmir.dump.{mir_dump_module}
 import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
-                              MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit, mir_init_apply_all}
+                              MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirFuncKind, MirOperandKind, MirPlace, MirProj,
                      MirProjKind, MirRvalueKind, MirStmtKind, MirSwitchKind, MirTermKind, mir_spawn_leading}
 import sawmir.program.{MirProgram}
+import sawmir.states.{MirCursor}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
 import sawresolve.lang.{ResLang}
@@ -200,15 +202,19 @@ func coro_snapshot_points(coro: &var CoroProgram, f: Int) {
         }
         b = b + 1
     }
-    let states = coro_verify_states(&coro, f, &calls, &stmts, info.local_count)
+    let runs = coro_verify_condition_runs(&coro, f, &calls, &stmts, &blocks, info.local_count)
+    var at = 0
     var j = 0
     while j < calls.len() {
         let conditions_first = coro.before.conditions.len()
-        var l = 0
-        while l < info.local_count {
-            try! coro.before.conditions.push(states[j * info.local_count + l])
-            l = l + 1
+        let count = runs[at]
+        let length = if count < 0 { 1 } else { 1 + 2 * count }
+        var k = 0
+        while k < length {
+            try! coro.before.conditions.push(runs[at + k])
+            k = k + 1
         }
+        at = at + length
         try! coro.before.points.push(CoroBeforePoint(call: calls[j], stmt: stmts[j], block: blocks[j], state: j + 1,
                                                      conditions_first: conditions_first))
         j = j + 1
@@ -216,44 +222,85 @@ func coro_snapshot_points(coro: &var CoroProgram, f: Int) {
 }
 
 // Each local's conditions, below `local_count`, at each point of function
-// `f`: point `j` is just before statement `stmts[j]`, or for a call
-// `calls[j]` the moment it suspends, its arguments taken and its destination
-// not yet written. `out[j * local_count + l]`; a point no path reaches, or
-// one `f` no longer holds, gives 0 for every local.
-func coro_verify_states(coro: &CoroProgram, f: Int, calls: &Vector<Int>, stmts: &Vector<Int>,
-                        local_count: Int) -> Vector<Int> {
+// `f`, as one run per point in point order. Point `j` is just before
+// statement `stmts[j]` of block `blocks[j]`, or for a call `calls[j]`, which
+// ends that block, the moment it suspends, its arguments taken and its
+// destination not yet written; only the first point naming a statement or a
+// call is recorded there. A point's run is -1 when no path reaches it, or
+// `f` no longer holds it, which gives 0 for every local; else the count of
+// locals whose conditions differ from those at the last point with a run,
+// then each such local and its conditions (`CoroBefore.conditions`). Only
+// the blocks holding a point are walked, each by an initialisation cursor
+// from its entry, so a point costs what changed since the one before it
+// rather than every local (SL-970).
+func coro_verify_condition_runs(coro: &CoroProgram, f: Int, calls: &Vector<Int>, stmts: &Vector<Int>,
+                                blocks: &Vector<Int>, local_count: Int) -> Vector<Int> {
     var out = Vector<Int>()
-    var k = 0
-    while k < calls.len() * local_count {
-        try! out.push(0)
-        k = k + 1
-    }
     let facts = coro.mono.dp.bc.mir.init_analysis(f)
     let info = coro.mono.dp.bc.mir.funcs[f]
-    var b = 0
-    while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        let here = b
-        b = b + 1
-        if not facts.reached[here] {
-            continue
+    var first_stmt = Map<Int, Int>()
+    var first_call = Map<Int, Int>()
+    var j = 0
+    while j < calls.len() {
+        if stmts[j] >= 0 && not first_stmt.contains_key(stmts[j]) {
+            let _ = try! first_stmt.insert(stmts[j], j)
         }
-        var state = facts.entry_state(here)
-        var s = block.first
-        while s >= 0 {
-            let j = coro_verify_find(&stmts, s)
-            if j >= 0 {
-                coro_verify_record_state(&facts, &state, &var out, j, local_count)
+        if stmts[j] < 0 && calls[j] >= 0 && not first_call.contains_key(calls[j]) {
+            let _ = try! first_call.insert(calls[j], j)
+        }
+        j = j + 1
+    }
+    var conditions = CoroVerifyConditions(facts: &facts, local_count: local_count)
+    var cur = facts.cursor()
+    // The block the cursor walks, the next statement of it to apply, and
+    // whether its terminator's accesses are applied.
+    var walked = -1
+    var next = -1
+    var ended = false
+    j = 0
+    while j < calls.len() {
+        let b = blocks[j]
+        let s = stmts[j]
+        let c = calls[j]
+        let point = j
+        j = j + 1
+        var recorded = false
+        let own = (s >= 0 && (first_stmt.get(s) ?? -1) == point) || (s < 0 && c >= 0 && (first_call.get(c) ?? -1) == point)
+        if own && b >= 0 && b < info.block_count && facts.reached[b] {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            if walked != b || ended {
+                conditions.enter(&facts, &var cur, b)
+                walked = b
+                next = block.first
+                ended = false
             }
-            let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, s, &facts)
-            mir_init_apply_all(&facts, &var state, &accesses)
-            s = coro.mono.dp.bc.mir.stmts[s].next
-        }
-        if block.term == MirTermKind.Call {
-            let j = coro_verify_find(&calls, block.call)
-            if j >= 0 {
-                let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, here, &facts)
-                let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+            if s >= 0 {
+                // A statement behind the walk is reached from its block's
+                // entry again.
+                var pass = 0
+                while pass < 2 && not recorded {
+                    while next >= 0 && next != s {
+                        let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, next, &facts)
+                        conditions.apply(&facts, &var cur, &accesses)
+                        next = coro.mono.dp.bc.mir.stmts[next].next
+                    }
+                    if next == s {
+                        conditions.record(&cur, &var out)
+                        recorded = true
+                    } else if pass == 0 {
+                        conditions.enter(&facts, &var cur, b)
+                        next = block.first
+                    }
+                    pass = pass + 1
+                }
+            } else if block.term == MirTermKind.Call && block.call == c {
+                while next >= 0 {
+                    let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, next, &facts)
+                    conditions.apply(&facts, &var cur, &accesses)
+                    next = coro.mono.dp.bc.mir.stmts[next].next
+                }
+                let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, b, &facts)
+                let dest = coro.mono.dp.bc.mir.calls[c].dest
                 var taken = Vector<MirAccess>()
                 var a = 0
                 while a < accesses.len() {
@@ -263,29 +310,146 @@ func coro_verify_states(coro: &CoroProgram, f: Int, calls: &Vector<Int>, stmts: 
                         try! taken.push(access)
                     }
                 }
-                mir_init_apply_all(&facts, &var state, &taken)
-                coro_verify_record_state(&facts, &state, &var out, j, local_count)
+                conditions.apply(&facts, &var cur, &taken)
+                ended = true
+                conditions.record(&cur, &var out)
+                recorded = true
             }
+        }
+        if not recorded {
+            try! out.push(-1)
         }
     }
     move out
 }
 
-func coro_verify_record_state(facts: &MirInit, state: &Vector<Int>, out: &var Vector<Int>, j: Int,
-                              local_count: Int) {
-    var l = 0
-    while l < local_count {
-        out[j * local_count + l] = state[l]
-        l = l + 1
-    }
-    var q = 0
-    while q < facts.path_count() {
-        let owner = facts.path_local[q]
-        if owner < local_count && (state[q] & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0 {
-            let at = j * local_count + owner
-            out[at] |= CORO_VERIFY_LIVE
+// The conditions of each local below a body's local count as a walk moves an
+// initialisation cursor through the body: a local's own path's conditions,
+// plus CORO_VERIFY_LIVE while some path inside it may be whole or partial. A
+// local is looked at again only where one of its paths may have changed.
+struct CoroVerifyConditions {
+    // By move path: its local when that is below the count, else -1, and
+    // whether it may be whole or partial now.
+    path_owner: Vector<Int>
+    path_live: Vector<Bool>
+    // By local: how many of its paths may be whole or partial now, and its
+    // conditions at the last point recorded with a run.
+    live_paths: Vector<Int>
+    last: Vector<Int>
+    // The locals one of whose paths changed since the last point recorded.
+    dirty: Vector<Int>
+    dirty_mark: Vector<Bool>
+}
+
+extension CoroVerifyConditions: NoCopy {}
+
+extension CoroVerifyConditions {
+    init(facts: &MirInit, local_count: Int) -> CoroVerifyConditions {
+        var path_owner = Vector<Int>()
+        var path_live = Vector<Bool>()
+        var q = 0
+        while q < facts.path_count() {
+            let l = facts.path_local[q]
+            try! path_owner.push(if l < local_count { l } else { -1 })
+            try! path_live.push(false)
+            q = q + 1
         }
-        q = q + 1
+        var live_paths = Vector<Int>()
+        var last = Vector<Int>()
+        var dirty_mark = Vector<Bool>()
+        var l = 0
+        while l < local_count {
+            try! live_paths.push(0)
+            try! last.push(0)
+            try! dirty_mark.push(false)
+            l = l + 1
+        }
+        CoroVerifyConditions(path_owner: move path_owner, path_live: move path_live, live_paths: move live_paths,
+                             last: move last, dirty: Vector<Int>(), dirty_mark: move dirty_mark)
+    }
+
+    // Moves `cur` to block `b`'s entry conditions in `facts`.
+    func enter(&var self, facts: &MirInit, cur: &var MirCursor, b: Int) {
+        var changed = Vector<Int>()
+        cur.load_noting(&facts.states, facts.entry_roots[b], &var changed)
+        var k = 0
+        while k < changed.len() {
+            let q = changed[k]
+            k = k + 1
+            self.note(q, cur.state[q])
+        }
+    }
+
+    // Applies each of `accesses` to `cur`, in order: an access changes
+    // nothing but the paths inside its own and, for a move, those around it.
+    func apply(&var self, facts: &MirInit, cur: &var MirCursor, accesses: &Vector<MirAccess>) {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            k = k + 1
+            facts.apply_to(&var cur, &a)
+            if a.path < 0 || a.cut || a.kind == MirAccessKind.Read || a.kind == MirAccessKind.Borrow {
+                continue
+            }
+            let inside = facts.subtree(a.path)
+            var j = 0
+            while j < inside.len() {
+                let q = inside[j]
+                j = j + 1
+                self.note(q, cur.state[q])
+            }
+            var up = facts.path_parent[a.path]
+            while up >= 0 {
+                self.note(up, cur.state[up])
+                up = facts.path_parent[up]
+            }
+        }
+    }
+
+    // Appends the run of the point `cur` stands at: each local whose
+    // conditions differ from the last point recorded with a run.
+    func record(&var self, cur: &MirCursor, out: &var Vector<Int>) {
+        let at = out.len()
+        try! out.push(0)
+        var count = 0
+        var k = 0
+        while k < self.dirty.len() {
+            let l = self.dirty[k]
+            k = k + 1
+            self.dirty_mark[l] = false
+            var c = cur.state[l]
+            if self.live_paths[l] > 0 {
+                c = c | CORO_VERIFY_LIVE
+            }
+            if c != self.last[l] {
+                self.last[l] = c
+                try! out.push(l)
+                try! out.push(c)
+                count = count + 1
+            }
+        }
+        self.dirty.clear()
+        out[at] = count
+    }
+
+    func note(&var self, q: Int, cond: Int) {
+        let l = self.path_owner[q]
+        if l < 0 {
+            return
+        }
+        let now = (cond & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0
+        if now != self.path_live[q] {
+            self.path_live[q] = now
+            if now {
+                self.live_paths[l] = self.live_paths[l] + 1
+            } else {
+                self.live_paths[l] = self.live_paths[l] - 1
+            }
+        }
+        if not self.dirty_mark[l] {
+            self.dirty_mark[l] = true
+            try! self.dirty.push(l)
+        }
     }
 }
 
@@ -322,22 +486,364 @@ public func coro_verify_lowering(coro: &var CoroProgram, target: &var Target) {
 func coro_verify_body(coro: &var CoroProgram, target: &var Target, cx: &CoroContext, b: &CoroBeforeBody) {
     let places = coro_verify_places(&coro, b.body)
     let frame = coro_verify_frame_pointer(&var coro, &var target, &b, &places)
-    let slots = coro_verify_residents(&var coro, &b, frame)
+    let idx = coro_verify_index(&coro, &b, frame)
+    let slots = coro_verify_residents(&var coro, &b, &idx, frame)
     coro_verify_index_reads(&var coro, &b, &places, &slots)
     if b.framed {
-        coro_verify_point_states(&var coro, &b, &slots)
+        coro_verify_point_states(&var coro, &b, &idx, &slots)
     }
-    coro_verify_drops(&var coro, &b)
-    coro_verify_transfers(&var coro, &var target, &cx, &b, frame, &slots, &places)
-    coro_verify_windows(&var coro, &b, &slots)
+    coro_verify_drops(&var coro, &b, &idx)
+    coro_verify_transfers(&var coro, &var target, &cx, &b, &idx, frame, &slots, &places)
+    coro_verify_windows(&var coro, &b, &idx, &slots)
     if b.framed {
-        coro_verify_records(&var coro, &cx, &b)
-        let lifetimes = coro_lowered_lifetimes(&var coro, &b, frame)
+        coro_verify_records(&var coro, &cx, &b, &idx)
+        let lifetimes = coro_lowered_lifetimes(&var coro, &b, &idx, frame)
         coro_verify_lifetimes(&var coro, &b, &lifetimes)
         if coro.sanitize {
             coro_poison_lists(&var coro, &b, &lifetimes)
         }
     }
+}
+
+// What the checks of one body ask of it again and again, of the body as
+// lowering left it and of its record from before lowering, each found once,
+// so that a check costs the body rather than the body for each element it
+// asks about (SL-970).
+struct CoroVerifyIndex {
+    // By call: the first block of the body that ends in it.
+    block_of: Map<Int, Int>
+    // By place: how many times the body writes it, as an assignment's place
+    // or a call's destination.
+    writes: Map<Int, Int>
+    // By operand: how many times the body uses it, and the assignment making
+    // the last of those uses, or -1 for a terminator's.
+    uses: Map<Int, Int>
+    use_stmt: Map<Int, Int>
+    // By place, call and drop statement of the record: its index there.
+    named: Map<Int, Int>
+    pre_call: Map<Int, Int>
+    drop_at: Map<Int, Int>
+    // By the call, or the op-budget statement, of a suspension point of the
+    // record: its state.
+    call_state: Map<Int, Int>
+    stmt_state: Map<Int, Int>
+    // By local before lowering: the offset of the frame value holding it, or
+    // -1 (`coro_verify_layout_offset`).
+    local_offset: Vector<Int>
+    // The frame's child slots and offload storages, as indices of its values,
+    // in its order.
+    children: Vector<Int>
+    offloads: Vector<Int>
+    // By call of one of the record's suspension points: how many drives come
+    // before the first point it makes; `drives`, all of them, for any other.
+    drive_nth: Map<Int, Int>
+    drives: Int
+    // By return edge: the first offload park, in block order, that returns
+    // there.
+    offload_park: Map<Int, Int>
+    // By local lowering added, from the record's local count on: the frame
+    // slot step every write of it copies (`coro_verify_index_slot`).
+    index_slots: Vector<Int>
+    // The body's statements in block order, each with its block; and the
+    // places each assignment writes and each rvalue reads, as `place * count
+    // + ordinal` for the statement's ordinal there, sorted.
+    stmt_at: Vector<Int>
+    stmt_block: Vector<Int>
+    assigned: Vector<Int>
+    reads: Vector<Int>
+    // By statement: the block holding it.
+    stmt_home: Map<Int, Int>
+}
+
+extension CoroVerifyIndex: NoCopy {}
+
+func coro_verify_index(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int) -> CoroVerifyIndex {
+    var idx = CoroVerifyIndex(block_of: Map<Int, Int>(), writes: Map<Int, Int>(), uses: Map<Int, Int>(),
+                              use_stmt: Map<Int, Int>(), named: Map<Int, Int>(), pre_call: Map<Int, Int>(),
+                              drop_at: Map<Int, Int>(), call_state: Map<Int, Int>(), stmt_state: Map<Int, Int>(),
+                              local_offset: Vector<Int>(), children: Vector<Int>(), offloads: Vector<Int>(),
+                              drive_nth: Map<Int, Int>(), drives: 0, offload_park: Map<Int, Int>(),
+                              index_slots: Vector<Int>(), stmt_at: Vector<Int>(), stmt_block: Vector<Int>(),
+                              assigned: Vector<Int>(), reads: Vector<Int>(), stmt_home: Map<Int, Int>())
+    let f = b.body
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    // Pairs of a place and a statement's ordinal, encoded once the count of
+    // statements is known.
+    var assigned = Vector<Int>()
+    var reads = Vector<Int>()
+    var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        let here = bb
+        bb = bb + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            let ordinal = idx.stmt_at.len()
+            try! idx.stmt_at.push(s)
+            try! idx.stmt_block.push(here)
+            let _ = try! idx.stmt_home.insert(s, here)
+            if stmt.kind == MirStmtKind.Assign && stmt.place >= 0 {
+                coro_verify_count(&var idx.writes, stmt.place)
+                try! assigned.push(stmt.place)
+                try! assigned.push(ordinal)
+            }
+            if stmt.rvalue >= 0 {
+                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+                var named = Vector<Int>()
+                if rv.place >= 0 {
+                    try! named.push(rv.place)
+                }
+                var j = 0
+                while j < rv.count {
+                    let o = coro.mono.dp.bc.mir.lists[rv.first + j]
+                    j = j + 1
+                    coro_verify_count(&var idx.uses, o)
+                    let _ = try! idx.use_stmt.insert(o, s)
+                    let read = if o >= 0 { coro.mono.dp.bc.mir.operands[o].place } else { -1 }
+                    if read >= 0 && coro_verify_find(&named, read) < 0 {
+                        try! named.push(read)
+                    }
+                }
+                j = 0
+                while j < named.len() {
+                    try! reads.push(named[j])
+                    try! reads.push(ordinal)
+                    j = j + 1
+                }
+            }
+            s = stmt.next
+        }
+        if block.term == MirTermKind.Switch && block.operand >= 0 {
+            coro_verify_count(&var idx.uses, block.operand)
+            let _ = try! idx.use_stmt.insert(block.operand, -1)
+        } else if block.term == MirTermKind.Call {
+            let call = coro.mono.dp.bc.mir.calls[block.call]
+            if not idx.block_of.contains_key(block.call) {
+                let _ = try! idx.block_of.insert(block.call, here)
+            }
+            if call.dest >= 0 {
+                coro_verify_count(&var idx.writes, call.dest)
+            }
+            var j = 0
+            while j < call.arg_count {
+                let o = coro.mono.dp.bc.mir.lists[call.arg_first + j]
+                j = j + 1
+                coro_verify_count(&var idx.uses, o)
+                let _ = try! idx.use_stmt.insert(o, -1)
+            }
+            if call.callee >= 0 {
+                coro_verify_count(&var idx.uses, call.callee)
+                let _ = try! idx.use_stmt.insert(call.callee, -1)
+            }
+            if coro_verify_park(&coro, block.call) == CoroVerifyPark.Offload && not idx.offload_park.contains_key(call.next) {
+                let _ = try! idx.offload_park.insert(call.next, block.call)
+            }
+        }
+    }
+    let count = idx.stmt_at.len()
+    idx.assigned = coro_verify_encode(&assigned, count)
+    idx.reads = coro_verify_encode(&reads, count)
+    var k = 0
+    while k < b.place_count {
+        let p = coro.before.place_ids[b.place_first + k]
+        if not idx.named.contains_key(p) {
+            let _ = try! idx.named.insert(p, k)
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < b.call_count {
+        let c = coro.before.call_ids[b.call_first + k]
+        if not idx.pre_call.contains_key(c) {
+            let _ = try! idx.pre_call.insert(c, k)
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < b.drop_count {
+        let s = coro.before.drops[b.drop_first + k]
+        if not idx.drop_at.contains_key(s) {
+            let _ = try! idx.drop_at.insert(s, k)
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < b.point_count {
+        let point = coro.before.points[b.point_first + k]
+        k = k + 1
+        if point.call >= 0 && not idx.call_state.contains_key(point.call) {
+            let _ = try! idx.call_state.insert(point.call, point.state)
+        }
+        if point.stmt >= 0 && not idx.stmt_state.contains_key(point.stmt) {
+            let _ = try! idx.stmt_state.insert(point.stmt, point.state)
+        }
+        if point.call >= 0 && not idx.drive_nth.contains_key(point.call) {
+            let _ = try! idx.drive_nth.insert(point.call, idx.drives)
+        }
+        if point.call >= 0 && coro_driven_child(&coro, point.call) >= 0 {
+            idx.drives = idx.drives + 1
+        }
+    }
+    var laid = Vector<Bool>()
+    var l = 0
+    while l < b.local_count {
+        try! idx.local_offset.push(-1)
+        try! laid.push(false)
+        l = l + 1
+    }
+    // The frame values that hold a local, by offset and type.
+    var held = Map<Int, Bool>()
+    var types = 0
+    let fr = coro_frame_of(&coro, b.item)
+    if fr >= 0 {
+        let fv = coro.frames[fr]
+        k = 0
+        while k < fv.value_count {
+            let v = coro.values[fv.value_first + k]
+            if v.ty >= types {
+                types = v.ty + 1
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < fv.value_count {
+            let v = coro.values[fv.value_first + k]
+            let at = k
+            k = k + 1
+            if v.kind == CoroValueKind.Child {
+                try! idx.children.push(at)
+            } else if v.kind == CoroValueKind.Offload {
+                try! idx.offloads.push(at)
+            }
+            let holds = v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State
+            if holds && v.local >= 0 && v.local < b.local_count && not laid[v.local] {
+                laid[v.local] = true
+                idx.local_offset[v.local] = v.offset
+            }
+            if holds && v.size > 0 && v.local >= 0 && v.offset >= 0 && v.ty >= 0 {
+                let _ = try! held.insert(v.offset * types + v.ty, true)
+            }
+        }
+    }
+    let slots = coro_verify_index_slots(&coro, &b, &idx, frame, &held, types)
+    idx.index_slots = move slots
+    move idx
+}
+
+// Adds one to `counts`'s entry for `key`.
+func coro_verify_count(counts: &var Map<Int, Int>, key: Int) {
+    let had = counts.get(key) ?? 0
+    let _ = try! counts.insert(key, had + 1)
+}
+
+// The pairs of `pairs`, a place then an ordinal below `count`, each as
+// `place * count + ordinal`, sorted.
+func coro_verify_encode(pairs: &Vector<Int>, count: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    var k = 0
+    while k < pairs.len() {
+        try! out.push(pairs[k] * count + pairs[k + 1])
+        k = k + 2
+    }
+    out.sort()
+    move out
+}
+
+// The ordinals `keys` (`coro_verify_encode`) pairs with place `p`, in order.
+func coro_verify_ordinals(keys: &Vector<Int>, count: Int, p: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    if p < 0 || count == 0 {
+        return move out
+    }
+    var a = 0
+    var z = keys.len()
+    while a < z {
+        let m = (a + z) / 2
+        if keys[m] < p * count {
+            a = m + 1
+        } else {
+            z = m
+        }
+    }
+    while a < keys.len() && keys[a] / count == p {
+        try! out.push(keys[a] % count)
+        a = a + 1
+    }
+    move out
+}
+
+// By local lowering added to body `b`, from its record's local count on, the
+// frame slot step every write of it copies through frame pointer `frame`, at
+// one offset and type at which the frame lays a local's value, else -1: a
+// local whose every write is `_t = copy (*_F).[OFFSET: T]`. `held` holds
+// `offset * types + type` for each frame value holding a local.
+func coro_verify_index_slots(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, frame: Int,
+                             held: &Map<Int, Bool>, types: Int) -> Vector<Int> {
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    let added = if info.local_count > b.local_count { info.local_count - b.local_count } else { 0 }
+    var out = Vector<Int>()
+    var spoiled = Vector<Bool>()
+    var k = 0
+    while k < added {
+        try! out.push(-1)
+        try! spoiled.push(frame < 0)
+        k = k + 1
+    }
+    if added == 0 || frame < 0 {
+        return move out
+    }
+    var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        bb = bb + 1
+        if block.term == MirTermKind.Call {
+            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+            let t = if dest >= 0 { coro.mono.dp.bc.mir.places[dest].local } else { -1 }
+            if t >= b.local_count && t < info.local_count {
+                spoiled[t - b.local_count] = true
+            }
+        }
+    }
+    k = 0
+    while k < idx.stmt_at.len() {
+        let s = idx.stmt_at[k]
+        k = k + 1
+        let stmt = coro.mono.dp.bc.mir.stmts[s]
+        if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+            continue
+        }
+        let t = coro.mono.dp.bc.mir.places[stmt.place].local
+        if t < b.local_count || t >= info.local_count || spoiled[t - b.local_count] {
+            continue
+        }
+        let at = t - b.local_count
+        let from = coro_verify_copied_slot(&coro, stmt.rvalue, frame)
+        var fits = from >= 0
+        if fits {
+            let slot = coro.mono.dp.bc.mir.projs[from]
+            fits = slot.index >= 0 && slot.ty >= 0 && slot.ty < types && held.contains_key(slot.index * types + slot.ty)
+            if fits && out[at] >= 0 {
+                let first = coro.mono.dp.bc.mir.projs[out[at]]
+                fits = first.index == slot.index && first.ty == slot.ty
+            }
+        }
+        if fits {
+            if out[at] < 0 {
+                out[at] = from
+            }
+        } else {
+            spoiled[at] = true
+        }
+    }
+    k = 0
+    while k < added {
+        if spoiled[k] {
+            out[k] = -1
+        }
+        k = k + 1
+    }
+    move out
 }
 
 func coro_verify_problem(coro: &var CoroProgram, rule: Int, item: Int, what: String) {
@@ -393,11 +899,24 @@ func coro_verify_places(coro: &CoroProgram, f: Int) -> Vector<Int> {
             coro_verify_add_place(&var out, call.dest)
         }
     }
-    move out
+    // Each place once, at its first naming, kept by a table rather than a
+    // search of the places so far (SL-970).
+    var seen = Map<Int, Bool>()
+    var once = Vector<Int>()
+    var k = 0
+    while k < out.len() {
+        let p = out[k]
+        k = k + 1
+        if not seen.contains_key(p) {
+            let _ = try! seen.insert(p, true)
+            try! once.push(p)
+        }
+    }
+    move once
 }
 
 func coro_verify_add_place(out: &var Vector<Int>, p: Int) {
-    if p >= 0 && coro_verify_find(&out, p) < 0 {
+    if p >= 0 {
         try! out.push(p)
     }
 }
@@ -573,7 +1092,7 @@ func coro_verify_frame_size(coro: &CoroProgram, item: Int) -> Int {
 // A local reached both ways would have two storages; the result and the
 // parameters, which the caller reaches in the frame, are never left on the
 // stack. Returns, by local before lowering, its slot's offset or -1.
-func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int) -> Vector<Int> {
+func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, frame: Int) -> Vector<Int> {
     var slots = Vector<Int>()
     var stack = Vector<Bool>()
     var l = 0
@@ -588,13 +1107,13 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
         let pre = coro.before.places[b.place_first + k]
         k = k + 1
         let post = coro.mono.dp.bc.mir.places[p]
-        if coro_verify_same_place(&coro, &b, frame, &pre, &post) {
+        if coro_verify_same_place(&coro, &b, &idx, frame, &pre, &post) {
             if pre.local >= 0 && pre.local < b.local_count {
                 stack[pre.local] = true
             }
             continue
         }
-        let offset = coro_verify_slot_of(&coro, &b, &pre, &post, frame)
+        let offset = coro_verify_slot_of(&coro, &b, &idx, &pre, &post, frame)
         if pre.local < 0 || pre.local >= b.local_count || offset < 0 {
             var what = StringBuilder()
             try! what.append("a place the body names is rewritten into something other than its local's frame slot: ")
@@ -624,7 +1143,7 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
         l = 0
         while l <= info.param_count && l < b.local_count {
             if slots[l] < 0 && not stack[l] {
-                slots[l] = coro_verify_layout_offset(&coro, b.item, l)
+                slots[l] = coro_verify_layout_offset(&idx, l)
             }
             l = l + 1
         }
@@ -654,7 +1173,7 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
             coro_verify_problem(&var coro, 1, b.item, what.build())
         }
         if slots[local] >= 0 {
-            let laid = coro_verify_layout_offset(&coro, b.item, local)
+            let laid = coro_verify_layout_offset(&idx, local)
             if laid != slots[local] {
                 var what = StringBuilder()
                 try! what.append("_")
@@ -678,20 +1197,20 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
 // Whether places `pre` and `post` of body `body` are the same: one root and
 // equal steps, an index by a frame value's local and one by its index
 // temporary counting as equal.
-func coro_verify_same_place(coro: &CoroProgram, body: &CoroBeforeBody, frame: Int, pre: &MirPlace,
-                            post: &MirPlace) -> Bool {
+func coro_verify_same_place(coro: &CoroProgram, body: &CoroBeforeBody, idx: &CoroVerifyIndex, frame: Int,
+                            pre: &MirPlace, post: &MirPlace) -> Bool {
     if pre.local != post.local || pre.static_decl != post.static_decl || pre.count != post.count || pre.ty != post.ty {
         return false
     }
-    coro_verify_same_steps(&coro, &body, frame, pre.first, post.first, pre.count)
+    coro_verify_same_steps(&coro, &body, &idx, frame, pre.first, post.first, pre.count)
 }
 
 // Whether the `count` steps from `a`, as body `body` named them, and from
 // `b`, as lowering left them, are equal. An index by local `_x` may become an
 // index by a temporary lowering added that only ever copies `_x`'s frame
 // slot (`coro_verify_index_copies`), since a projection cannot name a slot.
-func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: Int, a: Int, b: Int,
-                            count: Int) -> Bool {
+func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, idx: &CoroVerifyIndex, frame: Int, a: Int,
+                            b: Int, count: Int) -> Bool {
     var j = 0
     while j < count {
         let x = coro.mono.dp.bc.mir.projs[a + j]
@@ -701,7 +1220,7 @@ func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: In
             return false
         }
         if x.index != y.index {
-            let loaded = x.kind == MirProjKind.Index && coro_verify_index_copies(&coro, &body, frame, y.index, x.index)
+            let loaded = x.kind == MirProjKind.Index && coro_verify_index_copies(&coro, &body, &idx, y.index, x.index)
             if not loaded {
                 return false
             }
@@ -714,67 +1233,25 @@ func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: In
 // frame slot of local `l` of body `b`: the slot its frame's layout gives `l`,
 // of `l`'s type. Locals whose lifetimes never meet may share an offset, so
 // the slot is matched against `l`'s own, never mapped back to a local.
-func coro_verify_index_copies(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, t: Int, l: Int) -> Bool {
-    let s = coro_verify_index_slot(&coro, &b, frame, t)
+func coro_verify_index_copies(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, t: Int, l: Int) -> Bool {
+    let s = coro_verify_index_slot(&b, &idx, t)
     if s < 0 || l < 0 || l >= b.local_count {
         return false
     }
     let slot = coro.mono.dp.bc.mir.projs[s]
     let ty = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[b.body].local_first + l].ty
-    slot.index == coro_verify_layout_offset(&coro, b.item, l) && slot.ty == ty
+    slot.index == coro_verify_layout_offset(&idx, l) && slot.ty == ty
 }
 
 // The frame slot step every write of local `t` copies, when `t` is a local
-// lowering added whose every write is `_t = copy (*_F).[OFFSET: T]` through
-// frame pointer `frame`, at one offset and type at which body `b`'s frame
-// lays a local's value; else -1.
-func coro_verify_index_slot(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, t: Int) -> Int {
-    if t < b.local_count || frame < 0 {
+// lowering added to body `b` whose every write is `_t = copy (*_F).[OFFSET:
+// T]` through its frame pointer, at one offset and type at which its frame
+// lays a local's value; else -1 (`coro_verify_index_slots`).
+func coro_verify_index_slot(b: &CoroBeforeBody, idx: &CoroVerifyIndex, t: Int) -> Int {
+    if t < b.local_count || t - b.local_count >= idx.index_slots.len() {
         return -1
     }
-    let info = coro.mono.dp.bc.mir.funcs[b.body]
-    var source = -1
-    var bb = 0
-    while bb < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-        bb = bb + 1
-        if block.term == MirTermKind.Call {
-            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
-            if coro_verify_writes_local(&coro, dest, t) {
-                return -1
-            }
-        }
-        var s = block.first
-        while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            s = stmt.next
-            if stmt.kind != MirStmtKind.Assign || not coro_verify_writes_local(&coro, stmt.place, t) {
-                continue
-            }
-            let from = coro_verify_copied_slot(&coro, stmt.rvalue, frame)
-            if from < 0 {
-                return -1
-            }
-            let slot = coro.mono.dp.bc.mir.projs[from]
-            if not coro_verify_holds_local_at(&coro, b.item, slot.index, slot.ty) {
-                return -1
-            }
-            if source < 0 {
-                source = from
-            } else {
-                let first = coro.mono.dp.bc.mir.projs[source]
-                if first.index != slot.index || first.ty != slot.ty {
-                    return -1
-                }
-            }
-        }
-    }
-    source
-}
-
-// Whether place `p` names local `l` at all, whole or in part.
-func coro_verify_writes_local(coro: &CoroProgram, p: Int, l: Int) -> Bool {
-    p >= 0 && coro.mono.dp.bc.mir.places[p].local == l
+    idx.index_slots[t - b.local_count]
 }
 
 // The frame slot step of the place rvalue `rv` copies whole, `copy
@@ -794,31 +1271,11 @@ func coro_verify_copied_slot(coro: &CoroProgram, rv: Int, frame: Int) -> Int {
     coro.mono.dp.bc.mir.places[o.place].first + 1
 }
 
-// Whether item `item`'s frame layout lays a local's value of type `ty` at
-// `offset`: the result, a parameter or a resident local.
-func coro_verify_holds_local_at(coro: &CoroProgram, item: Int, offset: Int, ty: Int) -> Bool {
-    let fr = coro_frame_of(&coro, item)
-    if fr < 0 || offset < 0 {
-        return false
-    }
-    let frame = coro.frames[fr]
-    var k = 0
-    while k < frame.value_count {
-        let v = coro.values[frame.value_first + k]
-        k = k + 1
-        let held = v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State
-        if v.offset == offset && v.ty == ty && v.size > 0 && v.local >= 0 && held {
-            return true
-        }
-    }
-    false
-}
-
 // The offset of the slot `post` reaches local `pre.local`'s value at, when
 // `post` is `pre` rewritten into it through frame pointer `frame`: the
 // dereference, a slot of the local's type, then `pre`'s own steps; else -1.
-func coro_verify_slot_of(coro: &CoroProgram, b: &CoroBeforeBody, pre: &MirPlace, post: &MirPlace,
-                         frame: Int) -> Int {
+func coro_verify_slot_of(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, pre: &MirPlace,
+                         post: &MirPlace, frame: Int) -> Int {
     let f = b.body
     if frame < 0 || pre.local < 0 || post.local != frame || post.count != pre.count + 2 || post.ty != pre.ty {
         return -1
@@ -832,29 +1289,19 @@ func coro_verify_slot_of(coro: &CoroProgram, b: &CoroBeforeBody, pre: &MirPlace,
     if slot.ty != coro.mono.dp.bc.mir.locals[info.local_first + pre.local].ty {
         return -1
     }
-    if not coro_verify_same_steps(&coro, &b, frame, pre.first, post.first + 2, pre.count) {
+    if not coro_verify_same_steps(&coro, &b, &idx, frame, pre.first, post.first + 2, pre.count) {
         return -1
     }
     slot.index
 }
 
-// The offset item `item`'s frame layout gives the value of local `l`: its
+// The offset the body's frame layout gives the value of local `l`: its
 // result, a parameter or a resident local; -1 when it holds none.
-func coro_verify_layout_offset(coro: &CoroProgram, item: Int, l: Int) -> Int {
-    let fr = coro_frame_of(&coro, item)
-    if fr < 0 {
+func coro_verify_layout_offset(idx: &CoroVerifyIndex, l: Int) -> Int {
+    if l < 0 || l >= idx.local_offset.len() {
         return -1
     }
-    let frame = coro.frames[fr]
-    var k = 0
-    while k < frame.value_count {
-        let v = coro.values[frame.value_first + k]
-        k = k + 1
-        if v.local == l && v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State {
-            return v.offset
-        }
-    }
-    return -1
+    idx.local_offset[l]
 }
 
 // Rule 1: no index projection reads a frame value's local on the stack, where
@@ -889,15 +1336,16 @@ func coro_verify_index_reads(coro: &var CoroProgram, b: &CoroBeforeBody, places:
 // point by the ready park its block's test of the counter yields at; an
 // effect-only suspension, `__saw_test_suspend`, is the one that lowering
 // removes.
-func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>) {
+func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, slots: &Vector<Int>) {
     var calls = Vector<Int>()
     var stmts = Vector<Int>()
+    var blocks = Vector<Int>()
     var k = 0
     while k < b.point_count {
         let point = coro.before.points[b.point_first + k]
         k = k + 1
         var call = point.call
-        if call >= 0 && not coro_verify_ends_block(&coro, b.body, call) {
+        if call >= 0 && not coro_verify_ends_block(&idx, call) {
             if not coro_verify_effect_only(&coro, call) {
                 var what = StringBuilder()
                 try! what.append("state ")
@@ -923,25 +1371,85 @@ func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, slots:
         }
         try! calls.push(call)
         try! stmts.push(-1)
+        try! blocks.push(if call >= 0 { idx.block_of.get(call) ?? -1 } else { -1 })
     }
     let saved = coro_verify_restore(&var coro, &b)
-    let after = coro_verify_states(&coro, b.body, &calls, &stmts, b.local_count)
+    let after = coro_verify_condition_runs(&coro, b.body, &calls, &stmts, &blocks, b.local_count)
     coro_verify_put_back(&var coro, &b, &saved)
+    // Each local's conditions before and after lowering at the last point
+    // with a run of each; the frame values whose two differ, and the stack
+    // locals the record leaves maybe initialised. A point then costs its own
+    // changes and the problems it reports, not every local.
+    var was = Vector<Int>()
+    var now = Vector<Int>()
+    var resident = Vector<Int>()
+    var l = 0
+    while l < b.local_count {
+        try! was.push(0)
+        try! now.push(0)
+        if slots[l] >= 0 {
+            try! resident.push(l)
+        }
+        l = l + 1
+    }
+    var differ = CoroVerifySet(count: b.local_count)
+    var stacked = CoroVerifySet(count: b.local_count)
+    var a = 0
     k = 0
     while k < b.point_count {
         let point = coro.before.points[b.point_first + k]
         let j = k
         k = k + 1
+        let from = point.conditions_first
+        let before = coro.before.conditions[from]
+        var i = 0
+        while i < before {
+            let local = coro.before.conditions[from + 1 + 2 * i]
+            was[local] = coro.before.conditions[from + 2 + 2 * i]
+            coro_verify_compare(&was, &now, &slots, local, &var differ, &var stacked)
+            i = i + 1
+        }
+        let changes = after[a]
+        i = 0
+        while i < changes {
+            let local = after[a + 1 + 2 * i]
+            now[local] = after[a + 2 + 2 * i]
+            coro_verify_compare(&was, &now, &slots, local, &var differ, &var stacked)
+            i = i + 1
+        }
+        let length = if changes < 0 { 1 } else { 1 + 2 * changes }
+        a = a + length
         if calls[j] < 0 && stmts[j] < 0 {
             continue
         }
-        var l = 0
-        while l < b.local_count {
-            let local = l
-            l = l + 1
-            let was = coro.before.conditions[point.conditions_first + local]
-            let now = after[j * b.local_count + local]
-            if (was & CORO_VERIFY_LIVE) != 0 && slots[local] < 0 {
+        // A point no path reaches reads 0 for every local, so only the frame
+        // values can differ there, and no local may be initialised.
+        var reported = Vector<Int>()
+        if before >= 0 {
+            stacked.append_to(&var reported)
+        }
+        if before >= 0 && changes >= 0 {
+            differ.append_to(&var reported)
+        } else if before >= 0 || changes >= 0 {
+            i = 0
+            while i < resident.len() {
+                let local = resident[i]
+                i = i + 1
+                let x = if before >= 0 { was[local] } else { 0 }
+                let y = if changes >= 0 { now[local] } else { 0 }
+                if x != y {
+                    try! reported.push(local)
+                }
+            }
+        }
+        reported.sort()
+        i = 0
+        while i < reported.len() {
+            let local = reported[i]
+            i = i + 1
+            let x = if before >= 0 { was[local] } else { 0 }
+            let y = if changes >= 0 { now[local] } else { 0 }
+            if slots[local] < 0 {
                 var what = StringBuilder()
                 try! what.append("_")
                 try! what.append(local)
@@ -951,7 +1459,7 @@ func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, slots:
                 try! what.append(point.block)
                 try! what.append("), but lives on the resume function's stack, which the suspension loses")
                 coro_verify_problem(&var coro, 2, b.item, what.build())
-            } else if slots[local] >= 0 && was != now {
+            } else {
                 var what = StringBuilder()
                 try! what.append("frame value _")
                 try! what.append(local)
@@ -960,11 +1468,68 @@ func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, slots:
                 try! what.append(" (bb")
                 try! what.append(point.block)
                 try! what.append(") is ")
-                coro_verify_append_conditions(&var what, now)
+                coro_verify_append_conditions(&var what, y)
                 try! what.append(" after lowering, where the body before it leaves it ")
-                coro_verify_append_conditions(&var what, was)
+                coro_verify_append_conditions(&var what, x)
                 coro_verify_problem(&var coro, 2, b.item, what.build())
             }
+        }
+    }
+}
+
+// Files local `l` by its conditions before lowering, `was`, and after it,
+// `now`: a frame value (`slots`) in `differ` when the two differ, a stack
+// local in `stacked` when the record leaves it maybe initialised.
+func coro_verify_compare(was: &Vector<Int>, now: &Vector<Int>, slots: &Vector<Int>, l: Int,
+                         differ: &var CoroVerifySet, stacked: &var CoroVerifySet) {
+    if slots[l] >= 0 {
+        differ.put(l, was[l] != now[l])
+    } else {
+        stacked.put(l, (was[l] & CORO_VERIFY_LIVE) != 0)
+    }
+}
+
+// A set of the integers below a count, each added and removed in constant
+// time, its members in no order.
+struct CoroVerifySet {
+    members: Vector<Int>
+    at: Vector<Int>
+}
+
+extension CoroVerifySet: NoCopy {}
+
+extension CoroVerifySet {
+    init(count: Int) -> CoroVerifySet {
+        var at = Vector<Int>()
+        var k = 0
+        while k < count {
+            try! at.push(-1)
+            k = k + 1
+        }
+        CoroVerifySet(members: Vector<Int>(), at: move at)
+    }
+
+    // Makes `x` a member when `member` says so, and not one otherwise.
+    func put(&var self, x: Int, member: Bool) {
+        let here = self.at[x]
+        if member && here < 0 {
+            self.at[x] = self.members.len()
+            try! self.members.push(x)
+        } else if not member && here >= 0 {
+            let last = self.members.len() - 1
+            let moved = self.members[last]
+            self.members[here] = moved
+            self.at[moved] = here
+            let _ = self.members.pop()
+            self.at[x] = -1
+        }
+    }
+
+    func append_to(&self, out: &var Vector<Int>) {
+        var k = 0
+        while k < self.members.len() {
+            try! out.push(self.members[k])
+            k = k + 1
         }
     }
 }
@@ -1002,23 +1567,14 @@ func coro_verify_append_word(out: &var StringBuilder, any: &var Bool, word: Stri
     any = true
 }
 
-// Whether call `c` ends a block of function `f`.
-func coro_verify_ends_block(coro: &CoroProgram, f: Int, c: Int) -> Bool {
-    coro_verify_block_of_call(&coro, f, c) >= 0
+// Whether call `c` ends a block of the body `idx` indexes.
+func coro_verify_ends_block(idx: &CoroVerifyIndex, c: Int) -> Bool {
+    idx.block_of.contains_key(c)
 }
 
-// The block of function `f` call `c` ends, or -1.
-func coro_verify_block_of_call(coro: &CoroProgram, f: Int, c: Int) -> Int {
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    var b = 0
-    while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        if block.term == MirTermKind.Call && block.call == c {
-            return b
-        }
-        b = b + 1
-    }
-    return -1
+// The first block of the body `idx` indexes that call `c` ends, or -1.
+func coro_verify_block_of_call(idx: &CoroVerifyIndex, c: Int) -> Int {
+    idx.block_of.get(c) ?? -1
 }
 
 // The ready park an op-budget point of block `bb` of function `f` yields at:
@@ -1085,7 +1641,7 @@ func coro_verify_put_back(coro: &var CoroProgram, b: &CoroBeforeBody, saved: &Ve
 
 // Rule 2: the lowered body's drops are exactly drop elaboration's, each once,
 // in the block it was placed in.
-func coro_verify_drops(coro: &var CoroProgram, b: &CoroBeforeBody) {
+func coro_verify_drops(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     var seen = Vector<Int>()
     var k = 0
@@ -1102,7 +1658,7 @@ func coro_verify_drops(coro: &var CoroProgram, b: &CoroBeforeBody) {
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
             if stmt.kind == MirStmtKind.Drop {
-                let j = coro_verify_find_drop(&coro, &b, s)
+                let j = idx.drop_at.get(s) ?? -1
                 if j < 0 {
                     var what = StringBuilder()
                     try! what.append("bb")
@@ -1152,63 +1708,6 @@ func coro_verify_drops(coro: &var CoroProgram, b: &CoroBeforeBody) {
     }
 }
 
-func coro_verify_find_drop(coro: &CoroProgram, b: &CoroBeforeBody, s: Int) -> Int {
-    var k = 0
-    while k < b.drop_count {
-        if coro.before.drops[b.drop_first + k] == s {
-            return k
-        }
-        k = k + 1
-    }
-    return -1
-}
-
-// One operand use of a lowered body: the operand, and the assignment using
-// it, or -1 for a terminator's.
-struct CoroVerifyUse {
-    operand: Int
-    stmt: Int
-}
-
-// Every operand use of function `f`: each assignment's rvalue's, then each
-// terminator's call arguments, callee and switch operand.
-func coro_verify_uses(coro: &CoroProgram, f: Int) -> Vector<CoroVerifyUse> {
-    var out = Vector<CoroVerifyUse>()
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    var b = 0
-    while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        b = b + 1
-        var s = block.first
-        while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            if stmt.rvalue >= 0 {
-                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
-                var j = 0
-                while j < rv.count {
-                    try! out.push(CoroVerifyUse(operand: coro.mono.dp.bc.mir.lists[rv.first + j], stmt: s))
-                    j = j + 1
-                }
-            }
-            s = stmt.next
-        }
-        if block.term == MirTermKind.Switch && block.operand >= 0 {
-            try! out.push(CoroVerifyUse(operand: block.operand, stmt: -1))
-        } else if block.term == MirTermKind.Call {
-            let call = coro.mono.dp.bc.mir.calls[block.call]
-            var j = 0
-            while j < call.arg_count {
-                try! out.push(CoroVerifyUse(operand: coro.mono.dp.bc.mir.lists[call.arg_first + j], stmt: -1))
-                j = j + 1
-            }
-            if call.callee >= 0 {
-                try! out.push(CoroVerifyUse(operand: call.callee, stmt: -1))
-            }
-        }
-    }
-    move out
-}
-
 // Rule 2 over the calls lowering rewrote in body `b`: only a child's drive,
 // a park, a spawn site and a drive site lose their arguments or destination,
 // and then all of them, and an offload's start its destination alone
@@ -1222,8 +1721,7 @@ func coro_verify_uses(coro: &CoroProgram, f: Int) -> Vector<CoroVerifyUse> {
 // suspension, or a read of the cancel word whose destination one read of the
 // word through the task's context writes.
 func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &CoroContext, b: &CoroBeforeBody,
-                           frame: Int, slots: &Vector<Int>, places: &Vector<Int>) {
-    let uses = coro_verify_uses(&coro, b.body)
+                           idx: &CoroVerifyIndex, frame: Int, slots: &Vector<Int>, places: &Vector<Int>) {
     // The places a drive may reach its child's frame through, and each
     // child's region of the frame.
     var allowed = Vector<Int>()
@@ -1236,8 +1734,8 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
         let pre = coro.before.calls[b.call_first + k]
         k = k + 1
         let post = coro.mono.dp.bc.mir.calls[c]
-        if not coro_verify_ends_block(&coro, b.body, c) {
-            coro_verify_gone_call(&var coro, &cx, &b, c, &pre)
+        if not coro_verify_ends_block(&idx, c) {
+            coro_verify_gone_call(&var coro, &cx, &b, &idx, c, &pre)
             continue
         }
         if coro_verify_same_args(&coro, &pre, &post) && pre.dest == post.dest {
@@ -1245,7 +1743,7 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
         }
         let offloaded = if b.framed { coro_offloaded_extern(&coro, c) } else { -1 }
         if offloaded >= 0 {
-            coro_verify_offload(&var coro, &cx, &b, &uses, c, &pre, offloaded)
+            coro_verify_offload(&var coro, &cx, &b, &idx, c, &pre, offloaded)
             continue
         }
         let child = if b.framed { coro_driven_child(&coro, c) } else { -1 }
@@ -1268,7 +1766,7 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
         var base = -1
         var root = -1
         if drive {
-            base = coro_verify_child_slot(&coro, &b, c)
+            base = coro_verify_child_slot(&coro, &b, &idx, c)
             root = child
         } else if site {
             base = 0
@@ -1282,7 +1780,7 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
         while j < pre.arg_count {
             let o = coro.mono.dp.bc.mir.lists[pre.arg_first + j]
             j = j + 1
-            let at = coro_verify_single_use(&var coro, &b, &uses, o, c)
+            let at = coro_verify_single_use(&var coro, &b, &idx, o, c)
             if at < 0 || base < 0 || rf < 0 || j <= leading {
                 continue
             }
@@ -1296,8 +1794,8 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
             let into = coro_verify_slot_offset(&coro, stmt.place, through)
             var placed = stmt.kind == MirStmtKind.Assign && into == want
             if placed && drive {
-                let home = coro_verify_block_of_call(&coro, b.body, c)
-                placed = coro_verify_block_holds(&coro, b.body, home, at)
+                let home = coro_verify_block_of_call(&idx, c)
+                placed = home >= 0 && (idx.stmt_home.get(at) ?? -1) == home
                 if placed {
                     try! allowed.push(stmt.place)
                 }
@@ -1330,7 +1828,7 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
             let result = base + coro_child_offset(&coro, &rframe, CoroValueKind.Result, 0)
             coro_verify_move_out(&var coro, &b, c, &pre, frame, result, &var allowed)
         } else if site && pre.dest >= 0 && pre.next >= 0 {
-            let written = coro_verify_writes_of(&coro, b.body, pre.dest)
+            let written = coro_verify_writes_of(&idx, pre.dest)
             if written != 1 {
                 var what = StringBuilder()
                 try! what.append("the destination of ")
@@ -1342,8 +1840,8 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
             }
         }
     }
-    coro_verify_regions(&var coro, &var target, &b, frame, &slots, &places, &allowed, &region_start, &region_end,
-                        &region_child)
+    coro_verify_regions(&var coro, &var target, &b, &idx, frame, &slots, &places, &allowed, &region_start,
+                        &region_end, &region_child)
 }
 
 // Offloaded call `c` of `blocking` extern item `ext` in lowered frame `b`, as
@@ -1354,7 +1852,7 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
 // writes the destination, the only write of it, and goes where the call
 // returned. So the offload moves no value and loses none, and only a
 // finished job, cancelled task or not, is taken.
-func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, uses: &Vector<CoroVerifyUse>,
+func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, idx: &CoroVerifyIndex,
                          c: Int, pre: &MirCall, ext: Int) {
     let post = coro.mono.dp.bc.mir.calls[c]
     if not coro_verify_same_args(&coro, &pre, &post) || post.dest >= 0 {
@@ -1369,7 +1867,7 @@ func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBefor
     while j < pre.arg_count {
         let o = coro.mono.dp.bc.mir.lists[pre.arg_first + j]
         j = j + 1
-        let _at = coro_verify_single_use(&var coro, &b, &uses, o, c)
+        let _at = coro_verify_single_use(&var coro, &b, &idx, o, c)
     }
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     var take = -1
@@ -1411,7 +1909,7 @@ func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBefor
         }
     }
     if taken && pre.dest >= 0 {
-        taken = coro_verify_writes_of(&coro, b.body, pre.dest) == 1
+        taken = coro_verify_writes_of(&idx, pre.dest) == 1
     }
     if not taken {
         var what = StringBuilder()
@@ -1458,7 +1956,8 @@ func coro_verify_tests_cancel(coro: &CoroProgram, cx: &CoroContext, block: &MirB
 // cancel word in a lowered frame, whose destination exactly one statement
 // writes, with a copy of the word through the task's context, in a block that
 // goes where the call returned.
-func coro_verify_gone_call(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, c: Int, pre: &MirCall) {
+func coro_verify_gone_call(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, idx: &CoroVerifyIndex, c: Int,
+                           pre: &MirCall) {
     if coro_verify_effect_only(&coro, c) {
         return
     }
@@ -1475,27 +1974,21 @@ func coro_verify_gone_call(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBef
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     var reads = 0
     var writes = 0
-    var bb = 0
-    while bb < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-        bb = bb + 1
-        var s = block.first
-        while s >= 0 {
-            let here = s
-            let stmt = coro.mono.dp.bc.mir.stmts[here]
-            s = stmt.next
-            if stmt.kind != MirStmtKind.Assign || stmt.place != pre.dest {
-                continue
-            }
-            writes = writes + 1
-            let o = coro_verify_record_operand(&coro, here)
-            let read = o >= 0 && coro.mono.dp.bc.mir.operands[o].kind == MirOperandKind.Copy
-            let returns = (block.term == MirTermKind.Goto && block.target == pre.next) || (block.term == MirTermKind.Unreachable && pre.next < 0)
-            // Stage 0 workaround (SL:hazards S4): canonical: if read && returns && stmt.next < 0 && coro_verify_is_cancel(&coro, &cx, coro.mono.dp.bc.mir.operands[o].place) {
-            let source = if o >= 0 { coro.mono.dp.bc.mir.operands[o].place } else { -1 }
-            if read && returns && stmt.next < 0 && coro_verify_is_cancel(&coro, &cx, source) {
-                reads = reads + 1
-            }
+    let assignments = coro_verify_ordinals(&idx.assigned, idx.stmt_at.len(), pre.dest)
+    var k = 0
+    while k < assignments.len() {
+        let here = idx.stmt_at[assignments[k]]
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + idx.stmt_block[assignments[k]]]
+        k = k + 1
+        let stmt = coro.mono.dp.bc.mir.stmts[here]
+        writes = writes + 1
+        let o = coro_verify_record_operand(&coro, here)
+        let read = o >= 0 && coro.mono.dp.bc.mir.operands[o].kind == MirOperandKind.Copy
+        let returns = (block.term == MirTermKind.Goto && block.target == pre.next) || (block.term == MirTermKind.Unreachable && pre.next < 0)
+        // Stage 0 workaround (SL:hazards S4): canonical: if read && returns && stmt.next < 0 && coro_verify_is_cancel(&coro, &cx, coro.mono.dp.bc.mir.operands[o].place) {
+        let source = if o >= 0 { coro.mono.dp.bc.mir.operands[o].place } else { -1 }
+        if read && returns && stmt.next < 0 && coro_verify_is_cancel(&coro, &cx, source) {
+            reads = reads + 1
         }
     }
     if reads != 1 || writes != 1 {
@@ -1553,19 +2046,10 @@ func coro_verify_append_callee(coro: &CoroProgram, out: &var StringBuilder, c: I
 // The assignment that is operand `o`'s one use in body `b`, reporting it
 // when there is not exactly one; -1 when there is none, or it is a
 // terminator's.
-func coro_verify_single_use(coro: &var CoroProgram, b: &CoroBeforeBody, uses: &Vector<CoroVerifyUse>, o: Int,
+func coro_verify_single_use(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, o: Int,
                             c: Int) -> Int {
-    var count = 0
-    var at = -1
-    var k = 0
-    while k < uses.len() {
-        let u = uses[k]
-        k = k + 1
-        if u.operand == o {
-            count = count + 1
-            at = u.stmt
-        }
-    }
+    let count = idx.uses.get(o) ?? 0
+    let at = idx.use_stmt.get(o) ?? -1
     if count != 1 {
         var what = StringBuilder()
         try! what.append("an operand ")
@@ -1600,78 +2084,21 @@ func coro_verify_slot_offset(coro: &CoroProgram, p: Int, frame: Int) -> Int {
     slot.index
 }
 
-// Whether block `bb` of function `f` holds statement `s`.
-func coro_verify_block_holds(coro: &CoroProgram, f: Int, bb: Int, s: Int) -> Bool {
-    if bb < 0 {
-        return false
-    }
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    var at = coro.mono.dp.bc.mir.blocks[info.block_first + bb].first
-    while at >= 0 {
-        if at == s {
-            return true
-        }
-        at = coro.mono.dp.bc.mir.stmts[at].next
-    }
-    false
-}
-
-// How many times function `f` writes place `p`: as an assignment's place or
-// a call's destination.
-func coro_verify_writes_of(coro: &CoroProgram, f: Int, p: Int) -> Int {
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    var count = 0
-    var b = 0
-    while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        b = b + 1
-        var s = block.first
-        while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            if stmt.kind == MirStmtKind.Assign && stmt.place == p {
-                count = count + 1
-            }
-            s = stmt.next
-        }
-        if block.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[block.call].dest == p {
-            count = count + 1
-        }
-    }
-    count
+// How many times the body `idx` indexes writes place `p`: as an
+// assignment's place or a call's destination.
+func coro_verify_writes_of(idx: &CoroVerifyIndex, p: Int) -> Int {
+    idx.writes.get(p) ?? 0
 }
 
 // The offset of the child slot drive call `c` of lowered frame `b` drives
 // its child in: the frame's child slots are in the order of its drives.
-func coro_verify_child_slot(coro: &CoroProgram, b: &CoroBeforeBody, c: Int) -> Int {
-    var nth = 0
-    var k = 0
-    while k < b.point_count {
-        let point = coro.before.points[b.point_first + k]
-        k = k + 1
-        if point.call == c {
-            break
-        }
-        if point.call >= 0 && coro_driven_child(&coro, point.call) >= 0 {
-            nth = nth + 1
-        }
-    }
+func coro_verify_child_slot(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, c: Int) -> Int {
+    let nth = idx.drive_nth.get(c) ?? idx.drives
     let fr = coro_frame_of(&coro, b.item)
-    if fr < 0 {
+    if fr < 0 || nth >= idx.children.len() {
         return -1
     }
-    let frame = coro.frames[fr]
-    var j = 0
-    while j < frame.value_count {
-        let v = coro.values[frame.value_first + j]
-        j = j + 1
-        if v.kind == CoroValueKind.Child {
-            if nth == 0 {
-                return v.offset
-            }
-            nth = nth - 1
-        }
-    }
-    return -1
+    coro.values[coro.frames[fr].value_first + idx.children[nth]].offset
 }
 
 // A drive's result: the call has no destination after lowering; when it had
@@ -1813,13 +2240,35 @@ func coro_verify_presence_test(coro: &CoroProgram, f: Int, pre: &MirCall, block:
 // Every place lowering added through frame pointer `frame` inside a child's
 // region is one the child's drive was found to reach it by; and none reaches
 // one of the body's own frame values, whose accesses are the body's.
-func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBeforeBody, frame: Int,
-                         slots: &Vector<Int>, places: &Vector<Int>, allowed: &Vector<Int>, starts: &Vector<Int>,
-                         ends: &Vector<Int>, children: &Vector<Int>) {
+func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBeforeBody, idx: &CoroVerifyIndex,
+                         frame: Int, slots: &Vector<Int>, places: &Vector<Int>, allowed: &Vector<Int>,
+                         starts: &Vector<Int>, ends: &Vector<Int>, children: &Vector<Int>) {
     if frame < 0 {
         return
     }
+    // What each place is asked of where it lies, found once per offset rather
+    // than once per place (SL-970): the allowed places, by offset the offload
+    // storage holding it and the first child region holding it, and the
+    // frame values at each offset, as `offset * count + local` sorted.
+    var allows = Map<Int, Bool>()
     var k = 0
+    while k < allowed.len() {
+        let _ = try! allows.insert(allowed[k], true)
+        k = k + 1
+    }
+    var storages = Map<Int, Int>()
+    var regions = Map<Int, Int>()
+    var at_offset = Vector<Int>()
+    let count = slots.len()
+    k = 0
+    while k < count {
+        if slots[k] >= 0 {
+            try! at_offset.push(slots[k] * count + k)
+        }
+        k = k + 1
+    }
+    at_offset.sort()
+    k = 0
     while k < places.len() {
         let p = places[k]
         k = k + 1
@@ -1833,23 +2282,26 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
         }
         // A place the body named is its own value's slot, which rule 1 holds
         // to its layout; a zero-sized value may sit where a child's begins.
-        if coro_verify_named_before(&coro, &b, p) {
+        if coro_verify_named_before(&idx, p) {
             continue
         }
         // Values whose lifetimes never meet may share bytes, so an offset can
         // lie in a child's region, an offload's storage and a local's slot at
         // once: a place is judged by what reaches it before where it lies.
-        if coro_verify_find(&allowed, p) >= 0 || coro_verify_index_load(&coro, &b, frame, p) {
+        if allows.contains_key(p) || coro_verify_index_load(&coro, &b, &idx, p) {
             continue
         }
         // A zero-size slot at a child's end is that child's: its last value,
         // whose offset is where the next child's region begins.
         let offset = slot.index
-        let storage = coro_verify_offload_storage(&coro, b.item, offset)
+        if not storages.contains_key(offset) {
+            let _ = try! storages.insert(offset, coro_verify_offload_storage(&coro, b.item, &idx, offset))
+        }
+        let storage = storages.get(offset) ?? -1
         if storage >= 0 {
             let word = coro.mono.dp.bc.mir.tc.int_type()
             let job = offset == storage && pl.count == 2 && slot.ty == word
-            if not job || coro_verify_written(&coro, b.body, p) {
+            if not job || coro_verify_written(&idx, p) {
                 var what = StringBuilder()
                 try! what.append("a place reaches into an offload's storage other than to read its job word, which the backend writes: ")
                 coro.mono.dp.bc.mir.append_place(&var what, p)
@@ -1858,14 +2310,20 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
             continue
         }
         let end = coro_verify_slot_end(&var coro, &var target, &slot)
-        var inside = -1
-        var r = 0
-        while r < starts.len() && inside < 0 {
-            if offset >= starts[r] && (offset < ends[r] || (end == offset && offset == ends[r])) {
-                inside = r
+        let empty = if end == offset { 1 } else { 0 }
+        let key = 2 * offset + empty
+        if not regions.contains_key(key) {
+            var inside = -1
+            var r = 0
+            while r < starts.len() && inside < 0 {
+                if offset >= starts[r] && (offset < ends[r] || (end == offset && offset == ends[r])) {
+                    inside = r
+                }
+                r = r + 1
             }
-            r = r + 1
+            let _ = try! regions.insert(key, inside)
         }
+        let inside = regions.get(key) ?? -1
         if inside >= 0 {
             var what = StringBuilder()
             try! what.append("a place reaches into the frame of child `")
@@ -1875,100 +2333,94 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
             coro_verify_problem(&var coro, 2, b.item, what.build())
             continue
         }
-        var l = 0
-        while l < slots.len() {
-            if slots[l] == offset {
-                var what = StringBuilder()
-                try! what.append("lowering adds an access to frame value _")
-                try! what.append(l)
-                try! what.append(", an ownership operation the body did not make: ")
-                coro.mono.dp.bc.mir.append_place(&var what, p)
-                coro_verify_problem(&var coro, 2, b.item, what.build())
+        var reached = Vector<Int>()
+        if offset < 0 {
+            var l = 0
+            while l < count {
+                if slots[l] == offset {
+                    try! reached.push(l)
+                }
+                l = l + 1
             }
-            l = l + 1
+        } else {
+            var a = 0
+            var z = at_offset.len()
+            while a < z {
+                let m = (a + z) / 2
+                if at_offset[m] < offset * count {
+                    a = m + 1
+                } else {
+                    z = m
+                }
+            }
+            while a < at_offset.len() && at_offset[a] / count == offset {
+                try! reached.push(at_offset[a] % count)
+                a = a + 1
+            }
+        }
+        var j = 0
+        while j < reached.len() {
+            let l = reached[j]
+            j = j + 1
+            var what = StringBuilder()
+            try! what.append("lowering adds an access to frame value _")
+            try! what.append(l)
+            try! what.append(", an ownership operation the body did not make: ")
+            coro.mono.dp.bc.mir.append_place(&var what, p)
+            coro_verify_problem(&var coro, 2, b.item, what.build())
         }
     }
 }
 
 // The offset of the offload storage in item `item`'s frame layout whose
 // bytes hold `offset`, or -1.
-func coro_verify_offload_storage(coro: &CoroProgram, item: Int, offset: Int) -> Int {
+func coro_verify_offload_storage(coro: &CoroProgram, item: Int, idx: &CoroVerifyIndex, offset: Int) -> Int {
     let fr = coro_frame_of(&coro, item)
     if fr < 0 {
         return -1
     }
     let frame = coro.frames[fr]
     var k = 0
-    while k < frame.value_count {
-        let v = coro.values[frame.value_first + k]
+    while k < idx.offloads.len() {
+        let v = coro.values[frame.value_first + idx.offloads[k]]
         k = k + 1
-        if v.kind == CoroValueKind.Offload && offset >= v.offset && offset < v.offset + v.size {
+        if offset >= v.offset && offset < v.offset + v.size {
             return v.offset
         }
     }
     return -1
 }
 
-// Whether function `f` writes place `p`, as an assignment's place or a
-// call's destination.
-func coro_verify_written(coro: &CoroProgram, f: Int, p: Int) -> Bool {
-    coro_verify_writes_of(&coro, f, p) > 0
+// Whether the body `idx` indexes writes place `p`, as an assignment's place
+// or a call's destination.
+func coro_verify_written(idx: &CoroVerifyIndex, p: Int) -> Bool {
+    coro_verify_writes_of(&idx, p) > 0
 }
 
 // Whether place `p` is only read by an index temporary's load, `_t = copy p`
 // for a `_t` whose every write copies one frame value
 // (`coro_verify_index_slot`): a copy of an index, which no ownership
 // operation is.
-func coro_verify_index_load(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, p: Int) -> Bool {
-    let info = coro.mono.dp.bc.mir.funcs[b.body]
-    var found = false
-    var bb = 0
-    while bb < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-        bb = bb + 1
-        var s = block.first
-        while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            s = stmt.next
-            if stmt.rvalue < 0 {
-                continue
-            }
-            let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
-            var k = 0
-            var reads = rv.place == p
-            while k < rv.count {
-                let o = coro.mono.dp.bc.mir.lists[rv.first + k]
-                k = k + 1
-                if o >= 0 && coro.mono.dp.bc.mir.operands[o].place == p {
-                    reads = true
-                }
-            }
-            if not reads {
-                continue
-            }
-            if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
-                return false
-            }
-            let target = coro.mono.dp.bc.mir.places[stmt.place]
-            if target.count != 0 || coro_verify_index_slot(&coro, &b, frame, target.local) < 0 {
-                return false
-            }
-            found = true
+func coro_verify_index_load(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, p: Int) -> Bool {
+    let readers = coro_verify_ordinals(&idx.reads, idx.stmt_at.len(), p)
+    var k = 0
+    while k < readers.len() {
+        let stmt = coro.mono.dp.bc.mir.stmts[idx.stmt_at[readers[k]]]
+        k = k + 1
+        if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+            return false
+        }
+        let target = coro.mono.dp.bc.mir.places[stmt.place]
+        if target.count != 0 || coro_verify_index_slot(&b, &idx, target.local) < 0 {
+            return false
         }
     }
-    found
+    readers.len() > 0
 }
 
-// Whether body `b` named place `p` before lowering.
-func coro_verify_named_before(coro: &CoroProgram, b: &CoroBeforeBody, p: Int) -> Bool {
-    var k = 0
-    while k < b.place_count {
-        if coro.before.place_ids[b.place_first + k] == p {
-            return true
-        }
-        k = k + 1
-    }
-    false
+// Whether body `b`, which `idx` indexes, named place `p` before lowering.
+func coro_verify_named_before(idx: &CoroVerifyIndex, p: Int) -> Bool {
+    idx.named.contains_key(p)
 }
 
 // Rule 3 over body `b`: each window it opens is closed exactly once on every
@@ -1979,13 +2431,13 @@ func coro_verify_named_before(coro: &CoroProgram, b: &CoroBeforeBody, p: Int) ->
 // with the windows its prologue carries, which the prologue may leave open.
 // The same dataflow serves rule 2's check of window records
 // (`coro_verify_window_records`) and rule 5's lifetimes of them.
-func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>) {
+func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, slots: &Vector<Int>) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     let width = info.window_count
     if width == 0 || info.block_count == 0 {
         return
     }
-    let entry = coro_verify_window_entry(&coro, &b)
+    let entry = coro_verify_window_entry(&coro, &b, &idx)
     var k = 0
     var bb = 0
     while bb < info.block_count {
@@ -1996,7 +2448,7 @@ func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vec
             continue
         }
         if b.framed {
-            coro_verify_window_records(&var coro, &b, &slots, &entry, here)
+            coro_verify_window_records(&var coro, &b, &idx, &slots, &entry, here)
         }
         if block.term == MirTermKind.Call {
             let c = coro.mono.dp.bc.mir.calls[block.call]
@@ -2028,7 +2480,7 @@ func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vec
 // CORO_WINDOW_OPEN and CORO_WINDOW_CLOSED, 0 at a block no path reaches,
 // over the edges `window_open_after` describes; an accessor's epilogue starts
 // with the windows its prologue carries open.
-func coro_verify_window_entry(coro: &CoroProgram, b: &CoroBeforeBody) -> Vector<Int> {
+func coro_verify_window_entry(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex) -> Vector<Int> {
     let f = b.body
     let info = coro.mono.dp.bc.mir.funcs[f]
     let width = info.window_count
@@ -2067,7 +2519,7 @@ func coro_verify_window_entry(coro: &CoroProgram, b: &CoroBeforeBody) -> Vector<
             if not coro_verify_window_reached(&entry, bb, width) {
                 continue
             }
-            let switched = coro_verify_switched_local(&coro, &b, bb)
+            let switched = coro_verify_switched_local(&coro, &b, &idx, bb)
             let succ = coro.mono.dp.bc.mir.init_successors(f, bb)
             var j = 0
             while j < succ.len() {
@@ -2102,22 +2554,19 @@ func coro_window_bit(open: Bool) -> Int {
 
 // The local block `bb` of body `b` switches on whole, as the body named it
 // before lowering, which moves a frame value's places into the frame; or -1.
-func coro_verify_switched_local(coro: &CoroProgram, b: &CoroBeforeBody, bb: Int) -> Int {
+func coro_verify_switched_local(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, bb: Int) -> Int {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
     if block.term != MirTermKind.Switch || block.switch_kind != MirSwitchKind.Discriminant || block.place < 0 {
         return -1
     }
-    var k = 0
-    while k < b.place_count {
-        if coro.before.place_ids[b.place_first + k] == block.place {
-            let pre = coro.before.places[b.place_first + k]
-            if pre.count != 0 {
-                return -1
-            }
-            return pre.local
+    let k = idx.named.get(block.place) ?? -1
+    if k >= 0 {
+        let pre = coro.before.places[b.place_first + k]
+        if pre.count != 0 {
+            return -1
         }
-        k = k + 1
+        return pre.local
     }
     coro.mono.dp.bc.mir.switched_local(b.body, bb)
 }
@@ -2128,14 +2577,14 @@ func coro_verify_switched_local(coro: &CoroProgram, b: &CoroBeforeBody, bb: Int)
 // and read a record through a reference, which the initialisation analysis
 // never sees, so the conditions rule 2 compares cannot show one left on the
 // stack. `entry` is rule 3's windows by block; `slots` is rule 1's offsets.
-func coro_verify_window_records(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>,
-                                entry: &Vector<Int>, here: Int) {
+func coro_verify_window_records(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex,
+                                slots: &Vector<Int>, entry: &Vector<Int>, here: Int) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     let width = info.window_count
     let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
     var s = block.first
     while s >= 0 {
-        let state = coro_verify_point_state(&coro, &b, -1, s)
+        let state = coro_verify_point_state(&idx, -1, s)
         if state > 0 {
             coro_verify_records_resident(&var coro, &b, &slots, &entry, here, -1, state)
         }
@@ -2144,7 +2593,7 @@ func coro_verify_window_records(coro: &var CoroProgram, b: &CoroBeforeBody, slot
     if block.term != MirTermKind.Call {
         return
     }
-    let state = coro_verify_point_state(&coro, &b, block.call, -1)
+    let state = coro_verify_point_state(&idx, block.call, -1)
     if state > 0 {
         let c = coro.mono.dp.bc.mir.calls[block.call]
         var opening = -1
@@ -2155,16 +2604,14 @@ func coro_verify_window_records(coro: &var CoroProgram, b: &CoroBeforeBody, slot
     }
 }
 
-// The state of body `b`'s suspension point at call `c` or statement `s`, as
-// the snapshot numbered it, or 0 when neither is one.
-func coro_verify_point_state(coro: &CoroProgram, b: &CoroBeforeBody, c: Int, s: Int) -> Int {
-    var k = 0
-    while k < b.point_count {
-        let point = coro.before.points[b.point_first + k]
-        k = k + 1
-        if (c >= 0 && point.call == c) || (s >= 0 && point.stmt == s) {
-            return point.state
-        }
+// The state of the indexed body's suspension point at call `c`, or else at
+// statement `s`, as the snapshot numbered it, or 0 when neither is one.
+func coro_verify_point_state(idx: &CoroVerifyIndex, c: Int, s: Int) -> Int {
+    if c >= 0 {
+        return idx.call_state.get(c) ?? 0
+    }
+    if s >= 0 {
+        return idx.stmt_state.get(s) ?? 0
     }
     0
 }
@@ -2298,13 +2745,33 @@ extension CoroRecordFlow: NoCopy {}
 // -1 a descriptor, an offload's completion word, and a channel's word; the
 // deadline, 0 or a descriptor park's bound; and an arm registers its park's descriptor. An
 // armed park is entered only from its arm.
-func coro_verify_records(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody) {
+func coro_verify_records(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, idx: &CoroVerifyIndex) {
     if cx.park < 0 || cx.deadline < 0 {
         return
     }
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     let flow = coro_verify_record_flow(&coro, &cx, b.body)
+    // What an armed park's and an offload park's checks ask of the whole
+    // body, found once, when the first such park asks.
+    var entries = Vector<Int>()
+    var words = Map<Int, Bool>()
+    var found = false
     var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        bb = bb + 1
+        if block.term != MirTermKind.Call || found {
+            continue
+        }
+        let park = coro_verify_park(&coro, block.call)
+        let register = coro.mono.park_register_item >= 0 && coro.mono.call_item(block.call) == coro.mono.park_register_item
+        if coro_verify_arms(park) || register {
+            entries = coro_verify_entries(&coro, b.body)
+            words = coro_verify_offload_words(&coro, b.body)
+            found = true
+        }
+    }
+    bb = 0
     while bb < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
         let here = bb
@@ -2328,9 +2795,9 @@ func coro_verify_records(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBefor
         let c = block.call
         let park = coro_verify_park(&coro, c)
         if park != CoroVerifyPark.NotAPark {
-            coro_verify_park_records(&var coro, &b, c, here, park, word, deadline, "its park")
+            coro_verify_park_records(&var coro, &b, &idx, &words, c, here, park, word, deadline, "its park")
             if coro_verify_arms(park) {
-                coro_verify_armed(&var coro, &b, c, here, park)
+                coro_verify_armed(&var coro, &b, &entries, here, park)
             }
         }
         if coro.mono.park_register_item >= 0 && coro.mono.call_item(c) == coro.mono.park_register_item {
@@ -2344,9 +2811,9 @@ func coro_verify_records(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBefor
                 try! what.append(" returns to no descriptor or offload park")
                 coro_verify_problem(&var coro, 4, b.item, what.build())
             } else {
-                coro_verify_park_records(&var coro, &b, parked, here, reason, word, deadline, "its arm")
+                coro_verify_park_records(&var coro, &b, &idx, &words, parked, here, reason, word, deadline, "its arm")
                 if reason != CoroVerifyPark.Offload {
-                    coro_verify_arm_operands(&var coro, &b, c, here, parked)
+                    coro_verify_arm_operands(&var coro, &b, &idx, c, here, parked)
                 }
             }
         }
@@ -2479,10 +2946,11 @@ func coro_verify_park_at(coro: &CoroProgram, f: Int, bb: Int) -> Int {
 // block `bb`: the park word's, and the deadline's when its reason records
 // one, each one record on every path since the last suspension, holding the
 // reason's value.
-func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, bb: Int, park: CoroVerifyPark,
-                              word: Int, deadline: Int, what: String) {
+func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex,
+                              words: &Map<Int, Bool>, c: Int, bb: Int, park: CoroVerifyPark, word: Int, deadline: Int,
+                              what: String) {
     if word < 0 {
-        coro_verify_record_problem(&var coro, &b, c, bb, park, what, "its park word", word)
+        coro_verify_record_problem(&var coro, &b, &idx, c, bb, park, what, "its park word", word)
     } else {
         let value = coro_verify_record_operand(&coro, word)
         var ok = false
@@ -2491,9 +2959,9 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
         } else if park == CoroVerifyPark.Timer {
             ok = coro_verify_const_is(&coro, value, CORO_PARK_TIMER)
         } else if park == CoroVerifyPark.Channel || park == CoroVerifyPark.Thread {
-            ok = value >= 0 && value == coro_verify_pre_arg(&coro, &b, c, 0)
+            ok = value >= 0 && value == coro_verify_pre_arg(&coro, &b, &idx, c, 0)
         } else if park == CoroVerifyPark.Offload {
-            ok = coro_verify_offload_word(&coro, b.body, value)
+            ok = coro_verify_offload_word(&coro, &words, value)
         } else {
             ok = coro_verify_const_is(&coro, value, CORO_PARK_FD)
         }
@@ -2502,7 +2970,7 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
             try! text.append("the ")
             try! text.append(coro_verify_park_name(park))
             try! text.append(" park ending bb")
-            try! text.append(coro_verify_block_of_call(&coro, b.body, c))
+            try! text.append(coro_verify_block_of_call(&idx, c))
             try! text.append(" records the wrong value in its park word: ")
             coro.mono.dp.bc.mir.append_operand(&var text, value)
             coro_verify_problem(&var coro, 4, b.item, text.build())
@@ -2512,7 +2980,7 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
         return
     }
     if deadline < 0 {
-        coro_verify_record_problem(&var coro, &b, c, bb, park, what, "its deadline", deadline)
+        coro_verify_record_problem(&var coro, &b, &idx, c, bb, park, what, "its deadline", deadline)
         return
     }
     let value = coro_verify_record_operand(&coro, deadline)
@@ -2520,24 +2988,25 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
     if park == CoroVerifyPark.Fd || park == CoroVerifyPark.Offload {
         ok = coro_verify_const_is(&coro, value, 0)
     } else if park == CoroVerifyPark.FdUntil {
-        ok = value >= 0 && value == coro_verify_pre_arg(&coro, &b, c, 2)
+        ok = value >= 0 && value == coro_verify_pre_arg(&coro, &b, &idx, c, 2)
     }
     if not ok {
         var text = StringBuilder()
         try! text.append("the ")
         try! text.append(coro_verify_park_name(park))
         try! text.append(" park ending bb")
-        try! text.append(coro_verify_block_of_call(&coro, b.body, c))
+        try! text.append(coro_verify_block_of_call(&idx, c))
         try! text.append(" records the wrong deadline: ")
         coro.mono.dp.bc.mir.append_operand(&var text, value)
         coro_verify_problem(&var coro, 4, b.item, text.build())
     }
 }
 
-// Whether operand `o`, an offload park's record, is a whole local of body `f`
-// that a call of `__saw_exec_offload_park` writes: the job's completion word,
-// which no cancel wakes.
-func coro_verify_offload_word(coro: &CoroProgram, f: Int, o: Int) -> Bool {
+// Whether operand `o`, an offload park's record, is a whole local of the body
+// that a call of `__saw_exec_offload_park` writes, one of `words`
+// (`coro_verify_offload_words`): the job's completion word, which no cancel
+// wakes.
+func coro_verify_offload_word(coro: &CoroProgram, words: &Map<Int, Bool>, o: Int) -> Bool {
     if o < 0 {
         return false
     }
@@ -2545,31 +3014,39 @@ func coro_verify_offload_word(coro: &CoroProgram, f: Int, o: Int) -> Bool {
     if op.kind == MirOperandKind.Const || op.place < 0 || coro.mono.dp.bc.mir.places[op.place].count != 0 {
         return false
     }
-    let local = coro.mono.dp.bc.mir.places[op.place].local
+    words.contains_key(coro.mono.dp.bc.mir.places[op.place].local)
+}
+
+// The locals of body `f` a call of `__saw_exec_offload_park` writes whole.
+func coro_verify_offload_words(coro: &CoroProgram, f: Int) -> Map<Int, Bool> {
+    var out = Map<Int, Bool>()
     let item = coro_offload_park_item(&coro)
+    if item < 0 {
+        return move out
+    }
     let info = coro.mono.dp.bc.mir.funcs[f]
     var bb = 0
     while bb < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
         bb = bb + 1
-        if block.term != MirTermKind.Call || item < 0 || coro.mono.call_item(block.call) != item {
+        if block.term != MirTermKind.Call || coro.mono.call_item(block.call) != item {
             continue
         }
         let dest = coro.mono.dp.bc.mir.calls[block.call].dest
-        if dest >= 0 && coro.mono.dp.bc.mir.places[dest].local == local && coro.mono.dp.bc.mir.places[dest].count == 0 {
-            return true
+        if dest >= 0 && coro.mono.dp.bc.mir.places[dest].count == 0 {
+            let _ = try! out.insert(coro.mono.dp.bc.mir.places[dest].local, true)
         }
     }
-    false
+    move out
 }
 
-func coro_verify_record_problem(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, bb: Int, park: CoroVerifyPark,
-                                what: String, record: String, state: Int) {
+func coro_verify_record_problem(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, c: Int, bb: Int,
+                                park: CoroVerifyPark, what: String, record: String, state: Int) {
     var text = StringBuilder()
     try! text.append("the ")
     try! text.append(coro_verify_park_name(park))
     try! text.append(" park ending bb")
-    try! text.append(coro_verify_block_of_call(&coro, b.body, c))
+    try! text.append(coro_verify_block_of_call(&idx, c))
     try! text.append(": ")
     try! text.append(what)
     try! text.append(" in bb")
@@ -2617,41 +3094,55 @@ func coro_verify_const_is(coro: &CoroProgram, o: Int, value: Int) -> Bool {
 }
 
 // Operand `j` that call `c` of body `b` passed before lowering, or -1.
-func coro_verify_pre_arg(coro: &CoroProgram, b: &CoroBeforeBody, c: Int, j: Int) -> Int {
-    var k = 0
-    while k < b.call_count {
-        if coro.before.call_ids[b.call_first + k] == c {
-            let pre = coro.before.calls[b.call_first + k]
-            if j < pre.arg_count {
-                return coro.mono.dp.bc.mir.lists[pre.arg_first + j]
-            }
-            return -1
-        }
-        k = k + 1
+func coro_verify_pre_arg(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, c: Int, j: Int) -> Int {
+    let k = idx.pre_call.get(c) ?? -1
+    if k < 0 {
+        return -1
+    }
+    let pre = coro.before.calls[b.call_first + k]
+    if j < pre.arg_count {
+        return coro.mono.dp.bc.mir.lists[pre.arg_first + j]
     }
     return -1
 }
 
-// An armed park `c`, ending block `bb`, is entered only from its arm: its
-// block's one predecessor ends in the arm, which returns to it.
-func coro_verify_armed(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, bb: Int, park: CoroVerifyPark) {
-    let info = coro.mono.dp.bc.mir.funcs[b.body]
-    var preds = 0
-    var armed = 0
+// By block of function `f`: how many blocks it is a successor of, then how
+// many of those end in an arm, two cells each.
+func coro_verify_entries(coro: &CoroProgram, f: Int) -> Vector<Int> {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var out = Vector<Int>()
     var k = 0
+    while k < 2 * info.block_count {
+        try! out.push(0)
+        k = k + 1
+    }
+    k = 0
     while k < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + k]
-        let from = k
+        let succ = coro.mono.dp.bc.mir.init_successors(f, k)
         k = k + 1
-        let succ = coro.mono.dp.bc.mir.init_successors(b.body, from)
-        if coro_verify_find(&succ, bb) < 0 {
-            continue
-        }
-        preds = preds + 1
-        if block.term == MirTermKind.Call && coro.mono.call_item(block.call) == coro.mono.park_register_item {
-            armed = armed + 1
+        let arm = block.term == MirTermKind.Call && coro.mono.call_item(block.call) == coro.mono.park_register_item
+        var j = 0
+        while j < succ.len() {
+            let target = succ[j]
+            if coro_verify_find(&succ, target) == j {
+                out[2 * target] += 1
+                if arm {
+                    out[2 * target + 1] += 1
+                }
+            }
+            j = j + 1
         }
     }
+    move out
+}
+
+// An armed park ending block `bb` is entered only from its arm: its block's
+// one predecessor ends in the arm, which returns to it. `entries` counts each
+// block's predecessors and arms (`coro_verify_entries`).
+func coro_verify_armed(coro: &var CoroProgram, b: &CoroBeforeBody, entries: &Vector<Int>, bb: Int, park: CoroVerifyPark) {
+    let preds = entries[2 * bb]
+    let armed = entries[2 * bb + 1]
     if preds != 1 || armed != 1 {
         var text = StringBuilder()
         try! text.append("the ")
@@ -2665,12 +3156,13 @@ func coro_verify_armed(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, bb: I
 
 // The arm ending block `bb` registers its descriptor park `parked`'s own
 // descriptor and direction, the operands the park passed before lowering.
-func coro_verify_arm_operands(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, bb: Int, parked: Int) {
+func coro_verify_arm_operands(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, c: Int, bb: Int,
+                              parked: Int) {
     let call = coro.mono.dp.bc.mir.calls[c]
     var ok = call.arg_count == 3
     if ok {
-        let fd = coro_verify_pre_arg(&coro, &b, parked, 0)
-        let dir = coro_verify_pre_arg(&coro, &b, parked, 1)
+        let fd = coro_verify_pre_arg(&coro, &b, &idx, parked, 0)
+        let dir = coro_verify_pre_arg(&coro, &b, &idx, parked, 1)
         ok = coro.mono.dp.bc.mir.lists[call.arg_first] == fd && coro.mono.dp.bc.mir.lists[call.arg_first + 1] == dir
     }
     if not ok {
@@ -2703,12 +3195,15 @@ extension CoroVerifyPoints: NoCopy {}
 
 // A lowered frame's storage lifetimes as rule 5 recomputes them
 // (`coro_lowered_lifetimes`): its frame, an index of `coro.frames` or -1 when
-// there is nothing to check, its program points, and `live[v * points.count
-// + p]`, whether the frame's value `v` needs its bytes just before point `p`.
+// there is nothing to check, its program points, and by value `v` of the
+// frame the points just before which it needs its bytes, as the spans of
+// `runs` from `first[v]` up to `first[v + 1]`, each a first point and the
+// point past its last (`CoroSpans`).
 struct CoroLoweredLifetimes {
     frame: Int
     points: CoroVerifyPoints
-    live: Vector<Bool>
+    first: Vector<Int>
+    runs: Vector<Int>
 }
 
 extension CoroLoweredLifetimes: NoCopy {}
@@ -2727,81 +3222,158 @@ extension CoroLoweredLifetimes: NoCopy {}
 //
 // ENTRY POINTS:
 //   coro_verify_body
-func coro_lowered_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int) -> CoroLoweredLifetimes {
+func coro_lowered_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex,
+                            frame: Int) -> CoroLoweredLifetimes {
     let fr = coro_frame_of(&coro, b.item)
-    let pts = coro_verify_lowered_points(&coro, &b)
-    var live = Vector<Bool>()
+    let pts = coro_verify_lowered_points(&coro, &b, &idx)
+    var out = CoroLoweredLifetimes(frame: -1, points: move pts, first: Vector<Int>(), runs: Vector<Int>())
     if fr < 0 || frame < 0 {
-        return CoroLoweredLifetimes(frame: -1, points: move pts, live: move live)
+        return move out
     }
     let fv = coro.frames[fr]
     let n = fv.value_count
-    var k = 0
-    while k < n * pts.count {
-        try! live.push(false)
-        k = k + 1
+    let values = coro_verify_local_values(&coro, &b, &fv)
+    // The initialisation analysis over the lowered body read with every
+    // place put back as it was: it then sees every access lowering moved or
+    // kept as an access of the local it was, and an access lowering added
+    // reads a slot, which no move path holds.
+    let saved = coro_verify_restore(&var coro, &b)
+    let facts = coro.mono.dp.bc.mir.init_analysis(b.body)
+    var rows = Vector<Int>()
+    var q = 0
+    while q < facts.path_count() {
+        let l = facts.path_local[q]
+        try! rows.push(if l < values.len() { values[l] } else { -1 })
+        q = q + 1
     }
-    k = 0
+    var spans = CoroSpans(rows: n, path_row: move rows)
+    var k = 0
     while k < n {
         let v = coro.values[fv.value_first + k]
         if v.kind == CoroValueKind.State || v.kind == CoroValueKind.Budget {
-            var p = 0
-            while p < pts.count {
-                live[k * pts.count + p] = true
-                p = p + 1
-            }
+            spans.mark(k, 0, out.points.count)
         }
         k = k + 1
     }
-    coro_verify_local_lifetimes(&var coro, &b, &fv, &pts, &var live)
-    coro_verify_record_lifetimes(&coro, &b, &fv, &pts, &var live)
-    coro_verify_call_lifetimes(&coro, &b, &fv, frame, &pts, &var live)
-    CoroLoweredLifetimes(frame: fr, points: move pts, live: move live)
+    coro_verify_local_lifetimes(&coro, &b, &facts, &values, &out.points, &var spans)
+    coro_verify_put_back(&var coro, &b, &saved)
+    coro_verify_record_lifetimes(&coro, &b, &idx, &values, &out.points, &var spans)
+    coro_verify_call_lifetimes(&coro, &b, &idx, &fv, frame, &out.points, &var spans)
+    spans.finish(out.points.count, &var out.first, &var out.runs)
+    out.frame = fr
+    move out
 }
 
 // Rule 5 over lowered frame `b`: no two values that share a byte are live at
-// one point, by the lifetimes `lt` the funnel recomputed.
+// one point, by the lifetimes `lt` the funnel recomputed. One sweep of the
+// spans' ends in point order meets each pair of values at the first point
+// both are live, so it costs the spans and the pairs that meet, not every
+// pair at every point; the pairs are reported in value order (SL-970).
 func coro_verify_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLoweredLifetimes) {
     if lt.frame < 0 {
         return
     }
     let fv = coro.frames[lt.frame]
     let n = fv.value_count
-    let count = lt.points.count
-    var i = 0
-    while i < n {
+    if n == 0 {
+        return
+    }
+    // A span's end sorts before a start at the same point, which it does not
+    // reach.
+    var events = Vector<Int>()
+    var k = 0
+    while k < n {
+        var s = lt.first[k]
+        while s < lt.first[k + 1] {
+            try! events.push((2 * lt.runs[s] + 1) * n + k)
+            try! events.push(2 * lt.runs[s + 1] * n + k)
+            s = s + 2
+        }
+        k = k + 1
+    }
+    events.sort()
+    var active = CoroVerifySet(count: n)
+    var found = Map<Int, Int>()
+    var keys = Vector<Int>()
+    k = 0
+    while k < events.len() {
+        let e = events[k]
+        k = k + 1
+        let i = e % n
+        if (e / n) % 2 == 0 {
+            active.put(i, false)
+            continue
+        }
+        let point = e / n / 2
         let a = coro.values[fv.value_first + i]
-        var j = i + 1
-        while j < n {
-            let other = j
+        var j = 0
+        while j < active.members.len() {
+            let w = active.members[j]
             j = j + 1
-            let c = coro.values[fv.value_first + other]
-            let shared = a.size > 0 && c.size > 0 && a.offset >= 0 && c.offset >= 0 && a.offset < c.offset + c.size && c.offset < a.offset + a.size
-            if not shared {
+            let low = if i < w { i } else { w }
+            let high = if i < w { w } else { i }
+            let key = low * n + high
+            if found.contains_key(key) {
                 continue
             }
-            var p = 0
-            while p < count && not (lt.live[i * count + p] && lt.live[other * count + p]) {
-                p = p + 1
-            }
-            if p < count {
-                let lo = if a.offset > c.offset { a.offset } else { c.offset }
-                let hi = if a.offset + a.size < c.offset + c.size { a.offset + a.size } else { c.offset + c.size }
-                var what = StringBuilder()
-                coro_verify_append_value(&coro, &var what, &fv, &a)
-                try! what.append(" and ")
-                coro_verify_append_value(&coro, &var what, &fv, &c)
-                try! what.append(" share bytes [")
-                try! what.append(lo)
-                try! what.append(", ")
-                try! what.append(hi)
-                try! what.append(") of the frame, and both are live at ")
-                coro_verify_append_point(&var what, &lt.points, p)
-                coro_verify_problem(&var coro, 5, b.item, what.build())
+            let c = coro.values[fv.value_first + w]
+            let shared = a.size > 0 && c.size > 0 && a.offset >= 0 && c.offset >= 0 && a.offset < c.offset + c.size && c.offset < a.offset + a.size
+            if shared {
+                let _ = try! found.insert(key, point)
+                try! keys.push(key)
             }
         }
-        i = i + 1
+        active.put(i, true)
     }
+    keys.sort()
+    k = 0
+    while k < keys.len() {
+        let key = keys[k]
+        k = k + 1
+        let a = coro.values[fv.value_first + key / n]
+        let c = coro.values[fv.value_first + key % n]
+        let p = found.get(key) ?? 0
+        let lo = if a.offset > c.offset { a.offset } else { c.offset }
+        let hi = if a.offset + a.size < c.offset + c.size { a.offset + a.size } else { c.offset + c.size }
+        var what = StringBuilder()
+        coro_verify_append_value(&coro, &var what, &fv, &a)
+        try! what.append(" and ")
+        coro_verify_append_value(&coro, &var what, &fv, &c)
+        try! what.append(" share bytes [")
+        try! what.append(lo)
+        try! what.append(", ")
+        try! what.append(hi)
+        try! what.append(") of the frame, and both are live at ")
+        coro_verify_append_point(&var what, &lt.points, p)
+        coro_verify_problem(&var coro, 5, b.item, what.build())
+    }
+}
+
+// Lifetimes `lt` as one cell per value and point, `live[v * points + p]`,
+// which the poison lists read: a sanitizing build's, so a check of every
+// build pays nothing for it.
+func coro_lowered_dense(lt: &CoroLoweredLifetimes, values: Int) -> Vector<Bool> {
+    var live = Vector<Bool>()
+    let count = lt.points.count
+    var k = 0
+    while k < values * count {
+        try! live.push(false)
+        k = k + 1
+    }
+    var v = 0
+    while v < values {
+        var s = lt.first[v]
+        while s < lt.first[v + 1] {
+            var p = lt.runs[s]
+            while p < lt.runs[s + 1] {
+                live[v * count + p] = true
+                p = p + 1
+            }
+            s = s + 2
+        }
+        v = v + 1
+    }
+    move live
 }
 
 // Lowered frame `b`'s poison list, from the lifetimes `lt` rule 5 checked, so
@@ -2823,9 +3395,12 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
     }
     let fv = coro.frames[lt.frame]
     let info = coro.mono.dp.bc.mir.funcs[b.body]
+    let live = coro_lowered_dense(&lt, fv.value_count)
     // Each control edge into a block, by the point that runs just before
     // its first: a parking call's return edge leaves its resume transition,
-    // every other edge its block's terminator.
+    // every other edge its block's terminator. Gathered by block, each
+    // block's in edge order: `from[into_first[b]]` up to `from[into_first[b +
+    // 1]]`.
     var into = Vector<Int>()
     var from = Vector<Int>()
     var q = 0
@@ -2850,6 +3425,41 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
             }
         }
     }
+    var into_first = Vector<Int>()
+    q = 0
+    while q <= info.block_count {
+        try! into_first.push(0)
+        q = q + 1
+    }
+    var e = 0
+    while e < into.len() {
+        into_first[into[e] + 1] += 1
+        e = e + 1
+    }
+    q = 0
+    while q < info.block_count {
+        into_first[q + 1] += into_first[q]
+        q = q + 1
+    }
+    var filled = Vector<Int>()
+    var sources = Vector<Int>()
+    q = 0
+    while q < info.block_count {
+        try! filled.push(into_first[q])
+        q = q + 1
+    }
+    e = 0
+    while e < into.len() {
+        try! sources.push(0)
+        e = e + 1
+    }
+    e = 0
+    while e < into.len() {
+        let at = filled[into[e]]
+        filled[into[e]] = at + 1
+        sources[at] = from[e]
+        e = e + 1
+    }
     let first = coro.poisons.len()
     var bb = 0
     while bb < info.block_count {
@@ -2857,11 +3467,9 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
         bb = bb + 1
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
         var before = Vector<Int>()
-        var e = 0
-        while e < into.len() {
-            if into[e] == here {
-                try! before.push(from[e])
-            }
+        e = into_first[here]
+        while e < into_first[here + 1] {
+            try! before.push(sources[e])
             e = e + 1
         }
         var p = lt.points.first[here]
@@ -2869,9 +3477,9 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
         var s = block.first
         while s >= 0 {
             if here == 0 && ordinal == 0 {
-                coro_poison_creation(&var coro, &fv, &lt, CoroPoisonAt.Statement)
+                coro_poison_creation(&var coro, &fv, &lt, &live, CoroPoisonAt.Statement)
             }
-            coro_poison_step(&var coro, &fv, &lt, &before, p, here, CoroPoisonAt.Statement, ordinal)
+            coro_poison_step(&var coro, &fv, &lt, &live, &before, p, here, CoroPoisonAt.Statement, ordinal)
             before = Vector<Int>()
             try! before.push(p)
             p = p + 1
@@ -2879,10 +3487,10 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
             s = coro.mono.dp.bc.mir.stmts[s].next
         }
         if here == 0 && ordinal == 0 {
-            coro_poison_creation(&var coro, &fv, &lt, CoroPoisonAt.Terminator)
+            coro_poison_creation(&var coro, &fv, &lt, &live, CoroPoisonAt.Terminator)
         }
         let term = lt.points.term[here]
-        coro_poison_step(&var coro, &fv, &lt, &before, term, here, CoroPoisonAt.Terminator, 0)
+        coro_poison_step(&var coro, &fv, &lt, &live, &before, term, here, CoroPoisonAt.Terminator, 0)
         if block.term == MirTermKind.Return {
             try! coro.poisons.push(CoroPoison(block: here, at: CoroPoisonAt.Terminator, ordinal: 0, offset: 0,
                                               size: fv.size, poison: false))
@@ -2892,12 +3500,12 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
         if state >= 0 {
             var parking = Vector<Int>()
             try! parking.push(term)
-            coro_poison_step(&var coro, &fv, &lt, &parking, state, here, CoroPoisonAt.State, 0)
+            coro_poison_step(&var coro, &fv, &lt, &live, &parking, state, here, CoroPoisonAt.State, 0)
             if resumes >= 0 {
                 // A drive's child may be `Ready` at once, so its return edge
                 // follows the terminator as well as the state.
                 try! parking.push(state)
-                coro_poison_step(&var coro, &fv, &lt, &parking, resumes, here, CoroPoisonAt.Resume, 0)
+                coro_poison_step(&var coro, &fv, &lt, &live, &parking, resumes, here, CoroPoisonAt.Resume, 0)
             }
         }
     }
@@ -2909,12 +3517,13 @@ func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLowe
 
 // The frame's creation, in front of `bb0`'s first point (`coro_poison_lists`):
 // every byte poisoned, then each value live at point 0 unpoisoned.
-func coro_poison_creation(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLifetimes, at: CoroPoisonAt) {
+func coro_poison_creation(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLifetimes, live: &Vector<Bool>,
+                          at: CoroPoisonAt) {
     try! coro.poisons.push(CoroPoison(block: 0, at: at, ordinal: 0, offset: 0, size: fv.size, poison: true))
     var k = 0
     while k < fv.value_count {
         let v = coro.values[fv.value_first + k]
-        if v.size > 0 && v.offset >= 0 && lt.points.count > 0 && lt.live[k * lt.points.count] {
+        if v.size > 0 && v.offset >= 0 && lt.points.count > 0 && live[k * lt.points.count] {
             try! coro.poisons.push(CoroPoison(block: 0, at: at, ordinal: 0, offset: v.offset, size: v.size,
                                               poison: false))
         }
@@ -2927,8 +3536,8 @@ func coro_poison_creation(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLower
 // `p` and live at one of them is poisoned, then each value live at `p` and
 // dead at one of them unpoisoned. Two values live at one point never share
 // a byte, so a poisoning never covers a value live on both sides of it.
-func coro_poison_step(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLifetimes, before: &Vector<Int>,
-                      p: Int, block: Int, at: CoroPoisonAt, ordinal: Int) {
+func coro_poison_step(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLifetimes, live: &Vector<Bool>,
+                      before: &Vector<Int>, p: Int, block: Int, at: CoroPoisonAt, ordinal: Int) {
     let count = lt.points.count
     var pass = 0
     while pass < 2 {
@@ -2937,12 +3546,12 @@ func coro_poison_step(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLi
         var k = 0
         while k < fv.value_count {
             let v = coro.values[fv.value_first + k]
-            let here = lt.live[k * count + p]
+            let here = live[k * count + p]
             var changed = false
             if v.size > 0 && v.offset >= 0 && here != poison {
                 var j = 0
                 while j < before.len() && not changed {
-                    changed = lt.live[k * count + before[j]] == poison
+                    changed = live[k * count + before[j]] == poison
                     j = j + 1
                 }
             }
@@ -2960,7 +3569,7 @@ func coro_poison_step(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLi
 // numbered: a drive or a park keeps its call, an op-budget point yields at
 // the ready park its test reaches, and an offload parks on its job in the
 // park that returns to its start's continuation.
-func coro_verify_lowered_points(coro: &CoroProgram, b: &CoroBeforeBody) -> CoroVerifyPoints {
+func coro_verify_lowered_points(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex) -> CoroVerifyPoints {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     var pts = CoroVerifyPoints(count: 0, first: Vector<Int>(), term: Vector<Int>(), state: Vector<Int>(),
                                resume: Vector<Int>(), parked: Vector<Int>(), region: Vector<Int>())
@@ -2974,8 +3583,8 @@ func coro_verify_lowered_points(coro: &CoroProgram, b: &CoroBeforeBody) -> CoroV
     while k < b.point_count {
         let point = coro.before.points[b.point_first + k]
         k = k + 1
-        let c = coro_verify_point_call(&coro, &b, &point)
-        let at = if c >= 0 { coro_verify_block_of_call(&coro, b.body, c) } else { -1 }
+        let c = coro_verify_point_call(&coro, &b, &idx, &point)
+        let at = if c >= 0 { coro_verify_block_of_call(&idx, c) } else { -1 }
         if at >= 0 {
             pts.parked[at] = point.state
         }
@@ -3012,31 +3621,39 @@ func coro_verify_lowered_points(coro: &CoroProgram, b: &CoroBeforeBody) -> CoroV
     if info.block_count == 0 {
         return move pts
     }
+    // Each block's region, the lowest state reaching it, from a work list: a
+    // block is looked at again only when its own region fell, so a chain of
+    // blocks numbered out of their order settles in one pass of it (SL-970).
     pts.region[0] = 0
-    var changed = true
-    while changed {
-        changed = false
-        bb = 0
-        while bb < info.block_count {
-            let here = bb
-            bb = bb + 1
-            if pts.region[here] < 0 {
-                continue
-            }
-            let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
-            var resumed = -1
-            if pts.parked[here] > 0 {
-                resumed = coro.mono.dp.bc.mir.calls[block.call].next
-            }
-            let succ = coro.mono.dp.bc.mir.init_successors(b.body, here)
-            var j = 0
-            while j < succ.len() {
-                let target = succ[j]
-                j = j + 1
-                let state = if target == resumed { pts.parked[here] } else { pts.region[here] }
-                if pts.region[target] < 0 || state < pts.region[target] {
-                    pts.region[target] = state
-                    changed = true
+    var work = Vector<Int>()
+    var queued = Vector<Bool>()
+    bb = 0
+    while bb < info.block_count {
+        try! queued.push(bb == 0)
+        bb = bb + 1
+    }
+    try! work.push(0)
+    var w = 0
+    while w < work.len() {
+        let here = work[w]
+        w = w + 1
+        queued[here] = false
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
+        var resumed = -1
+        if pts.parked[here] > 0 {
+            resumed = coro.mono.dp.bc.mir.calls[block.call].next
+        }
+        let succ = coro.mono.dp.bc.mir.init_successors(b.body, here)
+        var j = 0
+        while j < succ.len() {
+            let target = succ[j]
+            j = j + 1
+            let state = if target == resumed { pts.parked[here] } else { pts.region[here] }
+            if pts.region[target] < 0 || state < pts.region[target] {
+                pts.region[target] = state
+                if not queued[target] {
+                    queued[target] = true
+                    try! work.push(target)
                 }
             }
         }
@@ -3046,47 +3663,35 @@ func coro_verify_lowered_points(coro: &CoroProgram, b: &CoroBeforeBody) -> CoroV
 
 // The call of lowered body `b` that parks for its suspension point `point`,
 // or -1 when lowering left none: an effect-only suspension runs as nothing.
-func coro_verify_point_call(coro: &CoroProgram, b: &CoroBeforeBody, point: &CoroBeforePoint) -> Int {
+func coro_verify_point_call(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, point: &CoroBeforePoint) -> Int {
     if point.stmt >= 0 {
         return coro_verify_budget_yield(&coro, b.body, point.block)
     }
     let c = point.call
-    if c < 0 || coro_verify_effect_only(&coro, c) || not coro_verify_ends_block(&coro, b.body, c) {
+    if c < 0 || coro_verify_effect_only(&coro, c) || not coro_verify_ends_block(&idx, c) {
         return -1
     }
     if coro_offloaded_extern(&coro, c) < 0 {
         return c
     }
     let next = coro.mono.dp.bc.mir.calls[c].next
-    let info = coro.mono.dp.bc.mir.funcs[b.body]
-    var bb = 0
-    while bb < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-        bb = bb + 1
-        if block.term != MirTermKind.Call || block.call == c {
-            continue
-        }
-        let park = coro_verify_park(&coro, block.call)
-        if park == CoroVerifyPark.Offload && coro.mono.dp.bc.mir.calls[block.call].next == next {
-            return block.call
-        }
+    let parked = idx.offload_park.get(next) ?? -1
+    if parked == c {
+        return -1
     }
-    return -1
+    parked
 }
 
-// Marks the lifetime of each local frame `fv` holds: the points just before
-// which the initialisation analysis, over the lowered body read with every
-// place put back as it was, says it may be initialised, whole or in part, and
-// the point of each assignment, and of each call that does not park, writing
-// into it other than through a dereference. The analysis then sees every access lowering moved or kept as
-// an access of the local it was, and an access lowering added reads a slot,
-// which no move path holds.
-func coro_verify_local_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, fv: &CoroFrame,
-                                 pts: &CoroVerifyPoints, live: &var Vector<Bool>) {
-    let values = coro_verify_local_values(&coro, &b, &fv)
-    let saved = coro_verify_restore(&var coro, &b)
-    let facts = coro.mono.dp.bc.mir.init_analysis(b.body)
+// Marks the lifetime of each local the frame holds, `values` by local: the
+// points just before which `facts`, the initialisation analysis over the
+// lowered body read with every place put back as it was, says it may be
+// initialised, whole or in part, and the point of each assignment, and of
+// each call that does not park, writing into it other than through a
+// dereference. A cursor walks the reached blocks from each one's entry.
+func coro_verify_local_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, facts: &MirInit, values: &Vector<Int>,
+                                 pts: &CoroVerifyPoints, spans: &var CoroSpans) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
+    var cur = facts.cursor()
     var bb = 0
     while bb < info.block_count {
         let here = bb
@@ -3095,24 +3700,24 @@ func coro_verify_local_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, fv:
             continue
         }
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
-        var state = facts.entry_state(here)
+        spans.enter(&facts, &var cur, here)
         var p = pts.first[here]
         var s = block.first
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
-            coro_verify_mark_initialised(&facts, &state, &values, pts.count, &var live, p)
+            spans.live_at(p)
             if stmt.kind == MirStmtKind.Assign {
                 let l = coro_verify_written_local(&coro, stmt.place)
                 if l >= 0 && l < values.len() && values[l] >= 0 {
-                    live[values[l] * pts.count + p] = true
+                    spans.mark(values[l], p, p + 1)
                 }
             }
             let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(b.body, s, &facts)
-            mir_init_apply_all(&facts, &var state, &accesses)
+            spans.apply(&facts, &var cur, &accesses)
             p = p + 1
             s = stmt.next
         }
-        coro_verify_mark_initialised(&facts, &state, &values, pts.count, &var live, pts.term[here])
+        spans.live_at(pts.term[here])
         // The definition: a destination is live at the point that writes it,
         // which is an assignment's statement, and the terminator of a call
         // that does not park, since that call writes its destination before
@@ -3124,7 +3729,7 @@ func coro_verify_local_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, fv:
             let dest = coro.mono.dp.bc.mir.calls[block.call].dest
             let l = coro_verify_written_local(&coro, dest)
             if l >= 0 && l < values.len() && values[l] >= 0 {
-                live[values[l] * pts.count + pts.term[here]] = true
+                spans.mark(values[l], pts.term[here], pts.term[here] + 1)
             }
         }
         if pts.state[here] >= 0 {
@@ -3142,15 +3747,14 @@ func coro_verify_local_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, fv:
                     try! taken.push(a)
                 }
             }
-            mir_init_apply_all(&facts, &var state, &taken)
-            coro_verify_mark_initialised(&facts, &state, &values, pts.count, &var live, pts.state[here])
+            spans.apply(&facts, &var cur, &taken)
+            spans.live_at(pts.state[here])
             if pts.resume[here] >= 0 {
-                mir_init_apply_all(&facts, &var state, &written)
-                coro_verify_mark_initialised(&facts, &state, &values, pts.count, &var live, pts.resume[here])
+                spans.apply(&facts, &var cur, &written)
+                spans.live_at(pts.resume[here])
             }
         }
     }
-    coro_verify_put_back(&var coro, &b, &saved)
 }
 
 // By local of body `b` before lowering: the index in frame `fv` of the value
@@ -3172,20 +3776,6 @@ func coro_verify_local_values(coro: &CoroProgram, b: &CoroBeforeBody, fv: &CoroF
         k = k + 1
     }
     move out
-}
-
-// Marks, at point `p`, the value of each local `state` says may be
-// initialised, whole or in part.
-func coro_verify_mark_initialised(facts: &MirInit, state: &Vector<Int>, values: &Vector<Int>, count: Int,
-                                  live: &var Vector<Bool>, p: Int) {
-    var q = 0
-    while q < facts.path_count() {
-        let l = facts.path_local[q]
-        if l < values.len() && values[l] >= 0 && (state[q] & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0 {
-            live[values[l] * count + p] = true
-        }
-        q = q + 1
-    }
 }
 
 // The local place `p` writes into, whole or in part, when no dereference
@@ -3210,15 +3800,14 @@ func coro_verify_written_local(coro: &CoroProgram, p: Int) -> Int {
 // terminator, through the time a suspending half runs, to its close's call.
 // The accessor's halves reach a record through a reference the
 // initialisation analysis never sees.
-func coro_verify_record_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &CoroFrame, pts: &CoroVerifyPoints,
-                                  live: &var Vector<Bool>) {
+func coro_verify_record_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, values: &Vector<Int>,
+                                  pts: &CoroVerifyPoints, spans: &var CoroSpans) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     let width = info.window_count
     if width == 0 || info.block_count == 0 {
         return
     }
-    let values = coro_verify_local_values(&coro, &b, &fv)
-    let entry = coro_verify_window_entry(&coro, &b)
+    let entry = coro_verify_window_entry(&coro, &b, &idx)
     var bb = 0
     while bb < info.block_count {
         let here = bb
@@ -3245,23 +3834,19 @@ func coro_verify_record_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &C
             if record < 0 || record >= values.len() || values[record] < 0 {
                 continue
             }
-            let at = values[record] * pts.count
+            let at = values[record]
             let open = (entry[here * width + window] & CORO_WINDOW_OPEN) != 0
             if open {
-                var p = pts.first[here]
-                while p < pts.term[here] {
-                    live[at + p] = true
-                    p = p + 1
-                }
+                spans.mark(at, pts.first[here], pts.term[here])
             }
             if open || window == opening {
-                live[at + pts.term[here]] = true
+                spans.mark(at, pts.term[here], pts.term[here] + 1)
                 if pts.state[here] >= 0 {
-                    live[at + pts.state[here]] = true
+                    spans.mark(at, pts.state[here], pts.state[here] + 1)
                 }
             }
             if pts.resume[here] >= 0 && ((open && window != closing) || window == opening) {
-                live[at + pts.resume[here]] = true
+                spans.mark(at, pts.resume[here], pts.resume[here] + 1)
             }
         }
     }
@@ -3275,8 +3860,17 @@ func coro_verify_record_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &C
 // when its result is taken, its resume and the move-out of the result, which
 // the block it returns to starts with. An offload's storage is live from its
 // start through every point that reaches its take, which ends it.
-func coro_verify_call_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &CoroFrame, frame: Int,
-                                pts: &CoroVerifyPoints, live: &var Vector<Bool>) {
+func coro_verify_call_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, fv: &CoroFrame,
+                                frame: Int, pts: &CoroVerifyPoints, spans: &var CoroSpans) {
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    // By block, the offload whose walk last reached it, so the walks share
+    // one table rather than each making its own.
+    var seen = Vector<Int>()
+    var bb = 0
+    while bb < info.block_count {
+        try! seen.push(-1)
+        bb = bb + 1
+    }
     var children = 0
     var storages = 0
     var k = 0
@@ -3290,54 +3884,52 @@ func coro_verify_call_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &Cor
         let ext = coro_offloaded_extern(&coro, c)
         var j = -1
         if ext >= 0 {
-            j = coro_verify_nth_value(&coro, &fv, CoroValueKind.Offload, storages)
+            j = if storages < idx.offloads.len() { idx.offloads[storages] } else { -1 }
             storages = storages + 1
         } else if coro_driven_child(&coro, c) >= 0 {
-            j = coro_verify_nth_value(&coro, &fv, CoroValueKind.Child, children)
+            j = if children < idx.children.len() { idx.children[children] } else { -1 }
             children = children + 1
         }
-        let bb = coro_verify_block_of_call(&coro, b.body, c)
-        if j < 0 || bb < 0 {
+        let at_block = coro_verify_block_of_call(&idx, c)
+        if j < 0 || at_block < 0 {
             continue
         }
         let v = coro.values[fv.value_first + j]
-        let at = j * pts.count
         if ext >= 0 {
-            coro_verify_offload_lifetime(&coro, &b, &pts, c, ext, at, &var live)
+            coro_verify_offload_lifetime(&coro, &b, &idx, &pts, c, ext, j, storages, &var seen, &var spans)
             continue
         }
-        let info = coro.mono.dp.bc.mir.funcs[b.body]
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + at_block]
         var started = false
-        var p = pts.first[bb]
+        var p = pts.first[at_block]
         var s = block.first
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
             s = stmt.next
             if not started && stmt.kind == MirStmtKind.Assign {
-                started = coro_verify_added_slot(&coro, &b, frame, stmt.place, v.offset, v.offset + v.size)
-            }
-            if started {
-                live[at + p] = true
+                started = coro_verify_added_slot(&coro, &idx, frame, stmt.place, v.offset, v.offset + v.size)
+                if started {
+                    spans.mark(j, p, pts.term[at_block])
+                }
             }
             p = p + 1
         }
-        live[at + pts.term[bb]] = true
-        if pts.state[bb] >= 0 {
-            live[at + pts.state[bb]] = true
+        spans.mark(j, pts.term[at_block], pts.term[at_block] + 1)
+        if pts.state[at_block] >= 0 {
+            spans.mark(j, pts.state[at_block], pts.state[at_block] + 1)
         }
         var next = coro.mono.dp.bc.mir.calls[c].next
-        if coro_verify_pre_dest(&coro, &b, c) < 0 || next < 0 || pts.resume[bb] < 0 {
+        if coro_verify_pre_dest(&coro, &b, &idx, c) < 0 || next < 0 || pts.resume[at_block] < 0 {
             continue
         }
-        live[at + pts.resume[bb]] = true
+        spans.mark(j, pts.resume[at_block], pts.resume[at_block] + 1)
         // The return edge writes the state past the drive before the move-out
         // (`coro_lower_drive`), so the child stays live across that write.
         let state_at = coro_child_offset(&coro, &fv, CoroValueKind.State, -1)
         let through = coro_past_target(&coro, b.body, next, frame, state_at)
         if through >= 0 {
-            live[at + pts.first[next]] = true
-            live[at + pts.term[next]] = true
+            spans.mark(j, pts.first[next], pts.first[next] + 1)
+            spans.mark(j, pts.term[next], pts.term[next] + 1)
             next = through
         }
         let out = coro.mono.dp.bc.mir.blocks[info.block_first + next]
@@ -3347,47 +3939,40 @@ func coro_verify_call_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &Cor
         while s >= 0 && not taken {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
             s = stmt.next
-            live[at + p] = true
+            spans.mark(j, p, p + 1)
             p = p + 1
-            taken = coro_verify_reads_added(&coro, &b, frame, stmt.rvalue, v.offset, v.offset + v.size)
+            taken = coro_verify_reads_added(&coro, &idx, frame, stmt.rvalue, v.offset, v.offset + v.size)
         }
     }
 }
 
-// Marks, at `live[at ..]`, an offload's storage from the start `c` of its job
-// for `blocking` extern item `ext`, through every point of every block its
-// continuation reaches before its take, a call of the same extern, ends it.
-func coro_verify_offload_lifetime(coro: &CoroProgram, b: &CoroBeforeBody, pts: &CoroVerifyPoints, c: Int, ext: Int,
-                                  at: Int, live: &var Vector<Bool>) {
+// Marks, for frame value `value`, an offload's storage from the start `c` of
+// its job for `blocking` extern item `ext`, through every point of every
+// block its continuation reaches before its take, a call of the same
+// extern, ends it. `seen` holds, by block, the walk that last reached it;
+// this walk is `walk`.
+func coro_verify_offload_lifetime(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex,
+                                  pts: &CoroVerifyPoints, c: Int, ext: Int, value: Int, walk: Int,
+                                  seen: &var Vector<Int>, spans: &var CoroSpans) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
-    let start = coro_verify_block_of_call(&coro, b.body, c)
-    live[at + pts.term[start]] = true
-    var seen = Vector<Bool>()
-    var bb = 0
-    while bb < info.block_count {
-        try! seen.push(false)
-        bb = bb + 1
-    }
+    let start = coro_verify_block_of_call(&idx, c)
+    spans.mark(value, pts.term[start], pts.term[start] + 1)
     var work = Vector<Int>()
     let next = coro.mono.dp.bc.mir.calls[c].next
     if next >= 0 {
         try! work.push(next)
-        seen[next] = true
+        seen[next] = walk
     }
     var k = 0
     while k < work.len() {
         let here = work[k]
         k = k + 1
-        var p = pts.first[here]
-        while p <= pts.term[here] {
-            live[at + p] = true
-            p = p + 1
-        }
+        spans.mark(value, pts.first[here], pts.term[here] + 1)
         if pts.state[here] >= 0 {
-            live[at + pts.state[here]] = true
+            spans.mark(value, pts.state[here], pts.state[here] + 1)
         }
         if pts.resume[here] >= 0 {
-            live[at + pts.resume[here]] = true
+            spans.mark(value, pts.resume[here], pts.resume[here] + 1)
         }
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
         if block.term == MirTermKind.Call && block.call != c && coro.mono.call_item(block.call) == ext {
@@ -3398,47 +3983,27 @@ func coro_verify_offload_lifetime(coro: &CoroProgram, b: &CoroBeforeBody, pts: &
         while j < succ.len() {
             let target = succ[j]
             j = j + 1
-            if not seen[target] {
-                seen[target] = true
+            if seen[target] != walk {
+                seen[target] = walk
                 try! work.push(target)
             }
         }
     }
 }
 
-// The index in frame `fv` of its `nth` value of kind `kind`, counting from 0
-// in the frame's order, or -1.
-func coro_verify_nth_value(coro: &CoroProgram, fv: &CoroFrame, kind: CoroValueKind, nth: Int) -> Int {
-    var left = nth
-    var k = 0
-    while k < fv.value_count {
-        if coro.values[fv.value_first + k].kind == kind {
-            if left == 0 {
-                return k
-            }
-            left = left - 1
-        }
-        k = k + 1
-    }
-    return -1
-}
-
 // The destination call `c` of body `b` wrote before lowering, or -1.
-func coro_verify_pre_dest(coro: &CoroProgram, b: &CoroBeforeBody, c: Int) -> Int {
-    var k = 0
-    while k < b.call_count {
-        if coro.before.call_ids[b.call_first + k] == c {
-            return coro.before.calls[b.call_first + k].dest
-        }
-        k = k + 1
+func coro_verify_pre_dest(coro: &CoroProgram, b: &CoroBeforeBody, idx: &CoroVerifyIndex, c: Int) -> Int {
+    let k = idx.pre_call.get(c) ?? -1
+    if k < 0 {
+        return -1
     }
-    return -1
+    coro.before.calls[b.call_first + k].dest
 }
 
-// Whether place `p` is one lowering added to body `b`, a frame slot through
-// frame pointer `frame` whose offset lies in `[lo, hi)`.
-func coro_verify_added_slot(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, p: Int, lo: Int, hi: Int) -> Bool {
-    if p < 0 || coro_verify_named_before(&coro, &b, p) {
+// Whether place `p` is one lowering added to the indexed body, a frame slot
+// through frame pointer `frame` whose offset lies in `[lo, hi)`.
+func coro_verify_added_slot(coro: &CoroProgram, idx: &CoroVerifyIndex, frame: Int, p: Int, lo: Int, hi: Int) -> Bool {
+    if p < 0 || coro_verify_named_before(&idx, p) {
         return false
     }
     let pl = coro.mono.dp.bc.mir.places[p]
@@ -3452,21 +4017,21 @@ func coro_verify_added_slot(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, 
 
 // Whether rvalue `rv` reads a place lowering added to body `b` in the frame's
 // bytes `[lo, hi)` (`coro_verify_added_slot`).
-func coro_verify_reads_added(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, rv: Int, lo: Int, hi: Int) -> Bool {
+func coro_verify_reads_added(coro: &CoroProgram, idx: &CoroVerifyIndex, frame: Int, rv: Int, lo: Int, hi: Int) -> Bool {
     if rv < 0 {
         return false
     }
     let r = coro.mono.dp.bc.mir.rvalues[rv]
-    if coro_verify_added_slot(&coro, &b, frame, r.place, lo, hi) {
+    if coro_verify_added_slot(&coro, &idx, frame, r.place, lo, hi) {
         return true
     }
     var k = 0
     while k < r.count {
         let o = coro.mono.dp.bc.mir.lists[r.first + k]
         k = k + 1
-        // Stage 0 workaround (SL:hazards S4): canonical: if o >= 0 && coro_verify_added_slot(&coro, &b, frame, coro.mono.dp.bc.mir.operands[o].place, lo, hi) {
+        // Stage 0 workaround (SL:hazards S4): canonical: if o >= 0 && coro_verify_added_slot(&coro, &idx, frame, coro.mono.dp.bc.mir.operands[o].place, lo, hi) {
         let read = if o >= 0 { coro.mono.dp.bc.mir.operands[o].place } else { -1 }
-        if coro_verify_added_slot(&coro, &b, frame, read, lo, hi) {
+        if coro_verify_added_slot(&coro, &idx, frame, read, lo, hi) {
             return true
         }
     }

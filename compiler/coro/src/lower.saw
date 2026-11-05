@@ -522,6 +522,9 @@ func coro_resident_locals(coro: &CoroProgram, frame: &CoroFrame) -> Vector<Int> 
 // destination.
 func coro_body_places(coro: &CoroProgram, f: Int) -> Vector<Int> {
     var out = Vector<Int>()
+    // The places named so far, so a long body is not searched for each one
+    // (SL-970).
+    var seen = Map<Int, Bool>()
     let info = coro.mono.dp.bc.mir.funcs[f]
     var b = 0
     while b < info.block_count {
@@ -529,12 +532,29 @@ func coro_body_places(coro: &CoroProgram, f: Int) -> Vector<Int> {
         b = b + 1
         var s = block.first
         while s >= 0 {
-            coro_add_stmt_places(&coro, &var out, s)
+            var named = Vector<Int>()
+            coro_add_stmt_places(&coro, &var named, s)
+            coro_add_unseen(&var out, &var seen, &named)
             s = coro.mono.dp.bc.mir.stmts[s].next
         }
-        coro_add_term_places(&coro, &var out, &block)
+        var named = Vector<Int>()
+        coro_add_term_places(&coro, &var named, &block)
+        coro_add_unseen(&var out, &var seen, &named)
     }
     move out
+}
+
+// Appends to `out` each of `named` not in `seen`, in order, adding it there.
+func coro_add_unseen(out: &var Vector<Int>, seen: &var Map<Int, Bool>, named: &Vector<Int>) {
+    var k = 0
+    while k < named.len() {
+        let p = named[k]
+        k = k + 1
+        if not seen.contains_key(p) {
+            let _ = try! seen.insert(p, true)
+            try! out.push(p)
+        }
+    }
 }
 
 // Adds the places statement `s` names: its place, and its rvalue's place,
@@ -1824,10 +1844,19 @@ func coro_add_goto_block(coro: &var CoroProgram, f: Int, target: Int, node: Int)
 }
 
 // Gives function `f` one more block, `block`, empty of statements, and
-// returns its number; its blocks move to a fresh run of the arena, numbered
-// as before, since the run after them is another function's.
+// returns its number. A function whose blocks end the arena grows in place;
+// any other's move to a fresh run of the arena, numbered as before, since the
+// run after them is another function's, so a lowering adding many blocks to
+// one function moves them once (SL-970).
 public func coro_add_block(coro: &var CoroProgram, f: Int, block: MirBlock) -> Int {
     var info = coro.mono.dp.bc.mir.funcs[f]
+    if info.block_first + info.block_count == coro.mono.dp.bc.mir.blocks.len() {
+        try! coro.mono.dp.bc.mir.blocks.push(block)
+        let made = info.block_count
+        info.block_count = info.block_count + 1
+        coro.mono.dp.bc.mir.funcs[f] = info
+        return made
+    }
     let first = coro.mono.dp.bc.mir.blocks.len()
     var b = 0
     while b < info.block_count {
@@ -2116,19 +2145,27 @@ func coro_add_frame_local(coro: &var CoroProgram, f: Int) -> Int {
 }
 
 // Gives function `f` one more local, a temporary of type `ty` no scope
-// drops, and returns its number; its locals move to a fresh run of the
-// arena, numbered as before, since the run after them is another function's.
+// drops, and returns its number. A function whose locals end the arena grows
+// in place; any other's move to a fresh run of the arena, numbered as
+// before, since the run after them is another function's (SL-970).
 public func coro_add_local(coro: &var CoroProgram, f: Int, ty: Int) -> Int {
     var info = coro.mono.dp.bc.mir.funcs[f]
+    let local = MirLocal(ty: ty, kind: MirLocalKind.Temp, name: -1, node: -1, owned: false, reference: false)
+    if info.local_first + info.local_count == coro.mono.dp.bc.mir.locals.len() {
+        try! coro.mono.dp.bc.mir.locals.push(local)
+        let made = info.local_count
+        info.local_count = info.local_count + 1
+        coro.mono.dp.bc.mir.funcs[f] = info
+        return made
+    }
     let first = coro.mono.dp.bc.mir.locals.len()
     var l = 0
     while l < info.local_count {
-        let local = coro.mono.dp.bc.mir.locals[info.local_first + l]
-        try! coro.mono.dp.bc.mir.locals.push(local)
+        let old = coro.mono.dp.bc.mir.locals[info.local_first + l]
+        try! coro.mono.dp.bc.mir.locals.push(old)
         l = l + 1
     }
-    try! coro.mono.dp.bc.mir.locals.push(MirLocal(ty: ty, kind: MirLocalKind.Temp, name: -1, node: -1,
-                                                  owned: false, reference: false))
+    try! coro.mono.dp.bc.mir.locals.push(local)
     let made = info.local_count
     info.local_first = first
     info.local_count = info.local_count + 1

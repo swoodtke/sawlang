@@ -9,30 +9,37 @@
 // drop. Only a value with no drop could end at its last use, and no set here
 // ends there.
 //
+// A set is kept as spans, each the points from its first up to the one past
+// its last, in point order, disjoint and never touching, so a set costs its
+// spans rather than its item's points (SL-970).
+//
 // ENTRY POINTS of storage lifetimes:
 //   coro_lifetimes_of
 //   coro_lifetime_append
 //   coro_lifetime_resident
-//   coro_lifetimes_meet
+//   coro_lifetime_neighbours
+//   coro_lifetime_spans
 //   coro_lifetime_across
 //   coro_lifetime_at
 //   coro_point_labels
 
 import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_call_suspends}
-import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
-                              mir_init_apply_all_to}
+import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit}
 import sawmir.model.{MirCallKind, MirFuncKind, MirProjKind, MirStmt, MirStmtKind, MirTermKind}
+import sawmir.states.{MirCursor}
 
-// One function's program points and its locals' lifetimes over them:
-// `live[l * points + p]` says local `l`'s bytes are needed just before point
-// `p`. `suspends` are its suspension points in block order, and `returns`,
-// by suspension point, its return edge's point, or -1 for an op-budget
-// point and a call that never returns. `charges` says the body has an
-// op-budget point.
+// One function's program points and its locals' lifetimes over them: local
+// `l`'s spans are the pairs of `runs` from `first[l]` up to `first[l + 1]`,
+// each a first point and the point past its last, the points just before
+// which its bytes are needed. `suspends` are its suspension points in block
+// order, and `returns`, by suspension point, its return edge's point, or -1
+// for an op-budget point and a call that never returns. `charges` says the
+// body has an op-budget point.
 public struct CoroLifetimes {
     points: Int
-    live: Vector<Bool>
+    first: Vector<Int>
+    runs: Vector<Int>
     suspends: Vector<CoroSuspend>
     returns: Vector<Int>
     charges: Bool
@@ -61,6 +68,326 @@ public struct CoroPointLabel {
     state: Int
 }
 
+// A point set per row, a function's locals or a frame's values, made while a
+// walk of a body moves an initialisation cursor through its points: a row
+// holds each point at which one of its move paths may be initialised, whole
+// or in part, and each point the walk marks for it. A path is looked at again
+// only where the walk may have changed it, and a row only where one of its
+// paths changed, so a point costs what changed since the point before it,
+// not every row (SL-970). `finish` gives each row's spans.
+public struct CoroSpans {
+    // By move path: its row, or -1, and whether it may be initialised now.
+    path_row: Vector<Int>
+    path_live: Vector<Bool>
+    // By row: how many of its paths may be initialised now, whether one did
+    // at the last point `live_at` took, and from which point that has held.
+    live_paths: Vector<Int>
+    member: Vector<Bool>
+    since: Vector<Int>
+    // The rows `live_at` last found initialised, and by row its index there.
+    members: Vector<Int>
+    member_at: Vector<Int>
+    // The rows whose count changed since the last point `live_at` took.
+    dirty: Vector<Int>
+    dirty_mark: Vector<Bool>
+    last: Int
+    // The spans made, in no order: a row, a first point and the point past
+    // its last, three cells each.
+    made: Vector<Int>
+}
+
+extension CoroSpans: NoCopy {}
+
+extension CoroSpans {
+    // Sets over `rows` rows, each move path `q` belonging to row
+    // `path_row[q]`, or to none at -1; every path starts uninitialised, as a
+    // fresh cursor's conditions are.
+    public init(rows: Int, path_row: Vector<Int>) -> CoroSpans {
+        var path_live = Vector<Bool>()
+        var k = 0
+        while k < path_row.len() {
+            try! path_live.push(false)
+            k = k + 1
+        }
+        var live_paths = Vector<Int>()
+        var member = Vector<Bool>()
+        var since = Vector<Int>()
+        var member_at = Vector<Int>()
+        var dirty_mark = Vector<Bool>()
+        k = 0
+        while k < rows {
+            try! live_paths.push(0)
+            try! member.push(false)
+            try! since.push(0)
+            try! member_at.push(-1)
+            try! dirty_mark.push(false)
+            k = k + 1
+        }
+        CoroSpans(path_row: move path_row, path_live: move path_live, live_paths: move live_paths,
+                  member: move member, since: move since, members: Vector<Int>(), member_at: move member_at,
+                  dirty: Vector<Int>(), dirty_mark: move dirty_mark, last: -1, made: Vector<Int>())
+    }
+
+    // Moves `cur` to block `b`'s entry conditions in `facts`.
+    public func enter(&var self, facts: &MirInit, cur: &var MirCursor, b: Int) {
+        var changed = Vector<Int>()
+        cur.load_noting(&facts.states, facts.entry_roots[b], &var changed)
+        var k = 0
+        while k < changed.len() {
+            let q = changed[k]
+            k = k + 1
+            self.note(q, cur.state[q])
+        }
+    }
+
+    // Applies each of `accesses` to `cur`, in order. An access changes
+    // nothing but the paths inside its own and, for a move, those around it,
+    // as `MirInit.apply_to` writes them.
+    public func apply(&var self, facts: &MirInit, cur: &var MirCursor, accesses: &Vector<MirAccess>) {
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            k = k + 1
+            facts.apply_to(&var cur, &a)
+            if a.path < 0 || a.cut || a.kind == MirAccessKind.Read || a.kind == MirAccessKind.Borrow {
+                continue
+            }
+            let inside = facts.subtree(a.path)
+            var j = 0
+            while j < inside.len() {
+                let q = inside[j]
+                j = j + 1
+                self.note(q, cur.state[q])
+            }
+            var up = facts.path_parent[a.path]
+            while up >= 0 {
+                self.note(up, cur.state[up])
+                up = facts.path_parent[up]
+            }
+        }
+    }
+
+    // Takes point `p`: each row with a path that may be initialised now holds
+    // it. Points are taken in order; a point that does not follow the last
+    // one starts every row's span afresh.
+    public func live_at(&var self, p: Int) {
+        if self.last >= 0 && p != self.last + 1 {
+            let end = self.last + 1
+            var k = 0
+            while k < self.members.len() {
+                let r = self.members[k]
+                k = k + 1
+                let from = self.since[r]
+                self.close(r, from, end)
+                self.since[r] = p
+            }
+        }
+        var k = 0
+        while k < self.dirty.len() {
+            let r = self.dirty[k]
+            k = k + 1
+            self.dirty_mark[r] = false
+            let now = self.live_paths[r] > 0
+            if now && not self.member[r] {
+                self.member[r] = true
+                self.since[r] = p
+                self.member_at[r] = self.members.len()
+                try! self.members.push(r)
+            } else if not now && self.member[r] {
+                self.member[r] = false
+                let from = self.since[r]
+                self.close(r, from, p)
+                let at = self.member_at[r]
+                let last = self.members.len() - 1
+                let moved = self.members[last]
+                self.members[at] = moved
+                self.member_at[moved] = at
+                let _ = self.members.pop()
+                self.member_at[r] = -1
+            }
+        }
+        self.dirty.clear()
+        self.last = p
+    }
+
+    // Row `r` holds the points from `lo` up to the one before `hi`.
+    public func mark(&var self, r: Int, lo: Int, hi: Int) {
+        if r >= 0 {
+            self.close(r, lo, hi)
+        }
+    }
+
+    // Each row's spans over a body of `points` points, in point order,
+    // disjoint and never touching: row `r`'s are the pairs of `runs` from
+    // `first[r]` up to `first[r + 1]`.
+    public func finish(&var self, points: Int, first: &var Vector<Int>, runs: &var Vector<Int>) {
+        if self.last >= 0 {
+            let end = self.last + 1
+            var k = 0
+            while k < self.members.len() {
+                let r = self.members[k]
+                k = k + 1
+                let from = self.since[r]
+                self.close(r, from, end)
+            }
+        }
+        let rows = self.live_paths.len()
+        var start = Vector<Int>()
+        var k = 0
+        while k <= rows {
+            try! start.push(0)
+            k = k + 1
+        }
+        let count = self.made.len() / 3
+        k = 0
+        while k < count {
+            let r = self.made[3 * k]
+            start[r + 1] = start[r + 1] + 1
+            k = k + 1
+        }
+        k = 0
+        while k < rows {
+            start[k + 1] = start[k + 1] + start[k]
+            k = k + 1
+        }
+        var at = Vector<Int>()
+        var los = Vector<Int>()
+        var his = Vector<Int>()
+        k = 0
+        while k < count {
+            try! los.push(0)
+            try! his.push(0)
+            k = k + 1
+        }
+        k = 0
+        while k < rows {
+            try! at.push(start[k])
+            k = k + 1
+        }
+        k = 0
+        while k < count {
+            let r = self.made[3 * k]
+            let i = at[r]
+            at[r] = i + 1
+            los[i] = self.made[3 * k + 1]
+            his[i] = self.made[3 * k + 2]
+            k = k + 1
+        }
+        first.clear()
+        runs.clear()
+        var r = 0
+        while r < rows {
+            try! first.push(runs.len())
+            coro_merge_spans(&los, &his, start[r], start[r + 1], points, &var runs)
+            r = r + 1
+        }
+        try! first.push(runs.len())
+    }
+
+    func note(&var self, q: Int, cond: Int) {
+        let now = (cond & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0
+        if now == self.path_live[q] {
+            return
+        }
+        self.path_live[q] = now
+        let r = self.path_row[q]
+        if r < 0 {
+            return
+        }
+        if now {
+            self.live_paths[r] = self.live_paths[r] + 1
+        } else {
+            self.live_paths[r] = self.live_paths[r] - 1
+        }
+        if not self.dirty_mark[r] {
+            self.dirty_mark[r] = true
+            try! self.dirty.push(r)
+        }
+    }
+
+    func close(&var self, r: Int, lo: Int, hi: Int) {
+        if lo < hi {
+            try! self.made.push(r)
+            try! self.made.push(lo)
+            try! self.made.push(hi)
+        }
+    }
+}
+
+// Appends to `runs` the spans of `los` and `his` from `from` up to `to`, in
+// point order and merged where they meet or touch; every point is below
+// `points`.
+func coro_merge_spans(los: &Vector<Int>, his: &Vector<Int>, from: Int, to: Int, points: Int, runs: &var Vector<Int>) {
+    if from >= to {
+        return
+    }
+    var ordered = true
+    var k = from + 1
+    while k < to {
+        if los[k] < los[k - 1] {
+            ordered = false
+        }
+        k = k + 1
+    }
+    var lo_of = Vector<Int>()
+    var hi_of = Vector<Int>()
+    if ordered {
+        k = from
+        while k < to {
+            try! lo_of.push(los[k])
+            try! hi_of.push(his[k])
+            k = k + 1
+        }
+    } else {
+        var keys = Vector<Int>()
+        k = from
+        while k < to {
+            try! keys.push(los[k] * (points + 1) + his[k])
+            k = k + 1
+        }
+        keys.sort()
+        k = 0
+        while k < keys.len() {
+            try! lo_of.push(keys[k] / (points + 1))
+            try! hi_of.push(keys[k] % (points + 1))
+            k = k + 1
+        }
+    }
+    var lo = lo_of[0]
+    var hi = hi_of[0]
+    k = 1
+    while k < lo_of.len() {
+        if lo_of[k] <= hi {
+            if hi_of[k] > hi {
+                hi = hi_of[k]
+            }
+        } else {
+            try! runs.push(lo)
+            try! runs.push(hi)
+            lo = lo_of[k]
+            hi = hi_of[k]
+        }
+        k = k + 1
+    }
+    try! runs.push(lo)
+    try! runs.push(hi)
+}
+
+// Whether the spans of `runs` from `from` up to `to` hold point `p`.
+func coro_spans_hold(runs: &Vector<Int>, from: Int, to: Int, p: Int) -> Bool {
+    var a = 0
+    var z = (to - from) / 2
+    while a < z {
+        let m = (a + z) / 2
+        if runs[from + 2 * m] <= p {
+            a = m + 1
+        } else {
+            z = m
+        }
+    }
+    a > 0 && p < runs[from + 2 * (a - 1) + 1]
+}
+
 // The program points of function `f` and its locals' lifetimes. A point is
 // each statement and each terminator, in block order, and a suspending call
 // adds two after its terminator's: the moment it is suspended, its arguments
@@ -71,13 +398,15 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
     let facts = coro.mono.dp.bc.mir.init_analysis(f)
     let labels = coro_point_labels(&coro, f)
     let points = labels.len()
-    var lt = CoroLifetimes(points: points, live: Vector<Bool>(), suspends: Vector<CoroSuspend>(),
+    var lt = CoroLifetimes(points: points, first: Vector<Int>(), runs: Vector<Int>(), suspends: Vector<CoroSuspend>(),
                            returns: Vector<Int>(), charges: false)
-    var k = 0
-    while k < info.local_count * points {
-        try! lt.live.push(false)
-        k = k + 1
+    var rows = Vector<Int>()
+    var q = 0
+    while q < facts.path_count() {
+        try! rows.push(facts.path_local[q])
+        q = q + 1
     }
+    var spans = CoroSpans(rows: info.local_count, path_row: move rows)
     let open = coro_windows_open(&coro, f)
     let width = info.window_count
     var p = 0
@@ -85,7 +414,7 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
     var cur = facts.cursor()
     while b < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        facts.enter(&var cur, b)
+        spans.enter(&facts, &var cur, b)
         // The window this block's terminator opens, whose record its prologue
         // writes from the terminator on, and the one it closes, whose record
         // its epilogue reads until the call returns.
@@ -102,9 +431,9 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
         var s = block.first
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
-            coro_mark_live(&facts, &cur.state, &var lt, p)
-            coro_mark_destination(&coro, &stmt, &var lt, p)
-            coro_mark_records(&coro, f, &open, b * width, -1, -1, &var lt, p)
+            spans.live_at(p)
+            coro_mark_destination(&coro, &stmt, &var spans, p)
+            coro_mark_records(&coro, f, &open, b * width, -1, -1, &var spans, p)
             if stmt.kind == MirStmtKind.Budget {
                 lt.charges = true
                 if stmt.yields {
@@ -113,21 +442,21 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
                 }
             }
             let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, s, &facts)
-            mir_init_apply_all_to(&facts, &var cur, &accesses)
+            spans.apply(&facts, &var cur, &accesses)
             p = p + 1
             s = stmt.next
         }
-        coro_mark_live(&facts, &cur.state, &var lt, p)
-        coro_mark_records(&coro, f, &open, b * width, opening, -1, &var lt, p)
+        spans.live_at(p)
+        coro_mark_records(&coro, f, &open, b * width, opening, -1, &var spans, p)
         let suspends = coro_block_suspends(&coro, f, b)
         if block.term == MirTermKind.Call && not suspends {
-            // Stage 0 workaround (SL:hazards S4): canonical: coro_mark_written(&coro, coro.mono.dp.bc.mir.calls[block.call].dest, &var lt, p)
+            // Stage 0 workaround (SL:hazards S4): canonical: coro_mark_written(&coro, coro.mono.dp.bc.mir.calls[block.call].dest, &var spans, p)
             let dest = coro.mono.dp.bc.mir.calls[block.call].dest
-            coro_mark_written(&coro, dest, &var lt, p)
+            coro_mark_written(&coro, dest, &var spans, p)
         }
         p = p + 1
         if suspends {
-            coro_mark_records(&coro, f, &open, b * width, opening, -1, &var lt, p)
+            coro_mark_records(&coro, f, &open, b * width, opening, -1, &var spans, p)
             let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, b, &facts)
             let dest = coro.mono.dp.bc.mir.calls[block.call].dest
             var taken = Vector<MirAccess>()
@@ -142,14 +471,14 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
                     try! taken.push(a)
                 }
             }
-            mir_init_apply_all_to(&facts, &var cur, &taken)
-            coro_mark_live(&facts, &cur.state, &var lt, p)
+            spans.apply(&facts, &var cur, &taken)
+            spans.live_at(p)
             try! lt.suspends.push(CoroSuspend(block: b, point: p, call: block.call))
             p = p + 1
             if coro_block_returns(&coro, f, b) {
-                mir_init_apply_all_to(&facts, &var cur, &written)
-                coro_mark_live(&facts, &cur.state, &var lt, p)
-                coro_mark_records(&coro, f, &open, b * width, opening, closing, &var lt, p)
+                spans.apply(&facts, &var cur, &written)
+                spans.live_at(p)
+                coro_mark_records(&coro, f, &open, b * width, opening, closing, &var spans, p)
                 try! lt.returns.push(p)
                 p = p + 1
             } else {
@@ -158,24 +487,28 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
         }
         b = b + 1
     }
+    spans.finish(points, &var lt.first, &var lt.runs)
     move lt
 }
 
 // Appends to `coro.live` the lifetime of one value of `lt`'s frame, and
-// returns where it starts: every point for the state word and the op-budget
-// counter, `lt`'s set for local `l`, and for the child slot or offload
-// storage of suspension point `s` (an index of `lt.suspends`), its call's
-// terminator, which writes the parameter slots or starts the job, its
+// returns where it starts: its span count, then each span's first point and
+// the point past its last. The lifetime is every point for the state word
+// and the op-budget counter, `lt`'s set for local `l`, and for the child slot
+// or offload storage of suspension point `s` (an index of `lt.suspends`), its
+// call's terminator, which writes the parameter slots or starts the job, its
 // suspension point, and its return edge, where the take reads the job word
 // or a child's result is moved out, which only a call with a destination has.
 public func coro_lifetime_append(coro: &var CoroProgram, lt: &CoroLifetimes, kind: CoroValueKind, l: Int,
                                  s: Int) -> Int {
     let live_first = coro.live.len()
-    var p = 0
     if kind == CoroValueKind.State || kind == CoroValueKind.Budget {
-        while p < lt.points {
-            try! coro.live.push(true)
-            p = p + 1
+        if lt.points > 0 {
+            try! coro.live.push(1)
+            try! coro.live.push(0)
+            try! coro.live.push(lt.points)
+        } else {
+            try! coro.live.push(0)
         }
         return live_first
     }
@@ -185,54 +518,182 @@ public func coro_lifetime_append(coro: &var CoroProgram, lt: &CoroLifetimes, kin
         if kind == CoroValueKind.Child && coro.mono.dp.bc.mir.calls[point.call].dest < 0 {
             through = -1
         }
-        while p < lt.points {
-            try! coro.live.push(p == point.point - 1 || p == point.point || p == through)
-            p = p + 1
+        var at = Vector<Int>()
+        coro_add_point(&var at, point.point - 1, lt.points)
+        coro_add_point(&var at, point.point, lt.points)
+        coro_add_point(&var at, through, lt.points)
+        at.sort()
+        var spans = Vector<Int>()
+        var k = 0
+        while k < at.len() {
+            let p = at[k]
+            k = k + 1
+            let last = spans.len() - 1
+            if last >= 0 && spans[last] >= p {
+                if spans[last] == p {
+                    spans[last] = p + 1
+                }
+                continue
+            }
+            try! spans.push(p)
+            try! spans.push(p + 1)
+        }
+        try! coro.live.push(spans.len() / 2)
+        k = 0
+        while k < spans.len() {
+            try! coro.live.push(spans[k])
+            k = k + 1
         }
         return live_first
     }
-    while p < lt.points {
-        try! coro.live.push(lt.live[l * lt.points + p])
-        p = p + 1
+    let from = lt.first[l]
+    let to = lt.first[l + 1]
+    try! coro.live.push((to - from) / 2)
+    var k = from
+    while k < to {
+        try! coro.live.push(lt.runs[k])
+        k = k + 1
     }
     live_first
 }
 
+func coro_add_point(at: &var Vector<Int>, p: Int, points: Int) {
+    if p >= 0 && p < points {
+        try! at.push(p)
+    }
+}
+
 // Whether local `l`'s lifetime contains one of the suspension points: what
-// makes a local frame-resident.
+// makes a local frame-resident. The suspension points are in point order.
 public func coro_lifetime_resident(lt: &CoroLifetimes, l: Int) -> Bool {
-    var k = 0
-    while k < lt.suspends.len() {
-        if lt.live[l * lt.points + lt.suspends[k].point] {
+    var k = lt.first[l]
+    while k < lt.first[l + 1] {
+        let lo = lt.runs[k]
+        let hi = lt.runs[k + 1]
+        k = k + 2
+        var a = 0
+        var z = lt.suspends.len()
+        while a < z {
+            let m = (a + z) / 2
+            if lt.suspends[m].point < lo {
+                a = m + 1
+            } else {
+                z = m
+            }
+        }
+        if a < lt.suspends.len() && lt.suspends[a].point < hi {
             return true
         }
-        k = k + 1
     }
     false
 }
 
-// Whether values `a` and `b` of `frame` have a program point in common.
-public func coro_lifetimes_meet(coro: &CoroProgram, frame: &CoroFrame, a: &CoroValue, b: &CoroValue) -> Bool {
-    var p = 0
-    while p < frame.points {
-        if coro.live[a.live_first + p] && coro.live[b.live_first + p] {
-            return true
-        }
-        p = p + 1
+// Value `v`'s spans, each a first point and the point past its last.
+public func coro_lifetime_spans(coro: &CoroProgram, v: &CoroValue) -> Vector<Int> {
+    var out = Vector<Int>()
+    let count = coro.live[v.live_first]
+    var k = 0
+    while k < 2 * count {
+        try! out.push(coro.live[v.live_first + 1 + k])
+        k = k + 1
     }
-    false
+    move out
+}
+
+// By value of `frame`, the other values whose lifetimes share a point with
+// its own, ascending: value `i`'s are `near[first[i]]` up to
+// `near[first[i + 1]]`. One sweep of the spans' ends in point order meets
+// each such pair where the later of its two spans starts, so the sweep costs
+// the spans and the pairs, not every pair at every point (SL-970).
+public func coro_lifetime_neighbours(coro: &CoroProgram, frame: &CoroFrame, first: &var Vector<Int>,
+                                     near: &var Vector<Int>) {
+    let n = frame.value_count
+    first.clear()
+    near.clear()
+    if n == 0 {
+        try! first.push(0)
+        return
+    }
+    // A span's end sorts before a start at the same point, which it does not
+    // reach.
+    var events = Vector<Int>()
+    var k = 0
+    while k < n {
+        let v = coro.values[frame.value_first + k]
+        let count = coro.live[v.live_first]
+        var j = 0
+        while j < count {
+            let lo = coro.live[v.live_first + 1 + 2 * j]
+            let hi = coro.live[v.live_first + 2 + 2 * j]
+            j = j + 1
+            try! events.push((2 * lo + 1) * n + k)
+            try! events.push(2 * hi * n + k)
+        }
+        k = k + 1
+    }
+    events.sort()
+    var active = Vector<Int>()
+    var active_at = Vector<Int>()
+    k = 0
+    while k < n {
+        try! active_at.push(-1)
+        k = k + 1
+    }
+    var pairs = Vector<Int>()
+    k = 0
+    while k < events.len() {
+        let e = events[k]
+        k = k + 1
+        let i = e % n
+        if (e / n) % 2 == 1 {
+            var j = 0
+            while j < active.len() {
+                let w = active[j]
+                j = j + 1
+                try! pairs.push(i * n + w)
+                try! pairs.push(w * n + i)
+            }
+            active_at[i] = active.len()
+            try! active.push(i)
+        } else {
+            let at = active_at[i]
+            let moved = active[active.len() - 1]
+            active[at] = moved
+            active_at[moved] = at
+            let _ = active.pop()
+            active_at[i] = -1
+        }
+    }
+    pairs.sort()
+    var x = 0
+    var i = 0
+    while i < n {
+        let from = near.len()
+        try! first.push(from)
+        while x < pairs.len() && pairs[x] / n == i {
+            let j = pairs[x] % n
+            x = x + 1
+            let last = near.len() - 1
+            if last < from || near[last] != j {
+                try! near.push(j)
+            }
+        }
+        i = i + 1
+    }
+    try! first.push(near.len())
 }
 
 // Whether value `v` of `frame` is live in the frame's `s`th suspension
 // state, counting from 0.
 public func coro_lifetime_across(coro: &CoroProgram, frame: &CoroFrame, v: &CoroValue, s: Int) -> Bool {
     let point = coro.suspends[frame.suspend_first + s]
-    coro.live[v.live_first + point.point]
+    coro_lifetime_at(&coro, &v, point.point)
 }
 
 // Whether value `v`'s bytes are needed just before program point `p`.
 public func coro_lifetime_at(coro: &CoroProgram, v: &CoroValue, p: Int) -> Bool {
-    coro.live[v.live_first + p]
+    let from = v.live_first + 1
+    coro_spans_hold(&coro.live, from, from + 2 * coro.live[v.live_first], p)
 }
 
 // The program points of function `f`, in order, each named for the dump.
@@ -284,28 +745,15 @@ func coro_block_returns(coro: &CoroProgram, f: Int, b: Int) -> Bool {
     coro_block_suspends(&coro, f, b) && coro.mono.dp.bc.mir.calls[block.call].next >= 0
 }
 
-// Marks, at point `p`, each local `state` says may be initialised: some
-// move path inside it may be whole or partial.
-func coro_mark_live(facts: &MirInit, state: &Vector<Int>, lt: &var CoroLifetimes, p: Int) {
-    var q = 0
-    while q < facts.path_count() {
-        if (facts.own(&state, q) & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0 {
-            let l = facts.path_local[q]
-            lt.live[l * lt.points + p] = true
-        }
-        q = q + 1
-    }
-}
-
 // Marks, at point `p`, the local an assignment `stmt` writes into its own
 // bytes, whole or a part of it: its lifetime starts at the statement that
 // initialises it, not after. The backend writes an rvalue straight into its
 // destination, a moved memory value by one `memcpy` and an aggregate member
 // by member, reading each operand as it goes, so the destination and every
 // value the statement reads must not share bytes at that point.
-func coro_mark_destination(coro: &CoroProgram, stmt: &MirStmt, lt: &var CoroLifetimes, p: Int) {
+func coro_mark_destination(coro: &CoroProgram, stmt: &MirStmt, spans: &var CoroSpans, p: Int) {
     if stmt.kind == MirStmtKind.Assign {
-        coro_mark_written(&coro, stmt.place, &var lt, p)
+        coro_mark_written(&coro, stmt.place, &var spans, p)
     }
 }
 
@@ -317,7 +765,7 @@ func coro_mark_destination(coro: &CoroProgram, stmt: &MirStmt, lt: &var CoroLife
 // reference, a result) before control leaves the terminator. A suspending
 // call writes its destination at its return edge. Rule 5 recomputes the same
 // definition independently (`coro_verify_local_lifetimes`).
-func coro_mark_written(coro: &CoroProgram, dest: Int, lt: &var CoroLifetimes, p: Int) {
+func coro_mark_written(coro: &CoroProgram, dest: Int, spans: &var CoroSpans, p: Int) {
     if dest < 0 {
         return
     }
@@ -332,7 +780,7 @@ func coro_mark_written(coro: &CoroProgram, dest: Int, lt: &var CoroLifetimes, p:
         }
         j = j + 1
     }
-    lt.live[place.local * lt.points + p] = true
+    spans.mark(place.local, p, p + 1)
 }
 
 // The windows of function `f` that may be open on entry to each block:
@@ -408,14 +856,14 @@ func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
 // reference the initialisation analysis never sees, so its lifetime is
 // every point at which its window may be open.
 func coro_mark_records(coro: &CoroProgram, f: Int, open: &Vector<Bool>, at: Int, opening: Int, closed: Int,
-                       lt: &var CoroLifetimes, p: Int) {
+                       spans: &var CoroSpans, p: Int) {
     let info = coro.mono.dp.bc.mir.funcs[f]
     var w = 0
     while w < info.window_count {
         if (open[at + w] && w != closed) || w == opening {
             let record = coro.mono.dp.bc.mir.windows[info.window_first + w].record
             if record >= 0 {
-                lt.live[record * lt.points + p] = true
+                spans.mark(record, p, p + 1)
             }
         }
         w = w + 1

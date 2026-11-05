@@ -31,6 +31,8 @@
 //     collect_flags (compiler/drops/src/elaborate.saw)
 //     verify_flow (compiler/drops/src/verify.saw)
 //     coro_lifetimes_of (compiler/coro/src/lifetimes.saw)
+//     coro_verify_condition_runs (compiler/coro/src/verify.saw)
+//     coro_verify_local_lifetimes (compiler/coro/src/verify.saw)
 
 // The most cells, blocks times paths, a function keeps as dense rows: about
 // where the trees start to cost less, measured on generated long functions.
@@ -431,6 +433,51 @@ extension MirCursor {
         while k < changed.len() {
             let q = changed[k]
             self.state[q] = states.get(root, q)
+            k = k + 1
+        }
+        self.base = root
+    }
+
+    // `load`, appending to `changed` each path whose condition the move
+    // changes, so a client keeping a summary of `state` revisits only those.
+    public func load_noting(&var self, states: &MirStates, root: Int, changed: &var Vector<Int>) {
+        if states.dense {
+            var q = 0
+            while q < states.width {
+                let v = states.get(root, q)
+                if self.state[q] != v {
+                    self.state[q] = v
+                    try! changed.push(q)
+                }
+                q = q + 1
+            }
+            self.touched.clear()
+            self.walk = self.walk + 1
+            self.base = root
+            return
+        }
+        var k = 0
+        while k < self.touched.len() {
+            let q = self.touched[k]
+            let v = states.get(self.base, q)
+            if self.state[q] != v {
+                self.state[q] = v
+                try! changed.push(q)
+            }
+            k = k + 1
+        }
+        self.touched.clear()
+        self.walk = self.walk + 1
+        if root == self.base {
+            return
+        }
+        var differ = Vector<Int>()
+        states.diff(self.base, root, &var differ)
+        k = 0
+        while k < differ.len() {
+            let q = differ[k]
+            self.state[q] = states.get(root, q)
+            try! changed.push(q)
             k = k + 1
         }
         self.base = root
