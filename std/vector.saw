@@ -14,6 +14,9 @@ import std.string.{joined_strings}
 
 static FIRST_SLOTS: Int = 4
 
+// The run length `sort_by` insertion-sorts before it starts merging.
+static SORT_RUN: Int = 20
+
 /// A growable array of `T`, allocated through `A`.
 public struct Vector<T, A: Allocator = GlobalAllocator> {
     private buffer: UnsafePointer<T>?
@@ -317,28 +320,164 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         move acc
     }
 
-    // The same insertion sort as `sort`, but the comparands are lent where
-    // they sit, so `T` needs no copy bound.
+    // A bottom-up merge sort whose merges are in place (SymMerge, Kim and
+    // Kutzner 2004): insertion-sorted runs of SORT_RUN elements, then merges
+    // of doubling width. Nothing is allocated, which keeps the signature free
+    // of an `AllocError`, and every element moves by the byte-level `swap`, so
+    // none is duplicated. Only `compare(x, y) == Greater` is ever asked, and an
+    // element passes another only when it is strictly greater, which is what
+    // keeps equal elements in order.
     /// Sorts the elements in place by `compare`, which is lent the two
     /// comparands as `&T`.
     ///
-    /// The sort is stable: equal elements keep their order.
+    /// The sort is stable: equal elements keep their order. It makes
+    /// O(n log n) calls of `compare` and O(n log² n) element swaps, and
+    /// allocates nothing.
     public func sort_by(&var self, compare: (&T, &T) -> Ordering) unsafe {
-        var i = 1
-        while i < self.length {
+        let count = self.length
+        var start = 0
+        while start < count {
+            let stop = if start + SORT_RUN < count { start + SORT_RUN } else { count }
+            self.insertion_sort(start, stop, compare)
+            start = stop
+        }
+        var width = SORT_RUN
+        while width < count {
+            var low = 0
+            while low + width < count {
+                let middle = low + width
+                let high = if middle + width < count { middle + width } else { count }
+                // Two runs already in order need no merge, so sorted input
+                // costs one comparison per run.
+                if self.greater_by(middle - 1, middle, compare) {
+                    self.sym_merge(low, middle, high, compare)
+                }
+                low = high
+            }
+            width = width * 2
+        }
+    }
+
+    // Whether the element at `i` orders strictly after the one at `j`.
+    func greater_by(&self, i: Int, j: Int, compare: (&T, &T) -> Ordering) unsafe -> Bool {
+        guard let left = self.buffer else {
+            return false
+        }
+        let right = left
+        compare(&left[i], &right[j]) == Ordering.Greater
+    }
+
+    // Sorts `low..<high`; an element moves only past a strictly greater
+    // predecessor.
+    func insertion_sort(&var self, low: Int, high: Int, compare: (&T, &T) -> Ordering) unsafe {
+        var i = low + 1
+        while i < high {
             var j = i
-            while j > 0 {
-                guard let left = self.buffer else {
-                    return
-                }
-                let right = left
-                if compare(&left[j - 1], &right[j]) != Ordering.Greater {
-                    break
-                }
+            while j > low && self.greater_by(j - 1, j, compare) {
                 self.swap(j - 1, j)
                 j = j - 1
             }
             i = i + 1
+        }
+    }
+
+    // Merges the sorted runs `low..<middle` and `middle..<high` in place. It
+    // splits both runs at a point found by binary search, rotates the two
+    // inner pieces past each other and recurses on each side, so the depth is
+    // O(log n). Ties resolve toward the left run, which is the stability rule.
+    func sym_merge(&var self, low: Int, middle: Int, high: Int, compare: (&T, &T) -> Ordering) unsafe {
+        if middle - low == 1 {
+            // The one left element goes before the first right element that
+            // is not strictly less than it.
+            var i = middle
+            var j = high
+            while i < j {
+                let h = i + (j - i) / 2
+                if self.greater_by(low, h, compare) {
+                    i = h + 1
+                } else {
+                    j = h
+                }
+            }
+            var k = low
+            while k < i - 1 {
+                self.swap(k, k + 1)
+                k = k + 1
+            }
+            return
+        }
+        if high - middle == 1 {
+            // The one right element goes before the first left element that
+            // is strictly greater than it.
+            var i = low
+            var j = middle
+            while i < j {
+                let h = i + (j - i) / 2
+                if not self.greater_by(h, middle, compare) {
+                    i = h + 1
+                } else {
+                    j = h
+                }
+            }
+            var k = middle
+            while k > i {
+                self.swap(k, k - 1)
+                k = k - 1
+            }
+            return
+        }
+        let half = low + (high - low) / 2
+        let span = half + middle
+        var start = low
+        var bound = middle
+        if middle > half {
+            start = span - high
+            bound = half
+        }
+        let last = span - 1
+        while start < bound {
+            let c = start + (bound - start) / 2
+            if not self.greater_by(c, last - c, compare) {
+                start = c + 1
+            } else {
+                bound = c
+            }
+        }
+        let stop = span - start
+        if start < middle && middle < stop {
+            self.rotate(start, middle, stop)
+        }
+        if low < start && start < half {
+            self.sym_merge(low, start, half, compare)
+        }
+        if half < stop && stop < high {
+            self.sym_merge(half, stop, high, compare)
+        }
+    }
+
+    // Exchanges the blocks `low..<middle` and `middle..<high` by swapping
+    // equal-length pieces, Gries and Mills's block swap.
+    func rotate(&var self, low: Int, middle: Int, high: Int) unsafe {
+        var left = middle - low
+        var right = high - middle
+        while left != right {
+            if left > right {
+                self.swap_blocks(middle - left, middle, right)
+                left = left - right
+            } else {
+                self.swap_blocks(middle - left, middle + right - left, left)
+                right = right - left
+            }
+        }
+        self.swap_blocks(middle - left, middle, left)
+    }
+
+    // Swaps the `count` elements from `first` with the `count` from `second`.
+    func swap_blocks(&var self, first: Int, second: Int, count: Int) unsafe {
+        var k = 0
+        while k < count {
+            self.swap(first + k, second + k)
+            k = k + 1
         }
     }
 }
@@ -456,32 +595,19 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
     }
 }
 
-// Insertion sort: no scratch buffer, and stable because an element moves only
-// past a strictly greater predecessor. Elements move by the byte-level `swap`,
-// so none is duplicated; the comparands are read by value, hence `T: Copy`.
-extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
+// `sort_by` asks only whether one comparand is strictly greater, so the
+// comparator answers `Less` for both "less" and "equal": `>` is the one
+// question `T`'s order is asked.
+extension Vector<T: Comparable, A: Allocator = GlobalAllocator> {
     /// Sorts the elements in ascending order by `T`'s `Comparable` order.
     ///
-    /// The sort is stable: equal elements keep their order.
+    /// The sort is stable: equal elements keep their order. It makes
+    /// O(n log n) comparisons and O(n log² n) element swaps, and allocates
+    /// nothing. No element is copied, so a NoCopy element type sorts.
     public func sort(&var self) {
-        var i = 1
-        while i < self.length {
-            var j = i
-            while j > 0 && self.greater_at(j - 1, j) {
-                self.swap(j - 1, j)
-                j = j - 1
-            }
-            i = i + 1
-        }
-    }
-
-    func greater_at(&self, i: Int, j: Int) -> Bool {
-        if let a = self.get(i) {
-            if let b = self.get(j) {
-                return a > b
-            }
-        }
-        false
+        self.sort_by({ a, b in
+            if a > b { Ordering.Greater } else { Ordering.Less }
+        })
     }
 }
 

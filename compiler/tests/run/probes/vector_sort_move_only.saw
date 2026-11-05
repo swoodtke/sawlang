@@ -1,0 +1,150 @@
+// probe: stated
+// about: `Vector.sort` requires only `T: Comparable`, so a NoCopy and an ExplicitCopy element sort, ordered and stable (SL-974)
+// stage 0: refuses both `sort` calls, since its `sort` requires `T: Comparable + Copy`
+// speeds: -O0 -O2
+// prints: NoCopy badges: ordered and stable; digest 4480681277472435342
+// prints: ExplicitCopy crates: ordered and stable, items kept; digest 4960738669112696160
+// prints: NoCopy badges, 41 elements: ordered and stable
+// prints: ExplicitCopy crates, 41 elements: ordered and stable
+// Each element type orders by `key` alone, over five possible keys, so most
+// comparands tie and only stability decides their order; `seq` records the
+// arrival order. Elements move only by swap, so a crate's `items` vector
+// arrives intact. The digest is the order the sort produced, which every
+// stable sort agrees on, so a change of algorithm leaves it alone.
+
+static DUPLICATE_KEYS: Int = 5
+static LARGE: Int = 500
+static SMALL: Int = 41
+
+struct Badge { key: Int, seq: Int }
+extension Badge: NoCopy {}
+extension Badge: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.key == other.key }
+}
+extension Badge: Comparable {
+    func compare(&self, other: &Self) -> Ordering { self.key.compare(&other.key) }
+}
+
+struct Crate { key: Int, seq: Int, items: Vector<Int> }
+@synthesize
+extension Crate: ExplicitCopy {}
+extension Crate: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.key == other.key }
+}
+extension Crate: Comparable {
+    func compare(&self, other: &Self) -> Ordering { self.key.compare(&other.key) }
+}
+
+func next_random(state: Int) -> Int {
+    (state &* 6364136223846793005) &+ 1442695040888963407
+}
+
+func keys_for(size: Int, seed: Int) -> Vector<Int> {
+    var keys = Vector<Int>()
+    var state = seed
+    var i = 0
+    while i < size {
+        state = next_random(state)
+        try! keys.push(((state >> 33) & 0x7FFF_FFFF) % DUPLICATE_KEYS)
+        i = i + 1
+    }
+    move keys
+}
+
+func mix(digest: Int, value: Int) -> Int {
+    (digest &* 1_000_003) &+ value
+}
+
+// Whether entry `i` follows entry `i - 1` in key order, and in arrival order
+// on a tie.
+func in_order(before_key: Int, before_seq: Int, key: Int, seq: Int) -> Bool {
+    before_key < key || (before_key == key && before_seq < seq)
+}
+
+// The digest of the sorted badges, or None when they are out of order or
+// not a permutation.
+func sort_badges(size: Int, seed: Int) -> Int? {
+    let keys = keys_for(size, seed)
+    var badges = Vector<Badge>()
+    var i = 0
+    while i < size {
+        try! badges.push(Badge(key: keys[i], seq: i))
+        i = i + 1
+    }
+    badges.sort()
+    var seen = Vector<Bool>()
+    i = 0
+    while i < size {
+        try! seen.push(false)
+        i = i + 1
+    }
+    var digest = 0
+    i = 0
+    while i < size {
+        let seq = badges[i].seq
+        if seen[seq] || keys[seq] != badges[i].key {
+            return None
+        }
+        seen[seq] = true
+        if i > 0 && not in_order(badges[i - 1].key, badges[i - 1].seq, badges[i].key, seq) {
+            return None
+        }
+        digest = mix(digest, seq)
+        i = i + 1
+    }
+    digest
+}
+
+func sort_crates(size: Int, seed: Int) -> Int? {
+    let keys = keys_for(size, seed)
+    var crates = Vector<Crate>()
+    var i = 0
+    while i < size {
+        var items = Vector<Int>()
+        try! items.push(i)
+        try! crates.push(Crate(key: keys[i], seq: i, items: move items))
+        i = i + 1
+    }
+    crates.sort()
+    var seen = Vector<Bool>()
+    i = 0
+    while i < size {
+        try! seen.push(false)
+        i = i + 1
+    }
+    var digest = 0
+    i = 0
+    while i < size {
+        let seq = crates[i].seq
+        if seen[seq] || keys[seq] != crates[i].key {
+            return None
+        }
+        seen[seq] = true
+        if crates[i].items.len() != 1 || crates[i].items[0] != seq {
+            return None
+        }
+        if i > 0 && not in_order(crates[i - 1].key, crates[i - 1].seq, crates[i].key, seq) {
+            return None
+        }
+        digest = mix(digest, seq)
+        i = i + 1
+    }
+    digest
+}
+
+func main() {
+    match sort_badges(LARGE, 9) {
+        case Some(d) -> print("NoCopy badges: ordered and stable; digest {}", d),
+        case None -> print("NoCopy badges: out of order")
+    }
+    match sort_crates(LARGE, 13) {
+        case Some(d) -> print("ExplicitCopy crates: ordered and stable, items kept; digest {}", d),
+        case None -> print("ExplicitCopy crates: out of order")
+    }
+    if sort_badges(SMALL, 21).is_some() {
+        print("NoCopy badges, {} elements: ordered and stable", SMALL)
+    }
+    if sort_crates(SMALL, 21).is_some() {
+        print("ExplicitCopy crates, {} elements: ordered and stable", SMALL)
+    }
+}

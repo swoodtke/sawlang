@@ -1334,10 +1334,14 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   `__saw_drive_steps` reported 0 where 2 were owed, and the io face of it
   parked the cooperative executor's own thread). `iter`/`enumerated`
   KEEP `T: Copy` — `next()` hands out an element the consumer owns, which
-  is a real copy at the source (design 122). `sort` keeps its `T: Copy` too
-  (`_greater_at` reads both elements by value to apply `T`'s own `>`);
-  `sort_by` LOST its bound at design 264, which lent the comparands — see
-  the visitor entry above.
+  is a real copy at the source (design 122). `sort` requires only
+  `T: Comparable`, so a NoCopy or ExplicitCopy element sorts: it calls
+  `sort_by` with a `>` comparator over lent comparands, and elements move
+  only by swap (a build that refuses a NoCopy `sort` on `T: Copy` predates
+  SL-974). `sort_by` LOST its bound at design 264, which lent the
+  comparands — see the visitor entry above. Both are STABLE, make O(n log n)
+  comparisons (an in-place merge sort, O(n log² n) swaps) and allocate
+  nothing, so neither returns a `Result` (SL-974).
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works

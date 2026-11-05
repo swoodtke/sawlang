@@ -1,0 +1,234 @@
+// `Vector.sort` and `Vector.sort_by` over five input shapes at sizes around
+// the insertion-sorted run and past several merge widths (SL-974): each
+// result is ordered, a permutation of its input, and stable, so equal keys
+// keep the order they arrived in. The digest of each shape is the order the
+// sort produced, which every stable sort agrees on, so it is held to Stage 0's
+// insertion sort. A NoCopy element sorts through `sort_by`, and a `String`
+// element through both.
+
+static SHAPE_COUNT: Int = 5
+static DUPLICATE_KEYS: Int = 5
+static RANDOM_KEYS: Int = 1_000_000
+static WORD_COUNT: Int = 600
+static WORD_KEYS: Int = 50
+
+// Orders by `key` alone, so two entries with one key are equal to the sort
+// and only stability decides which comes first.
+struct Entry { key: Int, seq: Int, label: String }
+extension Entry: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.key == other.key }
+}
+extension Entry: Comparable {
+    func compare(&self, other: &Self) -> Ordering { self.key.compare(&other.key) }
+}
+
+struct Ticket { key: Int, seq: Int }
+extension Ticket: NoCopy {}
+
+func shape_name(shape: Int) -> String {
+    match shape {
+        case 0 -> "random",
+        case 1 -> "reversed",
+        case 2 -> "sorted",
+        case 3 -> "all-equal",
+        case _ -> "duplicates"
+    }
+}
+
+func next_random(state: Int) -> Int {
+    (state &* 6364136223846793005) &+ 1442695040888963407
+}
+
+// Non-negative, from the high bits of the generator state.
+func draw(state: Int, bound: Int) -> Int {
+    ((state >> 33) & 0x7FFF_FFFF) % bound
+}
+
+func keys_for(shape: Int, size: Int, seed: Int) -> Vector<Int> {
+    var keys = Vector<Int>()
+    var state = seed
+    var i = 0
+    while i < size {
+        state = next_random(state)
+        let key = match shape {
+            case 0 -> draw(state, RANDOM_KEYS),
+            case 1 -> size - i,
+            case 2 -> i,
+            case 3 -> 7,
+            case _ -> draw(state, DUPLICATE_KEYS)
+        }
+        try! keys.push(key)
+        i = i + 1
+    }
+    move keys
+}
+
+func mix(digest: Int, value: Int) -> Int {
+    (digest &* 1_000_003) &+ value
+}
+
+// The first fault the sorted entries show, or None.
+func check_entries(sorted: &Vector<Entry>, keys: &Vector<Int>) -> String? {
+    if sorted.len() != keys.len() {
+        return "length {sorted.len()} for {keys.len()} keys"
+    }
+    var seen = Vector<Bool>()
+    var i = 0
+    while i < keys.len() {
+        try! seen.push(false)
+        i = i + 1
+    }
+    i = 0
+    while i < sorted.len() {
+        let e = sorted[i]
+        if e.seq < 0 || e.seq >= keys.len() || seen[e.seq] {
+            return "seq {e.seq} at {i} is not a permutation"
+        }
+        seen[e.seq] = true
+        if keys[e.seq] != e.key {
+            return "entry {i} carries key {e.key}, input {e.seq} had {keys[e.seq]}"
+        }
+        if i > 0 {
+            let before = sorted[i - 1]
+            if before.key > e.key {
+                return "out of order at {i}: {before.key} before {e.key}"
+            }
+            if before.key == e.key && before.seq > e.seq {
+                return "unstable at {i}: seq {before.seq} before {e.seq} on key {e.key}"
+            }
+        }
+        i = i + 1
+    }
+    None
+}
+
+// Sorts one input both ways and returns its digest, or the first fault.
+func run_case(shape: Int, size: Int) -> Result<Int, String> {
+    let keys = keys_for(shape, size, size + shape)
+    var entries = Vector<Entry>()
+    var plain = Vector<Int>()
+    var i = 0
+    while i < size {
+        try! entries.push(Entry(key: keys[i], seq: i, label: "e"))
+        try! plain.push(keys[i])
+        i = i + 1
+    }
+    entries.sort()
+    if let fault = check_entries(&entries, &keys) {
+        return "sort: {fault}"
+    }
+    plain.sort_by({ a, b in a.compare(&b) })
+    var digest = size
+    i = 0
+    while i < size {
+        if plain[i] != entries[i].key {
+            return "sort_by: key {plain[i]} at {i}, sort gave {entries[i].key}"
+        }
+        digest = mix(digest, entries[i].seq)
+        i = i + 1
+    }
+    return digest
+}
+
+func sort_shapes() {
+    let sizes: Vector<Int> = [0, 1, 2, 3, 19, 20, 21, 39, 40, 41, 79, 80, 81, 100, 257, 1000, 2500]
+    var shape = 0
+    while shape < SHAPE_COUNT {
+        var digest = 0
+        var failed = false
+        var k = 0
+        while k < sizes.len() {
+            match run_case(shape, sizes[k]) {
+                case Ok(d) -> { digest = mix(digest, d) },
+                case Err(fault) -> {
+                    print("{} size {}: {}", shape_name(shape), sizes[k], fault)
+                    failed = true
+                }
+            }
+            k = k + 1
+        }
+        if not failed {
+            print("{}: ordered, a permutation, stable; digest {}", shape_name(shape), digest)
+        }
+        shape = shape + 1
+    }
+}
+
+func sort_tickets() {
+    let size = 500
+    let keys = keys_for(4, size, 3)
+    var tickets = Vector<Ticket>()
+    var i = 0
+    while i < size {
+        try! tickets.push(Ticket(key: keys[i], seq: i))
+        i = i + 1
+    }
+    tickets.sort_by({ a, b in a.key.compare(&b.key) })
+    var digest = 0
+    i = 0
+    while i < size {
+        if i > 0 {
+            let before_key = tickets[i - 1].key
+            let before_seq = tickets[i - 1].seq
+            if before_key > tickets[i].key || (before_key == tickets[i].key && before_seq > tickets[i].seq) {
+                print("tickets: out of order at {}", i)
+                return
+            }
+        }
+        digest = mix(digest, tickets[i].seq)
+        i = i + 1
+    }
+    print("NoCopy tickets: ordered and stable; digest {}", digest)
+}
+
+func string_digest(words: &Vector<String>) -> Int {
+    var digest = 0
+    var i = 0
+    while i < words.len() {
+        let word = words[i]
+        var j = 0
+        while j < word.len() {
+            digest = mix(digest, word.byte_at(j) as Int)
+            j = j + 1
+        }
+        digest = mix(digest, 0)
+        i = i + 1
+    }
+    digest
+}
+
+func sort_strings() {
+    var state = 5
+    var words = Vector<String>()
+    var i = 0
+    while i < WORD_COUNT {
+        state = next_random(state)
+        try! words.push("w{draw(state, WORD_KEYS)}")
+        i = i + 1
+    }
+    var by_length = words.copy()
+    words.sort()
+    i = 1
+    while i < words.len() {
+        if words[i - 1] > words[i] {
+            print("strings: out of order at {}", i)
+            return
+        }
+        i = i + 1
+    }
+    print("strings by sort: ordered; digest {}", string_digest(&words))
+    // Lengths are two or three bytes, so most comparands tie and the input
+    // order decides.
+    by_length.sort_by({ a, b in
+        let left = a.len()
+        let right = b.len()
+        left.compare(&right)
+    })
+    print("strings by length: digest {}", string_digest(&by_length))
+}
+
+func main() {
+    sort_shapes()
+    sort_tickets()
+    sort_strings()
+}

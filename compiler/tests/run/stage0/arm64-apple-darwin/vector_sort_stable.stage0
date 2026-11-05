@@ -1,0 +1,14 @@
+program	compiler/tests/run/vector_sort_stable.saw
+triple	arm64-apple-darwin
+source	9663f9ceec2c129c
+build	ok
+exit	0
+stdout	"random: ordered, a permutation, stable; digest -2537932380952641134"
+stdout	"reversed: ordered, a permutation, stable; digest -4349840895263808668"
+stdout	"sorted: ordered, a permutation, stable; digest -7316331691484640618"
+stdout	"all-equal: ordered, a permutation, stable; digest -7316331691484640618"
+stdout	"duplicates: ordered, a permutation, stable; digest 8907446467222032880"
+stdout	"NoCopy tickets: ordered and stable; digest 4899586843467934998"
+stdout	"strings by sort: ordered; digest -506322771473688974"
+stdout	"strings by length: digest -4517964093501714832"
+stdout	""

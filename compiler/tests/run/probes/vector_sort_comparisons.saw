@@ -1,0 +1,62 @@
+// probe: stated
+// about: `Vector.sort_by` makes O(n log n) comparisons, so doubling the input about doubles them (SL-974)
+// stage 0: sorts by insertion, whose comparisons quadruple when the input doubles
+// speeds: -O0 -O2
+// prints: random: 2N costs at most 2.3x the comparisons of N
+// prints: reversed: 2N costs at most 2.3x the comparisons of N
+// prints: duplicates: 2N costs at most 2.3x the comparisons of N
+// prints: sorted: 2N costs at most 2.3x the comparisons of N
+// The ratio of comparisons at 2N to those at N is about 2 + 2 / log2(N) for an
+// O(n log n) sort and 4 for a quadratic one, so 2.3 at N = 4,000 separates
+// them with room on both sides. Each line names its input shape and prints
+// the two counts instead when the ratio is over.
+
+static SMALL: Int = 4000
+static CEILING_PERCENT: Int = 230
+
+func next_random(state: Int) -> Int {
+    (state &* 6364136223846793005) &+ 1442695040888963407
+}
+
+func input(shape: Int, size: Int) -> Vector<Int> {
+    var keys = Vector<Int>()
+    var state = 17
+    var i = 0
+    while i < size {
+        state = next_random(state)
+        let key = match shape {
+            case 0 -> ((state >> 33) & 0x7FFF_FFFF) % 1_000_000,
+            case 1 -> size - i,
+            case 2 -> ((state >> 33) & 0x7FFF_FFFF) % 5,
+            case _ -> i
+        }
+        try! keys.push(key)
+        i = i + 1
+    }
+    move keys
+}
+
+func comparisons(shape: Int, size: Int) -> Int {
+    var keys = input(shape, size)
+    var count = 0
+    keys.sort_by({ [&var count] a, b in
+        count = count + 1
+        a.compare(&b)
+    })
+    count
+}
+
+func main() {
+    let names: Vector<String> = ["random", "reversed", "duplicates", "sorted"]
+    var shape = 0
+    while shape < names.len() {
+        let small = comparisons(shape, SMALL)
+        let large = comparisons(shape, 2 * SMALL)
+        if large * 100 <= small * CEILING_PERCENT {
+            print("{}: 2N costs at most 2.3x the comparisons of N", names[shape])
+        } else {
+            print("{}: {} comparisons at N, {} at 2N", names[shape], small, large)
+        }
+        shape = shape + 1
+    }
+}

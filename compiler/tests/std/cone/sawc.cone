@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 349 declarations in 24 modules
+# 355 declarations in 24 modules
 
 std.alloc: 9
   extern __saw_rt_alloc
@@ -217,8 +217,9 @@ std.path: 13
   method Path.realpath_text
   struct Path
 
-std.prelude: 20
+std.prelude: 21
   enum Optional
+  enum Ordering
   enum Result
   func atomic_exchange_word
   func atomic_load_word
@@ -381,20 +382,25 @@ std.utf8: 4
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 16
+std.vector: 21
   init Vector.init
   method Vector.clear
   method Vector.copy
   method Vector.deinit
   method Vector.get
-  method Vector.greater_at
+  method Vector.greater_by
   method Vector.grow_target
+  method Vector.insertion_sort
   method Vector.is_empty
   method Vector.len
   method Vector.pop
   method Vector.push
   method Vector.reserve
   method Vector.reserve_slots
+  method Vector.rotate
   method Vector.sort
+  method Vector.sort_by
   method Vector.swap
+  method Vector.swap_blocks
+  method Vector.sym_merge
   struct Vector

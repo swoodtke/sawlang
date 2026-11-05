@@ -8595,18 +8595,20 @@ element it owns, which is a copy at the source.
 
 ### `Vector.sort` / `sort_by`
 
-**Status: implemented** (`designs/48-ord-hash.md`). In-place **insertion sort**
-(simple and correct first; **stable** — equal elements keep input order):
+**Status: implemented** (`designs/48-ord-hash.md`, SL-974). An in-place merge
+sort: runs of a few elements are insertion-sorted, then merged in place by
+rotation. Both entry points are **stable** (equal elements keep input order),
+make O(n log n) comparisons and O(n log² n) element swaps, and **allocate
+nothing**, which is why neither returns a `Result`.
 
-- `sort(&var self)` on `Vector<T: Comparable + Copy>` — ascending by `T`'s order.
+- `sort(&var self)` on `Vector<T: Comparable>` — ascending by `T`'s order.
 - `sort_by(&var self, compare: (&T, &T) -> Ordering)` on `Vector<T>` — the
-  comparator is a **non-escaping** closure parameter, and it carries **no copy
-  bound**: the two comparands are lent as `&T`, read where they sit, so a
-  `Vector<File>` sorts by a user comparator.
-- Element *movement* uses byte-level `swap` (refcount-neutral, never a copy), so
-  no element is ever silently duplicated by either entry point. `sort` keeps
-  `T: Copy` because `_greater_at` reads both elements by value to apply `T`'s own
-  `>`; `sort_by` does not, since its comparator borrows.
+  comparator is a **non-escaping** closure parameter, called with the two
+  comparands lent as `&T`, read where they sit.
+- Neither carries a copy bound. Element *movement* uses byte-level `swap`
+  (refcount-neutral, never a copy), and comparison reads the elements in place,
+  so no element is ever duplicated: a `Vector<File>` sorts by a user comparator,
+  and a NoCopy or ExplicitCopy `Comparable` element sorts with `sort`.
 
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
