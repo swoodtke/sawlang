@@ -1,0 +1,111 @@
+// probe: stated
+// about: a connect's outcome comes from the socket, never a second connect(): a closed port is refused, a listener is the dialled socket's peer, and a check before the handshake is connected or in progress (SL-972)
+// stage 0: its frozen runtime learns the outcome from a second `connect()`, the probe this replaces, which macOS 27 answers `EISCONN` for a refused socket
+// speeds: -O0 -O2
+// prints: closed port: connection refused
+// prints: listening port: connected, the listener read: ping
+// prints: check before the handshake: connected or in progress
+// prints: checked until settled: connected
+// prints: peer is the listener: true
+// The connect seam is declared here rather than reached through std.net, whose
+// raw layer is private, because its first check, made before any park and
+// before the listener has accepted, is the state std never shows a caller.
+import std.net.{IoErrorKind, TcpListener, TcpStream}
+
+extern "C" {
+    func __saw_rt_tcp_connect_start(addr_be: Int, port: Int) -> Int
+    func __saw_rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int
+    func getpeername(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func close(fd: Int32) -> Int32
+}
+
+// runtime/ABI.md's tag for a connect still in flight.
+static IN_PROGRESS: Int = 2
+static SETTLE_TRIES: Int = 2000
+
+// `struct sockaddr_in` past its host-divergent first two bytes: the port and
+// the address sit at the same offsets on macOS and Linux.
+struct SockAddrIn {
+    family: UInt16
+    port: UInt16
+    addr: UInt32
+    zero: UInt64
+}
+
+// Four octets as the `sockaddr_in.sin_addr` word, on a little-endian host.
+func ipv4(a: Int, b: Int, c: Int, d: Int) -> Int {
+    a | (b << 8) | (c << 16) | (d << 24)
+}
+
+// Whether `fd`'s peer is `addr_be`:`port`, from `getpeername`.
+func peer_is(fd: Int, addr_be: Int, port: Int) unsafe -> Bool {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    var len: Int32 = 16
+    if getpeername(fd as Int32, (&sa) as UnsafePointer<Int8>, (&len) as UnsafePointer<Int32>) != (0 as Int32) {
+        return false
+    }
+    let wire = sa.port as Int
+    let host_port = ((wire & 0xff) << 8) | (wire >> 8)
+    host_port == port && (sa.addr as Int) == addr_be
+}
+
+func closed_port() {
+    let gone = try! TcpListener.listen(0)
+    let dead_port = try! gone.local_port()
+    let _ = move gone
+    match TcpStream.connect("127.0.0.1", dead_port) {
+        case Ok(_) -> print("closed port: CONNECTED"),
+        case Err(e) -> {
+            match e.kind() {
+                case ConnectionRefused -> print("closed port: {}", e.kind()),
+                case _ -> print("closed port: UNEXPECTED {}", e)
+            }
+        }
+    }
+}
+
+func listening_port() {
+    let listener = try! TcpListener.listen(0)
+    let port = try! listener.local_port()
+    let stream = try! TcpStream.connect("127.0.0.1", port)
+    try! stream.write("ping")
+    let accepted = try! listener.accept()
+    let chunk = try! accepted.read()
+    print("listening port: connected, the listener read: {}", try! chunk.to_string())
+}
+
+func check_before_handshake() unsafe {
+    let listener = try! TcpListener.listen(0)
+    let port = try! listener.local_port()
+    let loopback = ipv4(127, 0, 0, 1)
+    let fd = __saw_rt_tcp_connect_start(loopback, port)
+    if fd < 0 {
+        print("connect_start: UNEXPECTED -{}", 0 - fd)
+        return
+    }
+    var check = __saw_rt_tcp_connect_check(fd, loopback, port)
+    if check == 0 || check == 0 - IN_PROGRESS {
+        print("check before the handshake: connected or in progress")
+    } else {
+        print("check before the handshake: UNEXPECTED -{}", 0 - check)
+    }
+    var tries = 0
+    while check == 0 - IN_PROGRESS && tries < SETTLE_TRIES {
+        sleep(Duration.ms(1))
+        check = __saw_rt_tcp_connect_check(fd, loopback, port)
+        tries = tries + 1
+    }
+    if check == 0 {
+        print("checked until settled: connected")
+    } else {
+        print("checked until settled: UNEXPECTED {}", check)
+    }
+    print("peer is the listener: {}", peer_is(fd, loopback, port))
+    let _ = close(fd as Int32)
+}
+
+func main() {
+    closed_port()
+    listening_port()
+    check_before_handshake()
+}

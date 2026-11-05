@@ -578,6 +578,17 @@ long __saw_socket_send_flags(void) {
 #endif
 }
 
+/* The socket's pending error, `SO_ERROR`: the error number (0 when none), or
+ * -1 with `getsockopt`'s own errno left for the caller to classify. Reading it
+ * clears it. Outside the option tag table, because it is read, never set, and
+ * `__saw_rt_socket_set_option`'s tags are settable options. */
+long __saw_socket_pending_error(long fd) {
+    int code = 0;
+    socklen_t len = sizeof(code);
+    if (getsockopt((int)fd, SOL_SOCKET, SO_ERROR, &code, &len) != 0) return -1;
+    return code;
+}
+
 /* ---- Signals as reactor-readable events (design 272) --------------------
  *
  * std.signal's `next()` parks on the reactor like a socket read. Delivery is

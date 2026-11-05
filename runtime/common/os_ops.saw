@@ -16,6 +16,7 @@ extern "C" {
     func listen(fd: Int32, backlog: Int32) -> Int32
     func connect(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
     func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func getpeername(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
     func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func close(fd: Int32) -> Int32
@@ -54,6 +55,11 @@ extern "C" {
     func __saw_sockopt_name(option: Int) -> Int
     func __saw_socket_suppress_sigpipe(fd: Int)
     func __saw_socket_send_flags() -> Int
+    // A socket's pending `SO_ERROR` (shim.c): the error number, or -1 with
+    // errno set; and the classifier for a number a call returned rather than
+    // left in errno.
+    func __saw_socket_pending_error(fd: Int) -> Int
+    func __saw_classify_code(code: Int) -> Int
     // Close-on-exec (shim.c, SL-910): the type bit that makes a socket so at
     // creation, 0 on a host without one; the mark for such a host; and an
     // accept whose connection is made so.
@@ -329,25 +335,38 @@ func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
     return 0 - e
 }
 
-// Re-issue the nonblocking connect() to learn the true completion state. The
-// address must be the one `connect_start` used. Returns 0 = connected,
+// The state of the connect `connect_start` began on `fd`: 0 = connected,
 // -InProgress = still connecting (re-park), or -tag = a real failure.
+//
+// std asks before its first park and after every wake, so the socket need not
+// be writable yet: only a peer address proves the connection, and a pending
+// error of 0 alone cannot tell connected from still connecting. The peer is
+// asked first, so a connect that fails between the two reads still has its
+// error pending when `SO_ERROR` is read. A second `connect()` is no probe:
+// macOS answers `EISCONN` for a refused socket that has no peer. `addr_be` and
+// `port` are unused and stay because the seam's signature is frozen
+// (runtime/ABI.md).
 @export("__saw_rt_tcp_connect_check")
 func rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) unsafe -> Int {
-    var sa = ipv4_sockaddr(addr_be as UInt32, port)
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
     let ap = (&sa) as UnsafePointer<Int8>
-    let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
-    if r == (0 as Int32) {
+    var len: Int32 = SOCKADDR_IN_LEN
+    let lp = (&len) as UnsafePointer<Int32>
+    if getpeername(fd as Int32, ap, lp) == (0 as Int32) {
         return 0
     }
-    let e = __saw_rt_last_syserror()
-    if e == ((SysError.IsConnected as UInt8) as Int) {
-        return 0
+    let peer = __saw_rt_last_syserror()
+    let pending = __saw_socket_pending_error(fd)
+    if pending < 0 {
+        return 0 - __saw_rt_last_syserror()
     }
-    if e == ((SysError.InProgress as UInt8) as Int) || e == ((SysError.WouldBlock as UInt8) as Int) {
+    if pending != 0 {
+        return 0 - __saw_classify_code(pending)
+    }
+    if peer == ((SysError.NotConnected as UInt8) as Int) {
         return 0 - ((SysError.InProgress as UInt8) as Int)
     }
-    return 0 - e
+    return 0 - peer
 }
 
 // Nonblocking read: byte count (0 = EOF), or -tag (-WouldBlock on a would-block).

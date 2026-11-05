@@ -278,9 +278,11 @@ error vocabulary.
 | 23  | InputOutputFailed   | EIO                                        |
 | 24  | NotExecutable       | ENOEXEC                                    |
 
-`IsConnected` (3) and `InProgress` (2) exist so a re-issued nonblocking
-`connect()` can be classified (done / still connecting / failed) without an
-errno accessor.
+`InProgress` (2) exists so a nonblocking connect can be reported as still
+connecting (`__saw_rt_tcp_connect_start`'s `EINPROGRESS`, and
+`__saw_rt_tcp_connect_check` while the socket has no peer yet) without an
+errno accessor. `IsConnected` (3) names `EISCONN` for a seam that meets it;
+`__saw_rt_tcp_connect_check` never reads a connection's state from it.
 
 **A seam classifies a number in its own call's context.** The table reads an
 errno the way a nonblocking descriptor call means it. Where a call gives the
@@ -434,6 +436,13 @@ including shells and pipelines it did not write. Pipes keep their behaviour;
 only sockets change. The user-visible consequence is that a write to a hung-up
 client is an ordinary `Err(IoError)` with kind `BrokenPipe`.
 
+`__saw_socket_pending_error(fd) -> word` reads and clears the socket's pending
+error, `getsockopt(SOL_SOCKET, SO_ERROR)`: the error number (`0` for none), or
+`-1` with `getsockopt`'s own errno left for `__saw_rt_last_syserror`. The
+number is classified through `__saw_classify_code`. It sits outside the option
+tag table above, which holds options `__saw_rt_socket_set_option` can set, so
+that seam's contract is unchanged. `__saw_rt_tcp_connect_check` is its caller.
+
 ### Runtime-internal signal helpers (design 272)
 Also `shim.c`, also outside the frozen set, for the same reason: signal numbers
 are per-host macros (`SIGUSR1` is 30 on macOS and 10 on Linux).
@@ -578,10 +587,29 @@ byte order), which is what both std's dotted-quad parser and
 `__saw_rt_resolve_ipv4` produce.
 
 ### `__saw_rt_tcp_connect_check(fd: word, addr_be: word, port: word) -> word`
-Re-issue the nonblocking connect to learn the true state (design 90). `0` =
+The state of the connect `connect_start` began on `fd` (design 90). `0` =
 connected; `-InProgress` = still connecting (re-park); `-tag` = a real failure.
-`addr_be` must be the address `connect_start` was given: re-issuing against a
-different peer asks a different question.
+std calls it before its first park and after every wake, so it must answer
+whether or not the socket is writable yet.
+
+The answer comes from the socket, never from a second `connect()`:
+
+1. `getpeername`: success is connected (`0`).
+2. Otherwise the pending error, `getsockopt(SOL_SOCKET, SO_ERROR)`. A refused
+   `getsockopt` is its own `-tag`; a nonzero error is the connect's failure,
+   classified through the errno table (`ECONNREFUSED` is `-ConnRefused`).
+3. With no pending error, `getpeername`'s refusal decides: `ENOTCONN` is
+   still connecting (`-InProgress`), and any other refusal is its `-tag`,
+   never connected.
+
+The peer is asked first, so a connect that fails between the two reads still
+has its error pending when `SO_ERROR` is read. A pending error of 0 alone does
+not mean connected: a connect still in flight has none either. A re-issued
+`connect()` is not a sound probe: on macOS 27 it answers `EISCONN` for a
+refused socket that has no peer (SL-972).
+
+`addr_be` and `port` are unused. They stay because the seam's signature is
+frozen; a runtime may ignore them.
 
 ### `__saw_rt_resolve_ipv4(host: i8*, out: u32*, max: word) -> word`
 **Blocking (design 184).** Resolve the NUL-terminated hostname at `host` to
@@ -1589,7 +1617,8 @@ and moves to Saw when its gap closes:
   pointer): `__saw_open_flags`, the `getaddrinfo` projections
   (`__saw_ai_next`, `__saw_ai_ipv4`, `__saw_gai_tag`),
   `__saw_environ_get` (and `_set`, which only the bootstrap seed's pinned
-  runtime still calls), the socket-option and SIGPIPE helpers, the
+  runtime still calls), the socket-option and SIGPIPE helpers,
+  `__saw_socket_pending_error` (a socket's `SO_ERROR`), the
   signal family, `__saw_classify_code` (an error number a call returned,
   stored into the per-host errno macro and classified by
   `__saw_rt_last_syserror`), the spawn's child-side helpers (`__saw_errno`,
