@@ -15,7 +15,7 @@ extern "C" {
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
-static HOLD_NANOS: UInt64 = 300_000_000
+static RELEASED: Atomic<Int> = Atomic(0)
 
 static LONG_ROUNDS: Int = 50
 
@@ -41,12 +41,12 @@ func recv_one(ch: Channel<Int>) -> Int {
 }
 
 func hold() -> Int {
-    __saw_rt_sleep_ns(HOLD_NANOS)
+    hold_until_released()
     7
 }
 
 // A blocking wait for a thread, in thread context: the join drives the
-// group, so `p` runs inside that drive while the thread sleeps, and `main`
+// group, so `p` runs inside that drive while the thread holds, and `main`
 // never suspends.
 func wait_for_thread() blocking -> Int {
     var t = try! Thread.spawn { hold() }
@@ -58,6 +58,7 @@ func p(i: Int) -> Int {
     dump_tasks()
     let ch = try! Channel<Int>()
     let h = Task.spawn(recv_one(ch.copy()))
+    RELEASED.store(1)
     h.join()
 }
 
@@ -66,4 +67,23 @@ func main() {
     let h = group.spawn(p(1))
     print("T {}", wait_for_thread())
     print("P {}", h.join())
+}
+
+// The thread holds until RELEASED is set, never for a span of time, so `p`
+// runs to its end inside the join's drive however slowly the machine runs.
+// `p` sets it just before its last join: the deadlock walk reports only once
+// the thread has ended. The 1ms tick paces the poll; the 10s deadline bounds
+// only genuine breakage (TESTING.md, "Waiting in a multi-threaded test").
+static HOLD_TICK_NANOS: UInt64 = 1_000_000
+static HOLD_DEADLINE_TICKS: Int = 10000
+
+func hold_until_released() {
+    var ticks = 0
+    while RELEASED.load() == 0 {
+        if ticks >= HOLD_DEADLINE_TICKS {
+            panic("the thread: nothing released it")
+        }
+        __saw_rt_sleep_ns(HOLD_TICK_NANOS)
+        ticks = ticks + 1
+    }
 }

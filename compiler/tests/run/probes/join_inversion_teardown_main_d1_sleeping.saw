@@ -5,12 +5,29 @@
 // prints: J drops its group
 // prints: J returns 0
 // panics: TaskGroup: the group is torn down while one of its tasks is running further up this thread's stack
-// The joiner sleeps first, so the subject's drive resumes it; the subject
-// continues only once the joiner's wait returns.
+// The joiner waits until the leaf reports that it is waiting, so the subject's
+// drive resumes it; the leaf holds until the joiner releases it just before the
+// teardown, so no timer decides which of the two moves first.
 import std.task.*
 
+// The gates the test owns. The 1ms tick paces each poll and decides nothing;
+// the 10s deadline bounds only genuine breakage (TESTING.md, "Waiting in a
+// multi-threaded test").
+static ARRIVED: Atomic<Int> = Atomic(0)
+static RELEASED: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
 func leaf() -> Int {
-    sleep(Duration.ms(50))
+    ARRIVED.store(1)
+    var ticks = 0
+    while RELEASED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("leaf: the joiner never released it")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     print("leaf done")
     1
 }
@@ -37,8 +54,16 @@ func main() {
     let s = gs.spawn(sleeper())
     var gj = TaskGroup()
     let _ = gj.spawn(mid1())
-    sleep(Duration.ms(10))
+    var ticks = 0
+    while ARRIVED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("main: the leaf never reached its wait")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     print("J drops its group")
     let v = 0
     print("J returns {}", v)
+    RELEASED.store(1)
 }

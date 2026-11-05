@@ -18,13 +18,50 @@
 // prints: d2 sleeping 8
 // prints: leaf done
 // prints: d2 cancelled 8
+// Each cell waits until its leaf reports that it is waiting, so the subject's
+// drive resumes the cell; the leaf holds until the cell releases it just before
+// the join, so no timer decides which of the two moves first.
 import std.task.*
 import std.channel.{Channel}
 
+// The gates the test owns, re-armed by each cell. The 1ms tick paces each poll
+// and decides nothing; the 10s deadline bounds only genuine breakage
+// (TESTING.md, "Waiting in a multi-threaded test").
+static ARRIVED: Atomic<Int> = Atomic(0)
+static RELEASED: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
 func leaf() -> Int {
-    sleep(Duration.ms(50))
+    ARRIVED.store(1)
+    var ticks = 0
+    while RELEASED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("leaf: the cell never released it")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     print("leaf done")
     1
+}
+
+// The previous cell joined its subject, so its leaf has finished with both
+// gates.
+func arm_the_gates() {
+    ARRIVED.store(0)
+    RELEASED.store(0)
+}
+
+func await_the_leaf() {
+    var ticks = 0
+    while ARRIVED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("cell: the leaf never reached its wait")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
 }
 
 func mid0() -> Int {
@@ -74,23 +111,27 @@ func thread_receive(ch: Channel<Int>) -> Int {
 }
 
 func cell_d1_none() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gj = TaskGroup()
     let h = gj.spawn(sends1(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     v
 }
 
 func cell_d1_ticking() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gs = TaskGroup()
     let s = gs.spawn(ticker())
     var gj = TaskGroup()
     let h = gj.spawn(sends1(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     s.cancel()
     let _ = s.join()
@@ -98,13 +139,15 @@ func cell_d1_ticking() -> Int {
 }
 
 func cell_d1_sleeping() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gs = TaskGroup()
     let s = gs.spawn(sleeper())
     var gj = TaskGroup()
     let h = gj.spawn(sends1(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     s.cancel()
     let _ = s.join()
@@ -112,37 +155,43 @@ func cell_d1_sleeping() -> Int {
 }
 
 func cell_d1_cancelled() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gs = TaskGroup()
     let s = gs.spawn(sleeper())
     var gj = TaskGroup()
     let h = gj.spawn(sends1(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     s.cancel()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     let _ = s.join()
     v
 }
 
 func cell_d2_none() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gj = TaskGroup()
     let h = gj.spawn(sends2(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     v
 }
 
 func cell_d2_ticking() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gs = TaskGroup()
     let s = gs.spawn(ticker())
     var gj = TaskGroup()
     let h = gj.spawn(sends2(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     s.cancel()
     let _ = s.join()
@@ -150,13 +199,15 @@ func cell_d2_ticking() -> Int {
 }
 
 func cell_d2_sleeping() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gs = TaskGroup()
     let s = gs.spawn(sleeper())
     var gj = TaskGroup()
     let h = gj.spawn(sends2(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     s.cancel()
     let _ = s.join()
@@ -164,14 +215,16 @@ func cell_d2_sleeping() -> Int {
 }
 
 func cell_d2_cancelled() -> Int {
+    arm_the_gates()
     let ch = try! Channel<Int>()
     var gs = TaskGroup()
     let s = gs.spawn(sleeper())
     var gj = TaskGroup()
     let h = gj.spawn(sends2(ch))
-    sleep(Duration.ms(10))
+    await_the_leaf()
     s.cancel()
     var th = try! Thread.spawn { [ch] in thread_receive(ch) }
+    RELEASED.store(1)
     let v = th.join() + h.join()
     let _ = s.join()
     v

@@ -5,13 +5,30 @@
 // prints: J joins the pool task
 // prints: leaf done
 // panics: deadlock: every task is waiting to receive from a channel, or to join a `TaskGroup(threads:)` task that is
-// The joiner sleeps first, so the subject's drive resumes it; the subject
-// continues only once the joiner's wait returns.
+// The joiner waits until the leaf reports that it is waiting, so the subject's
+// drive resumes it; the leaf holds until the joiner releases it just before the
+// join, so no timer decides which of the two moves first.
 import std.task.*
 import std.channel.{Channel}
 
+// The gates the test owns. The 1ms tick paces each poll and decides nothing;
+// the 10s deadline bounds only genuine breakage (TESTING.md, "Waiting in a
+// multi-threaded test").
+static ARRIVED: Atomic<Int> = Atomic(0)
+static RELEASED: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
 func leaf() -> Int {
-    sleep(Duration.ms(50))
+    ARRIVED.store(1)
+    var ticks = 0
+    while RELEASED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("leaf: the joiner never released it")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     print("leaf done")
     1
 }
@@ -55,11 +72,19 @@ func main() {
     let s = gs.spawn(sleeper())
     var gj = TaskGroup()
     let h = gj.spawn(sends(ch))
-    sleep(Duration.ms(10))
+    var ticks = 0
+    while ARRIVED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("main: the leaf never reached its wait")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     s.cancel()
     var pool = try! TaskGroup(threads: 2)
     let p = pool.spawn(pool_receive(ch))
     print("J joins the pool task")
+    RELEASED.store(1)
     let v = p.join() + h.join()
     let _ = s.join()
     print("J returns {}", v)

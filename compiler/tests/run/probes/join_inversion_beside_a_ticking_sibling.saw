@@ -6,11 +6,30 @@
 // prints: main joins subject
 // panics: Task.join: the task cannot finish while this join waits for it
 // The sibling is cancelled only after the join returns, so a sweep waiting
-// for every other task to stop would run it forever.
+// for every other task to stop would run it forever. `main` waits until `leaf`
+// reports that it is waiting, so `subject`'s join of `leaf` resumes it; `leaf`
+// holds until `main` releases it just before the join, so no timer decides
+// which of the two moves first.
 import std.task.*
 
+// The gates the test owns. The 1ms tick paces each poll and decides nothing;
+// the 10s deadline bounds only genuine breakage (TESTING.md, "Waiting in a
+// multi-threaded test").
+static ARRIVED: Atomic<Int> = Atomic(0)
+static RELEASED: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
 func leaf() -> Int {
-    sleep(Duration.ms(50))
+    ARRIVED.store(1)
+    var ticks = 0
+    while RELEASED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("leaf: main never released it")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     print("leaf done")
     1
 }
@@ -35,8 +54,16 @@ func main() {
     var g = TaskGroup()
     let t = g.spawn(ticker())
     let h = g.spawn(subject())
-    sleep(Duration.ms(10))
+    var ticks = 0
+    while ARRIVED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("main: the leaf never reached its wait")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
     print("main joins subject")
+    RELEASED.store(1)
     let v = h.join()
     t.cancel()
     print("never reached {} {}", v, t.join())
