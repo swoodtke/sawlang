@@ -338,7 +338,7 @@ conformance/K16_spawn_shared_ref_param_composes.saw	pass	-	-
 conformance/K17_spawn_ref_param_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root:
 conformance/K18_spawn_ref_param_after_group.saw	pass	-	loan.drop-while-borrowed: cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (at 30:9 against 29:9), and destruction is LIFO — `buf` is torn down BEFORE `
 conformance/K19_spawn_ref_param_mt_send.saw	stage0-wrong	annotated SL-788	sawc meets its directives
-conformance/K204_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc meets its directives
+conformance/K204_mt_group_stays_live_across_spawns.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K20_spawn_ref_param_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 33:30 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 conformance/K21_cross_module_embed_private_sibling.saw	pass	-	-
 conformance/K22_cross_module_generic_embed_private_sibling.saw	pass	-	-
@@ -366,11 +366,11 @@ conformance/K44_suspending_condition_shortcircuit_rhs.saw	pass	-	-
 conformance/K45_suspending_compound_assign_rhs.saw	pass	-	-
 conformance/K46_suspending_return_head.saw	pass	-	-
 conformance/K47_channel_receive_binding_and_try_heads.saw	pass	-	-
-conformance/K48_mt_group_task_runs_before_join.saw	pass	-	-
-conformance/K49_mt_worker_feeds_st_group_task.saw	pass	-	-
-conformance/K50_mt_group_progresses_while_main_sleeps.saw	pass	-	-
-conformance/K51_mt_group_progresses_while_main_yields.saw	pass	-	-
-conformance/K52_mt_two_workers_deliver_before_join.saw	pass	-	-
+conformance/K48_mt_group_task_runs_before_join.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K49_mt_worker_feeds_st_group_task.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K50_mt_group_progresses_while_main_sleeps.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K51_mt_group_progresses_while_main_yields.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K52_mt_two_workers_deliver_before_join.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K53_driven_for_range_iteration_count.saw	pass	-	-
 conformance/K54_mt_task_receives_what_main_sent.saw	pass	-	-
 conformance/K55_mt_same_group_send_and_receive.saw	pass	-	-
@@ -402,7 +402,7 @@ conformance/K86_background_task_handle_panics_in_deinit.saw	pass	-	-
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	pass	-	-
 conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call. A background task outlives the statement that spawned it and may be detached, so no join ends the borro
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
-conformance/K90_thread_detach_is_a_fate.saw	stage0-wrong	annotated SL-765	sawc meets its directives
+conformance/K90_thread_detach_is_a_fate.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K91_spawn_brace_captures_nothing_implicitly.saw	pass	-	spawn.implicit-capture: a spawned brace captures nothing implicitly, and this body names `count`, `label`. Name what crosses in the capture list — `Thread.spawn { [count, label] in ... }`. The list IS
 conformance/K93_timed_park_observes_cancellation.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 conformance/K94_timed_park_times_out_in_every_engine.saw	stage0-wrong	annotated SL-768	sawc meets its directives
@@ -2443,16 +2443,16 @@ taskgroup_in_suspending_fn.saw	pass	-	-
 taskgroup_join_typed.saw	pass	-	-
 taskgroup_move_live.saw	pass	-	transfer.no-move: cannot `move` `group`: `std.taskgroup.TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the value where it
 taskgroup_mt_join_then_respawn.saw	pass	-	-
-taskgroup_mt_live_pool_soak.saw	stage0-wrong	annotated SL-769	sawc meets its directives
+taskgroup_mt_live_pool_soak.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_nested_ambient.saw	pass	-	-
 taskgroup_nested_groups.saw	pass	-	-
 taskgroup_producer_consumer.saw	pass	-	-
 taskgroup_result_joined_once.saw	pass	-	-
-taskgroup_result_unjoined_once.saw	pass	-	-
+taskgroup_result_unjoined_once.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_send_containers.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_sleep_ordering.saw	pass	-	-
 taskgroup_slot_reuse_mt.saw	stage0-wrong	annotated SL-769	sawc meets its directives
-taskgroup_slot_reuse_o_live.saw	pass	-	-
+taskgroup_slot_reuse_o_live.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_spawn_and_loop.saw	pass	-	-
 taskgroup_spawn_generic.saw	pass	-	-
 taskgroup_spawn_void.saw	pass	-	-

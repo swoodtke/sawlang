@@ -21,6 +21,13 @@ import std.task.*
 
 static LIVE: Atomic<Int> = Atomic(0)
 
+// The wait for a wave: a 1ms tick that paces and decides nothing, and a bound
+// of at least 20s where a wave takes microseconds, so it fires on genuine
+// breakage and never on a loaded machine (TESTING.md, "Waiting in a
+// multi-threaded test").
+static WAVE_TICK_MS: UInt64 = 1
+static WAVE_DEADLINE_TICKS: Int = 20000
+
 struct Held { id: Int }
 extension Held {
     init(tag: Int) -> Held {
@@ -50,7 +57,16 @@ func main() {
         if held > peak {
             peak = held
         }
-        sleep(Duration.ms(1))   // park main; the sweep runs the wave to completion
+        // Park main until the sweep has run the wave to completion: a nap
+        // alone could end first, leaving the wave's slots for the next count.
+        var ticks = 0
+        while group.count() > 0 {
+            if ticks >= WAVE_DEADLINE_TICKS {
+                panic("wave {} never completed: {} slots still held", wave, group.count())
+            }
+            sleep(Duration.ms(WAVE_TICK_MS))
+            ticks = ticks + 1
+        }
         wave = wave + 1
     }
     print("peak {peak}")

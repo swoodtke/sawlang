@@ -11,6 +11,10 @@
 // Asserted on the SUM, never on arrival order: the two workers race and the
 // row would be a flake if it cared which value came first.
 //
+// Each wait is bounded only to fail loudly on genuine breakage: 20s where the
+// real wait is microseconds, so a loaded machine never reaches it (TESTING.md,
+// "Waiting in a multi-threaded test").
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // main got 30
@@ -19,21 +23,24 @@ import std.channel.{Channel}
 import std.task.*
 import std.time.{Instant}
 
-static WAIT_MS: UInt64 = 2000
+static WAIT_MS: UInt64 = 20000
 
 func feed(inbox: Channel<Int>, v: Int) {
     try! inbox.send(v)
 }
 
-func wait_for(inbox: Channel<Int>) unsafe -> Int? {
+func wait_for(inbox: Channel<Int>) unsafe -> Int {
     let start = Instant.now()
-    while start.elapsed().as_millis() < WAIT_MS {
+    while true {
         if let v = try! inbox.try_receive() {
             return v
         }
+        if start.elapsed().as_millis() >= WAIT_MS {
+            panic("main: a pool task never delivered before the joins")
+        }
         yield_now()
     }
-    return None
+    return 0
 }
 
 func main() {
@@ -44,12 +51,8 @@ func main() {
     var total = 0
     var got = 0
     while got < 2 {
-        if let v = wait_for(inbox.copy()) {
-            total = total + v
-            got = got + 1
-        } else {
-            got = 2
-        }
+        total = total + wait_for(inbox.copy())
+        got = got + 1
     }
     a.join()
     b.join()

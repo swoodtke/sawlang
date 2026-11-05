@@ -16,8 +16,10 @@
 // this test was written with first, and it deadlocks by construction: the
 // consumer that loses the race waits for values its peer has already taken.)
 //
-// Every wait is bounded on the wall clock, so a scheduling bug that stalls the
-// pool fails this test in a few seconds with a message rather than hanging.
+// Main's streaming read is bounded on the wall clock, so a scheduling bug that
+// stalls the pool fails loudly rather than hanging. The bound is 20s where the
+// real wait is milliseconds, so it fires on genuine breakage and never on a
+// loaded machine (TESTING.md, "Waiting in a multi-threaded test").
 // EXPECT: success
 // EXPECT-OUTPUT:
 // produced 15150
@@ -33,7 +35,7 @@ static PRODUCERS: Int = 3
 static CONSUMERS: Int = 2
 static TOTAL: Int = 300
 static STOP: Int = -1
-static WAIT_MS: UInt64 = 10000
+static WAIT_MS: UInt64 = 20000
 
 // The inclusive form, which is what this loop wanted to say all along: it was
 // written `0..PER_PRODUCER` sending `i + 1` only to dodge DF-225m, the
@@ -70,16 +72,16 @@ func drain(out: Channel<Int>) unsafe -> Int {
     var sum = 0
     var got = 0
     let start = Instant.now()
-    while got < TOTAL && start.elapsed().as_millis() < WAIT_MS {
+    while got < TOTAL {
+        if start.elapsed().as_millis() >= WAIT_MS {
+            panic("main stalled after {} of {} values", got, TOTAL)
+        }
         if let v = try! out.try_receive() {
             sum = sum + v
             got = got + 1
         } else {
             yield_now()
         }
-    }
-    if got < TOTAL {
-        print("main stalled after {} of {} values", got, TOTAL)
     }
     return sum
 }

@@ -21,7 +21,10 @@ extern "C" {
 
 // runtime/ABI.md's tag for a connect still in flight.
 static IN_PROGRESS: Int = 2
-static SETTLE_TRIES: Int = 2000
+// The settle poll's bound, at 1ms a try: 10s where a loopback handshake takes
+// microseconds, so it fires on genuine breakage and never on a loaded machine
+// (TESTING.md, "Waiting in a multi-threaded test").
+static SETTLE_TRIES: Int = 10000
 
 // `struct sockaddr_in` past its host-divergent first two bytes: the port and
 // the address sit at the same offsets on macOS and Linux.
@@ -90,7 +93,10 @@ func check_before_handshake() unsafe {
         print("check before the handshake: UNEXPECTED -{}", 0 - check)
     }
     var tries = 0
-    while check == 0 - IN_PROGRESS && tries < SETTLE_TRIES {
+    while check == 0 - IN_PROGRESS {
+        if tries >= SETTLE_TRIES {
+            panic("the loopback connect never settled")
+        }
         sleep(Duration.ms(1))
         check = __saw_rt_tcp_connect_check(fd, loopback, port)
         tries = tries + 1

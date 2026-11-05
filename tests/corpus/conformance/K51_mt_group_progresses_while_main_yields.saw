@@ -7,6 +7,10 @@
 // not in the ambient scheduler's list (`__enqueue` registers only when
 // `workers < 2`), so no amount of ceding by main could reach it.
 //
+// The loop is bounded only to fail loudly on genuine breakage: 20s where the
+// real wait is microseconds, so a loaded machine never reaches it (TESTING.md,
+// "Waiting in a multi-threaded test").
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ran while main yielded: 1
@@ -15,7 +19,7 @@ import std.mutex.*
 import std.task.*
 import std.time.{Instant}
 
-static WAIT_MS: UInt64 = 2000
+static WAIT_MS: UInt64 = 20000
 
 func mark(flag: Arc<Mutex<Int>>) {
     let _ = borrow var c = flag.value().lock() {
@@ -30,7 +34,10 @@ func main() {
     let h = workers.spawn(mark(flag.copy()))
     var seen = 0
     let start = Instant.now()
-    while seen == 0 && start.elapsed().as_millis() < WAIT_MS {
+    while seen == 0 {
+        if start.elapsed().as_millis() >= WAIT_MS {
+            panic("main: the pool task never ran while main yielded")
+        }
         seen = borrow var c = flag.value().lock() { c }
         yield_now()
     }

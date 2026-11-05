@@ -14,8 +14,8 @@
 // owns, on its own thread, at its own end. What it does not get is a promise
 // about process exit — the OS terminates a live detached thread wherever it has
 // got to, which is the same documented boundary a never-completed coroutine
-// frame has (218b ruling 3: process death drops nothing). So this file gives
-// the threads time to finish before main returns, and says so.
+// frame has (218b ruling 3: process death drops nothing). So main waits until
+// both threads have reported their release before it returns, and says so.
 //
 // The lines are checked by CONTAINS rather than as a block: two OS threads race
 // with the spawner, so their order against `detached`/`chained` is not a
@@ -38,19 +38,16 @@
 import std.task.*
 
 // The two gates the TEST controls (DF-246a's doctrine): `GO` holds both threads
-// until main has finished its own printing, and `RELEASED` is what main polls
-// instead of guessing how long a thread takes.
+// until main has finished its own printing, and `RELEASED` is what main waits
+// on instead of guessing how long a thread takes.
 static GO: Atomic<Int> = Atomic(0)
 static RELEASED: Atomic<Int> = Atomic(0)
 
-// Bounds genuine breakage only: at 1ms a poll, this is a 5-second ceiling on
-// two threads that normally finish in microseconds.
-static POLL_LIMIT: Int = 5000
-
-// The thread side spins rather than sleeps — a spawned thread runs no executor,
-// so a suspension there is a compile error. Bounded so a gate that never opens
-// ends the thread instead of pinning a core forever.
-static SPIN_LIMIT: Int = 200000000
+// Main's poll: a 1ms tick that paces and decides nothing, and a deadline of at
+// least 20s that bounds only genuine breakage, since two threads finish in
+// microseconds (TESTING.md, "Waiting in a multi-threaded test").
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 20000
 
 struct Ticket {
     id: Int
@@ -59,20 +56,22 @@ struct Ticket {
 extension Ticket: NoCopy {
     func deinit(&var self) {
         // The id is deliberately NOT printed: which thread gets here first is a
-        // race, and naming them would pin it.
-        RELEASED.store(RELEASED.load() + 1)
+        // race, and naming them would pin it. The line is written BEFORE the
+        // count moves, so once main reads two releases both lines are out; and
+        // the count is one atomic add, since the two threads release at once.
         print("ticket released")
+        RELEASED.fetch_add(1)
     }
 }
 
 func hold(id: Int) {
     // Wait on the gate so a release cannot interleave with `detached`/
     // `chained`. Ordering the OUTPUT is not ordering the language: the claim
-    // below is that the ticket dies at all, on the thread that owns it.
-    var spins = 0
-    while GO.load() == 0 && spins < SPIN_LIMIT {
-        spins = spins + 1
-    }
+    // below is that the ticket dies at all, on the thread that owns it. The
+    // thread spins rather than sleeps: a spawned thread runs no executor, so a
+    // suspension there is a compile error. The spin has no bound of its own:
+    // main always opens the gate or panics, ending the process either way.
+    while GO.load() == 0 { }
     let ticket = Ticket(id: id)
     // The ticket dies here, on the spawned thread, when the body returns.
 }
@@ -92,10 +91,13 @@ func main() {
     // is terminated by the OS and drops nothing; that boundary is the point of
     // `detach()`, and it is why this waits rather than assuming.
     GO.store(1)
-    var spins = 0
-    while RELEASED.load() < 2 && spins < POLL_LIMIT {
-        sleep(Duration.ms(1))
-        spins = spins + 1
+    var ticks = 0
+    while RELEASED.load() < 2 {
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+        if ticks > POLL_DEADLINE_TICKS {
+            panic("main: the detached threads never released both tickets")
+        }
     }
     print("main is finished")
 }

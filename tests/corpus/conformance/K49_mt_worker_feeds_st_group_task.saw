@@ -8,6 +8,10 @@
 // The two engines have to compose, because a program that opts one group into
 // threads does not thereby opt out of the cooperative scheduler for the rest.
 //
+// The consumer's wait is bounded only to fail loudly on genuine breakage: 20s
+// where the real wait is microseconds, so a loaded machine never reaches it
+// (TESTING.md, "Waiting in a multi-threaded test").
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // consumer got 7
@@ -16,7 +20,7 @@ import std.channel.{Channel}
 import std.task.*
 import std.time.{Instant}
 
-static WAIT_MS: UInt64 = 2000
+static WAIT_MS: UInt64 = 20000
 
 func feed(inbox: Channel<Int>, v: Int) {
     try! inbox.send(v)
@@ -24,9 +28,12 @@ func feed(inbox: Channel<Int>, v: Int) {
 
 func consume(inbox: Channel<Int>) unsafe -> Int {
     let start = Instant.now()
-    while start.elapsed().as_millis() < WAIT_MS {
+    while true {
         if let v = try! inbox.try_receive() {
             return v
+        }
+        if start.elapsed().as_millis() >= WAIT_MS {
+            panic("consume: the pool task never delivered")
         }
         yield_now()
     }

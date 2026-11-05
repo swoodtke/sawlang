@@ -9,10 +9,10 @@
 // construction — so `threads: N` was the ONLY fork-join member, and its
 // workers existed nowhere outside a `join()`/`Deinit` drain.
 //
-// The wait is BOUNDED on the wall clock so the row fails in two seconds
-// instead of hanging: `receive()` is a cooperative spin, so the pre-fix
-// behavior is a 100%-CPU wait that never ends, which is not a thing a test
-// suite can pin. `wait_for` is the same loop with a deadline.
+// The wait is BOUNDED on the wall clock so the pre-fix behavior, a wait with
+// no end, fails loudly instead of hanging. The bound is 20s where the real
+// wait is microseconds, so it fires on genuine breakage and never on a loaded
+// machine (TESTING.md, "Waiting in a multi-threaded test").
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -22,31 +22,30 @@ import std.channel.{Channel}
 import std.task.*
 import std.time.{Instant}
 
-static WAIT_MS: UInt64 = 2000
+static WAIT_MS: UInt64 = 20000
 
 func feed(inbox: Channel<Int>, v: Int) {
     try! inbox.send(v)
 }
 
-func wait_for(inbox: Channel<Int>) unsafe -> Int? {
+func wait_for(inbox: Channel<Int>) unsafe -> Int {
     let start = Instant.now()
-    while start.elapsed().as_millis() < WAIT_MS {
+    while true {
         if let v = try! inbox.try_receive() {
             return v
         }
+        if start.elapsed().as_millis() >= WAIT_MS {
+            panic("main: the pool task never delivered before the join")
+        }
         yield_now()
     }
-    return None
+    return 0
 }
 
 func main() {
     let inbox = try! Channel<Int>()
     var workers = try! TaskGroup(threads: 2)
     let h = workers.spawn(feed(inbox.copy(), 3))
-    if let v = wait_for(inbox.copy()) {
-        print("main got {}", v)
-    } else {
-        print("main timed out")
-    }
+    print("main got {}", wait_for(inbox.copy()))
     h.join()
 }

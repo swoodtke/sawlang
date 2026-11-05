@@ -8,14 +8,20 @@
 // its OS threads inside one call and nothing outside a join makes that call.
 //
 // The flag is an `Arc<Mutex<Int>>` — the sanctioned cross-thread share (row
-// K13) — and it is read once, after the nap, so nothing here depends on an
-// interleaving.
+// K13) — and main reads it after each nap until it is set, so no nap length is
+// a guess at how long the worker takes. The naps are bounded only to fail
+// loudly on genuine breakage: 20s where the real wait is microseconds, so a
+// loaded machine never reaches it (TESTING.md, "Waiting in a multi-threaded
+// test").
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ran during the nap: 1
 
 import std.mutex.*
+
+static NAP_MS: UInt64 = 10
+static NAP_LIMIT: Int = 2000
 
 func mark(flag: Arc<Mutex<Int>>) {
     let _ = borrow var c = flag.value().lock() {
@@ -28,8 +34,16 @@ func main() {
     let flag = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     var workers = try! TaskGroup(threads: 2)
     let h = workers.spawn(mark(flag.copy()))
-    sleep(Duration.ms(300))
-    let seen = borrow var c = flag.value().lock() { c }
+    var seen = 0
+    var naps = 0
+    while seen == 0 {
+        if naps >= NAP_LIMIT {
+            panic("main: the pool task never ran while main slept")
+        }
+        sleep(Duration.ms(NAP_MS))
+        naps = naps + 1
+        seen = borrow var c = flag.value().lock() { c }
+    }
     h.join()
     print("ran during the nap: {}", seen)
 }

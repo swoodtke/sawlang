@@ -11,6 +11,10 @@
 // This is the row that makes the long-lived-group shape (a group spawned into
 // from a loop, joined much later or never) an honest one to write.
 //
+// The watch is bounded only to fail loudly on genuine breakage: 20s where the
+// real wait is microseconds, so a loaded machine never reaches it (TESTING.md,
+// "Waiting in a multi-threaded test").
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // finished before any join: 4
@@ -19,7 +23,7 @@ import std.mutex.*
 import std.task.*
 import std.time.{Instant}
 
-static WAIT_MS: UInt64 = 2000
+static WAIT_MS: UInt64 = 20000
 
 func bump(counter: Arc<Mutex<Int>>) {
     let _ = borrow var c = counter.value().lock() {
@@ -37,7 +41,10 @@ func main() {
     }
     var seen = 0
     let start = Instant.now()
-    while seen < 4 && start.elapsed().as_millis() < WAIT_MS {
+    while seen < 4 {
+        if start.elapsed().as_millis() >= WAIT_MS {
+            panic("main: the pool ran only {} of 4 tasks before any join", seen)
+        }
         seen = borrow var c = counter.value().lock() { c }
         yield_now()
     }

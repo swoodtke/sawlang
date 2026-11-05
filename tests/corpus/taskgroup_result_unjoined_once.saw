@@ -16,19 +16,40 @@ import std.task.*
 struct Res { id: Int }
 extension Res: NoCopy { func deinit(&var self) { print(900 + self.id) } }
 
+// Set by the producer in its last turn. The executor completes the task in the
+// turn that returns, releasing `held` before main can run, so once main reads
+// it set the release has happened.
+static FINISHING: Atomic<Int> = Atomic(0)
+
+// Main's wait: a 1ms tick that paces and decides nothing, and a bound of at
+// least 20s where the task takes microseconds, so it fires on genuine breakage
+// and never on a loaded machine (TESTING.md, "Waiting in a multi-threaded
+// test").
+static TICK_MS: UInt64 = 1
+static DEADLINE_TICKS: Int = 20000
+
 func producer(n: Int) -> Res {
     let held = Res(id: 55)   // an ordinary local: released at completion
     yield_now()
     let r = Res(id: n)
     yield_now()
+    FINISHING.store(1)
     return move r            // the result: held until group teardown
 }
 
 func main() {
     var group = TaskGroup()
     let _h = group.spawn(producer(77))
-    // Drive the task to completion without taking its result.
-    sleep(Duration.ms(1))
+    // Drive the task to completion without taking its result. A nap alone
+    // could end before the task does.
+    var ticks = 0
+    while FINISHING.load() == 0 {
+        if ticks >= DEADLINE_TICKS {
+            panic("the producer never completed")
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
     print(1)
     // group teardown: the unconsumed result drops exactly once
 }
