@@ -627,40 +627,69 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
         self.copy_elements()
     }
 
-    // Every vector duplicate is made here: one reservation, then each slot
-    // written in place, with no push and no bounds check per element. For a
-    // type copied by its bits, `copy()` is a plain load of them, so the
-    // optimizer turns the loop into a bulk copy at `memcpy` speed; any other
-    // type runs its copy glue per element (SL-961). The length is set once at the end, which is
-    // sound because a panic in an element's `copy()` ends the process, so no
-    // partly copied vector is ever dropped.
+    // Every vector duplicate is made here, as an append onto an empty vector.
     //
     // ENTRY POINTS:
     //   copy
     //   try_copy
     func copy_elements(&self) unsafe -> Result<Vector<T, A>, AllocError> {
         var result = Vector<T, A>()
-        let count = self.length
         // An empty vector may still hold a buffer (after `pop`, `clear` or
-        // `reserve`); its copy reserves nothing, so it has no target buffer.
-        if count == 0 {
-            return move result
-        }
-        try result.reserve(count)
+        // `reserve`), which its copy has no use for.
         guard let source = self.buffer else {
             return move result
         }
-        guard let target = result.buffer else {
-            panic("Vector.copy: buffer is empty")
+        try result.append_copies(source, self.length)
+        move result
+    }
+}
+
+extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
+    /// Appends a copy of every element of `other`, in order.
+    ///
+    /// A whole `Vector`, `[T; N]` or `Data` passes as `&v`. The room is
+    /// reserved before the first copy, so on `Err(AllocError)`, when the
+    /// buffer must grow and `A` refuses, the vector is unchanged. Appending a
+    /// vector to itself, `v.append(&v)`, is a compile error: `&v` holds `v`
+    /// shared for the call, and `append` needs it exclusively.
+    public func append(&var self, other: &[T]) unsafe -> Result<Void, AllocError> {
+        let count = other.len()
+        if count == 0 {
+            return
         }
+        self.append_copies((&other[0]) as UnsafePointer<T>, count)
+    }
+
+    // Every run of element copies onto a vector's end is made here: one
+    // reservation, then each slot written in place, with no push and no bounds
+    // check per element. For a type copied by its bits, `copy()` is a plain
+    // load of them, so the optimizer turns the loop into a bulk copy at
+    // `memcpy` speed; any other type runs its copy glue per element (SL-961).
+    // The length is set once at the end, which is sound because a panic in an
+    // element's `copy()` ends the process, so no partly written vector is ever
+    // dropped. `source` must not point into this vector, whose buffer the
+    // reservation may move; the Law of Exclusivity keeps every entry from it.
+    //
+    // ENTRY POINTS:
+    //   copy_elements
+    //   append
+    func append_copies(&var self, source: UnsafePointer<T>, count: Int) unsafe -> Result<Void, AllocError> {
+        if count == 0 {
+            return
+        }
+        try self.reserve(count)
+        guard let buf = self.buffer else {
+            panic("Vector.append: buffer is empty")
+        }
+        let target = buf + self.length
         var i = 0
         while i < count {
-            // The slot is uninitialized, so this placement releases nothing.
+            // The slot is past the length, so this placement releases nothing.
             target[i] = source[i].copy()
             i = i + 1
         }
-        result.length = count
-        move result
+        self.length = self.length + count
+        return
     }
 }
 

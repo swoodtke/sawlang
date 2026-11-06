@@ -1364,6 +1364,16 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   `T: Sync`). NOT YET: views of PART of a container (`v[a..b]`), SL-988 unit 2.
   Older builds refused every slice in the backend (`a slice is not in the
   backend slice yet`).
+- **`Vector.append(other: &[T]) -> Result<Void, AllocError>` (SL-971)** copies
+  every element of a whole `Vector`, `[T; N]` or (into a `Vector<UInt8>`) `Data`
+  onto the end: `try out.append(&rows)`, `out.append(&w)` with the label left
+  out. `T: ExplicitCopy`; each element copies at its own tier (bit types bulk,
+  `String` retains, a hand-written `copy()` once per element). One reservation
+  first, so an `Err` leaves the vector unchanged. `v.append(&v)` is a compile
+  error (`loan.write-while-shared`): append a `v.copy()` instead. It replaces
+  the hand-written push loop over another vector. An owned copy of PART of a
+  vector will be an empty vector plus `append` of a range view, once SL-988
+  unit 2 lands; there is no `copy(range:)`.
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works

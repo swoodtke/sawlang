@@ -1,0 +1,10 @@
+// refuses: loan.write-while-shared at 9:10
+// A vector appended to itself: `&v` holds `v` shared for the call while
+// `append` takes it exclusively, so the reservation can never move the
+// elements it is copying (SL-971).
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.append(&v)
+}

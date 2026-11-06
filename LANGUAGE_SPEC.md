@@ -8875,6 +8875,37 @@ nothing**, which is why neither returns a `Result`.
   so no element is ever duplicated: a `Vector<File>` sorts by a user comparator,
   and a NoCopy or ExplicitCopy `Comparable` element sorts with `sort`.
 
+### `Vector.append`
+
+**Status: implemented** (SL-971). `append(&var self, other: &[T]) ->
+Result<Void, AllocError>` on `Vector<T: ExplicitCopy>` copies every element of
+`other` onto the end, in order. A whole `Vector<T>` or `[T; N]` passes by the
+slice coercion (Slices, under Reference passing), and so does a `Data` to a
+`Vector<UInt8>`.
+
+```saw
+func main() {
+    var log: Vector<String> = ["boot"]
+    let batch: [String; 2] = ["mount", "start"]
+    match log.append(&batch) {
+        case Ok(_) -> print(log.len()),               // prints: 3
+        case Err(e) -> print("log not extended: {e}")
+    }
+}
+```
+
+- The room for every element is reserved before the first copy. When the buffer
+  must grow and the allocator refuses, the result is `Err(AllocError)` and the
+  vector is unchanged; an append that fits the capacity allocates nothing.
+- Each element copies at its own tier: a type copied by its bits runs no copy
+  glue, a `String` is retained, and an ExplicitCopy element's `copy()` runs once
+  per element.
+- Appending a vector to itself is a compile error. `&v` holds `v` shared for
+  the call and `append` takes it exclusively, so the reservation can never move
+  the elements it copies. The refusal is `loan.write-while-shared`: ``` `v` is
+  borrowed exclusively here while the borrow at LINE:COLUMN holds `v` shared
+  until its last use ```. Copy the vector first and append the copy.
+
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
 **Status: implemented** (`designs/48-ord-hash.md`, unified by `designs/54`);
@@ -16283,7 +16314,7 @@ match frames.push(Frame(id: 1)) {
 // prints e.g. out of frame memory: allocation of 64 bytes (align 8) failed
 ```
 
-The operations are `Vector.push`/`reserve`/`map`, `Map.insert`/`keys`/`values`,
+The operations are `Vector.push`/`reserve`/`append`/`map`, `Map.insert`/`keys`/`values`,
 `Set.insert` and its algebra, `Data.push`/`set`/`append`/`append_bytes`/
 `reserve`/`detached`, `StringBuilder.append`,
 `Box.make`, `String.split`/`to_data`, `Command.arg`/`env`

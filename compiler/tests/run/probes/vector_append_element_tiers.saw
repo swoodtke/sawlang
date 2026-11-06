@@ -1,0 +1,243 @@
+// probe: stated
+// about: `Vector.append(other: &[T])` copies every element of a `Vector`, `[T; N]` or `Data` onto the end through one reservation and one write per slot: a type copied by its bits has no copy glue, a `Copy` type's hand-written hook runs once per element, a `String` element is retained, empty sources and targets with or without a buffer append correctly, and a refused reservation leaves the vector unchanged (SL-971)
+// stage 0: not run; the probe states what each append prints, so it needs no Stage 0 oracle
+// speeds: -O0 -O2
+// leaks: none
+// ll defines: saw member glue ExplicitCopy.copy() on vector_append_element_tiers.Small
+// ll omits: saw copy glue vector_append_element_tiers.Small
+// ll omits: saw copy glue Int
+// ll omits: saw copy glue Bool
+// ll omits: saw copy glue UInt8
+// ll defines: saw copy glue vector_append_element_tiers.Counted
+// prints: Int append 12 of 12
+// prints: Bool append 12 of 12
+// prints: UInt8 append 12 of 12
+// prints: Small append 12 of 12
+// prints: String append 12 of 12
+// prints: Counted append 12 of 12
+// prints: Counted hooks 0 1 1000 lengths 0 1 1000
+// prints: String append outlives its source true 1003
+// prints: Int append independent 100 1099 -5 -6
+// prints: array append 7 1 2 3 10 20 30 40
+// prints: String array append 2 a b
+// prints: Data append 5 104 105 1 2 3
+// prints: refused: allocation of 104 bytes (align 8) failed
+// prints: after refusal 3 0 1 2
+// prints: within capacity 4 0 1 2 100
+// The refusal: three pushes leave a capacity of four, so ten more need a
+// growth to 13 slots, 104 bytes of `Int` on a 64-bit host. Denial is turned off
+// before anything renders. One more element fits the capacity, so it appends
+// with every allocation refused.
+
+import std.data
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+static HOOKS: Atomic<Int> = Atomic(0)
+
+// The first element of every source; a target's elements count from 0.
+static SOURCE_START: Int = 100
+
+// Copied by its bits: no owning member and no hook.
+struct Small { a: Int32, b: Bool, c: Int }
+
+// On the Copy tier with a hook whose every run is counted, so its copy is
+// never a bit copy.
+struct Counted { n: Int }
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        HOOKS.store(HOOKS.load() + 1)
+        Counted(n: self.n)
+    }
+}
+
+@synthesize
+extension Counted: Equatable {}
+
+// `n` elements, the first one `at(start)`.
+func filled<T>(start: Int, n: Int, at: (Int) -> T) -> Vector<T> {
+    var v = Vector<T>()
+    var i = 0
+    while i < n {
+        try! v.push(at(start + i))
+        i = i + 1
+    }
+    move v
+}
+
+// Shape 0 is a fresh vector with no buffer, `EMPTIED` an emptied one that
+// keeps its buffer, and a positive shape a vector of that many elements.
+static EMPTIED: Int = -1
+
+func shaped<T>(start: Int, shape: Int, at: (Int) -> T) -> Vector<T> {
+    if shape == EMPTIED {
+        var v = filled(start, 3, at)
+        v.clear()
+        return move v
+    }
+    filled(start, shape, at)
+}
+
+func count_of(shape: Int) -> Int {
+    if shape < 0 { 0 } else { shape }
+}
+
+// Whether `v` is `prefix` target elements followed by `n` source elements.
+func holds<T: Equatable>(v: &Vector<T>, prefix: Int, n: Int, at: (Int) -> T) -> Bool {
+    if v.len() != prefix + n {
+        return false
+    }
+    var i = 0
+    while i < prefix {
+        if v[i] != at(i) {
+            return false
+        }
+        i = i + 1
+    }
+    var j = 0
+    while j < n {
+        if v[prefix + j] != at(SOURCE_START + j) {
+            return false
+        }
+        j = j + 1
+    }
+    true
+}
+
+// Appends each source shape (fresh, emptied, 1, 1000) to each target shape
+// (fresh, emptied, 3) and counts the results that hold the right elements.
+func check<T: Copy + Equatable>(label: String, at: (Int) -> T) {
+    let sources: [Int; 4] = [0, EMPTIED, 1, 1000]
+    let targets: [Int; 3] = [0, EMPTIED, 3]
+    var good = 0
+    var total = 0
+    var t = 0
+    while t < 3 {
+        var s = 0
+        while s < 4 {
+            var target = shaped(0, targets[t], at)
+            let source = shaped(SOURCE_START, sources[s], at)
+            try! target.append(&source)
+            if holds(&target, count_of(targets[t]), count_of(sources[s]), at) {
+                good = good + 1
+            }
+            total = total + 1
+            s = s + 1
+        }
+        t = t + 1
+    }
+    print("{} append {} of {}", label, good, total)
+}
+
+// How many times the hook ran for appends of 0, 1 and 1000 elements.
+func hooks() {
+    let none = filled(0, 0, { i in Counted(n: i) })
+    let one = filled(0, 1, { i in Counted(n: i) })
+    let many = filled(0, 1000, { i in Counted(n: i) })
+    var a = Vector<Counted>()
+    var b = Vector<Counted>()
+    var c = Vector<Counted>()
+    HOOKS.store(0)
+    try! a.append(&none)
+    let after_none = HOOKS.load()
+    try! b.append(&one)
+    let after_one = HOOKS.load() - after_none
+    try! c.append(&many)
+    let after_many = HOOKS.load() - after_none - after_one
+    print("Counted hooks {} {} {} lengths {} {} {}", after_none, after_one, after_many, a.len(), b.len(), c.len())
+}
+
+// The appended strings outlive the source: each element was retained.
+func strings() {
+    var source = filled(0, 1000, { i in "item {i}" })
+    var out = filled(0, 3, { i in "kept {i}" })
+    try! out.append(&source)
+    source = Vector<String>()
+    var ok = out[0] == "kept 0" && out[2] == "kept 2"
+    var i = 0
+    while i < 1000 {
+        if out[3 + i] != "item {i}" {
+            ok = false
+        }
+        i = i + 1
+    }
+    print("String append outlives its source {} {}", ok, out.len())
+}
+
+// A bit copy lands in the target's own buffer: writing it leaves the source
+// alone.
+func independent() {
+    let source = filled(SOURCE_START, 1000, { i in i })
+    var out = Vector<Int>()
+    try! out.append(&source)
+    out[0] = -5
+    out[999] = -6
+    print("Int append independent {} {} {} {}", source[0], source[999], out[0], out[999])
+}
+
+// A fixed array and a `Data` coerce to the slice too.
+func other_sources() {
+    var out = filled(1, 3, { i in i })
+    let tail: [Int; 4] = [10, 20, 30, 40]
+    try! out.append(&tail)
+    print("array append {} {} {} {} {} {} {} {}", out.len(), out[0], out[1], out[2], out[3], out[4], out[5], out[6])
+
+    var names = Vector<String>()
+    let pair: [String; 2] = ["a", "b"]
+    try! names.append(&pair)
+    print("String array append {} {} {}", names.len(), names[0], names[1])
+
+    var bytes = Vector<UInt8>()
+    try! bytes.push(104)
+    try! bytes.push(105)
+    var d = data.Data()
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
+    try! bytes.append(&d)
+    print("Data append {} {} {} {} {} {}", bytes.len(), bytes[0], bytes[1], bytes[2], bytes[3], bytes[4])
+}
+
+// A refused reservation leaves the vector as it was; an append that fits the
+// capacity allocates nothing.
+func refused() {
+    var out = filled(0, 3, { i in i })
+    let more = filled(SOURCE_START, 10, { i in i })
+    let one = filled(SOURCE_START, 1, { i in i })
+    __saw_rt_alloc_deny_after(0)
+    match out.append(&more) {
+        case Ok(_) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("unexpected: appended")
+        },
+        case Err(e) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("refused: {e}")
+        }
+    }
+    print("after refusal {} {} {} {}", out.len(), out[0], out[1], out[2])
+    __saw_rt_alloc_deny_after(0)
+    let fits = out.append(&one)
+    __saw_rt_alloc_deny_after(-1)
+    match fits {
+        case Ok(_) -> print("within capacity {} {} {} {} {}", out.len(), out[0], out[1], out[2], out[3]),
+        case Err(e) -> print("unexpected: {e}")
+    }
+}
+
+func main() {
+    check("Int", { i in i * 7 - 3 })
+    check("Bool", { i in i % 3 == 0 })
+    check("UInt8", { i in UInt8.from(truncating: i * 5) })
+    check("Small", { i in Small(a: Int32.from(truncating: i), b: i % 2 == 0, c: i * 3) })
+    check("String", { i in "s{i}" })
+    check("Counted", { i in Counted(n: i) })
+    hooks()
+    strings()
+    independent()
+    other_sources()
+    refused()
+}
