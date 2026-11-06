@@ -375,18 +375,64 @@ std root with its path and bytes, the target record (triple, word bits,
 atomics, FP unit) and the profile flags. Stage 1 and Stage 2 therefore never
 share an image. Entries are `front/gN/KEY.img`, each a `sawc-front-entry 1 KEY
 LENGTH` line followed by the image, which carries its own length and digest;
-they are written, renamed and bounded by generations as objects are, sixteen
-images kept (eight per generation, about 9 MB each). An entry that cannot be
-read, is not its key's, or fails the image's own checks is a warning
+they are written, renamed and bounded by generations as objects are. An entry
+that cannot be read, is not its key's, or fails the image's own checks is a
+warning
 (`sawc build: warning: the front cache entry ... is damaged: ...`); std's front
 end is computed and stored again, and the command goes on. `--time-stages`
 reports a load as `front cache load MS ms`, and a computed cut as
 `std front end MS ms`, then `front cache store MS ms`. `--no-front-cache`, or
 `SAWC_FRONT_CACHE=off`, runs without it (`sawc runtime` takes the variable
-only); any other value of the variable is a usage error. Since std's layer
-always runs through drops, a stage dump's std sections show std as the cut
-holds it, drop-elaborated, while the program's sections show the program at
-that stage.
+only); any other value of the variable is a usage error.
+
+After std's, the front end runs in layers: one per `--module-path` package in
+dependency order (ties by name), then the entry's, which holds the entry file,
+its own package and its loose modules. `res_layer_plan` (`resolve/src/scan.saw`)
+finds them by following each file's import declarations, read off its tokens
+so that a string's or a refusal case's text is never one, through the import
+place funnel the resolver itself uses (`res_import_place`), and orders a package's
+modules by name; a plan it cannot make (mappings that overlap, a package
+reaching the entry's layer, a package cycle, an import it cannot place) falls
+back to std and one program layer. `driver_front_chain` brings each layer
+through drops: it loads the longest prefix the cache holds, layer by layer, and
+computes the rest. Each layer's entry is its part, under a chain key
+(`driver_layer_key`, whose comment holds its table): the key of the state before
+it, the part and image formats, the layer's name and kind,
+`--no-hidden-alloc`, each mapping it adds and each of its modules' name, file
+as spelled, real path, package and bytes. So an edit recomputes its own layer
+and every later one, and a build of another program that shares a prefix of
+packages loads it. A part is a `sawc-front-part 1 LENGTH DIGEST` line and the
+derived CBOR of `FrontPart`: every table's entries the layer appended, and for
+a table rewritten in place the entries it changed. A layer is stored only when
+nothing left it blocked and it loaded the modules the scan expected. At the end
+of drops the parts are copied, and up to four threads encode and write them
+while the rest of the command runs; the command waits for them as it ends.
+`--time-stages` reports each layer as `front layer NAME loaded` or
+`computed`, the copy as `front layers store` and the wait as
+`front layers join`. Every command brings every layer before the entry's
+through drops, whatever stage it stops at, and only the entry's runs to the
+command's stage; so a stage dump shows std and each package drop-elaborated,
+and the entry's modules at that stage. With the cache off, or cold, a stage
+subcommand over a program of many packages therefore pays the front end of
+every package: `sawc resolve --check` over sawc's own build takes seconds, not
+the resolver's fraction of one, and a warm cache loads those layers instead.
+The bound is 256 entries.
+
+The slicer, `mono/src/frontparts.saw`, is generated from the stages' struct
+declarations by `tools/front_parts.py`, and `compiler/tests/run.py`'s
+`front_parts` step fails while it is stale. The rule it rests on: a field
+written by index below its layer's watermark carries the marker
+`// front: rewritten in place` at its declaration; every hash index's `heads`
+and every `TcMemo` field are rewritten in place by rule; a table reset or cut
+back counts as rewritten. An unmarked table cut back below a layer's end makes
+the command store nothing, and an unmarked table changed in place makes a part
+that does not rebuild its layer; `SAWC_FRONT_VERIFY=1` fails on either:
+under it, a lanes' switch never set in a user's build, every layer a command
+stores is read back, applied to the state before it, and its encoding held to
+the computed state's, any difference a panic. The run lane runs it over every
+command of the front cache differential and over the layered fixture, Blade
+and a sawc built without one marker, which must fail; the fixpoint lane runs it
+once over sawc's own build.
 
 Every step of `build.py` is cached by key, so an unchanged tree compiles and
 links nothing. The seed's files are cached under `.build/blobs/` by SHA-256,

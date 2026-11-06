@@ -11,47 +11,10 @@ import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExport,
                              ResImport, ResImportForm, ResModule, ResModuleKind, ResName,
                              ResSymbol, ResVis}
-import sawresolve.loader.{res_after_first_segment, res_base_name, res_dir_of,
-                              res_dots_to_slashes, res_first_segment, res_is_within, res_join,
-                              res_last_component, res_read_file, res_real_path,
-                              res_same_ignoring_case}
+import sawresolve.loader.{ResPlaceKind, res_after_first_segment, res_base_name, res_import_place, res_is_within,
+                              res_join, res_manifest_dir, res_read_file, res_package_root, res_stored_case}
 import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
-
-// Where a bare import path's file is: in the importing file's directory, else
-// under its package root when it has one, and nowhere else. The entry file's
-// directory is not searched, so a dependency's bare import cannot bind to a
-// file beside the program compiling it (LANGUAGE_SPEC, Qualifier collisions).
-// Returns the first place looked when neither has the file.
-public func res_find_beside(dir: String, package_root: String, rel: String) -> String {
-    let near = res_join(dir, rel)
-    if let found = res_read_file(near) {
-        return near
-    }
-    if package_root.len() > 0 {
-        let from_package = res_join(package_root, rel)
-        if let found = res_read_file(from_package) {
-            return from_package
-        }
-    }
-    near
-}
-
-// The nearest directory at or above `dir` that holds a `Saw.toml`, or None.
-public func res_manifest_dir(dir: String) -> String? {
-    var at = dir
-    var searching = true
-    while searching {
-        let manifest = res_join(at, "Saw.toml")
-        if let text = res_read_file(manifest) {
-            return at
-        }
-        searching = at.len() > 0
-        let parent = res_dir_of(&at)
-        at = parent
-    }
-    None
-}
 
 // Whether two bindings denote the same thing.
 public func res_same_binding(a: &ResBinding, b: &ResBinding) -> Bool {
@@ -227,77 +190,51 @@ extension ResProgram {
 
     // The module an import path names, or -1 after refusing it.
     func import_target(&var self, importer: Int, text: String, path: Int) -> Int {
-        let first = res_first_segment(&text)
         let own = self.modules[importer]
-        if text.equals(self.name_text(own.name)) {
-            return importer
-        }
-        if first.equals("std") {
-            let key = self.intern(text)
-            let found = self.find_module(key)
-            if found >= 0 {
-                let info = self.modules[found]
-                if not info.available {
-                    self.refuse_unavailable(path, text)
+        let own_name = self.name_text(own.name)
+        let own_real = self.name_text(own.real)
+        let maps = self.mappings()
+        let place = res_import_place(&text, &own_name, self.name_text(own.dir), &own_real, self.name_text(own.package),
+                                     &maps)
+        match place.kind {
+            case SelfModule -> { return importer },
+            case Std -> {
+                let key = self.intern(text)
+                let found = self.find_module(key)
+                if found >= 0 {
+                    let info = self.modules[found]
+                    if not info.available {
+                        self.refuse_unavailable(path, text)
+                    }
+                    return found
                 }
-                return found
+                self.refuse_unknown_module(path, text, "")
+                return -1
+            },
+            case NotYet -> {
+                self.refuse(path, "slice.not-yet",
+                            "a `package` or `parent` import path is not in the bootstrap slice yet")
+                return -1
+            },
+            case SrcPath -> {
+                self.refuse_src_path(path, text, importer)
+                return -1
+            },
+            case File -> {
+                // A path a mapped package's name heads reaches that package;
+                // any other keeps the importer's kind.
+                let kind = if place.mapped { ResModuleKind.Package } else { own.kind }
+                return self.load_import(path, text, place.file, place.base, place.rel, kind, place.package)
             }
-            self.refuse_unknown_module(path, text, "")
-            return -1
         }
-        if first.equals("package") || first.equals("parent") {
-            self.refuse(path, "slice.not-yet",
-                        "a `package` or `parent` import path is not in the bootstrap slice yet")
-            return -1
-        }
-        let first_id = self.intern(first)
-        if let dir = self.package_dir(first_id) {
-            // `import NAME` is the package's `lib.saw`; `import NAME.sub` its `sub.saw`.
-            let after = res_after_first_segment(&text)
-            let rest = if after.len() == 0 { "lib" } else { after }
-            var rel = StringBuilder()
-            try! rel.append(res_dots_to_slashes(&rest))
-            try! rel.append(".saw")
-            let rel_text = rel.build()
-            let file = res_join(dir, rel_text)
-            return self.load_import(path, text, file, dir, rel_text, ResModuleKind.Package, first)
-        }
-        let dir = self.name_text(own.dir)
-        if first.equals("src") {
-            self.refuse_src_path(path, text, importer)
-            return -1
-        }
-        let package_root = self.package_root_of(importer)
-        var rel = StringBuilder()
-        try! rel.append(res_dots_to_slashes(&text))
-        try! rel.append(".saw")
-        let rel_text = rel.build()
-        let file = res_find_beside(dir, package_root, rel_text)
-        let base = if file.equals(res_join(dir, rel_text)) { dir } else { package_root }
-        let package = self.name_text(own.package)
-        self.load_import(path, text, file, base, rel_text, own.kind, package)
     }
 
-    // The package root of module `m`'s file: the directory of the mapped
-    // package holding it, else the `src/` beside the nearest `Saw.toml` at or
-    // above its directory, when that directory lies inside that `src/`. A file
-    // outside every package root, a package's test among them, has none: "".
+    // The package root of module `m`'s file (`res_package_root`).
     func package_root_of(&self, m: Int) -> String {
         let info = self.modules[m]
         let real = self.name_text(info.real)
-        let k = self.package_holding(&real)
-        let dir = self.name_text(info.dir)
-        if k >= 0 {
-            let p = self.packages[k]
-            return self.name_text(p.dir)
-        }
-        if let manifest_dir = res_manifest_dir(dir) {
-            let src = res_join(manifest_dir, "src")
-            if res_is_within(&dir, &src) {
-                return src
-            }
-        }
-        ""
+        let maps = self.mappings()
+        res_package_root(&maps, &real, self.name_text(info.dir))
     }
 
     // `src` heads no module path: a package's module root is its `src/`, so
@@ -313,7 +250,7 @@ extension ResProgram {
             let dir = self.name_text(info.dir)
             if let manifest_dir = res_manifest_dir(dir) {
                 let src = res_join(manifest_dir, "src")
-                let src_real = res_real_path(&src)
+                let src_real = self.real_path(&src)
                 k = self.package_holding(&src_real)
             }
         }
@@ -349,18 +286,21 @@ extension ResProgram {
     // its file or directory has.
     func load_import(&var self, path: Int, written: String, file: String, base: String, rel: String,
                      kind: ResModuleKind, package: String) -> Int {
-        guard let readable = res_read_file(file) else {
-            self.refuse_unknown_module(path, written, file)
-            return -1
-        }
-        let real = res_real_path(&file)
+        let real = self.real_path(&file)
         let known = self.module_of_file(&real)
+        // A file already loaded is readable; only a new one is read to see.
+        if known < 0 {
+            guard let readable = res_read_file(file) else {
+                self.refuse_unknown_module(path, written, file)
+                return -1
+            }
+        }
         let std_dir = self.std_dir_real
         if res_is_within(&real, &std_dir) || (known >= 0 && self.is_std_module(known)) {
             self.refuse_std_path(path, written, file, known)
             return -1
         }
-        if let stored = self.stored_case(base, rel) {
+        if let stored = self.stored_case(base, rel, &real) {
             self.refuse_case(path, written, file, stored)
             return -1
         }
@@ -392,33 +332,10 @@ extension ResProgram {
         info.kind == ResModuleKind.Std || info.kind == ResModuleKind.Builtin
     }
 
-    // The first segment of `rel`, a relative path under directory `base`,
-    // that its directory stores in another case, as the directory spells it,
-    // or None. A case-insensitive volume finds `layout.saw` for `Layout.saw`,
-    // and the real path spells the stored name. A segment is compared only
-    // when its real path stays in its directory, so a symbolic link to
-    // another name is no mismatch.
-    func stored_case(&self, base: String, rel: String) -> String? {
-        var at = res_real_path(&base)
-        var start = 0
-        var i = 0
-        let n = rel.len()
-        while i <= n {
-            if i == n || (rel.byte_at(i) as Int) == 47 {
-                let segment = rel.substring(start, i)
-                let next = res_join(at, segment)
-                let real = res_real_path(&next)
-                let stored = res_last_component(&real)
-                let parent = res_dir_of(&real)
-                if parent.equals(at) && not stored.equals(segment) && res_same_ignoring_case(&stored, &segment) {
-                    return stored
-                }
-                at = real
-                start = i + 1
-            }
-            i = i + 1
-        }
-        None
+    // The segment of `rel` under `base` stored in another case
+    // (`res_stored_case`), `real` being the whole path's real path.
+    func stored_case(&var self, base: String, rel: String, real: &String) -> String? {
+        res_stored_case(&var self.real_memo, base, rel, &real)
     }
 
     func refuse_std_path(&var self, path: Int, text: String, file: String, known: Int) {

@@ -16,7 +16,7 @@ import sawcoro.verify.{coro_verify_lowering, coro_verify_snapshot}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
-import sawmono.api.{mono_append_findings, mono_lower_cut, mono_lower_file}
+import sawmono.api.{mono_append_findings, mono_from_front, mono_lower_cut, mono_lower_file}
 import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoProgram}
 import sawmono.worklist.{mono_rules}
@@ -62,6 +62,13 @@ public func coro_lower_cut(out: &var StringBuilder, front: FrontCut, path: Strin
                            names: &Vector<String>, dirs: &Vector<String>, no_hidden_alloc: Bool = false) -> CoroProgram {
     let mono = mono_lower_cut(out: &var out, front: move front, path: path, notes: notes, names: &names,
                               dirs: &dirs, no_hidden_alloc: no_hidden_alloc)
+    coro_decide(move mono)
+}
+
+// `coro_lower_cut` for `front`, the whole front end with every layer already
+// run, as the driver brings it from the front cache.
+public func coro_lower_front(out: &var StringBuilder, front: FrontCut, notes: Bool) -> CoroProgram {
+    let mono = mono_from_front(out: &var out, front: move front, notes: notes)
     coro_decide(move mono)
 }
 

@@ -88,18 +88,28 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def driver_ir(binary, root):
+def driver_ir(binary, root, env=None):
     """The driver's `.ll` as `binary` writes it with `root` as the tree, and
-    the seconds it took; None when it refused."""
+    the seconds it took; None when it refused or failed."""
     start = time.time()
     entry = os.path.join(root, "compiler", "driver", "src", "main.saw")
     r = subprocess.run([binary, "build", "--emit-ll", "--std-root", os.path.join(root, "std")]
                        + build.package_arguments(root)
-                       + [entry], cwd=root, capture_output=True, timeout=TIMEOUT)
+                       + [entry], cwd=root, capture_output=True, timeout=TIMEOUT, env=env)
     seconds = time.time() - start
     if r.returncode != 0:
-        return None, seconds, r.stdout.decode("utf-8", "replace")[:600]
+        return None, seconds, (r.stdout + r.stderr).decode("utf-8", "replace")[-600:]
     return r.stdout, seconds, ""
+
+
+def verify_environment():
+    """The environment of a build under the front cache's verify switch, on
+    a fresh cache, so it computes, stores and verifies every layer."""
+    cache = os.path.join(OUT, "verify-cache")
+    shutil.rmtree(cache, ignore_errors=True)
+    env = dict(os.environ, SAWC_CACHE_DIR=cache, SAWC_FRONT_VERIFY="1")
+    env.pop("SAWC_FRONT_CACHE", None)
+    return env
 
 
 def build_stages(failures, counts):
@@ -148,7 +158,8 @@ def check_seed(failures, counts):
 
 
 def check_driver_ir(failures, counts):
-    """Determinism over two builds and two directories, and the IR fixpoint."""
+    """Determinism over two builds and two directories, and the IR fixpoint,
+    Stage 2's build under the front cache's verify switch."""
     first, seconds, why = driver_ir(build.STAGE1, REPO)
     counts["seconds: Stage 1 writes the driver's .ll"] = round(seconds)
     if first is None:
@@ -167,8 +178,10 @@ def check_driver_ir(failures, counts):
         failures.append("fixpoint determinism: the driver's .ll built in another directory differs%s"
                         % (": " + why if why else ""))
     counts["fixpoint driver .ll bytes"] = len(first)
-    fixed, seconds, why = driver_ir(build.STAGE2, REPO)
-    counts["seconds: Stage 2 writes the driver's .ll"] = round(seconds)
+    # Stage 2's build stores every layer of the driver's front end, rebuilds
+    # each from its part and compares it with the state computed.
+    fixed, seconds, why = driver_ir(build.STAGE2, REPO, verify_environment())
+    counts["seconds: Stage 2 writes the driver's .ll, verifying every layer it stores"] = round(seconds)
     if fixed != first:
         failures.append("fixpoint: Stage 2's .ll of the driver differs from Stage 1's%s"
                         % (": " + why if why else ""))
@@ -255,8 +268,9 @@ def check_twin_stderr(failures, counts):
     front cache warnings, and only those: two link failures
     naming one stem with different random suffixes agree, two timed builds
     naming the same steps (a split build's units among them, compiled or
-    `cached`, and a front-cache load or store) agree, and different stems,
-    different steps or units, or a build without the flag still differ."""
+    `cached`, a front-cache load or store, and each later layer loaded or
+    computed) agree, and different stems, different steps, units or layers,
+    or a build without the flag still differ."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fixpoint_twin", TWIN)
     twin = importlib.util.module_from_spec(spec)
@@ -296,6 +310,16 @@ def check_twin_stderr(failures, counts):
         (["build"], b"time: front cache store 76.5 ms\n", b"time: front cache load 64.9 ms\n", False),
         (["typecheck"], b"sawc build: warning: the front cache entry /c/front/g1/k.img is damaged\n", b"", True),
         (["build"], b"sawc build: warning: the front cache entry /c/front/g1/k.img is damaged\n", b"", True),
+        (["build", "--time-stages"],
+         b"time: front cache load 64.9 ms\ntime: front layer sawlex computed 60.1 ms\ntime: front layer program "
+         b"computed 9.0 ms\ntime: front layers store 3.0 ms\ntime: front layers join 0.0 ms\ntime: resolve 22.1 ms\n"
+         b"time: drops 4.0 ms\ntime: mono 2.0 ms\n",
+         b"time: front cache load 61.0 ms\ntime: front layer sawlex loaded 5.1 ms\ntime: front layer program "
+         b"loaded 1.0 ms\ntime: mono 2.1 ms\n", True),
+        (["build", "--time-stages"], b"time: front layer sawlex loaded 5.1 ms\ntime: mono 2.1 ms\n",
+         b"time: front layer sawparse loaded 5.1 ms\ntime: mono 2.1 ms\n", False),
+        (["build", "--time-stages"], b"time: front layer sawlex loaded 5.1 ms\ntime: mono 2.1 ms\n",
+         b"time: front layer sawlex loaded 5.1 ms\ntime: coro 2.1 ms\n", False),
     ]
     for args, x, y, same in cases:
         if (twin.comparable_stderr(args, x) == twin.comparable_stderr(args, y)) != same:

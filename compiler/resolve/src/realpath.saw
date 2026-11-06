@@ -1,0 +1,121 @@
+// The resolver's real paths, each asked of the system once per process
+// (SL-955 unit 4b).
+
+import std.env.{Env}
+import std.path.{Path}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
+
+static RES_MEMO_BUCKETS: Int = 1024
+static RES_MEMO_SLASH: Int = 47
+static RES_FNV_OFFSET: Int = 2166136261
+static RES_FNV_PRIME: Int = 16777619
+static RES_FNV_MASK: Int = 4294967295
+
+// THE REAL PATH MEMO: each path's real path, every symbolic link, `.` and
+// `..` resolved, asked of the system once per process. A key is the path made
+// absolute against the working directory, read once, which sawc never
+// changes; so a key names one file whatever directory a later call is made
+// from, and nothing relative is kept. An entry never reaches an image: the
+// memo serializes as nothing and loads empty. A path that cannot be resolved
+// is answered with its own spelling, which the read that follows refuses.
+// ENTRY POINTS:
+//     ResProgram.real_path
+//     res_layer_plan
+//     res_stored_case
+public struct ResRealMemo {
+    cwd: String
+    asked: Bool
+    heads: Vector<Int>
+    next: Vector<Int>
+    keys: Vector<String>
+    reals: Vector<String>
+}
+
+extension ResRealMemo: NoCopy {}
+
+public func res_real_memo() -> ResRealMemo {
+    var heads = try! Vector<Int>(capacity: RES_MEMO_BUCKETS)
+    var k = 0
+    while k < RES_MEMO_BUCKETS {
+        try! heads.push(-1)
+        k = k + 1
+    }
+    ResRealMemo(cwd: "", asked: false, heads: move heads, next: Vector<Int>(), keys: Vector<String>(),
+                reals: Vector<String>())
+}
+
+extension ResRealMemo {
+    // `path` joined onto the working directory when it is relative and the
+    // directory can be read.
+    public func absolute(&var self, path: &String) -> String {
+        if path.len() > 0 && (path.byte_at(0) as Int) == RES_MEMO_SLASH {
+            return path.substring(0, path.len())
+        }
+        if not self.asked {
+            self.asked = true
+            match Env.cwd() {
+                case Ok(dir) -> { self.cwd = dir.as_string() },
+                case Err(_) -> {}
+            }
+        }
+        if self.cwd.len() == 0 {
+            return path.substring(0, path.len())
+        }
+        if path.len() == 0 {
+            return self.cwd.substring(0, self.cwd.len())
+        }
+        var out = StringBuilder()
+        try! out.append(self.cwd)
+        try! out.append("/")
+        try! out.append(path.substring(0, path.len()))
+        out.build()
+    }
+
+    // The real path of `path`.
+    public func real(&var self, path: &String) -> String {
+        let key = self.absolute(&path)
+        let bucket = res_memo_hash(&key) % RES_MEMO_BUCKETS
+        var at = self.heads[bucket]
+        while at >= 0 {
+            if self.keys[at].equals(key) {
+                return self.reals[at]
+            }
+            at = self.next[at]
+        }
+        let asked = if key.len() == 0 { "." } else { key.substring(0, key.len()) }
+        let answer = match Path(s: asked).canonical() {
+            case Ok(real) -> real.as_string(),
+            case Err(_) -> path.substring(0, path.len())
+        }
+        try! self.keys.push(key)
+        try! self.reals.push(answer)
+        try! self.next.push(self.heads[bucket])
+        self.heads[bucket] = self.keys.len() - 1
+        answer
+    }
+}
+
+// FNV-1a over `text`'s bytes, kept to 32 bits.
+func res_memo_hash(text: &String) -> Int {
+    var h = RES_FNV_OFFSET
+    var i = 0
+    while i < text.len() {
+        h = ((h ^ (text.byte_at(i) as Int)) * RES_FNV_PRIME) & RES_FNV_MASK
+        i = i + 1
+    }
+    h
+}
+
+extension ResRealMemo: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(0)
+        return
+    }
+}
+
+extension ResRealMemo: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<ResRealMemo, DecodeError> {
+        try from.expect_array(0)
+        return res_real_memo()
+    }
+}

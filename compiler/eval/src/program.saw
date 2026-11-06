@@ -77,7 +77,7 @@ public struct EvalProgram {
     // raw-backed case's value, or -1.
     constant_of: Vector<Int>
     // The functions being evaluated, outermost first.
-    stack: Vector<Int>
+    stack: Vector<Int>  // front: rewritten in place
     // Steps taken by the evaluation under way, which the step budget bounds.
     steps: Int
     diags: Vector<MirDiag>

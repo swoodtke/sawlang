@@ -1,0 +1,76 @@
+// The pieces the generated per-layer slicer (sawmono.frontparts) is made of:
+// a table's suffix, a rewritten table's changes, and copying each back
+// (SL-955 unit 4b).
+
+// A rewritten table's change over one layer: its length after the layer,
+// then each entry the layer set, by index, in ascending order, an index past
+// the old length being an entry it added.
+public struct FrontRewrite<T> {
+    length: Int
+    at: Vector<Int>
+    values: Vector<T>
+}
+
+extension FrontRewrite<T>: NoCopy {}
+
+@synthesize
+extension FrontRewrite<T: Serialize>: Serialize {}
+@synthesize
+extension FrontRewrite<T: Deserialize>: Deserialize {}
+
+// `v[lo..hi]` as a vector of its own. An element is read by value, the
+// canonical copy of a Copy-tier one.
+public func front_suffix<T: Copy>(v: &Vector<T>, lo: Int, hi: Int) -> Vector<T> {
+    var out = try! Vector<T>(capacity: if hi > lo { hi - lo } else { 0 })
+    var i = lo
+    while i < hi {
+        try! out.push(v[i])
+        i = i + 1
+    }
+    move out
+}
+
+// All of `v`, a snapshot of a rewritten table.
+public func front_copy<T: Copy>(v: &Vector<T>) -> Vector<T> {
+    front_suffix(&v, 0, v.len())
+}
+
+// `part`'s elements appended to `table`.
+public func front_append<T: Copy>(table: &var Vector<T>, part: &Vector<T>) {
+    try! table.reserve(part.len())
+    var i = 0
+    while i < part.len() {
+        try! table.push(part[i])
+        i = i + 1
+    }
+}
+
+// A rewritten table whose entries are not compared, written whole; one whose
+// are is diffed by a function the slicer generates per element type.
+public func front_rewrite_whole<T: Copy>(after: &Vector<T>) -> FrontRewrite<T> {
+    var at = Vector<Int>()
+    var i = 0
+    while i < after.len() {
+        try! at.push(i)
+        i = i + 1
+    }
+    FrontRewrite<T>(length: after.len(), at: move at, values: front_copy(&after))
+}
+
+// `change` applied to `table`: cut back to the new length when it is shorter,
+// each entry set, an index past the end appended.
+public func front_rewrite_apply<T: Copy>(table: &var Vector<T>, change: &FrontRewrite<T>) {
+    while table.len() > change.length {
+        let _ = table.pop()
+    }
+    var k = 0
+    while k < change.at.len() {
+        let i = change.at[k]
+        if i < table.len() {
+            table[i] = change.values[k]
+        } else {
+            try! table.push(change.values[k])
+        }
+        k = k + 1
+    }
+}

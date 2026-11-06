@@ -2,7 +2,7 @@
 """The compile-time benchmark (SL-955): five fixed builds, timed by
 `sawc build --time-stages`, as a Markdown table for a tracker comment.
 
-    tools/bench_compile.py [--runs N] [--sawc PATH] [--json FILE] [--no-lock] [--cache | --front-cache]
+    tools/bench_compile.py [--runs N] [--sawc PATH] [--json FILE] [--no-lock] [--cache | --front-cache | --layers]
 
 The builds: sawc's own build at -O2 and at -O0 (the argument list of
 compiler/tools/build.py's `driver_arguments`), Blade at -O2 (tools/blade_lane.py's
@@ -24,6 +24,12 @@ off.
 whole and split, sawc split with its objects cached, and the largest corpus
 program, each with the cache off, cold and warm, on a cache under
 `.build/bench/`.
+
+`--layers` measures the layered front cache (`layer_runs`): sawc split at
+-O2 and -O0, Blade split at -O2, hello and a copy of sawtracker's sources,
+each in a copy under `.build/bench/` with the object cache filled first, then
+the front cache off, cold, warm, and warm after an edit in each of three of
+its layers.
 """
 import argparse
 import collections
@@ -248,6 +254,143 @@ def front_runs(spec, runs):
     return cases
 
 
+# The layered front cache's builds (`--layers`): a name, the program (one of
+# tools/unit_stability.py's, or LAYER_PROGRAMS'), the speed, the codegen
+# units, and the edits measured after the warm build: a unit_stability case's
+# name, or `append:PATH`, LAYER_APPENDED added at the end of that file.
+LayerBuild = collections.namedtuple("LayerBuild", "name program speed units edits")
+SAWC_LAYER_EDITS = ("sawc-body", "sawc-string", "sawc-new-call")
+LAYER_BUILDS = (
+    LayerBuild("sawc -O2 split thin", "sawc", "-O2", "module", SAWC_LAYER_EDITS),
+    LayerBuild("sawc -O0 split", "sawc", "-O0", "module", SAWC_LAYER_EDITS),
+    LayerBuild("blade -O2 split thin", "blade", "-O2", "module",
+               ("append:libs/semver/src/lib.saw", "append:libs/toml/src/lib.saw", "blade-body")),
+    LayerBuild("hello -O0", "hello", "-O0", "1", ()),
+    LayerBuild("sawtracker -O2 split thin", "sawtracker", "-O2", "module", ("append:src/common.saw",)),
+)
+# The sawtracker sources a copy is made of, read and never written: its
+# program is `src/main.saw` and its modules sit beside it. `--sawtracker`
+# names them for a checkout that is not beside this one.
+SAWTRACKER_SRC = os.path.join(os.path.dirname(REPO), "sawtracker", "src")
+LAYER_APPENDED = "\n// A layer edit the front cache must see (tools/bench_compile.py --layers).\n" \
+                 "func bench_layer_probe() -> Int {\n    1\n}\n"
+LAYER_CASES = ("off", "cold", "warm, no edit")
+LAYER_LINE = re.compile(r"^front layer \S+ (loaded|computed)$")
+
+
+def layer_program(name, root, sawtracker=SAWTRACKER_SRC):
+    """The unit_stability Program of `name`, its sources copied under `root`."""
+    import unit_stability
+    shutil.rmtree(root, ignore_errors=True)
+    if name in unit_stability.PROGRAMS:
+        program = unit_stability.PROGRAMS[name]
+        unit_stability.copy_program(program, root)
+        return program
+    shutil.copytree(os.path.join(REPO, "std"), os.path.join(root, "std"))
+    if name == "hello":
+        os.makedirs(os.path.join(root, "src"))
+        shutil.copy(HELLO, os.path.join(root, "src", "main.saw"))
+    else:
+        shutil.copytree(sawtracker, os.path.join(root, "src"))
+    return unit_stability.Program("src/main.saw", (), ("std", "src"))
+
+
+def layer_edit(edit, root):
+    """Applies `edit` in the copy at `root`; returns (its label, the edited
+    file, its text before)."""
+    import unit_stability
+    if edit.startswith("append:"):
+        rel = edit[len("append:"):]
+        path = os.path.join(root, rel)
+        with open(path) as fh:
+            original = fh.read()
+        with open(path, "w") as fh:
+            fh.write(original + LAYER_APPENDED)
+        return "warm, a function added to %s" % rel, path, original
+    case = unit_stability.CASES[edit]
+    path = os.path.join(root, case.path)
+    with open(path) as fh:
+        original = fh.read()
+    unit_stability.apply_edit(case, root)
+    return "warm, " + case.about, path, original
+
+
+def layer_arguments(sawc, program, speed, units, out, root):
+    """`cache_arguments` with each mapping spelled absolute, as
+    `--front-cache`'s driver build spells them (`build.package_arguments`),
+    so a row measures the same resolve as that table's."""
+    argv = [sawc, "build", TIME_STAGES, speed, "--codegen-units=" + units, "--std-root", "std"]
+    for name, rel in program.packages:
+        argv += ["--module-path", "%s=%s" % (name, os.path.join(root, rel))]
+    return argv + [program.entry, "-o", out]
+
+
+def layer_runs(sawc, spec, runs, sawtracker=SAWTRACKER_SRC):
+    """{case: [rows]} of `runs` passes over one LAYER_BUILDS entry, in a copy
+    of its sources under `.build/bench/` with a cache of its own: a split
+    build's object cache filled by an untimed build first, then the front
+    cache off, cold (its entries removed), warm with nothing changed, and
+    warm after each edit, applied in the copy and undone after."""
+    root = os.path.join(BENCH_DIR, "layers-" + re.sub(r"[^a-z0-9]+", "-", spec.name))
+    program = layer_program(spec.program, root, sawtracker)
+    out = os.path.join(root, "out", "program")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    argv = layer_arguments(sawc, program, spec.speed, spec.units, out, root)
+    cache = os.path.join(root, "cache")
+    env = dict(os.environ, SAWC_CACHE_DIR=cache)
+    for name in ("SAWC_FRONT_CACHE", "SAWC_OBJECT_CACHE", "SAWC_CACHE_ENTRIES", "SAWC_CODEGEN_UNITS", "SAWC_LTO",
+                 "SAWC_FRONT_VERIFY"):
+        env.pop(name, None)
+    cases = collections.OrderedDict((case, []) for case in LAYER_CASES)
+    for _ in range(runs):
+        shutil.rmtree(cache, ignore_errors=True)
+        if spec.units != "1":
+            run_once(argv, root, env)
+        cases["off"].append(run_once(argv, root, dict(env, SAWC_FRONT_CACHE="off")))
+        shutil.rmtree(os.path.join(cache, "front"), ignore_errors=True)
+        cases["cold"].append(run_once(argv, root, env))
+        cases["warm, no edit"].append(run_once(argv, root, env))
+        for edit in spec.edits:
+            label, path, original = layer_edit(edit, root)
+            try:
+                cases.setdefault(label, []).append(run_once(argv, root, env))
+            finally:
+                with open(path, "w") as fh:
+                    fh.write(original)
+    return cases
+
+
+def layer_row(name, case, runs):
+    """One row of the layers table: the median total, the front end's steps
+    summed, the layers loaded and computed, std's cut and the layers' store,
+    clang, the link (with dsymutil), and the units compiled."""
+    summary = summarize(runs)
+    steps = summary["steps"]
+    front = sum(steps.get(s, 0.0) for s in FRONT_END_STEPS)
+    states = [LAYER_LINE.match(step).group(1) for step, _ in runs[-1] if LAYER_LINE.match(step)]
+    std = ("load %.0f" % steps["front cache load"] if "front cache load" in steps
+           else "computed %.0f" % steps["std front end"] if "std front end" in steps else "-")
+    stored = steps.get("front layers store")
+    link = steps.get("link", 0.0) + steps.get("clang link", 0.0) + steps.get("dsymutil", 0.0)
+    compiled, units = units_compiled(runs[-1])
+    return ("| %s | %s | **%.0f** (%.0f-%.0f) | %.0f | %d / %d | %s | %s | %.0f | %.0f | %s |"
+            % (name, case, summary["total"]["median"], summary["total"]["min"], summary["total"]["max"], front,
+               states.count("loaded"), states.count("computed"), std,
+               "-" if stored is None else "%.0f" % stored, steps.get("clang", 0.0), link,
+               "%d of %d" % (compiled, units) if units else "1 of 1"))
+
+
+def format_layers_table(results):
+    """The Markdown table of `--layers`: a row per build and case."""
+    lines = ["| build | case | total ms (min-max) | front-end steps | layers loaded / computed | std's cut "
+             "| layers store | clang | link | units compiled |",
+             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for name, cases in results:
+        for case, runs in cases.items():
+            lines.append(layer_row(name, case, runs))
+    return "\n".join(lines)
+
+
 # The steps std's front end and the program's run in, which a row sums.
 FRONT_END_STEPS = ("resolve", "typecheck", "asserts", "mir", "verify resolve", "verify typecheck", "verify mir",
                    "eval", "verify eval", "borrowck", "verify borrowck", "drops", "verify drops")
@@ -365,9 +508,16 @@ def main():
     ap.add_argument("--cache", action="store_true", help="measure the object cache: cold, warm and after an edit")
     ap.add_argument("--front-cache", action="store_true",
                     help="measure the std front cache: off, cold and warm")
+    ap.add_argument("--layers", action="store_true",
+                    help="measure the layered front cache: off, cold, warm and after an edit in a layer")
+    ap.add_argument("--sawtracker", default=SAWTRACKER_SRC, metavar="DIR",
+                    help="the sawtracker sources --layers copies (default: beside this checkout)")
     args = ap.parse_args()
-    if args.cache and args.front_cache:
-        ap.error("--cache and --front-cache measure one cache each")
+    if args.cache + args.front_cache + args.layers > 1:
+        ap.error("--cache, --front-cache and --layers each measure one cache")
+    if args.layers and not os.path.exists(os.path.join(args.sawtracker, "main.saw")):
+        ap.error("--layers copies sawtracker's sources, and %s holds no main.saw; name them with --sawtracker"
+                 % args.sawtracker)
     if args.runs < 1:
         ap.error("--runs takes at least 1")
     sawc = os.path.abspath(args.sawc)
@@ -394,7 +544,13 @@ def main():
                 cases = front_runs(spec, args.runs)
                 cached.append((spec.name, cases))
                 raw[spec.name] = {case: [[list(r) for r in rows] for rows in runs] for case, runs in cases.items()}
-        for name, argv in ([] if args.cache or args.front_cache else builds(sawc)):
+        if args.layers:
+            for spec in LAYER_BUILDS:
+                print("bench: %s" % spec.name, file=sys.stderr, flush=True)
+                cases = layer_runs(sawc, spec, args.runs, args.sawtracker)
+                cached.append((spec.name, cases))
+                raw[spec.name] = {case: [[list(r) for r in rows] for rows in runs] for case, runs in cases.items()}
+        for name, argv in ([] if args.cache or args.front_cache or args.layers else builds(sawc)):
             print("bench: %s" % name, file=sys.stderr, flush=True)
             runs = [run_once(argv) for _ in range(args.runs)]
             names.append(name)
@@ -416,6 +572,8 @@ def main():
         print(format_cache_table(cached))
     elif args.front_cache:
         print(format_front_table(cached))
+    elif args.layers:
+        print(format_layers_table(cached))
     else:
         print(format_table(names, summaries))
     if args.json:

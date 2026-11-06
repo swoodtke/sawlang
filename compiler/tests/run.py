@@ -34,7 +34,8 @@ fold to agreement over tests/corpus/; runs the std lane over `std/`, the
 new std; runs the borrowck lane over `borrowck/`; runs the drops lane over
 `drops/`; runs the mono lane over `mono/`, whose golden item dumps, layout
 tables and refusal fixtures hold `sawc mono` and the target description, and
-whose layouts are compared with Stage 0's recorded ones; runs the coro lane
+whose layouts are compared with Stage 0's recorded ones, and checks that the
+front cache's generated slicer is current (`front_parts`); runs the coro lane
 over `coro/`, whose golden frame decisions and refusal fixtures hold `sawc
 coro`, and whose decisions must agree with typecheck's summaries; runs the run
 lane over `run/`, which builds each program with `sawc build` and compares
@@ -80,6 +81,7 @@ import build  # noqa: E402
 import patch_gate  # noqa: E402
 import comma_funnel  # noqa: E402
 import depth_funnel  # noqa: E402
+import front_parts  # noqa: E402
 import grammar_tables  # noqa: E402
 import speculation_ledger  # noqa: E402
 import runtime_table  # noqa: E402
@@ -641,6 +643,16 @@ def run_mono(run):
         run.count(key, n)
 
 
+def run_front_parts(run):
+    """The front cache's per-layer slicer, `compiler/mono/src/frontparts.saw`,
+    is what `compiler/tools/front_parts.py` writes from the stages' structs."""
+    stale = front_parts.check()
+    if stale:
+        run.fail("front parts: " + stale)
+    else:
+        run.count("front parts tables", front_parts.table_count())
+
+
 def run_coro(run):
     """The coro lane (compiler/tests/coro/coro_lane.py): the golden frame
     decisions, the refusal fixtures and their rule coverage, and the
@@ -750,6 +762,7 @@ STEPS = (
     Step("borrowck", "built"),
     Step("drops", "built"),
     Step("mono", "built"),
+    Step("front_parts", "always"),
     Step("coro", "built"),
     Step("programs", "built", calls_overlap=True),
     Step("sanitize", "built", calls_overlap=True),

@@ -1,0 +1,49 @@
+// The first package of the layered front-end fixture (run_lane.py's
+// `check_front_layers`): a type, a conformance, a generic and an extension
+// of a std type, each of which a later layer reaches into.
+
+public struct Point {
+    x: Int
+    y: Int
+}
+
+@synthesize
+extension Point: Comparable {}
+
+extension Point: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("(")
+        try! into.append(self.x)
+        try! into.append(", ")
+        try! into.append(self.y)
+        try! into.append(")")
+    }
+}
+
+extension Point {
+    public func plus(&self, other: Point) -> Point {
+        Point(x: self.x + other.x, y: self.y + other.y)
+    }
+}
+
+// The greatest of `items`, or None when there is none.
+public func greatest<T: Comparable + Copy>(items: &Vector<T>) -> T? {
+    if items.len() == 0 {
+        return None
+    }
+    var best = items[0]
+    var k = 1
+    while k < items.len() {
+        if items[k] > best {
+            best = items[k]
+        }
+        k = k + 1
+    }
+    best
+}
+
+extension String {
+    public func framed(&self) -> String {
+        "[{self}]"
+    }
+}

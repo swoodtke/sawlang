@@ -414,14 +414,15 @@ def check_identity_cases(failures, counts):
     code, out = sawc(["--dump", "--module-path", "pk=%s" % rel(src)]
                       + [rel(os.path.join(IDENTITY_DIR, name)) for name in sorted(cases)])
     got = records(out)
+    # A package's modules are its layer's, ahead of the entry's, in name order.
     links = got.get(rel(os.path.join(IDENTITY_DIR, "links.saw")), "")
-    if program_modules(links) != ["links", "pk.layout", "pk.sub.user"] or "ERROR\t" in links:
+    if program_modules(links) != ["pk.layout", "pk.sub.user", "links"] or "ERROR\t" in links:
         failures.append("resolve identity: symbolic links give the modules %r, expected one module "
-                        "per file, ['links', 'pk.layout', 'pk.sub.user']" % program_modules(links))
+                        "per file, ['pk.layout', 'pk.sub.user', 'links']" % program_modules(links))
     hard = got.get(rel(os.path.join(IDENTITY_DIR, "hard.saw")), "")
-    if program_modules(hard) != ["hard", "pk.layout", "pk.hard"]:
+    if program_modules(hard) != ["pk.hard", "pk.layout", "hard"]:
         failures.append("resolve identity: a hard link gives the modules %r, expected the "
-                        "documented two, ['hard', 'pk.layout', 'pk.hard']" % program_modules(hard))
+                        "documented two, ['pk.hard', 'pk.layout', 'hard']" % program_modules(hard))
     case_entry = rel(os.path.join(IDENTITY_DIR, "case.saw"))
     found = first_error(got.get(case_entry, ""), case_entry)
     insensitive = os.path.exists(os.path.join(src, "LAYOUT.saw"))

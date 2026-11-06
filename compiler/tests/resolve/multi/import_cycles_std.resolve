@@ -1,9 +1,37 @@
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/pk/src/a.saw:1:1	import cycle: pk.a -> pk.b -> pk.a
 ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/main.saw:8:1	import cycle: main -> back -> main
 ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/ca.saw:1:1	import cycle: ca -> cb -> ca
 ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/sa.saw:1:1	import cycle: sa -> sb -> sa
 ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/ga.saw:1:1	import cycle: ga -> gb -> ga
 ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/t1.saw:1:1	import cycle: t1 -> t2 -> t3 -> t1
-ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/pk/src/a.saw:1:1	import cycle: pk.a -> pk.b -> pk.a
+(Module pk.a
+  (names
+    (1:11 b (module pk.b))
+    (1:14 pb (overload pk.b pb))
+    (3:21 Int (type builtin Int))
+    (4:5 pb (overload pk.b pb)))
+  (calls
+    (4:5 overload (overload pk.b pb)))
+  (declarations
+    (func pa 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (pa (overload pk.a pa)))
+  (imports
+    (1:1 pk.b (select (pb (overload pk.b pb)))))
+  (extensions pk.a pk.b))
+(Module pk.b
+  (names
+    (1:11 a (module pk.a))
+    (1:14 pa (overload pk.a pa))
+    (3:21 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func pb 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (pb (overload pk.b pb)))
+  (imports
+    (1:1 pk.a (select (pa (overload pk.a pa)))))
+  (extensions pk.a pk.b))
 (Module main
   (names
     (8:8 back (module back))
@@ -141,21 +169,6 @@ ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/pk/src/a.saw:1
   (imports
     (1:1 s1 (select (g1s (overload s1 g1s)))))
   (extensions s1))
-(Module pk.a
-  (names
-    (1:11 b (module pk.b))
-    (1:14 pb (overload pk.b pb))
-    (3:21 Int (type builtin Int))
-    (4:5 pb (overload pk.b pb)))
-  (calls
-    (4:5 overload (overload pk.b pb)))
-  (declarations
-    (func pa 3:13 public (signature () -> builtin.Int)))
-  (surface
-    (pa (overload pk.a pa)))
-  (imports
-    (1:1 pk.b (select (pb (overload pk.b pb)))))
-  (extensions pk.a pk.b))
 (Module cb
   (names
     (1:8 ca (module ca))
@@ -208,19 +221,6 @@ ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/pk/src/a.saw:1
   (imports
     (1:1 t3 (select (f3 (overload t3 f3)))))
   (extensions t2 t3))
-(Module pk.b
-  (names
-    (1:11 a (module pk.a))
-    (1:14 pa (overload pk.a pa))
-    (3:21 Int (type builtin Int)))
-  (calls)
-  (declarations
-    (func pb 3:13 public (signature () -> builtin.Int)))
-  (surface
-    (pb (overload pk.b pb)))
-  (imports
-    (1:1 pk.a (select (pa (overload pk.a pa)))))
-  (extensions pk.a pk.b))
 (Module t3
   (names
     (1:8 t1 (module t1))

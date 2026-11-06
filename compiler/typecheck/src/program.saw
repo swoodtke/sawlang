@@ -257,8 +257,8 @@ public struct TcProgram {
     // The member table: each nominal type's members are `member_first[d] ..
     // member_first[d] + member_count[d]`.
     members: Vector<TcMember>
-    member_first: Vector<Int>
-    member_count: Vector<Int>
+    member_first: Vector<Int>  // front: rewritten in place
+    member_count: Vector<Int>  // front: rewritten in place
     tiers: Vector<TcTier>
     obligations: Vector<TcObligation>
     // How many of `obligations` are answered; one recorded later waits for
@@ -369,16 +369,16 @@ public struct TcProgram {
     body_roots: Vector<Int>
     body_decls: Vector<Int>
     // Every module's extension set, as `tc_extension_sets` builds it.
-    ext_visible: Vector<Bool>
+    ext_visible: Vector<Bool>  // front: rewritten in place
     // What `return` expects in the body or closure being checked, and the
     // loops around the position: each open loop's count of `break`s.
     body_result: Int
-    loop_breaks: Vector<Int>
+    loop_breaks: Vector<Int>  // front: rewritten in place
     // The `try` blocks open around the position, innermost last: each one's
     // first entry in `catch_errors`, which holds the error types their
     // `try`s propagate, each once per block.
-    catch_frames: Vector<Int>
-    catch_errors: Vector<Int>
+    catch_frames: Vector<Int>  // front: rewritten in place
+    catch_errors: Vector<Int>  // front: rewritten in place
     // Whether the closure being checked has no expected result, so its first
     // `return` gives `body_result` and the later ones are checked against it.
     result_open: Bool
@@ -404,9 +404,9 @@ public struct TcProgram {
     placement_value: Int
     // The bindings the closures being walked capture by borrow, `[&x]` or
     // `[&var x]`, by declaring leaf: inside them a name owns nothing.
-    borrow_captures: Vector<Int>
+    borrow_captures: Vector<Int>  // front: rewritten in place
     param_leaves: Vector<Int>
-    referenced_params: Vector<Int>
+    referenced_params: Vector<Int>  // front: rewritten in place
     // The unspelled value of each placement write `ptr[i] = param` whose
     // parameter no reference had named, the fresh journey a later by-value
     // read may still be.
@@ -453,7 +453,7 @@ public struct TcProgram {
     // The types whose copy `eval_copy_condition` is evaluating, the first
     // `copy_depth` of `copy_walk`: a type whose copy reaches its own copy
     // again, through a hook's condition, adds nothing more there.
-    copy_walk: Vector<Int>
+    copy_walk: Vector<Int>  // front: rewritten in place
     copy_depth: Int
     // The literal a unary minus is typing, or -1, and that minus: a negated
     // literal is one literal, so its range is its negation's (SL:open-questions
@@ -469,7 +469,7 @@ public struct TcProgram {
     fold_written: Int
     // By declaration: the trait whose requirement a written member meets, or
     // -1.
-    meets_trait: Vector<Int>
+    meets_trait: Vector<Int>  // front: rewritten in place
     // Every closure checked, in the order the walk met them, with the
     // declaration whose body holds it; and each one's captures, a run of
     // `captures` (`settle_captures`). (closure node, 0) -> its ordinal.
@@ -508,17 +508,17 @@ public struct TcProgram {
     // refuses where a position carries one (SL:open-questions D38).
     narrow_atomics: Vector<Int>
     // By entry of `narrow_atomics`: whether its refusal is reported.
-    narrow_reported: Vector<Bool>
+    narrow_reported: Vector<Bool>  // front: rewritten in place
     // Every `UnsafeMemory<T, Use>` type formed, written, inferred or
     // substituted (`mk_nominal`), which the view rules judge once tiers exist
     // (`memory_view_rule`), and by entry whether its refusal is reported.
     memory_views: Vector<Int>
-    memory_reported: Vector<Bool>
+    memory_reported: Vector<Bool>  // front: rewritten in place
     // Every `FuncPointer<F>` type formed (`mk_nominal`), which the
     // signature rule judges (`func_pointer_rule`), and by entry whether its
     // refusal is reported.
     func_pointer_types: Vector<Int>
-    func_pointer_reported: Vector<Bool>
+    func_pointer_reported: Vector<Bool>  // front: rewritten in place
     // Every closure literal coerced to a `FuncPointer` (`func_pointer_value`),
     // whose captures are refused once they settle.
     func_pointer_literals: Vector<Int>
@@ -543,8 +543,8 @@ public struct TcProgram {
     layout_assert_generic: Vector<Bool>
     // The measurements a layout assert's fold reads: each `sizeof`/`alignof`
     // call node, and its value at the layout being checked.
-    measured_nodes: Vector<Int>
-    measured_values: Vector<Int>
+    measured_nodes: Vector<Int>  // front: rewritten in place
+    measured_values: Vector<Int>  // front: rewritten in place
     // The const parameters a deferred assert's fold reads at one instance:
     // each one's declaring leaf, and its value there, at `instance_types`.
     instance_params: Vector<Int>
@@ -572,10 +572,10 @@ public struct TcProgram {
     // value) is typed ahead, and what the static stands for where a type
     // fixes a constant, its value as an `Int`, and the reason one is no
     // constant (`evaluate_constant_statics`, read by `static_constant`).
-    static_typing: Vector<TcStaticTyping>
-    static_verdicts: Vector<TcStaticVerdict>
-    static_values: Vector<Int>
-    static_reasons: Vector<String>
+    static_typing: Vector<TcStaticTyping>  // front: rewritten in place
+    static_verdicts: Vector<TcStaticVerdict>  // front: rewritten in place
+    static_values: Vector<Int>  // front: rewritten in place
+    static_reasons: Vector<String>  // front: rewritten in place
     // Each const parameter that sizes an array, written as a length or a
     // repeat count or passed on to one that is, by its declaration and index,
     // so a negative argument for it is refused where it is written
@@ -594,15 +594,15 @@ public struct TcProgram {
     target: TcTarget
     // By declaration: the C symbol an `@export` gives it, or "" for none, and
     // the attribute that says so, or -1 (`check_exports`).
-    export_symbols: Vector<String>
-    export_nodes: Vector<Int>
+    export_symbols: Vector<String>  // front: rewritten in place
+    export_nodes: Vector<Int>  // front: rewritten in place
     // Every written `any Trait` node, in the order `mk_any` formed it, which
     // the object-safety funnel judges once requirements are known.
     erased_nodes: Vector<Int>
     // By declaration: a pair's `blocking` twin of a default, and the default
     // of a twin, or -1 (`match_blocking_twin`).
-    blocking_twins: Vector<Int>
-    pair_defaults: Vector<Int>
+    blocking_twins: Vector<Int>  // front: rewritten in place
+    pair_defaults: Vector<Int>  // front: rewritten in place
 }
 
 extension TcProgram: NoCopy {}

@@ -1,0 +1,48 @@
+// The second package of the layered front-end fixture: it extends the first
+// package's type and instantiates its generic, so its layer writes into
+// tables the first package's layer made.
+
+import geometry.{Point, greatest}
+
+public struct Square {
+    corner: Point
+    side: Int
+}
+
+extension Point {
+    public func scaled(&self, by: Int) -> Point {
+        Point(x: self.x * by, y: self.y * by)
+    }
+}
+
+extension Square: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("square at ")
+        self.corner.format(into: &var into)
+        try! into.append(" side ")
+        try! into.append(self.side)
+    }
+}
+
+// The far corner of the square whose far corner is greatest, or None.
+public func farthest(squares: &Vector<Square>) -> Point? {
+    var corners = Vector<Point>()
+    var k = 0
+    while k < squares.len() {
+        let s = squares[k]
+        try! corners.push(s.corner.plus(Point(x: s.side, y: s.side)))
+        k = k + 1
+    }
+    greatest(&corners)
+}
+
+// Each square's side, through a closure each caller's layer instantiates.
+public func sides(squares: &Vector<Square>, each: (Int) -> Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    var k = 0
+    while k < squares.len() {
+        try! out.push(each(squares[k].side))
+        k = k + 1
+    }
+    move out
+}

@@ -17,6 +17,7 @@ import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_BORROWS_STRUCT, TcCall, TcRole, TcUse}
 import sawtypecheck.mutability.{tc_check_mutability}
+import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -101,34 +102,19 @@ extension TcProgram {
     // Each of `layer`'s modules, whose nodes' parents are its own.
     public func check_reference_positions(&var self, layer: &FrontLayer) {
         let n = self.res.nodes.len()
-        var parents = Vector<Int>()
-        var decl_of_node = Vector<Int>()
-        var k = 0
-        while k < n {
-            try! parents.push(-1)
-            try! decl_of_node.push(-1)
-            k = k + 1
-        }
-        k = layer.node_first
-        while k < n {
-            let count = self.child_count(k)
-            var j = 0
-            while j < count {
-                let c = self.child(k, j)
-                parents[c] = k
-                j = j + 1
-            }
-            k = k + 1
-        }
-        k = 0
+        let parents = self.layer_parents(&layer)
+        var decl_of_node = tc_node_table(layer.node_first, n, -1)
+        // A declaration's node lies in its own module, so only the layer's
+        // declarations name the layer's nodes.
+        var k = layer.decl_first
         while k < self.res.decls.len() {
             let node = self.res.decls[k].node
-            if node >= 0 {
+            if node >= layer.node_first {
                 decl_of_node[node] = k
             }
             k = k + 1
         }
-        let skipped = self.outside_slice_marks(n)
+        let skipped = self.layer_outside_marks(layer.node_first)
         var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
@@ -145,8 +131,8 @@ extension TcProgram {
     }
 
     // Each outermost written type of module `m`'s nodes.
-    func check_written_types(&var self, m: Int, base: Int, count: Int, parents: &Vector<Int>,
-                             decl_of_node: &Vector<Int>, skipped: &Vector<Bool>) {
+    func check_written_types(&var self, m: Int, base: Int, count: Int, parents: &TcNodeTable<Int>,
+                             decl_of_node: &TcNodeTable<Int>, skipped: &TcNodeTable<Bool>) {
         var id = base
         while id < base + count {
             let at = id
@@ -176,7 +162,8 @@ extension TcProgram {
     }
 
     // The position written type node `at` stands in, read off its parent.
-    func reference_position_of(&self, at: Int, parents: &Vector<Int>, decl_of_node: &Vector<Int>) -> TcRefPosition {
+    func reference_position_of(&self, at: Int, parents: &TcNodeTable<Int>,
+                               decl_of_node: &TcNodeTable<Int>) -> TcRefPosition {
         let p = parents[at]
         if p < 0 {
             return TcRefPosition.Other
@@ -309,8 +296,8 @@ extension TcProgram {
     // A bare `&` or `&var` is a call argument, or the operand of a cast to a
     // raw pointer, the one crossing into the unsafe tier (DF-163f); anywhere
     // else it would outlive the call it borrows for.
-    func check_reference_expressions(&var self, m: Int, base: Int, count: Int, parents: &Vector<Int>,
-                                     skipped: &Vector<Bool>) {
+    func check_reference_expressions(&var self, m: Int, base: Int, count: Int, parents: &TcNodeTable<Int>,
+                                     skipped: &TcNodeTable<Bool>) {
         var id = base
         while id < base + count {
             let at = id
@@ -335,7 +322,7 @@ extension TcProgram {
 
     // Whether the `&` at `at` is a call's argument or a pointer cast's
     // operand, parentheses aside.
-    func argument_position(&self, at: Int, parents: &Vector<Int>) -> Bool {
+    func argument_position(&self, at: Int, parents: &TcNodeTable<Int>) -> Bool {
         var child = at
         var p = parents[at]
         while p >= 0 && self.has_alt(p, Alt.Expr_Paren) {
@@ -366,8 +353,8 @@ extension TcProgram {
     // reference read through a binding gives the value (spec, Reference
     // Semantics), so only a value that builds a reference into a tuple or a
     // generic reaches this. A `let x = &y` is the `&`'s refusal.
-    func check_reference_bindings(&var self, m: Int, base: Int, count: Int, parents: &Vector<Int>,
-                                  skipped: &Vector<Bool>) {
+    func check_reference_bindings(&var self, m: Int, base: Int, count: Int, parents: &TcNodeTable<Int>,
+                                  skipped: &TcNodeTable<Bool>) {
         var id = base
         while id < base + count {
             let at = id
@@ -390,7 +377,7 @@ extension TcProgram {
 
     // Whether binding `at` is a `let` whose type a written annotation gives,
     // or whose value is a bare `&`, each refused where it is written.
-    func bound_from_reference_expression(&self, at: Int, parents: &Vector<Int>) -> Bool {
+    func bound_from_reference_expression(&self, at: Int, parents: &TcNodeTable<Int>) -> Bool {
         let p = parents[at]
         if p < 0 || not (self.has_alt(p, Alt.Stmt_Let_Immutable) || self.has_alt(p, Alt.Stmt_Let_Mutable)) {
             return false
@@ -414,7 +401,7 @@ extension TcProgram {
     // A call whose type arguments, its own or its owner's, name a reference:
     // a generic holds its argument as storage, so `idn(r)` instantiated at
     // `&Int` would hand the reference back out.
-    func check_reference_instantiations(&var self, skipped: &Vector<Bool>, layer: &FrontLayer) {
+    func check_reference_instantiations(&var self, skipped: &TcNodeTable<Bool>, layer:&FrontLayer) {
         var k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]

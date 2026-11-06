@@ -8,8 +8,9 @@ the profile and the compiler alone. Over the programs below, which reach into
 std's tables from their own layer in different ways, this checks that each sees
 the same std:
 
-- the cut's id-level counts: the program layer's watermarks, which
-  `sawc drops --dump` prints in the `std.prelude` section's `layers` block, the
+- the cut's id-level counts: the watermarks of the first layer after std's,
+  which `sawc drops --dump` prints in the `std.prelude` section's `layers`
+  block, the
   length of every program-wide table at the cut (modules, declarations, nodes,
   imports, conformances, interned names, types, MIR functions, statements and
   places among them);
@@ -178,10 +179,11 @@ def std_typecheck(lines):
 
 
 def cut_line(lines):
-    """The program layer's watermarks from the `std.prelude` drops section."""
+    """The watermarks of the first layer after std's, a package's or the
+    program's, from the `std.prelude` drops section."""
     for line in lines:
-        if line.startswith("  program "):
-            return line.strip()
+        if line.startswith("  program ") or line.startswith("  package "):
+            return line.strip().split(" ", 1)[1]
     return None
 
 
@@ -194,10 +196,14 @@ def views(name, path, flags):
     code, checked = sawc("typecheck", "--dump", "--summaries", "--std-root", "std", *extra, rel(path))
     if code != 0:
         return None, "std layers %s: `sawc typecheck` exits %d" % (name, code)
-    drops = {m: v for m, v in sections(dropped, drops_header).items() if is_std(m)}
+    # The layers after std's differ by program, a package's or the entry's,
+    # so the `layers` block keeps std's line; the first one after it is the
+    # cut, compared on its own.
+    drops = {m: [l for l in v if not (l.startswith("  program ") or l.startswith("  package "))]
+             for m, v in sections(dropped, drops_header).items() if is_std(m)}
+    cut = cut_line(sections(dropped, drops_header).get("std.prelude", []))
     typed = {m: std_typecheck(v) for m, v in sections(checked, typecheck_header).items() if is_std(m)}
     summaries = [l for l in checked.split("\n") if l.startswith("SUMMARY\tstd.")]
-    cut = cut_line(drops.get("std.prelude", []))
     if cut is None:
         return None, "std layers %s: the drops dump holds no program layer's watermarks" % name
     return {"cut": cut, "drops": drops, "typecheck": typed, "summaries": summaries}, None

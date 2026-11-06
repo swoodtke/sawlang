@@ -5,7 +5,7 @@
 
 Checks the parser and the median on a recorded `--time-stages` sample, the
 table's shape and blank cells, `--cache`'s rows and unit counts,
-`--front-cache`'s rows and builds, and that the benchmark's argument lists
+`--front-cache`'s and `--layers`' rows and builds, and that the benchmark's argument lists
 for sawc and Blade are the ones
 compiler/tools/build.py and tools/blade_lane.py build.
 """
@@ -139,6 +139,36 @@ check("front sawc argv is the driver's, split and timed", fronts[3].arguments("o
 check("front blade split argv", fronts[2].arguments("o"),
       blade_lane.blade_build_arguments("o", compiler, ["--time-stages", "-O2", "--codegen-units=module"]))
 check("front splits", [s.split for s in fronts], [False, False, True, True, False])
+
+LAYERS_WARM = """time: front cache load 45.0 ms
+time: front layer sawlex loaded 5.0 ms
+time: front layer program computed 30.0 ms
+time: front layers store 2.0 ms
+time: front layers join 0.0 ms
+time: resolve 10.0 ms
+time: clang link 80.0 ms
+time: total 190.0 ms
+"""
+check("layers row", bench.layer_row("s", "warm", [bench.parse_times(LAYERS_WARM)]),
+      "| s | warm | **190** (190-190) | 10 | 1 / 1 | load 45 | 2 | 0 | 80 | 1 of 1 |")
+check("layers cold row", bench.layer_row("h", "cold", [bench.parse_times(FRONT_COLD)]),
+      "| h | cold | **340** (340-340) | 50 | 0 / 0 | computed 150 | - | 0 | 80 | 1 of 1 |")
+check("layers split row", bench.layer_row("b", "warm", [cache_rows]),
+      "| b | warm | **90** (90-90) | 0 | 0 / 0 | - | - | 41 | 24 | 1 of 3 |")
+check("layers argv spells mappings absolute",
+      bench.layer_arguments("/x/sawc", unit_stability.PROGRAMS["blade"], "-O2", "module", "o", "/r")[7:9],
+      ["--module-path", "blade=/r/blade/src"])
+check("layers table shape", len(bench.format_layers_table(
+    [("s", {c: [bench.parse_times(LAYERS_WARM)] for c in bench.LAYER_CASES})]).splitlines()), 5)
+check("layers builds", [s.name for s in bench.LAYER_BUILDS],
+      ["sawc -O2 split thin", "sawc -O0 split", "blade -O2 split thin", "hello -O0", "sawtracker -O2 split thin"])
+check("layers builds' edits exist",
+      [e for s in bench.LAYER_BUILDS for e in s.edits
+       if not e.startswith("append:") and (e not in unit_stability.CASES
+                                           or unit_stability.CASES[e].program != s.program)], [])
+check("layers appended files exist",
+      [e for s in bench.LAYER_BUILDS for e in s.edits if e.startswith("append:") and s.program != "sawtracker"
+       and not os.path.exists(os.path.join(REPO, e[len("append:"):]))], [])
 
 header = bench.header("abc1234", "2026-11-02", "m", 1.0, 2.0, 3, False, "/x/sawc")
 check("header names no-lock", "NOT held" in header, True)

@@ -61,6 +61,13 @@
 // unless `--no-front-cache` or `SAWC_FRONT_CACHE=off` says otherwise.
 
 import sawasserts.layout.{asserts_inputs, asserts_program_layer}
+import sawmono.frontchain.{FRONT_PART_FORMAT, front_part_decode, front_part_encode}
+import sawmono.frontparts.{FrontPart, FrontSnap, front_part_apply, front_part_lengths, front_part_make,
+                           front_part_shrunk, front_part_snapshot}
+import sawresolve.layer.{FrontLayerKind}
+import sawresolve.loader.{res_mapping}
+import sawresolve.scan.{ResLayerPlan, ResPlannedLayer, res_layer_plan}
+import std.thread.{Thread}
 import sawborrowck.api.{BorrowckOptions, BorrowckStart, borrowck_record_from}
 import sawcoro.api.{CoroOptions, coro_record}
 import sawcoro.bttable.{coro_bt_record}
@@ -68,11 +75,11 @@ import sawdrops.api.{DropsOptions, DropsStart, drops_record_from, drops_record_s
 import saweval.api.{EvalOptions, EvalStart, eval_record_from}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_enable, stagetime_end, stagetime_report}
-import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting, llvm_build_split}
+import sawllvm.api.{BuildOptions, llvm_build_exporting}
 import sawllvm.split.{ll_split}
 import sawllvm.units.{LlUnitPlan}
 import sawmir.api.{MirOptions, mir_record_from}
-import sawmono.api.{MonoOptions, mono_front_std, mono_record}
+import sawmono.api.{MonoOptions, mono_front_layer, mono_front_std, mono_record}
 import sawmono.frontimage.{FRONT_IMAGE_FORMAT, FrontCut, front_image_decode, front_image_encode}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
@@ -80,7 +87,7 @@ import sawresolve.api.{ResolveOptions, ResolveStart, resolve_record_from}
 import sawtarget.layout.{TargetFeatureState, target_bare_metal, target_clang_triple, target_effective_features,
                          target_feature_state, target_front_end, target_known, target_mach_o, target_triples}
 import sawtypecheck.program.{TcProgram, TcTarget}
-import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
+import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record_from}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
 import std.directory.{Directory}
@@ -303,12 +310,6 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
-    if warn {
-        let warned_for = if triple.len() > 0 { triple } else { driver_check_triple() }
-        var warning = driver_front(std_root, target_front_end(warned_for, features), false, false, false,
-                                   front_on == 1, false)
-        driver_print_warnings(path, &var warning, &names, &dirs)
-    }
     // A freestanding build writes an object and links nothing.
     if freestanding {
         object = true
@@ -339,12 +340,13 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     features = target_effective_features(triple, features, freestanding)
     var front = driver_front(std_root, target_front_end(triple, features), false, freestanding, provider,
                              front_on == 1, timed)
+    let plan = driver_plan(&front, path, &names, &dirs)
     if emit {
         let emitting = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                     module_triple: target_clang_triple(triple), runtime: false,
                                     freestanding: freestanding, provider: provider, no_hidden_alloc: hidden,
                                     sanitize_address: sanitize, debug_info: debug, features: features, object: object)
-        return driver_emit(path, &var front, &emitting, &names, &dirs)
+        return driver_emit(path, &var front, &plan, &emitting, warn)
     }
     // Another target links against its own runtime, which a manifest of its
     // own names once build.py's clang check has passed for it; the host's
@@ -388,10 +390,15 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var record = StringBuilder()
     var ir = StringBuilder()
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
+    let whole = driver_front_chain(&var front, &plan, true, hidden)
+    if warn {
+        driver_print_warnings(path, &whole.drops.bc.mir.tc)
+    }
+    var exports = Vector<String>()
+    var unit_plan = LlUnitPlan()
+    let built = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports, plan: &var unit_plan,
+                                     split: split, front: move whole, options: &options)
     if split {
-        var plan = LlUnitPlan()
-        let built = llvm_build_split(out: &var record, ir: &var ir, plan: &var plan, cut: driver_front_cut(&var front),
-                                     path: path, options: &options, names: &names, dirs: &dirs)
         if built != 0 {
             driver_print_refusal(path, &var record)
             return built
@@ -413,18 +420,16 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         let text = ir.build()
         if provider {
             let none = Vector<String>()
-            return driver_split_build(&job, &plan, &text, &none)
+            return driver_split_build(&job, &unit_plan, &text, &none)
         }
         if cross {
-            return driver_split_build(&job, &plan, &text, &foreign)
+            return driver_split_build(&job, &unit_plan, &text, &foreign)
         }
-        return driver_split_build(&job, &plan, &text, &objects)
+        return driver_split_build(&job, &unit_plan, &text, &objects)
     }
-    let status = llvm_build(out: &var record, ir: &var ir, cut: driver_front_cut(&var front), path: path,
-                            options: &options, names: &names, dirs: &dirs)
-    if status != 0 {
+    if built != 0 {
         driver_print_refusal(path, &var record)
-        return status
+        return built
     }
     var ll = StringBuilder()
     try! ll.append(out)
@@ -458,12 +463,18 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
 
 // `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
-func driver_emit(path: String, front: &var DriverFront, options: &BuildOptions, names: &Vector<String>,
-                 dirs: &Vector<String>) -> Int {
+func driver_emit(path: String, front: &var DriverFront, plan: &ResLayerPlan, options: &BuildOptions,
+                 warn: Bool) -> Int {
     var record = StringBuilder()
     var ir = StringBuilder()
-    let status = llvm_build(out: &var record, ir: &var ir, cut: driver_front_cut(&var front), path: path,
-                            options: &options, names: &names, dirs: &dirs)
+    let whole = driver_front_chain(&var front, &plan, true, options.no_hidden_alloc)
+    if warn {
+        driver_print_warnings(path, &whole.drops.bc.mir.tc)
+    }
+    var exports = Vector<String>()
+    var units = LlUnitPlan()
+    let status = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports, plan: &var units,
+                                      split: false, front: move whole, options: &options)
     if status != 0 {
         driver_print_refusal(path, &var record)
         return status
@@ -514,14 +525,12 @@ func driver_warning_category(category: String) -> Bool {
     false
 }
 
-// The warnings `-W borrow-prefix` asks a build of `path` for, its program's
-// layer typechecked from std's cut for `front`'s target, headed by the file,
-// printed when there are any. They never change the exit status.
-func driver_print_warnings(path: String, front: &var DriverFront, names: &Vector<String>, dirs: &Vector<String>) {
-    var cut = driver_front_cut(&var front)
-    asserts_program_layer(&var cut.drops.bc.mir.tc, path, &names, &dirs, false)
+// The warnings `-W borrow-prefix` asks a build of `path` for, from `p`, the
+// program the build checked, headed by the file, printed when there are any.
+// They never change the exit status.
+func driver_print_warnings(path: String, p: &TcProgram) {
     var found = StringBuilder()
-    append_tc_warnings(out: &var found, p: &cut.drops.bc.mir.tc)
+    append_tc_warnings(out: &var found, p: &p)
     let text = found.build()
     if text.len() == 0 {
         return
@@ -1409,9 +1418,11 @@ static DRIVER_CACHE_ENTRIES: Int = 2048
 // The number an entry's header and every key's description carry; a change
 // to either's layout takes the next one.
 static DRIVER_CACHE_FORMAT: Int = 2
-// The std front cache's bound, in images: a generation holds half of it, so
-// sixteen are kept, about 140 MB at std's 8.9 MB.
-static DRIVER_FRONT_ENTRIES: Int = 16
+// The front cache's bound, in entries, std's images and the layers' parts
+// alike: a generation holds half of it, and a build of sawc stores fifteen.
+static DRIVER_FRONT_ENTRIES: Int = 256
+// The most threads a command stores its computed layers on.
+static DRIVER_STORE_THREADS: Int = 4
 // The number a front entry's header and every front key's description carry.
 static DRIVER_FRONT_FORMAT: Int = 1
 // The furthest into an entry its header's line break may be:
@@ -1508,9 +1519,10 @@ func driver_object_kind() -> DriverCacheKind {
                     without: "every unit is compiled")
 }
 
-// The std front cache's entries: one image of std's cut each, which carries
-// its own length and digest (`front_image_decode`), so the entry's first line
-// records no SHA-256 of its own.
+// The front cache's entries: an image of std's cut, or one layer's part, each
+// of which carries its own length and digest (`front_image_decode`,
+// `front_part_decode`), so the entry's first line records no SHA-256 of its
+// own.
 func driver_front_kind() -> DriverCacheKind {
     DriverCacheKind(under: "front", suffix: ".img", magic: "sawc-front-entry", format: DRIVER_FRONT_FORMAT,
                     digested: false, what: "front cache", redo: "computing std's front end",
@@ -1780,6 +1792,8 @@ func driver_cache_fetch(cache: &DriverCache, key: String, object: String) unsafe
 // ENTRY POINTS:
 //     driver_cache_fetch
 //     driver_front_cut
+//     driver_front_chain
+//     driver_verify_chain
 func driver_cache_read(cache: &DriverCache, key: String) unsafe -> DriverCached? {
     let what = cache.kind.what
     let redo = cache.kind.redo
@@ -1879,8 +1893,10 @@ func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe
 }
 
 // THE CACHE WRITE: `body` stored as `key`'s entry in the newest generation,
-// `stored` naming it in a warning: written under this build's own temporary
-// name, then renamed into place, so a build reading the cache meanwhile finds
+// `stored` naming it in a warning: written under its writer's own temporary
+// name, `cache.token`, which no other command and no other store thread of
+// this one holds (`driver_spawn_stores`), then renamed into place, so a build
+// reading the cache meanwhile finds
 // the whole entry or none, and two builds storing one key both succeed. When
 // a rotation removes the generation, or the temporary entry, meanwhile, the
 // store starts again in the newest generation; one that fails every attempt
@@ -1888,6 +1904,7 @@ func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe
 // ENTRY POINTS:
 //     driver_cache_store
 //     driver_front_cut
+//     driver_store_parts
 func driver_cache_write(cache: &DriverCache, key: String, body: Data, stored: String) unsafe {
     let what = cache.kind.what
     let digest = if cache.kind.digested { driver_object_digest(&body) } else { "" }
@@ -2061,6 +2078,9 @@ func driver_cache_warning(text: String) unsafe {
 // command has one, `image` holds it, so each later program the command
 // compiles decodes that instead of computing std's layer again. `timed`
 // prints the cache's time line (`--time-stages`).
+// The threads storing the layers this command computed (`stores`) are joined
+// when it ends, as the value drops; `verify` is the lanes' check that every
+// stored layer rebuilds to the state computed (`SAWC_FRONT_VERIFY=1`).
 struct DriverFront {
     std_root: String
     target: TcTarget
@@ -2073,9 +2093,31 @@ struct DriverFront {
     cache: DriverCache
     key: String
     image: Data
+    verify: Bool
+    stores: Vector<Thread<Int>>
+    // How many store threads the command has started, each one's suffix to
+    // the command's token: two threads may write one key, when a later input
+    // misses a layer an earlier input's thread is still storing.
+    writers: Int
 }
 
-extension DriverFront: NoCopy {}
+extension DriverFront: NoCopy {
+    // Waits for the store threads, which hold copies and write the front
+    // cache's layers while the rest of the command runs: a command ends with
+    // every layer it computed stored or warned about. The join blocks; it
+    // never spins.
+    func deinit(&var self) blocking {
+        let started = time.Instant.now()
+        let waited = self.stores.len() > 0
+        while self.stores.len() > 0 {
+            var handle = self.stores.pop()!
+            let _ = handle.join()
+        }
+        if waited && self.timed {
+            driver_time_line("front layers join", started.elapsed().as_nanos() as Int)
+        }
+    }
+}
 
 // The source of std's cuts for a command compiling against `std_root` for
 // `target` under the profile the three flags name, using the std front cache
@@ -2085,7 +2127,9 @@ func driver_front(std_root: String, target: TcTarget, runtime: Bool, freestandin
     let none = DriverCache(kind: driver_front_kind(), dir: "", thinlto: "", clang: "", fingerprint: "",
                            entries: DRIVER_FRONT_ENTRIES, token: "")
     DriverFront(std_root: std_root, target: target, runtime: runtime, freestanding: freestanding, provider: provider,
-                on: on, timed: timed, opened: false, cache: none, key: "", image: Data())
+                on: on, timed: timed, opened: false, cache: none, key: "", image: Data(),
+                verify: driver_environment("SAWC_FRONT_VERIFY").equals("1"), stores: Vector<Thread<Int>>(),
+                writers: 0)
 }
 
 // THE FRONT CUT: std's cut for `front`'s std root, target and profile. It is
@@ -2186,6 +2230,417 @@ func driver_front_open(front: &var DriverFront) unsafe {
     front.cache.dir = dir
     front.cache.token = driver_cache_token()
     front.key = key
+}
+
+// The layers the front end of entry file `path` runs after std's, under the
+// mappings `names` to `dirs` (`res_layer_plan`).
+func driver_plan(front: &DriverFront, path: String, names: &Vector<String>, dirs: &Vector<String>) -> ResLayerPlan {
+    res_layer_plan(front.std_root, path, &names, &dirs)
+}
+
+// The mappings the entry's layer of `plan` adds, as `--module-path` names
+// and directories: the record of a command that stops before drops runs that
+// layer itself, with these.
+func driver_entry_names(plan: &ResLayerPlan) -> Vector<String> {
+    plan.layers[plan.layers.len() - 1].step.inputs.names.copy()
+}
+
+func driver_entry_dirs(plan: &ResLayerPlan) -> Vector<String> {
+    plan.layers[plan.layers.len() - 1].step.inputs.dirs.copy()
+}
+
+// THE FRONT CHAIN: the front end of `plan`'s program for `front`'s std root,
+// target and profile, through drop elaboration, every layer before the
+// entry's and, with `through_entry`, the entry's too. Std's cut comes from
+// `driver_front_cut`; then each layer's part is read from the front cache
+// under its chain key (`driver_layer_key`) and applied, as long as the cache
+// holds it, and the layers after that are computed. Each computed layer is
+// stored when its state is the plan's: none left the program blocked, it
+// loaded the modules the scan expected, and no appending table was cut back.
+// At the end of drops each part is copied (`front_part_make`), and threads
+// encode and write them while the rest of the command runs (`stores`, joined
+// when `front` drops). A fallback plan computes its one program layer and
+// stores nothing past std. Under `--time-stages` each layer is
+// `front layer NAME loaded` or `front layer NAME computed`, the copy before
+// the threads start is `front layers store`, and waiting for them at the
+// end `front layers join`.
+// ENTRY POINTS:
+//     driver_build
+//     driver_emit
+//     driver_runtime
+//     driver_resolve
+//     driver_fix_file
+//     driver_mono
+//     driver_coro
+func driver_front_chain(front: &var DriverFront, plan: &ResLayerPlan, through_entry: Bool,
+                        no_hidden_alloc: Bool) unsafe -> FrontCut {
+    var cut = driver_front_cut(&var front)
+    let count = if through_entry { plan.layers.len() } else { plan.layers.len() - 1 }
+    let caching = front.on && front.key.len() > 0 && not plan.fallback
+    var key = front.key
+    var loaded = 0
+    // A layer's entry that cannot be used is a warning that says so.
+    var layer_cache = front.cache
+    layer_cache.kind.redo = "computing the layer again"
+    while caching && loaded < count {
+        let started = time.Instant.now()
+        let next = driver_layer_key(key, &plan.layers[loaded], no_hidden_alloc)
+        guard let found = driver_cache_read(&layer_cache, next) else {
+            break
+        }
+        match front_part_decode(found.body) {
+            case Ok(part) -> {
+                front_part_apply(&var cut, &part)
+                key = next
+                loaded = loaded + 1
+                if front.timed {
+                    var line = StringBuilder()
+                    try! line.append("front layer ")
+                    try! line.append(plan.layers[loaded - 1].step.name)
+                    try! line.append(" loaded")
+                    driver_time_line(line.build(), started.elapsed().as_nanos() as Int)
+                }
+            },
+            case Err(e) -> {
+                let at = found.path
+                driver_cache_warning("the front cache entry {at} is damaged: {e}; computing the layer again")
+                break
+            }
+        }
+    }
+    if loaded == count {
+        return move cut
+    }
+    var lengths = Vector<Vector<Int>>()
+    var snaps = Vector<FrontSnap>()
+    try! lengths.push(front_part_lengths(&cut))
+    try! snaps.push(front_part_snapshot(&cut))
+    var images = Vector<Data>()
+    if front.verify && caching {
+        try! images.push(driver_verify_image(&cut))
+    }
+    var storable = caching
+    var j = loaded
+    while j < count {
+        let started = time.Instant.now()
+        let first_module = cut.drops.bc.mir.tc.res.module_count()
+        mono_front_layer(&var cut, &plan.layers[j].step, no_hidden_alloc)
+        if front.timed {
+            var line = StringBuilder()
+            try! line.append("front layer ")
+            try! line.append(plan.layers[j].step.name)
+            try! line.append(" computed")
+            driver_time_line(line.build(), started.elapsed().as_nanos() as Int)
+        }
+        try! lengths.push(front_part_lengths(&cut))
+        try! snaps.push(front_part_snapshot(&cut))
+        if front.verify && caching {
+            try! images.push(driver_verify_image(&cut))
+        }
+        if cut.blocked || not driver_loaded_planned(&cut, first_module, &plan.layers[j]) {
+            storable = false
+        }
+        j = j + 1
+    }
+    if not storable {
+        return move cut
+    }
+    // A part cuts an appending table's run out of the state at the end, so
+    // a table cut back after any layer's end stores nothing; under the
+    // verify switch it is the missing marker it is.
+    var w = 0
+    while w < lengths.len() {
+        let shrunk = front_part_shrunk(&cut, &lengths[w])
+        if shrunk.len() > 0 {
+            if front.verify {
+                panic("sawc: front cache verify: the table {} is cut back below a layer's watermark, and its field carries no `front: rewritten in place` marker", shrunk)
+            }
+            return move cut
+        }
+        w = w + 1
+    }
+    let started = time.Instant.now()
+    var keys = Vector<String>()
+    var parts = Vector<FrontPart>()
+    var named = Vector<String>()
+    j = loaded
+    while j < count {
+        key = driver_layer_key(key, &plan.layers[j], no_hidden_alloc)
+        let at = j - loaded
+        try! keys.push(key)
+        try! parts.push(front_part_make(&cut, &lengths[at], &lengths[at + 1], &snaps[at], &snaps[at + 1]))
+        try! named.push(plan.layers[j].step.name)
+        j = j + 1
+    }
+    if front.verify {
+        let _ = driver_store_parts(front.cache, move keys, move parts, move named)
+        driver_verify_chain(&var front, &plan, loaded, count, &images, no_hidden_alloc)
+        return move cut
+    }
+    driver_spawn_stores(&var front, move keys, move parts, move named)
+    if front.timed {
+        driver_time_line("front layers store", started.elapsed().as_nanos() as Int)
+    }
+    move cut
+}
+
+// Whether the modules `cut` loaded from module `first` on are the ones the
+// scan expected `layer` to load: a layer is stored only when its key covers
+// what it read.
+func driver_loaded_planned(cut: &FrontCut, first: Int, layer: &ResPlannedLayer) -> Bool {
+    if cut.drops.bc.mir.tc.res.module_count() - first != layer.modules.len() {
+        return false
+    }
+    var m = first
+    while m < cut.drops.bc.mir.tc.res.module_count() {
+        let info = cut.drops.bc.mir.tc.res.module(m)
+        let real = cut.drops.bc.mir.tc.res.name_text(info.real)
+        var k = 0
+        var found = false
+        while k < layer.modules.len() && not found {
+            found = layer.modules[k].real.equals(real)
+            k = k + 1
+        }
+        if not found {
+            return false
+        }
+        m = m + 1
+    }
+    true
+}
+
+// The parts `parts`, each stored as `keys`' entry, split over at most
+// DRIVER_STORE_THREADS threads, which `front` holds until it drops.
+func driver_spawn_stores(front: &var DriverFront, keys: Vector<String>, parts: Vector<FrontPart>,
+                         named: Vector<String>) unsafe {
+    var threads = if parts.len() < DRIVER_STORE_THREADS { parts.len() } else { DRIVER_STORE_THREADS }
+    var groups_keys = Vector<Vector<String>>()
+    var groups_parts = Vector<Vector<FrontPart>>()
+    var groups_named = Vector<Vector<String>>()
+    var g = 0
+    while g < threads {
+        try! groups_keys.push(Vector<String>())
+        try! groups_parts.push(Vector<FrontPart>())
+        try! groups_named.push(Vector<String>())
+        g = g + 1
+    }
+    var all_keys = move keys
+    var all_parts = move parts
+    var all_named = move named
+    var k = 0
+    while all_parts.len() > 0 {
+        let part = all_parts.pop()!
+        let key = all_keys.pop()!
+        let name = all_named.pop()!
+        let to = k % threads
+        borrow var mine = groups_parts[to] {
+            try! mine.push(move part)
+        }
+        borrow var mine_keys = groups_keys[to] {
+            try! mine_keys.push(key)
+        }
+        borrow var mine_named = groups_named[to] {
+            try! mine_named.push(name)
+        }
+        k = k + 1
+    }
+    while groups_parts.len() > 0 {
+        let mine = groups_parts.pop()!
+        let mine_keys = groups_keys.pop()!
+        let mine_named = groups_named.pop()!
+        var cache = front.cache
+        var token = StringBuilder()
+        try! token.append(front.cache.token)
+        try! token.append("-w")
+        try! token.append(front.writers)
+        cache.token = token.build()
+        front.writers = front.writers + 1
+        let spawned = Thread.spawn { [move cache, move mine_keys, move mine, move mine_named] in
+            driver_store_parts(move cache, move mine_keys, move mine, move mine_named)
+        }
+        match spawned {
+            case Ok(handle) -> { try! front.stores.push(move handle) },
+            case Err(e) -> { driver_cache_warning("the front cache stores no layer: no thread to write them: {e}") }
+        }
+    }
+}
+
+// Each of `parts` encoded and stored as `keys`' entry, then the cache
+// bounded; returns how many were stored. Runs on a store thread, or inline
+// under the verify switch.
+func driver_store_parts(cache: DriverCache, keys: Vector<String>, parts: Vector<FrontPart>,
+                        named: Vector<String>) unsafe -> Int {
+    var stored = 0
+    var k = 0
+    while k < parts.len() {
+        let name = named[k]
+        match front_part_encode(&parts[k]) {
+            case Ok(image) -> {
+                var what = StringBuilder()
+                try! what.append("the layer ")
+                try! what.append(name)
+                driver_cache_write(&cache, keys[k], image, what.build())
+                stored = stored + 1
+            },
+            case Err(e) -> {
+                driver_cache_warning("the front cache does not store the layer {name}: {e}")
+            }
+        }
+        k = k + 1
+    }
+    driver_cache_rotate(&cache)
+    stored
+}
+
+// The state `cut` as the image codec writes it, for the verify switch.
+func driver_verify_image(cut: &FrontCut) -> Data {
+    match front_image_encode(&cut) {
+        case Ok(image) -> image,
+        case Err(e) -> panic("sawc: front cache verify: the state cannot be encoded: {}", e)
+    }
+}
+
+// THE FRONT CACHE VERIFY: under `SAWC_FRONT_VERIFY=1`, a lanes' switch never
+// set in a user's build, every layer `driver_front_chain` just stored is read
+// back from the front cache, applied to the state before it, and the result
+// encoded and compared with the state computed, `images[0]` being the state
+// before layer `loaded` and `images[k]` the state after layer `loaded + k - 1`.
+// A difference is a part that does not rebuild its layer, which a table
+// rewritten in place without its marker makes (compiler/tools/front_parts.py),
+// and fails the command.
+func driver_verify_chain(front: &var DriverFront, plan: &ResLayerPlan, loaded: Int, count: Int,
+                         images: &Vector<Data>, no_hidden_alloc: Bool) unsafe {
+    var rebuilt = match front_image_decode(images[0].copy()) {
+        case Ok(c) -> move c,
+        case Err(e) -> panic("sawc: front cache verify: the state before the first stored layer does not decode: {}", e)
+    }
+    var key = front.key
+    var j = 0
+    while j < loaded {
+        key = driver_layer_key(key, &plan.layers[j], no_hidden_alloc)
+        j = j + 1
+    }
+    while j < count {
+        key = driver_layer_key(key, &plan.layers[j], no_hidden_alloc)
+        let name = plan.layers[j].step.name
+        guard let found = driver_cache_read(&front.cache, key) else {
+            panic("sawc: front cache verify: the layer {} was not stored", name)
+        }
+        let part = match front_part_decode(found.body) {
+            case Ok(p) -> move p,
+            case Err(e) -> panic("sawc: front cache verify: the layer {} does not decode: {}", name, e)
+        }
+        front_part_apply(&var rebuilt, &part)
+        let have = driver_verify_image(&rebuilt)
+        let want = images[j - loaded + 1].copy()
+        if have.len() != want.len() || not driver_same_bytes(&have, &want) {
+            var at = 0
+            while at < have.len() && at < want.len() && (have.get(at) ?? Byte(0)) == (want.get(at) ?? Byte(0)) {
+                at = at + 1
+            }
+            panic("sawc: front cache verify: the layer {} rebuilt from its part differs from its computed state, first at byte {} ({} bytes against {})",
+                  name, at, have.len(), want.len())
+        }
+        j = j + 1
+    }
+}
+
+func driver_same_bytes(a: &Data, b: &Data) -> Bool {
+    var i = 0
+    while i < a.len() {
+        if (a.get(i) ?? Byte(0)) != (b.get(i) ?? Byte(0)) {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// THE LAYER KEY CHAIN: the hex SHA-256 of a versioned description of what one
+// layer's part is a function of, `parent` the key of the state before it
+// (std's key for the first layer after std's, `driver_front_key`), so a key
+// covers every layer before its own:
+//
+//   in the key                              why
+//   the parent's key                        the binary, std, the target and the
+//                                           profile, then each layer before
+//   the part and image formats              another layout is never looked up
+//   the layer's kind and name               the entry's layer checks `main`
+//   `--no-hidden-alloc`                     every layer after std's reads it
+//   each mapping the layer adds: its name,  `add_package` interns them; the
+//   its directory as spelled, its real      spelling reaches diagnostics and
+//   path                                    `#file`, the real path identity
+//   each module, in the scan's order: its   identity, diagnostics and `#file`,
+//   name, its file as spelled, its real     positions; the order fixes arena
+//   path, its package, its length and bytes positions in a package layer
+//
+//   not in it                               why
+//   later layers, other layers' mappings    no phase reads a later table; an
+//                                           overlap falls back to one layer
+//   files probed and not found, Saw.toml    they decide which files the scan
+//                                           reaches, and those are in it; a
+//                                           refusal's text is never stored
+//   codegen, cache and output flags, `-W`   read after drops, or only printed
+//   the environment, the working directory  no stage reads the first; the
+//                                           spellings and real paths cover the
+//                                           second
+// ENTRY POINTS:
+//     driver_front_chain
+//     driver_verify_chain
+func driver_layer_key(parent: String, layer: &ResPlannedLayer, no_hidden_alloc: Bool) unsafe -> String {
+    var hash = Sha256()
+    var head = StringBuilder()
+    try! head.append("sawc-front-layer ")
+    try! head.append(DRIVER_FRONT_FORMAT)
+    try! head.append("\npart ")
+    try! head.append(FRONT_PART_FORMAT)
+    try! head.append(" image ")
+    try! head.append(FRONT_IMAGE_FORMAT)
+    try! head.append("\nparent ")
+    try! head.append(parent)
+    try! head.append("\nlayer ")
+    try! head.append(if layer.step.kind == FrontLayerKind.Package { "package " } else { "program " })
+    driver_key_text(&var head, layer.step.name)
+    try! head.append(if no_hidden_alloc { "\nno-hidden-alloc" } else { "\nhidden-alloc" })
+    var k = 0
+    while k < layer.step.inputs.names.len() {
+        try! head.append("\nmap ")
+        driver_key_text(&var head, layer.step.inputs.names[k])
+        let dir = layer.step.inputs.dirs[k]
+        driver_key_text(&var head, dir)
+        driver_key_text(&var head, res_mapping(layer.step.inputs.names[k], dir).real)
+        k = k + 1
+    }
+    try! head.append("\nentry ")
+    driver_key_text(&var head, layer.step.inputs.path)
+    try! head.append("\n")
+    let text = head.build()
+    hash.update(&text)
+    k = 0
+    while k < layer.modules.len() {
+        var line = StringBuilder()
+        try! line.append("module ")
+        driver_key_text(&var line, layer.modules[k].name)
+        driver_key_text(&var line, layer.modules[k].file)
+        driver_key_text(&var line, layer.modules[k].real)
+        driver_key_text(&var line, layer.modules[k].package)
+        try! line.append(layer.modules[k].text.len())
+        try! line.append("\n")
+        let named = line.build()
+        hash.update(&named)
+        hash.update(&layer.modules[k].text)
+        k = k + 1
+    }
+    hash.finish()
+}
+
+// `text` with its length ahead of it, then a space: a field of a key's
+// description that no other field's text can run into.
+func driver_key_text(out: &var StringBuilder, text: String) {
+    try! out.append(text.len())
+    try! out.append(" ")
+    try! out.append(text)
+    try! out.append(" ")
 }
 
 // THE FRONT CACHE KEY: the hex SHA-256 of a versioned description of what
@@ -2821,8 +3276,12 @@ func driver_runtime(args: &Vector<String>) -> Int {
     if emit.len() > 0 {
         var record = StringBuilder()
         var ir = StringBuilder()
-        let status = llvm_build(out: &var record, ir: &var ir, cut: driver_front_cut(&var front), path: emit,
-                                options: &options, names: &names, dirs: &dirs)
+        let plan = driver_plan(&front, emit, &names, &dirs)
+        var exports = Vector<String>()
+        var units = LlUnitPlan()
+        let status = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports, plan: &var units,
+                                          split: false, front: driver_front_chain(&var front, &plan, true, false),
+                                          options: &options)
         if status != 0 {
             driver_print_refusal(emit, &var record)
             return status
@@ -2849,9 +3308,11 @@ func driver_runtime(args: &Vector<String>) -> Int {
         var record = StringBuilder()
         var ir = StringBuilder()
         var exports = Vector<String>()
-        let built = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports,
-                                         cut: driver_front_cut(&var front), path: source, options: &options,
-                                         names: &names, dirs: &dirs)
+        let plan = driver_plan(&front, source, &names, &dirs)
+        var units = LlUnitPlan()
+        let built = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports, plan: &var units,
+                                         split: false, front: driver_front_chain(&var front, &plan, true, false),
+                                         options: &options)
         if built != 0 {
             driver_print_refusal(source, &var record)
             status = 1
@@ -3130,8 +3591,12 @@ func driver_mono(args: &Vector<String>) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var lowerings = 0
-            let result = mono_record(out: &var out, front: driver_front_cut(&var front), path: input.path,
-                                     options: &options, names: &names, dirs: &dirs, lowerings: &var lowerings)
+            let plan = driver_plan(&front, input.path, &names, &dirs)
+            let entry_names = driver_entry_names(&plan)
+            let entry_dirs = driver_entry_dirs(&plan)
+            let result = mono_record(out: &var out, front: driver_front_chain(&var front, &plan, false, false),
+                                     path: input.path, options: &options, names: &entry_names, dirs: &entry_dirs,
+                                     lowerings: &var lowerings)
             if counted {
                 driver_append_lowerings(&var out, lowerings)
             }
@@ -3238,13 +3703,16 @@ func driver_coro(args: &Vector<String>) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var result = 0
-            let cut = driver_front_cut(&var front)
+            let plan = driver_plan(&front, input.path, &names, &dirs)
+            let entry_names = driver_entry_names(&plan)
+            let entry_dirs = driver_entry_dirs(&plan)
+            let cut = driver_front_chain(&var front, &plan, false, false)
             if bt_table {
                 result = coro_bt_record(out: &var out, front: move cut, path: input.path, options: &options,
-                                        names: &names, dirs: &dirs)
+                                        names: &entry_names, dirs: &entry_dirs)
             } else {
                 result = coro_record(out: &var out, front: move cut, path: input.path, options: &options,
-                                     names: &names, dirs: &dirs)
+                                     names: &entry_names, dirs: &entry_dirs)
             }
             let printed = driver_print_record(&var out, result)
             if printed > status {
@@ -3326,7 +3794,7 @@ func driver_timed_build(args: &Vector<String>, first: Int) -> Int {
 // `sawc` found on `PATH`. compiler/tests/run.py fails unless it equals
 // `.sawtracker/version`, so a release bump edits both.
 func driver_version() -> String {
-    "0.19.0"
+    "0.20.0"
 }
 
 // The program stages `driver_resolve` runs to.
@@ -3461,20 +3929,27 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             try! out.append("\n")
             var result = 0
             var lowerings = 0
-            var cut = driver_front_cut(&var front)
-            // Std's lines, as its layer recorded them when the cut was made.
+            // Every layer before the entry's comes through drops, read from the
+            // front cache or computed and stored, whatever stage the command
+            // stops at, so its sections print alike whatever the cache held;
+            // the record runs the entry's layer to its own stage.
+            let plan = driver_plan(&front, input.path, &names, &dirs)
+            let entry_names = driver_entry_names(&plan)
+            let entry_dirs = driver_entry_dirs(&plan)
+            var cut = driver_front_chain(&var front, &plan, false, hidden)
+            // The earlier layers' lines, as each recorded them when it ran.
             let checked_std = cut.checked
             if stage == DRIVER_STAGE_DROPS {
                 let start = DropsStart(checked: checked_std, verified: cut.verified, elaborated: cut.elaborated,
                                        blocked: cut.blocked)
-                let std_layer = cut.layer
-                result = drops_record_from(out: &var out, p: &var cut.drops, std_layer: std_layer, start: start,
-                                           path: input.path, options: &elaborating, names: &names, dirs: &dirs,
-                                           lowerings: &var lowerings)
+                let prior = cut.layers.copy()
+                result = drops_record_from(out: &var out, p: &var cut.drops, prior: &prior, start: start,
+                                           path: input.path, options: &elaborating, names: &entry_names,
+                                           dirs: &entry_dirs, lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_BORROWCK {
                 let start = BorrowckStart(checked: checked_std, verified: cut.verified, verified_std: true)
                 result = borrowck_record_from(out: &var out, p: &var cut.drops.bc, start: start, path: input.path,
-                                              options: &borrowing, names: &names, dirs: &dirs,
+                                              options: &borrowing, names: &entry_names, dirs: &entry_dirs,
                                               lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_EVAL {
                 let start = EvalStart(checked: checked_std, verified_std: true)
@@ -3482,19 +3957,22 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                 var lowered = move taken
                 var evaluated = move values
                 result = eval_record_from(out: &var out, lowered: &var lowered.bc.mir, p: &var evaluated,
-                                          start: start, path: input.path, options: &evaluating, names: &names,
-                                          dirs: &dirs, lowerings: &var lowerings)
+                                          start: start, path: input.path, options: &evaluating, names: &entry_names,
+                                          dirs: &entry_dirs, lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_MIR {
                 result = mir_record_from(out: &var out, p: &var cut.drops.bc.mir, checked: checked_std,
-                                         verified_std: true, path: input.path, options: &lowering, names: &names,
-                                         dirs: &dirs, lowerings: &var lowerings)
+                                         verified_std: true, path: input.path, options: &lowering,
+                                         names: &entry_names, dirs: &entry_dirs, lowerings: &var lowerings)
             } else if typecheck {
-                asserts_program_layer(&var cut.drops.bc.mir.tc, input.path, &names, &dirs, hidden)
-                result = typecheck_record(out: &var out, p: &cut.drops.bc.mir.tc, options: &checking)
+                let first = cut.drops.bc.mir.tc.res.module_count()
+                asserts_program_layer(&var cut.drops.bc.mir.tc, input.path, &entry_names, &entry_dirs, hidden)
+                result = typecheck_record_from(out: &var out, p: &cut.drops.bc.mir.tc, options: &checking,
+                                               first: first)
             } else {
                 let start = ResolveStart(checked: checked_std, verified_std: true)
                 result = resolve_record_from(out: &var out, p: &var cut.drops.bc.mir.tc.res, start: start,
-                                             path: input.path, options: &options, names: &names, dirs: &dirs)
+                                             path: input.path, options: &options, names: &entry_names,
+                                             dirs: &entry_dirs)
             }
             if counted {
                 driver_append_lowerings(&var out, lowerings)
@@ -3585,8 +4063,11 @@ func driver_fix(args: &Vector<String>) -> Int {
 // `front`; false when it could not be written.
 func driver_fix_file(path: String, front: &var DriverFront, check: Bool, names: &Vector<String>,
                      dirs: &Vector<String>) -> Bool {
-    var cut = driver_front_cut(&var front)
-    asserts_program_layer(&var cut.drops.bc.mir.tc, path, &names, &dirs, false)
+    let plan = driver_plan(&front, path, &names, &dirs)
+    let entry_names = driver_entry_names(&plan)
+    let entry_dirs = driver_entry_dirs(&plan)
+    var cut = driver_front_chain(&var front, &plan, false, false)
+    asserts_program_layer(&var cut.drops.bc.mir.tc, path, &entry_names, &entry_dirs, false)
     driver_fix_checked(path, &cut.drops.bc.mir.tc, check)
 }
 

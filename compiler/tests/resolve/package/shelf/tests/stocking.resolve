@@ -1,22 +1,3 @@
-(Module stocking
-  (names
-    (5:14 layout (module shelf.layout))
-    (5:22 Slot (struct shelf.layout Slot))
-    (6:14 store (module shelf.store))
-    (6:21 stocked (overload shelf.store stocked))
-    (9:13 Slot (struct shelf.layout Slot))
-    (10:13 stocked (overload shelf.store stocked))
-    (10:22 s (local s 9:9)))
-  (calls
-    (9:13 init (struct shelf.layout Slot))
-    (10:13 overload (overload shelf.store stocked)))
-  (declarations
-    (func main 8:6 (signature ())))
-  (surface)
-  (imports
-    (5:1 shelf.layout (select (Slot (struct shelf.layout Slot))))
-    (6:1 shelf.store (select (stocked (overload shelf.store stocked)))))
-  (extensions shelf.layout shelf.store stocking))
 (Module shelf.layout
   (names
     (4:12 Int (type builtin Int))
@@ -51,3 +32,22 @@
   (imports
     (4:1 shelf.layout (select (Slot (struct shelf.layout Slot)) (slot_width (overload shelf.layout slot_width)))))
   (extensions shelf.layout shelf.store))
+(Module stocking
+  (names
+    (5:14 layout (module shelf.layout))
+    (5:22 Slot (struct shelf.layout Slot))
+    (6:14 store (module shelf.store))
+    (6:21 stocked (overload shelf.store stocked))
+    (9:13 Slot (struct shelf.layout Slot))
+    (10:13 stocked (overload shelf.store stocked))
+    (10:22 s (local s 9:9)))
+  (calls
+    (9:13 init (struct shelf.layout Slot))
+    (10:13 overload (overload shelf.store stocked)))
+  (declarations
+    (func main 8:6 (signature ())))
+  (surface)
+  (imports
+    (5:1 shelf.layout (select (Slot (struct shelf.layout Slot))))
+    (6:1 shelf.store (select (stocked (overload shelf.store stocked)))))
+  (extensions shelf.layout shelf.store stocking))

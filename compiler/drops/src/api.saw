@@ -42,7 +42,9 @@ public func drops_record(out: &var StringBuilder, path: String, options: &DropsO
     var std_layer = front_layer(FrontLayerKind.Std)
     var start = DropsStart(checked: "", verified: "", elaborated: "", blocked: false)
     drops_run_layer(&var p, &var std_layer, &inputs, &var start)
-    drops_record_from(out: &var out, p: &var p, std_layer: std_layer, start: start, path: path, options: &options,
+    var prior = Vector<FrontLayer>()
+    try! prior.push(std_layer)
+    drops_record_from(out: &var out, p: &var p, prior: &prior, start: start, path: path, options: &options,
                       names: &names, dirs: &dirs, lowerings: &var lowerings)
 }
 
@@ -55,19 +57,18 @@ public struct DropsStart {
     blocked: Bool
 }
 
-// `drops_record` for program `p`, which std's layer `std_layer` has already
-// run over, leaving `start`: std's cut, computed here or by mono, or read
-// from an image. The program's layer runs from there, and the record prints
-// both layers' lines.
-public func drops_record_from(out: &var StringBuilder, p: &var DropsProgram, std_layer: FrontLayer,
+// `drops_record` for program `p`, which the layers `prior` have already run
+// over, std's first, leaving `start`: computed here or by mono, or read from
+// the front cache. The program's layer runs from there, and the record
+// prints every layer's lines.
+public func drops_record_from(out: &var StringBuilder, p: &var DropsProgram, prior: &Vector<FrontLayer>,
                               start: DropsStart, path: String, options: &DropsOptions, names: &Vector<String>,
                               dirs: &Vector<String>, lowerings: &var Int) -> Int {
     let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
     var layer = front_layer(FrontLayerKind.Program)
     var state = start
     drops_run_layer(&var p, &var layer, &inputs, &var state)
-    var layers = Vector<FrontLayer>()
-    try! layers.push(std_layer)
+    var layers = prior.copy()
     try! layers.push(layer)
     var checked = StringBuilder()
     try! checked.append(state.checked)
@@ -238,7 +239,8 @@ public func drops_dump_layers(out: &var StringBuilder, layers: &Vector<FrontLaye
         try! out.append("  ")
         match l.kind {
             case Std -> try! out.append("std"),
-            case Program -> try! out.append("program")
+            case Program -> try! out.append("program"),
+            case Package -> try! out.append("package")
         }
         drops_mark(&var out, "modules", l.module_first)
         drops_mark(&var out, "decls", l.decl_first)

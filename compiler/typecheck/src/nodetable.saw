@@ -1,0 +1,112 @@
+// Per-node tables a pass builds for one layer (SL-955 unit 4b).
+
+import sawresolve.layer.{FrontLayer}
+import sawtypecheck.program.{TcProgram}
+
+// A table over the nodes from `base` to the arena's end. A pass over a layer
+// reads only its own nodes and what they reach, and every edge of the arena
+// points from a node to older ones of its own module, so the nodes of
+// earlier layers hold the table's starting value: `outside` answers for
+// them, and a table costs the layer's nodes, not the program's.
+public struct TcNodeTable<T> {
+    base: Int
+    values: Vector<T>
+    outside: T
+}
+
+extension TcNodeTable<T>: NoCopy {}
+
+extension TcNodeTable<T> {
+    // Node `index`'s entry, `outside` for one before `base`.
+    @synthesize(shared)
+    public func [](&var self, index: Int) borrows -> &var T {
+        if index < self.base {
+            lend self.outside
+        } else {
+            lend self.values[index - self.base]
+        }
+    }
+}
+
+// A table over the nodes from `base` to `end`, each holding `fill`.
+public func tc_node_table<T: Copy>(base: Int, end: Int, fill: T) -> TcNodeTable<T> {
+    let count = if end > base { end - base } else { 0 }
+    var values = try! Vector<T>(capacity: count)
+    var k = 0
+    while k < count {
+        try! values.push(fill)
+        k = k + 1
+    }
+    TcNodeTable<T>(base: base, values: move values, outside: fill)
+}
+
+extension TcProgram {
+    // THE LAYER PARENTS: each node of `layer`'s parent, -1 for a root, and -1
+    // for every node of an earlier layer, which no pass over `layer` reaches.
+    // ENTRY POINTS:
+    //     settle_places
+    //     settle_captures
+    //     check_escaping_consumes
+    //     check_mutability
+    //     check_reference_positions
+    public func layer_parents(&self, layer: &FrontLayer) -> TcNodeTable<Int> {
+        let n = self.res.nodes.len()
+        var parents = tc_node_table(layer.node_first, n, -1)
+        var k = layer.node_first
+        while k < n {
+            let count = self.child_count(k)
+            var j = 0
+            while j < count {
+                let c = self.child(k, j)
+                parents[c] = k
+                j = j + 1
+            }
+            k = k + 1
+        }
+        move parents
+    }
+
+    // `outside_slice_marks` over the nodes from `base` on: a skipped
+    // construct of an earlier layer marks only earlier nodes.
+    public func layer_outside_marks(&self, base: Int) -> TcNodeTable<Bool> {
+        let n = self.res.nodes.len()
+        var out = tc_node_table(base, n, false)
+        var stack = Vector<Int>()
+        var k = 0
+        while k < self.skipped.len() {
+            if self.skipped[k] >= base {
+                try! stack.push(self.skipped[k])
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.res.skipped.len() {
+            if self.res.skipped[k] >= base {
+                try! stack.push(self.res.skipped[k])
+            }
+            k = k + 1
+        }
+        var top = stack.len()
+        while top > 0 {
+            top = top - 1
+            let at = stack[top]
+            if at < base || out[at] {
+                continue
+            }
+            out[at] = true
+            let count = self.child_count(at)
+            var j = 0
+            while j < count {
+                let c = self.child(at, j)
+                if top < stack.len() {
+                    stack[top] = c
+                } else {
+                    try! stack.push(c)
+                }
+                top = top + 1
+                j = j + 1
+            }
+        }
+        move out
+    }
+}

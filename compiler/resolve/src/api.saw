@@ -65,6 +65,20 @@ public func res_run_layer(p: &var ResProgram, layer: &var FrontLayer, inputs: &F
                 k = k + 1
             }
             let _ = p.load_entry(inputs.path)
+        },
+        case Package -> {
+            var k = 0
+            while k < inputs.names.len() {
+                p.add_package(inputs.names.get(k) ?? "", inputs.dirs.get(k) ?? "")
+                k = k + 1
+            }
+            k = 0
+            while k < inputs.files.len() {
+                let file = inputs.files[k]
+                let real = p.real_path(&file)
+                let _ = p.module_for_file(file, real, inputs.modules[k], ResModuleKind.Package, inputs.package)
+                k = k + 1
+            }
         }
     }
     p.process_imports(&layer)

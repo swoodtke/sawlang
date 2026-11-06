@@ -9,15 +9,15 @@ import std.data.{Data}
 import std.serialize.{DecodeError, EncodeError}
 
 // Everything the front end holds once a layer is through drop elaboration:
-// the nested program, eval's values, the record of the layer last run, the
-// verifier and elaboration lines every layer so far appended, and whether
-// any layer left the program blocked. After std's layer this is the cut,
-// which depends on the std root, the target, the profile and the compiler
-// alone, and which the program's layer continues from.
+// the nested program, eval's values, the record of every layer run so far,
+// std's first, the verifier and elaboration lines every layer so far
+// appended, and whether any layer left the program blocked. After std's
+// layer this is the cut, which depends on the std root, the target, the
+// profile and the compiler alone, and which the later layers continue from.
 public struct FrontCut {
     drops: DropsProgram
     eval: EvalProgram
-    layer: FrontLayer
+    layers: Vector<FrontLayer>
     checked: String
     verified: String
     elaborated: String
@@ -42,7 +42,8 @@ extension FrontCut {
 // Why an image could not be written or read. Each is the caller's to report;
 // none is a panic.
 public enum FrontImageError {
-    // The first line is not `sawc-front 2 LENGTH DIGEST`.
+    // The first line is not `sawc-front 3 LENGTH DIGEST`, or a part's
+    // `sawc-front-part 1 LENGTH DIGEST`.
     case Header,
     // The body is not the length the first line declares: a truncated or
     // extended image.
@@ -58,7 +59,7 @@ public enum FrontImageError {
 extension FrontImageError: Printable {
     public func format(&self, into: &var StringBuilder) {
         match self {
-            case Header -> try! into.append("the front-end image does not begin `sawc-front 2 LENGTH DIGEST`"),
+            case Header -> try! into.append("the front-end image does not begin with its magic, format, length and digest"),
             case Length(declared, actual) -> {
                 try! into.append("the front-end image's body is ")
                 try! into.append(actual)
@@ -92,12 +93,12 @@ static FRONT_IMAGE_HEAD_MAX: Int = 128
 // The deepest the cut nests, FrontCut through a resolve binding inside a
 // symbol inside the resolve program, is nine arrays; the reader allows some
 // room above it.
-static FRONT_IMAGE_DEPTH: Int = 16
+public static FRONT_IMAGE_DEPTH: Int = 16
 
 // The image's format number, its first line's second field: a reader
 // requires its own, and the std front cache's key carries it, so an image of
 // another layout is never looked up.
-public static FRONT_IMAGE_FORMAT: Int = 2
+public static FRONT_IMAGE_FORMAT: Int = 3
 
 static FRONT_IMAGE_NEWLINE: UInt8 = 10
 // The digest's starting value, and SplitMix64's finalizer constants
@@ -109,7 +110,7 @@ static FRONT_HEX_ZERO: Int = 48
 static FRONT_HEX_TEN: Int = 87
 
 // THE IMAGE CODEC: one encode and one decode over a FrontCut. The image is a
-// first line, `sawc-front 2 LENGTH DIGEST`, then one std.cbor item of LENGTH
+// first line, `sawc-front 3 LENGTH DIGEST`, then one std.cbor item of LENGTH
 // bytes whose digest is DIGEST, in sixteen hex digits (`front_digest`). The
 // digest is for damage, not for an adversary: a change confined to one 64-bit
 // word of the body always changes it, any other change collides with a chance
@@ -144,11 +145,18 @@ public func front_image_encode(cut: &FrontCut) -> Result<Data, FrontImageError> 
 // records its digest. The image pin frames a body that is no cut with it, to
 // hold the reader to a `Result` there too.
 public func front_image_frame(body: Data) -> Result<Data, FrontImageError> {
+    front_frame("sawc-front", FRONT_IMAGE_FORMAT, move body)
+}
+
+// `body` behind a first line `MAGIC FORMAT LENGTH DIGEST`: the image's
+// framing, which a layer's part shares under its own magic.
+public func front_frame(magic: String, format: Int, body: Data) -> Result<Data, FrontImageError> {
     // The line is a String, whose layer panics on a refused allocation; the
     // two buffers the image is made of report one.
     var head = StringBuilder()
-    try! head.append("sawc-front ")
-    try! head.append(FRONT_IMAGE_FORMAT)
+    try! head.append(magic)
+    try! head.append(" ")
+    try! head.append(format)
     try! head.append(" ")
     try! head.append(body.len())
     try! head.append(" ")
@@ -167,6 +175,35 @@ public func front_image_frame(body: Data) -> Result<Data, FrontImageError> {
 
 // The cut an image holds, or why it holds none.
 public func front_image_decode(image: Data) -> Result<FrontCut, FrontImageError> {
+    let body = match front_unframe(move image, "sawc-front", FRONT_IMAGE_FORMAT) {
+        case Ok(b) -> b,
+        case Err(e) -> { return e }
+    }
+    var dec = match front_decoder(move body) {
+        case Ok(d) -> move d,
+        case Err(e) -> { return e }
+    }
+    match FrontCut.deserialize(from: &var dec) {
+        case Ok(cut) -> { return move cut },
+        case Err(e) -> { return FrontImageError.Decode(e: e) }
+    }
+}
+
+// A decoder over a framed body, its limits from the body's length: an item
+// takes at least one byte, so the length bounds both the input and its item
+// count.
+public func front_decoder(body: Data) -> Result<CborDecoder, FrontImageError> {
+    let n = body.len()
+    match CborDecoder.open(bytes: move body, max_depth: FRONT_IMAGE_DEPTH, max_size: n, max_items: n) {
+        case Ok(d) -> { return move d },
+        case Err(e) -> { return FrontImageError.Decode(e: e) }
+    }
+}
+
+// The body behind a first line `MAGIC FORMAT LENGTH DIGEST`, or why there is
+// none: another magic or format, a length that is not the body's, or a
+// digest that is not its.
+public func front_unframe(image: Data, magic: String, format: Int) -> Result<Data, FrontImageError> {
     let end = front_head_end(&image)
     if end < 0 {
         return FrontImageError.Header
@@ -182,7 +219,7 @@ public func front_image_decode(image: Data) -> Result<FrontCut, FrontImageError>
         case Ok(v) -> move v,
         case Err(e) -> { return FrontImageError.Alloc(e: e) }
     }
-    if fields.len() != 4 || not fields[0].equals("sawc-front") || (fields[1].to_int() ?? -1) != FRONT_IMAGE_FORMAT {
+    if fields.len() != 4 || not fields[0].equals(magic) || (fields[1].to_int() ?? -1) != format {
         return FrontImageError.Header
     }
     guard let declared = fields[2].to_int() else {
@@ -199,17 +236,7 @@ public func front_image_decode(image: Data) -> Result<FrontCut, FrontImageError>
     if not front_digest_text(front_digest(&body)).equals(recorded) {
         return FrontImageError.Damaged
     }
-    // An item takes at least one byte, so the body's length bounds both the
-    // input and its item count.
-    var dec = match CborDecoder.open(bytes: move body, max_depth: FRONT_IMAGE_DEPTH, max_size: declared,
-                                     max_items: declared) {
-        case Ok(d) -> move d,
-        case Err(e) -> { return FrontImageError.Decode(e: e) }
-    }
-    match FrontCut.deserialize(from: &var dec) {
-        case Ok(cut) -> { return move cut },
-        case Err(e) -> { return FrontImageError.Decode(e: e) }
-    }
+    return body
 }
 
 // The offset of the first line's newline, or -1 when none comes within

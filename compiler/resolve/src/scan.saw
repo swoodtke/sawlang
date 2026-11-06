@@ -1,0 +1,524 @@
+// The import scan: which layers a program's front end runs, worked out from
+// the files' import lines before anything is loaded (SL-955 unit 4b).
+
+import sawlex.{Token, TokenKind, lex}
+import sawresolve.layer.{FrontLayerKind, FrontStep, front_package_inputs, front_program_step}
+import sawresolve.loader.{ResMapping, ResPlaceKind, res_base_name, res_dir_of, res_import_place,
+                              res_is_within, res_join, res_loose_module_name, res_mapped_module_name, res_mapping,
+                              res_mapping_holding, res_read_file, res_std_modules, res_stored_case}
+import sawresolve.realpath.{res_real_memo}
+
+static SCAN_UNDERSCORE: Int = 95
+static SCAN_NEWLINE: Int = 10
+static SCAN_SPACE: Int = 32
+static SCAN_TAB: Int = 9
+
+// One module the scan found: what the loader names it and where it reads it.
+public struct ResScanned {
+    name: String
+    file: String
+    real: String
+    // The mapped package holding the file, "" for none.
+    package: String
+    text: String
+}
+
+// One layer after std's: its step, and the modules it is expected to load,
+// in the order they load, which its key covers and a store checks.
+public struct ResPlannedLayer {
+    step: FrontStep
+    modules: Vector<ResScanned>
+}
+
+extension ResPlannedLayer: NoCopy {}
+
+// The layers a program's front end runs after std's. `fallback` says the
+// scan found something only the loader reports on (`why`), so the plan is
+// 4a3's one program layer, whose diagnostics are the loader's own.
+public struct ResLayerPlan {
+    fallback: Bool
+    why: String
+    layers: Vector<ResPlannedLayer>
+}
+
+extension ResLayerPlan: NoCopy {}
+
+// THE LAYER PLAN: for entry file `entry` under the std root `std_root` and the
+// mappings `names` to `dirs`, std's layer followed by one layer per mapped
+// package the program reaches, in a topological order of the package graph
+// with ties broken by name, then the entry's layer: the entry, the modules
+// of the package holding it, and every module no mapping holds. Each import
+// declaration of each file reached, read off its tokens (`scan_import_paths`),
+// is followed through `res_import_place`, the
+// loader's own answer, breadth first from the entry, so a module keeps the
+// spelling that reaches it first. A package layer's modules load in name
+// order, which makes its arena positions a function of the layers before it
+// and its own module set. Anything only the loader reports on gives the
+// fallback plan: an unreadable, non-UTF-8 or unlexable file, an import that does not
+// resolve to a file or a std module, a case mismatch, overlapping mappings,
+// a cycle among packages (the entry's included), and a package module
+// reaching a module no mapping holds.
+// ENTRY POINTS:
+//     driver_plan
+public func res_layer_plan(std_root: String, entry: String, names: &Vector<String>,
+                           dirs: &Vector<String>) -> ResLayerPlan {
+    var maps = Vector<ResMapping>()
+    var k = 0
+    while k < names.len() {
+        try! maps.push(res_mapping(names[k], dirs[k]))
+        k = k + 1
+    }
+    k = 0
+    while k < maps.len() {
+        var j = 0
+        while j < k {
+            if res_is_within(&maps[k].real, &maps[j].real) || res_is_within(&maps[j].real, &maps[k].real) {
+                return scan_fallback(entry, &names, &dirs, "two mappings overlap")
+            }
+            j = j + 1
+        }
+        k = k + 1
+    }
+    var memo = res_real_memo()
+    let new_std = res_read_file(res_join(std_root, "prelude.saw")) != None
+    let std_dir = if new_std { std_root } else { res_join(std_root, "std") }
+    let std_real = memo.real(&std_dir)
+    let std_names = res_std_modules(new_std)
+    let entry_real = memo.real(&entry)
+    var spelled_seen = Vector<String>()
+    var spelled_at = Vector<Int>()
+    let entry_holder = res_mapping_holding(&maps, &entry_real)
+    let entry_package = if entry_holder >= 0 { maps[entry_holder].name } else { "" }
+    var found = Vector<ResScanned>()
+    var seen = Vector<String>()
+    // Each found module's position in `found`, by package: -1 for the entry's
+    // layer, else its mapping's index.
+    var owner = Vector<Int>()
+    // Package edges: (importer's mapping, target's mapping), -1 for the
+    // entry's layer.
+    var from = Vector<Int>()
+    var to = Vector<Int>()
+    guard let entry_text = res_read_file(entry) else {
+        return scan_fallback(entry, &names, &dirs, "the entry cannot be read")
+    }
+    try! found.push(ResScanned(name: res_base_name(&entry), file: entry, real: entry_real, package: entry_package,
+                               text: entry_text))
+    try! seen.push(entry_real)
+    try! owner.push(-1)
+    try! spelled_seen.push(memo.absolute(&entry))
+    try! spelled_at.push(0)
+    var at = 0
+    while at < found.len() {
+        let here = found[at]
+        let here_owner = owner[at]
+        at = at + 1
+        guard let paths = scan_import_paths(&here.text) else {
+            return scan_fallback(entry, &names, &dirs, "a file does not lex")
+        }
+        var p = 0
+        while p < paths.len() {
+            let text = paths[p]
+            p = p + 1
+            let place = res_import_place(&text, &here.name, res_dir_of(&here.file), &here.real, here.package, &maps)
+            match place.kind {
+                case SelfModule -> { continue },
+                case Std -> {
+                    if not scan_std_listed(&text, &std_names) {
+                        return scan_fallback(entry, &names, &dirs, "an import of std names no std module")
+                    }
+                    continue
+                },
+                case NotYet -> { return scan_fallback(entry, &names, &dirs, "a `package` or `parent` import") },
+                case SrcPath -> { return scan_fallback(entry, &names, &dirs, "a `src` import path") },
+                case File -> {}
+            }
+            // A spelling met before reaches the module it reached then, with
+            // its checks passed; only the package edge is new.
+            let spelled = memo.absolute(&place.file)
+            let met = scan_index(&spelled_seen, &spelled)
+            if met >= 0 {
+                let target = owner[spelled_at[met]]
+                if here_owner >= 0 && target < 0 {
+                    return scan_fallback(entry, &names, &dirs, "a package reaches the entry's layer")
+                }
+                if here_owner != target {
+                    try! from.push(here_owner)
+                    try! to.push(target)
+                }
+                continue
+            }
+            guard let text_found = res_read_file(spelled) else {
+                return scan_fallback(entry, &names, &dirs, "an import reaches no readable file")
+            }
+            let real = memo.real(&spelled)
+            if res_is_within(&real, &std_real) {
+                return scan_fallback(entry, &names, &dirs, "an import reaches a std file")
+            }
+            if let _ = res_stored_case(&var memo, place.base, place.rel, &real) {
+                return scan_fallback(entry, &names, &dirs, "an import's case differs from its file's")
+            }
+            let holder = res_mapping_holding(&maps, &real)
+            let target_owner = if holder >= 0 && holder != entry_holder { holder } else { -1 }
+            if here_owner >= 0 && target_owner < 0 {
+                return scan_fallback(entry, &names, &dirs, "a package reaches the entry's layer")
+            }
+            if here_owner != target_owner {
+                try! from.push(here_owner)
+                try! to.push(target_owner)
+            }
+            let already = scan_index(&seen, &real)
+            if already >= 0 {
+                try! spelled_seen.push(spelled)
+                try! spelled_at.push(already)
+                continue
+            }
+            try! spelled_seen.push(spelled)
+            try! spelled_at.push(found.len())
+            var name = ""
+            var package = place.package
+            if holder >= 0 {
+                name = res_mapped_module_name(&maps[holder], &real)
+                package = maps[holder].name
+            } else {
+                name = res_loose_module_name(&entry_real, &real)
+            }
+            if name.len() == 0 {
+                name = text
+            }
+            try! found.push(ResScanned(name: name, file: place.file, real: real, package: package, text: text_found))
+            try! seen.push(real)
+            try! owner.push(target_owner)
+        }
+    }
+    // The packages in a topological order, ties broken by name: Kahn's
+    // algorithm, the ready package with the least name taken first.
+    var order = Vector<Int>()
+    var placed = Vector<Bool>()
+    k = 0
+    while k < maps.len() {
+        try! placed.push(not scan_owns_any(&owner, k))
+        k = k + 1
+    }
+    var progress = true
+    while progress {
+        progress = false
+        var best = -1
+        k = 0
+        while k < maps.len() {
+            if not placed[k] && scan_ready(k, &from, &to, &placed) &&
+               (best < 0 || scan_before(&maps[k].name, &maps[best].name)) {
+                best = k
+            }
+            k = k + 1
+        }
+        if best >= 0 {
+            placed[best] = true
+            try! order.push(best)
+            progress = true
+        }
+    }
+    k = 0
+    while k < maps.len() {
+        if not placed[k] {
+            return scan_fallback(entry, &names, &dirs, "a cycle among packages")
+        }
+        k = k + 1
+    }
+    var layers = Vector<ResPlannedLayer>()
+    var o = 0
+    while o < order.len() {
+        let m = order[o]
+        o = o + 1
+        var mine = Vector<ResScanned>()
+        var f = 0
+        while f < found.len() {
+            if owner[f] == m {
+                scan_insert_sorted(&var mine, found[f])
+            }
+            f = f + 1
+        }
+        var files = Vector<String>()
+        var modules = Vector<String>()
+        f = 0
+        while f < mine.len() {
+            try! files.push(mine[f].file)
+            try! modules.push(mine[f].name)
+            f = f + 1
+        }
+        let step = FrontStep(kind: FrontLayerKind.Package, name: maps[m].name,
+                             inputs: front_package_inputs(maps[m].name, dirs[m], &files, &modules))
+        try! layers.push(ResPlannedLayer(step: move step, modules: move mine))
+    }
+    var entry_names = Vector<String>()
+    var entry_dirs = Vector<String>()
+    if entry_holder >= 0 {
+        try! entry_names.push(names[entry_holder])
+        try! entry_dirs.push(dirs[entry_holder])
+    }
+    var rest = Vector<ResScanned>()
+    var f = 0
+    while f < found.len() {
+        if owner[f] < 0 {
+            try! rest.push(found[f])
+        }
+        f = f + 1
+    }
+    try! layers.push(ResPlannedLayer(step: front_program_step(entry, &entry_names, &entry_dirs), modules: move rest))
+    ResLayerPlan(fallback: false, why: "", layers: move layers)
+}
+
+// 4a3's plan: one program layer after std's, every mapping added there.
+func scan_fallback(entry: String, names: &Vector<String>, dirs: &Vector<String>, why: String) -> ResLayerPlan {
+    var layers = Vector<ResPlannedLayer>()
+    try! layers.push(ResPlannedLayer(step: front_program_step(entry, &names, &dirs), modules: Vector<ResScanned>()))
+    ResLayerPlan(fallback: true, why: why, layers: move layers)
+}
+
+// The import paths of `text`'s import declarations, read off its tokens, so
+// a string literal's or a refusal case's text is never one: a line of the
+// file, outside every bracket, whose first token after `@test` and `public`
+// is the word `import`, then the dotted path that follows it, up to a `.*`, a
+// `.{`, an `as` or the line's end. None when the file does not lex, which
+// only the loader reports on. A declaration that only looks like an import
+// costs nothing worse than a fallback or an unstored layer: the loader reads
+// the file's own imports, and a layer is stored only when what it loaded is
+// what the scan expected.
+//
+// Only the text up to the end of the last line that could be one is lexed:
+// tokens are found left to right, so the prefix's are the file's, unless a
+// token runs past the cut. A refusal case's body then runs to the prefix's
+// end, holding what it holds in the whole file, and a string left open is a
+// lex error, after which the whole file is lexed.
+func scan_import_paths(text: &String) -> Vector<String>? {
+    let end = scan_last_candidate_end(&text)
+    if end == 0 {
+        return Vector<String>()
+    }
+    let lexed = match lex(text.substring(0, end)) {
+        case Ok(r) -> move r,
+        case Err(_) -> {
+            match lex(text.substring(0, text.len())) {
+                case Ok(r) -> move r,
+                case Err(_) -> { return None }
+            }
+        }
+    }
+    var paths = Vector<String>()
+    var depth = 0
+    var line_start = true
+    var i = 0
+    while i < lexed.tokens.len() {
+        let kind = lexed.tokens[i].kind
+        if kind == TokenKind.Newline {
+            line_start = depth == 0
+            i = i + 1
+            continue
+        }
+        if not line_start {
+            depth = depth + scan_depth_change(kind)
+            if depth < 0 {
+                depth = 0
+            }
+            i = i + 1
+            continue
+        }
+        line_start = false
+        var at = i
+        if at + 1 < lexed.tokens.len() && lexed.tokens[at].kind == TokenKind.At &&
+           lexed.tokens[at + 1].kind == TokenKind.Ident && lexed.tokens[at + 1].value.equals("test") {
+            at = at + 2
+        }
+        if at < lexed.tokens.len() && lexed.tokens[at].kind == TokenKind.Public {
+            at = at + 1
+        }
+        if at < lexed.tokens.len() && lexed.tokens[at].kind == TokenKind.Ident &&
+           lexed.tokens[at].value.equals("import") {
+            var path = StringBuilder()
+            var j = at + 1
+            var expect_word = true
+            while j < lexed.tokens.len() {
+                let t = lexed.tokens[j]
+                if expect_word && scan_path_word(&t) {
+                    try! path.append(t.value)
+                    expect_word = false
+                } else if not expect_word && t.kind == TokenKind.Dot && j + 1 < lexed.tokens.len() &&
+                          scan_path_word(&lexed.tokens[j + 1]) {
+                    try! path.append(".")
+                    expect_word = true
+                } else {
+                    break
+                }
+                j = j + 1
+            }
+            let found = path.build()
+            if found.len() > 0 {
+                try! paths.push(found)
+            }
+        }
+        depth = depth + scan_depth_change(kind)
+        i = i + 1
+    }
+    move paths
+}
+
+// The offset just past the last line of `text` whose first word, after
+// `@test` and `public`, is `import`, 0 when none is: an import declaration's
+// first token starts its line, so every one lies at or before it.
+func scan_last_candidate_end(text: &String) -> Int {
+    let n = text.len()
+    var last = 0
+    var start = 0
+    while start < n {
+        var end = start
+        while end < n && (text.byte_at(end) as Int) != SCAN_NEWLINE {
+            end = end + 1
+        }
+        var i = scan_skip_blank(&text, start, end)
+        if scan_word_here(&text, i, end, "@test") {
+            i = scan_skip_blank(&text, i + 5, end)
+        }
+        if scan_word_here(&text, i, end, "public") {
+            i = scan_skip_blank(&text, i + 6, end)
+        }
+        let next = if end < n { end + 1 } else { end }
+        if scan_word_here(&text, i, end, "import") {
+            last = next
+        }
+        start = next
+    }
+    last
+}
+
+func scan_skip_blank(text: &String, from: Int, end: Int) -> Int {
+    var i = from
+    while i < end && ((text.byte_at(i) as Int) == SCAN_SPACE || (text.byte_at(i) as Int) == SCAN_TAB) {
+        i = i + 1
+    }
+    i
+}
+
+// Whether `word` stands at `at` in `text`, before `end`, and is not the
+// start of a longer word.
+func scan_word_here(text: &String, at: Int, end: Int, word: String) -> Bool {
+    if at + word.len() > end {
+        return false
+    }
+    var k = 0
+    while k < word.len() {
+        if (text.byte_at(at + k) as Int) != (word.byte_at(k) as Int) {
+            return false
+        }
+        k = k + 1
+    }
+    at + word.len() == end || not scan_word_byte(text.byte_at(at + word.len()) as Int)
+}
+
+func scan_word_byte(b: Int) -> Bool {
+    scan_word_start(b) || (b >= 48 && b <= 57)
+}
+
+// How a token moves the bracket depth: an opener up, a closer down.
+func scan_depth_change(kind: TokenKind) -> Int {
+    match kind {
+        case LParen -> 1,
+        case LBracket -> 1,
+        case LBrace -> 1,
+        case RParen -> -1,
+        case RBracket -> -1,
+        case RBrace -> -1,
+        case _ -> 0
+    }
+}
+
+// Whether `t` can be a segment of a module path: a word, an identifier or a
+// keyword, never a literal's text.
+func scan_path_word(t: &Token) -> Bool {
+    match t.kind {
+        case StringLit -> false,
+        case InterpString -> false,
+        case RefusalText -> false,
+        case IntLit -> false,
+        case FloatLit -> false,
+        case HashDirective -> false,
+        case DollarParam -> false,
+        case _ -> t.value.len() > 0 && scan_word_start(t.value.byte_at(0) as Int)
+    }
+}
+
+func scan_word_start(b: Int) -> Bool {
+    (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || b == SCAN_UNDERSCORE
+}
+
+// Whether `std.X` names a std module the loader lists.
+func scan_std_listed(text: &String, listed: &Vector<String>) -> Bool {
+    if text.len() <= 4 {
+        return false
+    }
+    let rest = text.substring(4, text.len())
+    var k = 0
+    while k < listed.len() {
+        if listed[k].equals(rest) {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+func scan_index(seen: &Vector<String>, real: &String) -> Int {
+    var k = 0
+    while k < seen.len() {
+        if seen[k].equals(real) {
+            return k
+        }
+        k = k + 1
+    }
+    -1
+}
+
+func scan_owns_any(owner: &Vector<Int>, m: Int) -> Bool {
+    var k = 0
+    while k < owner.len() {
+        if owner[k] == m {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// Whether every package `m` imports from is placed.
+func scan_ready(m: Int, from: &Vector<Int>, to: &Vector<Int>, placed: &Vector<Bool>) -> Bool {
+    var k = 0
+    while k < from.len() {
+        if from[k] == m && to[k] >= 0 && not placed[to[k]] {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
+// Whether `a` sorts before `b`, byte by byte.
+func scan_before(a: &String, b: &String) -> Bool {
+    let n = if a.len() < b.len() { a.len() } else { b.len() }
+    var k = 0
+    while k < n {
+        let x = a.byte_at(k) as Int
+        let y = b.byte_at(k) as Int
+        if x != y {
+            return x < y
+        }
+        k = k + 1
+    }
+    a.len() < b.len()
+}
+
+func scan_insert_sorted(out: &var Vector<ResScanned>, m: ResScanned) {
+    try! out.push(m)
+    var k = out.len() - 1
+    while k > 0 && scan_before(&out[k].name, &out[k - 1].name) {
+        out.swap(k, k - 1)
+        k = k - 1
+    }
+}

@@ -571,10 +571,24 @@ compile of the run loads it.
 The fixpoint lane's two stages share the run's directory, but each stage's
 key holds its own binary's hash, so neither reads the other's front-end
 image. The run lane's `check_front_cache_differential` requires every
-command it names, every run program's `--emit-ll`, Blade's, a refused
-program's record, each stage subcommand's dump, `fix --check`, `-W` and a
-freestanding, a provider and a runtime source, to print the same bytes with
-std's front end loaded as with the cache off.
+command it names, every run program's `--emit-ll`, Blade's and its and its
+libraries' test files', a refused
+program's record, each stage subcommand's dump (of the layered fixture,
+`compiler/tests/run/layers/`, among them), `fix --check`, `-W`, the builtin
+lowering programs and a freestanding, a provider and a runtime source, to
+print the same bytes cold, on a cache of its own holding only std's image,
+and warm as with the cache off. The cold pass runs under
+`SAWC_FRONT_VERIFY=1`, which rebuilds every layer a command stores from its
+part and holds it to the state computed (compiler/README.md). Beside it,
+`check_front_layers` holds the layered fixture's loads, misses, damaged
+parts and concurrent stores, the switch over the fixture and Blade, and the
+fault pin, a sawc built at -O0 from a slicer without one marker
+(`front_parts.py --unmarked`), which the switch must fail;
+`check_front_layer_edits` holds edits in std, a package and the entry, each to
+a body, a generic's body or a signature, warm against cold and uncached. The
+fixpoint lane builds the driver's `.ll` with Stage 2 under the switch on a
+fresh cache. `compiler/tests/run.py`'s `front_parts` step fails while the
+generated slicer is stale.
 
 ### How many workers the gate uses
 
@@ -676,7 +690,12 @@ whole-module builds for reference, with the front cache off. `--front-cache`
 measures the std front cache: hello -O0, Blade -O2 whole and split, sawc -O2
 split with its objects already cached, and the largest corpus program -O0,
 each with the front cache off, cold and warm, on a cache under
-`.build/bench/`. `tools/test_bench_compile.py` pins the tables and the
+`.build/bench/`. `--layers` measures the layered front cache: sawc split at
+-O2 and -O0, Blade split at -O2, hello -O0 and a copy of sawtracker's
+sources at -O2 split, each in a copy under `.build/bench/` with its objects
+cached first, then off, cold, warm with nothing changed and warm after an edit
+in each of three layers (`unit_stability.py`'s edits, or a function appended
+to a package's file). `tools/test_bench_compile.py` pins the tables and the
 argument lists.
 
 ### The codegen-unit stability measure (not a stage)

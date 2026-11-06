@@ -1053,6 +1053,8 @@ TIME_STAGES_ORDER = ("resolve", "typecheck", "asserts", "mir", "verify resolve",
                      "coro lower", "verify coro", "llvm", "write ll", "clang", "link", "clang link", "dsymutil")
 TIME_STAGES_ALWAYS = ("resolve", "typecheck", "asserts", "mir", "eval", "borrowck", "drops", "mono", "coro",
                       "coro lower", "llvm", "write ll")
+# The steps only a computed layer runs.
+TIME_STAGES_FRONT_STEPS = ("resolve", "typecheck", "asserts", "mir", "eval", "borrowck", "drops")
 TIME_STAGES_LINE = re.compile(r"^time: ([a-z ]+) (\d+\.\d) ms$")
 # A split build's lines ahead of the pipeline's: the split, then one per
 # codegen unit, named by its unit and marked `cached` when its object came
@@ -1061,15 +1063,21 @@ TIME_STAGES_LINE = re.compile(r"^time: ([a-z ]+) (\d+\.\d) ms$")
 TIME_STAGES_SPLIT = re.compile(r"^time: split (\d+\.\d) ms$")
 TIME_STAGES_UNIT = re.compile(r"^time: clang unit (\S+)( cached)? (\d+\.\d) ms$")
 TIME_STAGES_CACHE = re.compile(r"^time: object cache (\d+\.\d) ms$")
-# The std front cache's lines, ahead of everything: std's cut loaded, or
-# computed and then stored (`driver_front_cut`).
-TIME_STAGES_FRONT = re.compile(r"^time: (front cache load|std front end|front cache store) (\d+\.\d) ms$")
+# The front cache's lines, ahead of everything: std's cut loaded, or computed
+# and then stored (`driver_front_cut`), then each later layer loaded or
+# computed, and the copy that hands the computed ones to their store threads
+# (`driver_front_chain`). The wait for those threads is reported when the
+# command's front end is dropped, after a split build's units.
+TIME_STAGES_FRONT = re.compile(r"^time: (front cache load|std front end|front cache store"
+                               r"|front layer \S+ (?:loaded|computed)|front layers store) (\d+\.\d) ms$")
+TIME_STAGES_JOIN = re.compile(r"^time: front layers join (\d+\.\d) ms$")
 
 
 def check_time_stages(failures, counts):
     """`--time-stages` prints one `time: STEP MS ms` line per step that ran,
     in pipeline order, then `total`, on standard error after the build; the
-    shape is checked and never the values. A split build
+    shape is checked and never the values, and the front end's own steps are
+    there only when a layer is computed. A split build
     (`--codegen-units=module`) prints its `split` line and a line per
     unit's compile ahead of them. Without the flag the build writes
     nothing to either stream, and the `.ll` is the same bytes either way, so
@@ -1085,7 +1093,9 @@ def check_time_stages(failures, counts):
     split = os.path.join(work, "split")
     first = subprocess.run([build.SAWC, "build", "-g0"] + target_flags() + [src, "-o", plain], cwd=work,
                            capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    second = subprocess.run([build.SAWC, "build", "-g0", "--time-stages"] + target_flags() + [src, "-o", timed],
+    # The second computes every layer, the third loads them all.
+    second = subprocess.run([build.SAWC, "build", "-g0", "--time-stages", "--no-front-cache"] + target_flags()
+                            + [src, "-o", timed],
                             cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     third = subprocess.run([build.SAWC, "build", "-g0", "--time-stages", "--codegen-units=module"] + target_flags()
                            + [src, "-o", split], cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
@@ -1816,12 +1826,27 @@ func fs_main() -> Int {
 """
 
 
-def front_cache_images(directory):
-    """Every std front cache entry under `directory`, by its path from there."""
+def front_cache_entries(directory, magic):
+    """Every front cache entry under `directory` whose body, after the
+    entry's own first line, starts with `magic`, by its path from there."""
     found = []
     for path in glob.glob(os.path.join(directory, "front", "g*", "*")):
-        found.append(os.path.relpath(path, directory))
+        with open(path, "rb") as fh:
+            fh.readline()
+            head = fh.read(len(magic) + 1)
+        if head == magic + b" ":
+            found.append(os.path.relpath(path, directory))
     return sorted(found)
+
+
+def front_cache_images(directory):
+    """Every std image in the front cache under `directory`."""
+    return front_cache_entries(directory, b"sawc-front")
+
+
+def front_cache_parts(directory):
+    """Every layer's part in the front cache under `directory`."""
+    return front_cache_entries(directory, b"sawc-front-part")
 
 
 def front_cache_environment(directory, extra=None):
@@ -2021,36 +2046,47 @@ def check_front_cache(failures, counts):
             failures.append("run front cache: concurrent build %d exits %d (its program %s): %s"
                             % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
     left = front_cache_images(shared)
-    if len(left) != 1:
-        failures.append("run front cache: six concurrent builds leave %r, not one image" % left)
+    parts = front_cache_parts(shared)
+    if len(left) != 1 or len(parts) != 1:
+        failures.append("run front cache: six concurrent builds leave %r and %r, not one image and one part"
+                        % (left, parts))
     checked += len(launches)
     counts["run front cache cases checked"] = checked
 
 
 def front_cache_commands():
     """The commands the differential runs, each relative to the repository:
-    every run program's `.ll`, Blade's, a refused program's record, each
-    stage subcommand's dump of two programs, `fix --check`, `-W`'s warnings,
-    and a freestanding, a provider and a runtime source's `.ll`."""
+    every run program's `.ll`, Blade's and each of its and its libraries'
+    test files', a refused program's record, each
+    stage subcommand's dump of two programs and of the layered fixture,
+    `fix --check`, `-W`'s warnings, a freestanding program's `.ll` and each
+    builtin lowering program's, and a provider and a runtime source's."""
     commands = [["build", "--emit-ll", "--std-root", "std", rel(src)] for src in cases()]
     blade = []
     for name, directory in (("blade", "blade/src"), ("toml", "libs/toml/src"), ("semver", "libs/semver/src"),
                             ("imgformat", "libs/imgformat/src")):
         blade += ["--module-path", "%s=%s" % (name, directory)]
     commands.append(["build", "--emit-ll", "--std-root", "std"] + blade + ["blade/src/main.saw"])
+    # The packages' test files, each an entry outside its package's sources
+    # with every package a layer before it.
+    for test in sorted(glob.glob(os.path.join(REPO, "blade", "tests", "*.saw"))
+                       + glob.glob(os.path.join(REPO, "libs", "*", "tests", "*.saw"))):
+        commands.append(["build", "--emit-ll", "--std-root", "std"] + blade + [rel(test)])
     commands.append(["build", "--emit-ll", "--std-root", "std", rel(os.path.join(OUT, "front-differential",
                                                                                "refused.saw"))])
-    for program in ("compiler/tests/run/traits.saw", "compiler/tests/run/task_spawn.saw"):
+    layered = layers_arguments(rel(LAYERS_DIR))
+    for program in (["compiler/tests/run/traits.saw"], ["compiler/tests/run/task_spawn.saw"], layered):
         for stage in ("resolve", "typecheck", "mir", "eval", "borrowck", "drops", "mono", "coro"):
-            commands.append([stage, "--dump", "--std-root", "std", program])
-        commands.append(["coro", "--bt-table", "--std-root", "std", program])
-        commands.append(["typecheck", "--check", "--notes", "--summaries", "-W", "borrow-prefix", "--std-root", "std",
-                         program])
-        commands.append(["fix", "--check", "--std-root", "std", program])
-        commands.append(["build", "--emit-ll", "-W", "borrow-prefix", "--std-root", "std", program])
+            commands.append([stage, "--dump", "--std-root", "std"] + program)
+        commands.append(["coro", "--bt-table", "--std-root", "std"] + program)
+        commands.append(["typecheck", "--check", "--notes", "--summaries", "-W", "borrow-prefix", "--std-root", "std"]
+                        + program)
+        commands.append(["fix", "--check", "--std-root", "std"] + program)
+        commands.append(["build", "--emit-ll", "-W", "borrow-prefix", "--std-root", "std"] + program)
     free = rel(os.path.join(OUT, "front-differential", "free.saw"))
-    commands.append(["build", "--emit-ll", "--freestanding", "--target", "riscv32-unknown-none-elf", "--std-root",
-                     "std", free])
+    for program in [free] + sorted(rel(p) for p in glob.glob(os.path.join(HERE, "lowering", "builtin_*.saw"))):
+        commands.append(["build", "--emit-ll", "--freestanding", "--target", "riscv32-unknown-none-elf",
+                         "--std-root", "std", program])
     commands.append(["build", "--emit-ll", "--runtime", "--std-root", "std", free])
     commands.append(["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
                      rel(os.path.join(build.RT_ROOT, "host_macos", "dirent.saw"))])
@@ -2058,38 +2094,515 @@ def front_cache_commands():
 
 
 def check_front_cache_differential(failures, counts):
-    """A command with std's cut loaded from the std front cache prints what
-    it prints with the cache off, byte for byte, its exit status the same:
-    every command `front_cache_commands` names, after one pass that fills a
-    cache of the pin's own."""
+    """A command prints the same bytes and exits the same with the front cache
+    off, cold and warm: every command `front_cache_commands` names, cold on a
+    cache of its own holding std's cut alone, so it computes and stores every
+    later layer, under the verify switch, then warm on that cache, so it
+    loads them."""
     work = os.path.join(OUT, "front-differential")
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     for name, text in (("refused.saw", FRONT_CACHE_REFUSED), ("free.saw", FRONT_CACHE_FREESTANDING)):
         with open(os.path.join(work, name), "w") as fh:
             fh.write(text)
-    cache = os.path.join(work, "cache")
+    filled = os.path.join(work, "std-cuts")
     commands = front_cache_commands()
 
-    def one(args, extra):
+    def one(args, directory, extra=None):
         r = subprocess.run([build.SAWC] + args, cwd=REPO, capture_output=True, timeout=BUILD_TIMEOUT,
-                           env=front_cache_environment(cache, extra))
+                           env=front_cache_environment(directory, extra))
         return r.returncode, r.stdout, r.stderr
 
-    # The fill: one command of each distinct std cut, in turn.
+    # The fill: one command of each distinct std cut, in turn; then its
+    # layers' parts are removed, leaving std's images.
     seen = set()
     for args in commands:
         cut = tuple(a for a in args if a.startswith("--target") or a in ("--freestanding", "--runtime")) + (args[0] == "runtime",)
         if cut not in seen:
             seen.add(cut)
-            one(args, None)
-    off = gate_jobs.map_ordered(lambda args: one(args, {"SAWC_FRONT_CACHE": "off"}), commands)
-    warm = gate_jobs.map_ordered(lambda args: one(args, None), commands)
-    differ = [" ".join(args) for args, a, b in zip(commands, off, warm) if a != b]
-    if differ:
-        failures.append("run front cache differential: %d of %d commands print otherwise with std's cut loaded: %s"
-                        % (len(differ), len(commands), "; ".join(differ[:5])))
+            one(args, filled)
+    for part in front_cache_parts(filled):
+        os.remove(os.path.join(filled, part))
+    # Each command's cache: the fill's entries, linked, since an entry is
+    # only ever replaced by a rename and never written in place.
+    caches = []
+    for k in range(len(commands)):
+        directory = os.path.join(work, "cache%d" % k)
+        for entry in front_cache_images(filled):
+            os.makedirs(os.path.dirname(os.path.join(directory, entry)), exist_ok=True)
+            os.link(os.path.join(filled, entry), os.path.join(directory, entry))
+        caches.append(directory)
+    jobs = list(range(len(commands)))
+    off = gate_jobs.map_ordered(lambda k: one(commands[k], caches[k], {"SAWC_FRONT_CACHE": "off"}), jobs)
+    # The cold pass runs under the verify switch, so every layer a command
+    # stores is rebuilt from its part and held to the state computed.
+    cold = gate_jobs.map_ordered(lambda k: one(commands[k], caches[k], {"SAWC_FRONT_VERIFY": "1"}), jobs)
+    warm = gate_jobs.map_ordered(lambda k: one(commands[k], caches[k]), jobs)
+    for name, runs in (("cold", cold), ("warm", warm)):
+        differ = [" ".join(args) for args, a, b in zip(commands, off, runs) if a != b]
+        if differ:
+            failures.append("run front cache differential: %d of %d commands print otherwise %s than uncached: %s"
+                            % (len(differ), len(commands), name, "; ".join(differ[:5])))
+    stored = sum(len(front_cache_parts(directory)) for directory in caches)
+    if stored == 0:
+        failures.append("run front cache differential: no command stores a layer")
     counts["run front cache differential commands"] = len(commands)
+    counts["run front cache differential parts stored"] = stored
+
+
+# The layered front-end fixture: two packages, `shapes` importing `geometry`,
+# and an entry importing both, so a build has three layers after std's.
+LAYERS_DIR = os.path.join(HERE, "layers")
+LAYERS_OUTPUT = b"square at (1, 2) side 3\n(4, 5)\n(2, 4)\n[6]\n9\n"
+LAYERS_NAMES = ("geometry", "shapes", "program")
+# A field the fault pin builds a slicer without the marker of: the program
+# layer's extensions rewrite a std type's member run, and `shapes`' rewrites
+# `geometry`'s, below their watermarks.
+LAYERS_FAULT_FIELD = "TcProgram.member_first"
+LAYER_LINE = re.compile(r"^time: front layer (\S+) (loaded|computed) ", re.M)
+
+
+def layers_tree(work, name="tree"):
+    """A fresh copy of the layered fixture under `work`."""
+    tree = os.path.join(work, name)
+    shutil.rmtree(tree, ignore_errors=True)
+    shutil.copytree(LAYERS_DIR, tree)
+    return tree
+
+
+def layers_arguments(tree, geometry=None):
+    """The fixture's mappings and entry under `tree`; `geometry` spells that
+    package's directory otherwise."""
+    return ["--module-path", "geometry=" + (geometry or os.path.join(tree, "geometry")),
+            "--module-path", "shapes=" + os.path.join(tree, "shapes"), os.path.join(tree, "main.saw")]
+
+
+def blade_arguments():
+    out = []
+    for name, directory in (("blade", "blade/src"), ("toml", "libs/toml/src"), ("semver", "libs/semver/src"),
+                            ("imgformat", "libs/imgformat/src")):
+        out += ["--module-path", "%s=%s" % (name, os.path.join(REPO, directory))]
+    return out + [os.path.join(REPO, "blade", "src", "main.saw")]
+
+
+def append_line(path, text):
+    with open(path, "a") as fh:
+        fh.write(text)
+
+
+def check_front_layers(failures, counts):
+    """Each layer after std's, every `--module-path` package's in dependency
+    order and then the entry's, is stored in the front cache under its chain
+    key (`driver_layer_key`) and loaded by the longest prefix the cache holds.
+    Over the layered fixture: a cold build computes every layer and a warm one
+    loads every layer; an edit to one layer's files recomputes exactly it and
+    the layers after it; a refused layer is never stored; each chain input
+    misses (`--no-hidden-alloc`, another spelling of a package's directory,
+    the tree moved, another std, an edited std, another binary); a damaged
+    part warns and its layer and the later ones are computed and stored
+    again; six cold builds at once share one store. The verify switch
+    (`SAWC_FRONT_VERIFY=1`) passes over the fixture and Blade, printing what
+    the uncached build prints, and fails with a slicer built without one
+    marker (`front_parts.py --unmarked`)."""
+    work = os.path.join(OUT, "front-layers")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    tree = layers_tree(work)
+    cache = os.path.join(work, "cache")
+    checked = 0
+
+    def sawc(args, directory=cache, extra=None, binary=None):
+        return subprocess.run([binary or build.SAWC] + args, cwd=work, capture_output=True, text=True,
+                              timeout=BUILD_TIMEOUT, env=front_cache_environment(directory, extra))
+
+    def layered(where, want, args=None, directory=cache, extra=None, binary=None, refused=False, warns=False):
+        """A `--time-stages` build of the fixture whose layers are `want`, one
+        state per layer in LAYERS_NAMES' order, and whose program prints
+        LAYERS_OUTPUT; with `refused`, an `--emit-ll` refused with a record."""
+        out = os.path.join(work, "layered")
+        tail = args or layers_arguments(tree)
+        command = ["build", "--time-stages", "-g0"] + (["--emit-ll"] if refused else []) + tail
+        if not refused:
+            command += ["-o", out]
+        r = sawc(command, directory, extra, binary)
+        nonlocal checked
+        checked += 1
+        if refused:
+            if r.returncode != 1 or not r.stdout.startswith("FILE\t"):
+                failures.append("run front layers: %s exits %d with no refusal record: %s"
+                                % (where, r.returncode, r.stdout.strip()[:300]))
+                return r
+        elif r.returncode != 0:
+            failures.append("run front layers: %s fails: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+            return None
+        if ("warning" in r.stderr) != warns:
+            failures.append("run front layers: %s %s: %r" % (where, "does not warn" if warns else "warns",
+                                                             r.stderr.strip()[:300]))
+        got = [state for _, state in LAYER_LINE.findall(r.stderr)]
+        names = [name for name, _ in LAYER_LINE.findall(r.stderr)]
+        if names != list(LAYERS_NAMES) or got != list(want):
+            failures.append("run front layers: %s has its layers %r, not %r"
+                            % (where, list(zip(names, got)), list(zip(LAYERS_NAMES, want))))
+        if not refused:
+            code, printed, _ = execute(out)
+            if code != 0 or printed != LAYERS_OUTPUT:
+                failures.append("run front layers: %s's program exits %s printing %r" % (where, code, printed))
+        return r
+
+    every = ("computed",) * 3
+    held = ("loaded",) * 3
+    layered("the cold build", every)
+    layered("the warm build", held)
+    if len(front_cache_parts(cache)) != 3:
+        failures.append("run front layers: a cold build stores %d parts, not one per layer"
+                        % len(front_cache_parts(cache)))
+    for edited, want in (("shapes/lib.saw", ("loaded", "computed", "computed")),
+                         ("main.saw", ("loaded", "loaded", "computed")),
+                         ("geometry/lib.saw", every)):
+        append_line(os.path.join(tree, edited), "\n// An edit the front cache must see.\n")
+        layered("the build after an edit to %s" % edited, want)
+        layered("the build after that one", held)
+    # A refused layer, here `geometry` under `--no-hidden-alloc`, is never
+    # stored, so a second refusal computes it again.
+    for where in ("a --no-hidden-alloc build", "a second --no-hidden-alloc build"):
+        layered(where, every, args=["--no-hidden-alloc"] + layers_arguments(tree), refused=True)
+    spelled = os.path.join(tree, ".", "geometry")
+    layered("a build spelling geometry's directory otherwise", every, args=layers_arguments(tree, spelled))
+    layered("its second build", held, args=layers_arguments(tree, spelled))
+    moved = layers_tree(work, "moved")
+    layered("a build of the tree moved", every, args=layers_arguments(moved))
+    copied_std = os.path.join(work, "std")
+    shutil.copytree(os.path.join(REPO, "std"), copied_std)
+    layered("a build against a copy of std", every, args=["--std-root", copied_std] + layers_arguments(tree))
+    append_line(os.path.join(copied_std, "vector.saw"), "\n// An edit the front cache must see.\n")
+    layered("a build after an edit to the std copy", every, args=["--std-root", copied_std] + layers_arguments(tree))
+    other = build.STAGE1 if os.path.realpath(build.SAWC) == os.path.realpath(build.STAGE2) else build.STAGE2
+    if os.path.exists(other) and open(other, "rb").read() != open(build.SAWC, "rb").read():
+        layered("a build by the other stage", every, binary=other)
+        layered("that stage's second build", held, binary=other)
+    else:
+        failures.append("run front layers: no other sawc binary to miss with (%s)" % rel(other))
+    # Damage: each part of a full cache truncated in turn warns once, and
+    # computes its layer and the later ones; across the three, each layer is
+    # the first computed once. The build after stores them again.
+    tree = layers_tree(work)
+    firsts = []
+    for k in range(3):
+        repair = os.path.join(work, "repair")
+        shutil.rmtree(repair, ignore_errors=True)
+        if layered("the build filling a cache for damage", every, directory=repair) is None:
+            continue
+        parts = front_cache_parts(repair)
+        if len(parts) != 3:
+            failures.append("run front layers: the fill stores %d parts, not 3" % len(parts))
+            continue
+        entry = os.path.join(repair, parts[k])
+        with open(entry, "rb") as fh:
+            whole = fh.read()
+        with open(entry, "wb") as fh:
+            fh.write(whole[:len(whole) // 2])
+        r = sawc(["build", "--time-stages", "-g0"] + layers_arguments(tree) + ["-o", os.path.join(work, "repaired")],
+                 repair)
+        states = LAYER_LINE.findall(r.stderr)
+        computed = [name for name, state in states if state == "computed"]
+        loaded = [name for name, state in states if state == "loaded"]
+        if r.returncode != 0 or r.stderr.count("warning: the front cache entry") != 1 \
+                or "computing the layer again" not in r.stderr or not computed \
+                or [n for n, _ in states] != list(LAYERS_NAMES) or loaded + computed != list(LAYERS_NAMES):
+            failures.append("run front layers: past a truncated part the build exits %d, its layers %r, warning %r"
+                            % (r.returncode, states, r.stderr.strip()[:400]))
+        elif computed:
+            firsts.append(computed[0])
+        layered("the build after a damaged part's repair", held, directory=repair)
+        checked += 1
+    if sorted(firsts) != sorted(LAYERS_NAMES):
+        failures.append("run front layers: the three damaged parts recompute from %r, not once from each layer"
+                        % firsts)
+    # Six cold builds at once share one store.
+    shared = os.path.join(work, "shared")
+    launches = [subprocess.Popen([build.SAWC, "build", "-g0"] + layers_arguments(tree)
+                                 + ["-o", os.path.join(work, "shared%d" % k)],
+                                 cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                 env=front_cache_environment(shared)) for k in range(6)]
+    for k, proc in enumerate(launches):
+        try:
+            stdout, stderr = proc.communicate(timeout=BUILD_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            failures.append("run front layers: a concurrent build times out")
+            continue
+        code, printed, _ = execute(os.path.join(work, "shared%d" % k))
+        if proc.returncode != 0 or (stdout + stderr).strip() or code != 0 or printed != LAYERS_OUTPUT:
+            failures.append("run front layers: concurrent build %d exits %d (its program %s): %s"
+                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
+        checked += 1
+    if len(front_cache_images(shared)) != 1 or len(front_cache_parts(shared)) != 3:
+        failures.append("run front layers: six concurrent builds leave %r and %r, not one image and three parts"
+                        % (front_cache_images(shared), front_cache_parts(shared)))
+    checked += check_front_verify(failures, work, tree, sawc)
+    counts["run front layers cases checked"] = checked
+
+
+# The edit differential's probes: declarations a copy of the fixture holds in
+# std (`once.saw`), in its middle layer (`shapes`) and in its entry, the
+# entry calling each, and per probe set the three edits it is made with.
+LAYERS_PROBE = """
+public func {p}_body() -> Int {{
+    1
+}}
+
+public func {p}_generic<T: Copy>(value: T) -> T {{
+    value
+}}
+
+public func {p}_shape() -> Int {{
+    3
+}}
+"""
+LAYERS_PROBE_EDITS = (
+    ("body-only", "    1\n", "    2\n"),
+    ("generic-body", "    value\n", "    let kept = value\n    kept\n"),
+    ("frame-or-summary", "_shape() -> Int {\n    3\n", "_shape() -> Int64 {\n    3\n"),
+)
+LAYERS_PROBE_CALLS = """
+func probes() {{
+    print("{{}} {{}} {{}}", {s}_body(), {s}_generic(4), {s}_shape())
+    print("{{}} {{}} {{}}", {m}_body(), {m}_generic(true), {m}_shape())
+    print("{{}} {{}} {{}}", entry_probe_body(), entry_probe_generic(5), entry_probe_shape())
+}}
+"""
+
+
+# A package module no file imports, which refuses the program when loaded.
+SCAN_UNIMPORTED = "// No module imports this one; loading it refuses the program.\n\n" \
+                  "public func broken() -> Int {\n    \"not an Int\"\n}\n"
+# Text only the line-shaped view of a file reads as an import: a string
+# literal's second line, and a refusal case's body.
+SCAN_TEXT_SHAPES = (
+    ("a string literal",
+     "\npublic func notes() -> String {\n    \"the first line\nimport geometry.extra\nthe last line\"\n}\n"),
+    ("a refusal case's body",
+     "\n@test(refuses: \"type.mismatch\") \"an import in a refusal body\"\nimport geometry.extra\n"
+     "    let x: Int = \"s\"\n@test(end: refuses)\n"),
+)
+
+
+def check_front_scan_text(failures, counts):
+    """The import scan reads a file's import declarations off its tokens: a
+    line inside a string literal or a refusal case's body that reads
+    `import geometry.extra` names no import, so the package layer never
+    loads `geometry.extra`, a module no file imports and whose body refuses.
+    Each shape builds, cold and warm, and prints the fixture's output and the
+    uncached build's `.ll`."""
+    work = os.path.join(OUT, "front-scan-text")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    checked = 0
+    for what, text in SCAN_TEXT_SHAPES:
+        tree = layers_tree(work, re.sub(r"[^a-z]+", "-", what).strip("-"))
+        with open(os.path.join(tree, "geometry", "extra.saw"), "w") as fh:
+            fh.write(SCAN_UNIMPORTED)
+        append_line(os.path.join(tree, "geometry", "lib.saw"), text)
+        cache = os.path.join(tree, "cache")
+        runs = []
+        for extra in ({"SAWC_FRONT_CACHE": "off"}, None, None):
+            r = subprocess.run([build.SAWC, "build", "--emit-ll", "-g0"] + layers_arguments(tree), cwd=work,
+                               capture_output=True, text=True, timeout=BUILD_TIMEOUT,
+                               env=front_cache_environment(cache, extra))
+            runs.append((r.returncode, r.stdout, r.stderr))
+        out = os.path.join(tree, "program")
+        built = subprocess.run([build.SAWC, "build", "-g0"] + layers_arguments(tree) + ["-o", out], cwd=work,
+                               capture_output=True, text=True, timeout=BUILD_TIMEOUT,
+                               env=front_cache_environment(cache))
+        code, printed, _ = execute(out) if built.returncode == 0 else (None, b"", b"")
+        if runs[0][0] != 0 or runs[1] != runs[0] or runs[2] != runs[0] or code != 0 or printed != LAYERS_OUTPUT:
+            failures.append("run front scan: with `import geometry.extra` in %s the build exits %d off, %d cold "
+                            "and %d warm, its program %s: %s" % (what, runs[0][0], runs[1][0], runs[2][0], code,
+                                                                 (runs[0][1] + runs[0][2]).strip()[:300]))
+        checked += 1
+    counts["run front scan text shapes"] = checked
+
+
+def check_front_shared_writers(failures, counts):
+    """Two store threads of one command may write one key: `resolve --check`
+    over two entries that share the fixture's packages, on a cold cache,
+    stores the packages' layers from the first input's thread while the
+    second input misses and stores them again. Each writer has a temporary
+    name of its own, so every run succeeds with no warning and no temporary
+    left, and the next command loads every layer."""
+    work = os.path.join(OUT, "front-shared-writers")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    tree = layers_tree(work)
+    second = os.path.join(tree, "second.saw")
+    with open(second, "w") as fh:
+        fh.write("import geometry.{Point}\nimport shapes.{Square}\n\nfunc main() {\n"
+                 "    print(\"{}\", Square(corner: Point(x: 0, y: 0), side: 2))\n}\n")
+    args = ["resolve", "--check"] + layers_arguments(tree) + [second]
+    checked = 0
+    for k in range(8):
+        cache = os.path.join(work, "cache%d" % k)
+        r = subprocess.run([build.SAWC] + args, cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT,
+                           env=front_cache_environment(cache))
+        left = glob.glob(os.path.join(cache, "front", "g*", "*.tmp"))
+        if r.returncode != 0 or r.stderr or left:
+            failures.append("run front shared writers: round %d exits %d, leaves %r: %s"
+                            % (k, r.returncode, left, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        warm = subprocess.run([build.SAWC, "build", "--time-stages", "--emit-ll", "-g0"] + layers_arguments(tree),
+                              cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT,
+                              env=front_cache_environment(cache))
+        states = [state for name, state in LAYER_LINE.findall(warm.stderr) if name != "program"]
+        if warm.returncode != 0 or "warning" in warm.stderr or states != ["loaded", "loaded"]:
+            failures.append("run front shared writers: after round %d the packages' layers are %r: %s"
+                            % (k, states, warm.stderr.strip()[:300]))
+        checked += 1
+    counts["run front shared writer rounds"] = checked
+
+
+def check_front_layer_edits(failures, counts):
+    """After an edit to std, to the fixture's middle layer or to its entry,
+    each body-only, to a generic's body, or to a signature, a build warm on
+    the cache the unedited tree filled loads the layers before the edit and
+    computes the rest, and its `.ll` and the checker's notes and summaries are
+    the bytes a cold build on an empty cache and an uncached one print; and
+    so is the record of an entry edit the checker refuses."""
+    work = os.path.join(OUT, "front-layer-edits")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    tree = os.path.join(work, "tree")
+    std = os.path.join(work, "std")
+    shutil.copytree(os.path.join(REPO, "std"), std)
+    with open(os.path.join(std, "once.saw")) as fh:
+        once = fh.read()
+    with open(os.path.join(LAYERS_DIR, "shapes", "lib.saw")) as fh:
+        shapes = fh.read()
+    with open(os.path.join(LAYERS_DIR, "main.saw")) as fh:
+        entry = fh.read()
+    imports = ("import std.once.{std_probe_body, std_probe_generic, std_probe_shape}\n"
+               "import shapes.{middle_probe_body, middle_probe_generic, middle_probe_shape}\n")
+    entry_head, entry_main = entry.split("\nfunc main() {\n", 1)
+    base = {
+        "std": (os.path.join(std, "once.saw"), once + LAYERS_PROBE.format(p="std_probe")),
+        "middle": (os.path.join(tree, "shapes", "lib.saw"), shapes + LAYERS_PROBE.format(p="middle_probe")),
+        "entry": (os.path.join(tree, "main.saw"),
+                  entry_head + "\n" + imports + LAYERS_PROBE.format(p="entry_probe").replace("public ", "")
+                  + LAYERS_PROBE_CALLS.format(s="std_probe", m="middle_probe")
+                  + "\nfunc main() {\n    probes()\n" + entry_main),
+    }
+    warm = os.path.join(work, "warm")
+    args = ["--std-root", std] + layers_arguments(tree)
+    commands = (["build", "--emit-ll"] + args, ["typecheck", "--check", "--notes", "--summaries"] + args)
+    held = {"std": ("computed",) * 3, "middle": ("loaded", "computed", "computed"),
+            "entry": ("loaded", "loaded", "computed")}
+    checked = 0
+
+    def restore():
+        shutil.rmtree(tree, ignore_errors=True)
+        shutil.copytree(LAYERS_DIR, tree)
+        for path, text in base.values():
+            with open(path, "w") as fh:
+                fh.write(text)
+
+    def run(command, directory, extra=None):
+        r = subprocess.run([build.SAWC] + command, cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT,
+                           env=front_cache_environment(directory, extra))
+        return r.returncode, r.stdout, r.stderr
+
+    restore()
+    for command in commands:
+        filled = run(command, warm)
+        if filled[0] != 0:
+            failures.append("run front layer edits: the unedited tree's `%s` exits %d: %s"
+                            % (command[0], filled[0], (filled[1] + filled[2]).strip()[:300]))
+            return
+    edits = [(where, kind, old, new) for where in ("std", "middle", "entry") for kind, old, new in LAYERS_PROBE_EDITS]
+    edits.append(("entry", "a refused edit", "    probes()\n", "    probes()\n    let wrong: Bool = 1\n"))
+    for where, kind, old, new in edits:
+        restore()
+        path, text = base[where]
+        if where == "std":
+            text = once + LAYERS_PROBE.format(p="std_probe").replace(old, new, 1)
+        elif where == "middle":
+            text = shapes + LAYERS_PROBE.format(p="middle_probe").replace(old, new, 1)
+        elif old not in text:
+            failures.append("run front layer edits: the %s edit's text is not in the entry" % kind)
+            continue
+        else:
+            text = text.replace(old, new, 1)
+        with open(path, "w") as fh:
+            fh.write(text)
+        cold = os.path.join(work, "cold")
+        for command in commands:
+            shutil.rmtree(cold, ignore_errors=True)
+            off = run(command, cold, {"SAWC_FRONT_CACHE": "off"})
+            fresh = run(command, cold)
+            timed = command[:1] + ["--time-stages"] + command[1:] if command[0] == "build" else command
+            loaded = run(timed, warm)
+            if fresh != off or loaded[:2] != off[:2] or (command[0] != "build" and loaded != off):
+                failures.append("run front layer edits: after a %s edit in %s, `%s` prints otherwise warm, cold "
+                                "and uncached (exits %d, %d, %d)" % (kind, where, command[0], loaded[0], fresh[0],
+                                                                      off[0]))
+            if command[0] == "build":
+                states = tuple(state for _, state in LAYER_LINE.findall(loaded[2]))
+                if states != held[where]:
+                    failures.append("run front layer edits: after a %s edit in %s the warm build's layers are %r, "
+                                    "not %r" % (kind, where, states, held[where]))
+                refused = kind == "a refused edit"
+                if (off[0] != 0) != refused or (refused and not off[1].startswith("FILE\t")):
+                    failures.append("run front layer edits: after a %s edit in %s the build exits %d: %s"
+                                    % (kind, where, off[0], (off[1] + off[2]).strip()[:300]))
+            checked += 1
+    counts["run front layer edits checked"] = checked
+
+
+def check_front_verify(failures, work, tree, sawc):
+    """The verify switch over the fixture and Blade, each on a fresh cache:
+    it passes and prints what the uncached build prints. Then the fault pin:
+    sawc built with a slicer that leaves out LAYERS_FAULT_FIELD's marker
+    fails the switch over the fixture. Returns the cases checked."""
+    checked = 0
+    for name, args in (("the layered fixture", layers_arguments(tree)), ("Blade", blade_arguments())):
+        off = sawc(["build", "--emit-ll"] + args, extra={"SAWC_FRONT_CACHE": "off"})
+        fresh = os.path.join(work, "verify-" + name.split()[-1].lower())
+        shutil.rmtree(fresh, ignore_errors=True)
+        verified = sawc(["build", "--emit-ll"] + args, fresh, {"SAWC_FRONT_VERIFY": "1"})
+        if off.returncode != 0 or (verified.returncode, verified.stdout, verified.stderr) != (0, off.stdout, ""):
+            failures.append("run front verify: over %s the switch exits %d, its .ll %s the uncached one's: %s"
+                            % (name, verified.returncode, "is" if verified.stdout == off.stdout else "is not",
+                               verified.stderr.strip()[:300]))
+        checked += 1
+    fault = os.path.join(work, "fault")
+    shutil.rmtree(fault, ignore_errors=True)
+    mono = os.path.join(fault, "mono")
+    shutil.copytree(os.path.join(COMPILER, "mono", "src"), mono)
+    r = subprocess.run([sys.executable, os.path.join(COMPILER, "tools", "front_parts.py"), "--unmarked",
+                        LAYERS_FAULT_FIELD, "--out", os.path.join(mono, "frontparts.saw")],
+                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run front verify: the faulty slicer is not written: %s" % (r.stdout + r.stderr).strip()[:300])
+        return checked
+    faulty = os.path.join(fault, "sawc")
+    packages = []
+    for name, path in build.STAGE_PACKAGES:
+        packages += ["--module-path", "%s=%s" % (name, mono if name == "sawmono" else os.path.join(REPO, path))]
+    r = subprocess.run([build.SAWC, "build", "-O0", "-g0", "--no-front-cache", "--std-root", "std"] + packages
+                       + [rel(build.DRIVER_ENTRY), "-o", faulty], cwd=REPO, capture_output=True, text=True,
+                       timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run front verify: sawc does not build with the faulty slicer: %s"
+                        % (r.stdout + r.stderr).strip()[:300])
+        return checked
+    # The manifest the stages share, beside them: `build.SAWC` may be the
+    # fixpoint lane's twin, which has none beside it.
+    shutil.copy(os.path.join(os.path.dirname(build.STAGE2), build.RUNTIME_MANIFEST_NAME), fault)
+    r = sawc(["build", "--emit-ll"] + layers_arguments(tree), os.path.join(fault, "cache"),
+             {"SAWC_FRONT_VERIFY": "1"}, binary=faulty)
+    if r.returncode == 0 or "front cache verify: the layer" not in r.stderr:
+        failures.append("run front verify: with %s's marker left out the switch exits %d: %s"
+                        % (LAYERS_FAULT_FIELD, r.returncode, r.stderr.strip()[:300]))
+    return checked + 1
 
 
 def time_stage_lines(failures, stderr, split):
@@ -2098,9 +2611,15 @@ def time_stage_lines(failures, stderr, split):
     shape held far enough to read the rest."""
     lines = stderr.splitlines()
     units = 0
-    # Std's cut, loaded from the std front cache or computed and stored there,
-    # comes first.
+    joins = [line for line in lines if TIME_STAGES_JOIN.match(line)]
+    if len(joins) > 1:
+        failures.append("run time stages: %d `front layers join` lines" % len(joins))
+    lines = [line for line in lines if not TIME_STAGES_JOIN.match(line)]
+    # The front end's layers, loaded from the front cache or computed and
+    # stored there, come first; its steps run only when one is computed.
+    computed = False
     while lines and TIME_STAGES_FRONT.match(lines[0]):
+        computed = computed or lines[0].startswith("time: std front end") or " computed " in lines[0]
         lines = lines[1:]
     if lines and TIME_STAGES_SPLIT.match(lines[0]):
         lines = lines[1:]
@@ -2128,8 +2647,10 @@ def time_stage_lines(failures, stderr, split):
     if -1 in ranks or ranks != sorted(set(ranks)):
         failures.append("run time stages: the steps %r are not distinct and in pipeline order" % steps)
     for need in TIME_STAGES_ALWAYS:
-        if need not in steps:
+        if need not in steps and (computed or need not in TIME_STAGES_FRONT_STEPS):
             failures.append("run time stages: no `%s` line in %r" % (need, steps))
+        if need in steps and not computed and need in TIME_STAGES_FRONT_STEPS:
+            failures.append("run time stages: a `%s` line with every layer loaded: %r" % (need, steps))
     if "clang link" not in steps and not ("clang" in steps and "link" in steps):
         failures.append("run time stages: no clang or link line in %r" % steps)
     return True
@@ -3458,6 +3979,10 @@ def run(names=None, write=False):
         check_object_cache(failures, counts)
         check_front_cache(failures, counts)
         check_front_cache_differential(failures, counts)
+        check_front_layers(failures, counts)
+        check_front_layer_edits(failures, counts)
+        check_front_scan_text(failures, counts)
+        check_front_shared_writers(failures, counts)
         check_long_accessor(failures, counts)
         check_deep_match(failures, counts)
     check_probes(failures, counts, names)

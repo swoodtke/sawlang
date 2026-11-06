@@ -1,0 +1,48 @@
+// A layer's part as the front cache stores it: its first line, then one
+// std.cbor item (SL-955 unit 4b).
+
+import sawmono.frontimage.{FRONT_IMAGE_DEPTH, FrontImageError, front_decoder, front_frame, front_unframe}
+import sawmono.frontparts.{FrontPart}
+import std.cbor.{CborEncoder}
+import std.data.{Data}
+
+// A part's format number, its first line's second field: a reader requires
+// its own, and every layer key carries it, so a part of another layout is
+// never looked up.
+public static FRONT_PART_FORMAT: Int = 1
+
+// THE PART CODEC: `part` behind a first line `sawc-front-part 1 LENGTH
+// DIGEST`, the image's framing and digest (`front_frame`), then its derived
+// CBOR.
+// ENTRY POINTS:
+//     driver_store_parts
+public func front_part_encode(part: &FrontPart) -> Result<Data, FrontImageError> {
+    var enc = CborEncoder(max_depth: FRONT_IMAGE_DEPTH)
+    match part.serialize(to: &var enc) {
+        case Ok(_) -> {},
+        case Err(e) -> { return FrontImageError.Encode(e: e) }
+    }
+    match enc.finish() {
+        case Ok(body) -> { return front_frame("sawc-front-part", FRONT_PART_FORMAT, move body) },
+        case Err(e) -> { return FrontImageError.Encode(e: e) }
+    }
+}
+
+// The part an entry's body holds, or why it holds none.
+// ENTRY POINTS:
+//     driver_front_chain
+//     driver_verify_chain
+public func front_part_decode(image: Data) -> Result<FrontPart, FrontImageError> {
+    let body = match front_unframe(move image, "sawc-front-part", FRONT_PART_FORMAT) {
+        case Ok(b) -> b,
+        case Err(e) -> { return e }
+    }
+    var dec = match front_decoder(move body) {
+        case Ok(d) -> move d,
+        case Err(e) -> { return e }
+    }
+    match FrontPart.deserialize(from: &var dec) {
+        case Ok(part) -> { return move part },
+        case Err(e) -> { return FrontImageError.Decode(e: e) }
+    }
+}

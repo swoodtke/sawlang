@@ -13,6 +13,7 @@ import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.model.{TC_EFFECT_SENDABLE, TcCaptureBlock, TcUse}
 import sawtypecheck.mutability.{tc_check_mutability}
+import sawtypecheck.nodetable.{TcNodeTable}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -113,25 +114,9 @@ extension TcProgram {
             return
         }
         let n = self.res.nodes.len()
-        var parents = Vector<Int>()
-        var k = 0
-        while k < n {
-            try! parents.push(-1)
-            k = k + 1
-        }
-        k = layer.node_first
-        while k < n {
-            let count = self.child_count(k)
-            var j = 0
-            while j < count {
-                let c = self.child(k, j)
-                parents[c] = k
-                j = j + 1
-            }
-            k = k + 1
-        }
-        let skipped = self.outside_slice_marks(n)
-        k = layer.node_first
+        let parents = self.layer_parents(&layer)
+        let skipped = self.layer_outside_marks(layer.node_first)
+        var k = layer.node_first
         while k < n {
             let at = k
             k = k + 1
@@ -172,7 +157,7 @@ extension TcProgram {
     // `Task.spawn` form's argument. Its capture list is the body's parameter
     // list and the body runs once (design 242), so it may consume what it
     // captured. The form takes only a brace, never a closure value.
-    func spawn_brace(&self, e: Int, parents: &Vector<Int>) -> Bool {
+    func spawn_brace(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         var call = parents[e]
         if call >= 0 && (self.has_alt(call, Alt.Expr_Argument_Positional) || self.has_alt(call, Alt.Expr_Argument_Labelled)) {
             call = parents[call]
@@ -220,7 +205,7 @@ extension TcProgram {
     // The innermost closure at or above node `start` that captured the
     // binding declared at `binding`, when it escapes and captured it by
     // value; -1 otherwise.
-    func escaping_capturer(&var self, start: Int, binding: Int, parents: &Vector<Int>) -> Int {
+    func escaping_capturer(&var self, start: Int, binding: Int, parents: &TcNodeTable<Int>) -> Int {
         if binding < 0 {
             return -1
         }

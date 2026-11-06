@@ -1,0 +1,22 @@
+// The entry of the layered front-end fixture: two packages, the second
+// importing the first, each its own layer of the front end, then this one's.
+// It prints `square at (1, 2) side 3`, `(4, 5)`, `(2, 4)`, `[6]`, `9`.
+
+import geometry.{Point, greatest}
+import shapes.{Square, farthest, sides}
+
+func main() {
+    var squares = Vector<Square>()
+    try! squares.push(Square(corner: Point(x: 1, y: 2), side: 3))
+    try! squares.push(Square(corner: Point(x: 0, y: 0), side: 1))
+    print("{}", squares[0])
+    if let far = farthest(&squares) {
+        print("{}", far)
+    }
+    print("{}", Point(x: 1, y: 2).scaled(by: 2))
+    let doubled = sides(&squares, each: { side in side * 2 })
+    let first = doubled[0]
+    print("{}", "{first}".framed())
+    let numbers: Vector<Int> = [4, 9, 2]
+    print("{}", greatest(&numbers) ?? 0)
+}

@@ -90,23 +90,23 @@ public struct MirProgram {
     local_base: Int
     block_base: Int
     current: Int
-    scope: Vector<MirScopeEntry>
-    scope_marks: Vector<Int>
-    loops: Vector<MirLoop>
+    scope: Vector<MirScopeEntry>  // front: rewritten in place
+    scope_marks: Vector<Int>  // front: rewritten in place
+    loops: Vector<MirLoop>  // front: rewritten in place
     // The `try` blocks open around the position, innermost last.
-    catches: Vector<MirCatch>
+    catches: Vector<MirCatch>  // front: rewritten in place
     // The optional chains open around the position, innermost last.
-    chains: Vector<MirChain>
+    chains: Vector<MirChain>  // front: rewritten in place
     // By leaf: the local a binding lowers to, or -1; the leaves set, so they
     // are cleared when the function is done.
     leaf_local: Vector<Int>
-    touched: Vector<Int>
+    touched: Vector<Int>  // front: rewritten in place
     // A closure body's captures: by the binding's leaf, its index in the
     // environment, or -1.
     leaf_capture: Vector<Int>
     // The closures met while a function is lowered, lowered after it.
-    pending: Vector<Int>
-    pending_parents: Vector<Int>
+    pending: Vector<Int>  // front: rewritten in place
+    pending_parents: Vector<Int>  // front: rewritten in place
     // How many closures each declaration's bodies hold so far.
     closure_counts: ResIndex
     // (spelling of a `Function` constant, 0) -> the declaration it names
@@ -119,14 +119,14 @@ public struct MirProgram {
     refused: Bool
     // The owned parts a destructure's bindings have moved out so far, which
     // `dissolve` reads once they are bound.
-    moved_parts: Vector<Int>
+    moved_parts: Vector<Int>  // front: rewritten in place
     // The places the scope's leftover entries hold, in runs.
-    leftover_parts: Vector<Int>
+    leftover_parts: Vector<Int>  // front: rewritten in place
     // A `consumes` body's receiver release: every field of `self`, in
     // declaration order, with their types. A field moved on some paths to a
     // return only is borrowck's to refuse (`init_consumes_partial`).
-    release_fields: Vector<Int>
-    release_types: Vector<Int>
+    release_fields: Vector<Int>  // front: rewritten in place
+    release_types: Vector<Int>  // front: rewritten in place
     // Runs a function's record locals and carried windows name, and an
     // accessor's per-site resume blocks and open windows.
     aux: Vector<Int>

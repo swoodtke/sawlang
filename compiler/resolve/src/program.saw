@@ -8,6 +8,7 @@ import sawresolve.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDe
                              ResDeclKind, ResDiag, ResExport, ResImport, ResLocal, ResModule,
                              ResModuleKind, ResName, ResPending, ResSymbol, ResTwin, ResVis}
 import sawresolve.names.{ResIndex, ResNames}
+import sawresolve.realpath.{ResRealMemo, res_real_memo}
 
 static RES_NEWLINE: Int = 10
 static RES_CONTINUATION_LOW: Int = 128
@@ -30,7 +31,7 @@ public struct ResProgram {
     // Whether the std root is the new std's (`std_root/prelude.saw` exists).
     std_new: Bool
     // The lang-item table, by role index (lang.saw); -1 for an unbound role.
-    lang: Vector<Int>
+    lang: Vector<Int>  // front: rewritten in place
     // The new std's prelude module, `std.prelude`; -1 under Stage 0's std.
     std_prelude: Int
     packages: Vector<ResPackage>
@@ -64,7 +65,7 @@ public struct ResProgram {
     cases: ResIndex
     // Each module's import closure, a row of `modules.len()` flags per module:
     // row m, column k is set when module k is in m's closure.
-    closure: Vector<Bool>
+    closure: Vector<Bool>  // front: rewritten in place
     closure_stride: Int
     // (exporting module, name) -> its surface entries.
     surface: ResIndex
@@ -81,6 +82,8 @@ public struct ResProgram {
     // The real path of the directory holding the std modules, which no other
     // import path may reach.
     std_dir_real: String
+    // The real paths asked so far: this process's alone, never in an image.
+    real_memo: ResRealMemo  // front: process-local
     // The refusals of `--module-path` mappings that overlap another, reported
     // at the entry once it is loaded.
     mapping_refusals: Vector<String>
@@ -97,9 +100,9 @@ public struct ResProgram {
     pending_params: Vector<Int>
     // Bindings in scope while a body or signature is resolved: a stack whose
     // first `local_top` entries are live, and the height each open scope began at.
-    locals: Vector<ResLocal>
+    locals: Vector<ResLocal>  // front: rewritten in place
     local_top: Int
-    scope_marks: Vector<Int>
+    scope_marks: Vector<Int>  // front: rewritten in place
     scope_top: Int
     // The module and declaration being resolved, and what `self` and `Self`
     // mean there.
@@ -138,7 +141,8 @@ public func res_program(std_root: String) -> ResProgram {
                        cases: ResIndex(), closure: Vector<Bool>(), closure_stride: 0,
                        surface: ResIndex(), bare: ResIndex(),
                        qualifiers: ResIndex(), prelude: ResIndex(), by_name: ResIndex(),
-                       by_file: ResIndex(), std_dir_real: "", mapping_refusals: Vector<String>(),
+                       by_file: ResIndex(), std_dir_real: "", real_memo: res_real_memo(),
+                       mapping_refusals: Vector<String>(),
                        param_nodes: ResIndex(),
                        record_of: Vector<Int>(), twins: Vector<ResTwin>(), pending: Vector<ResPending>(),
                        pending_params: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
@@ -168,6 +172,10 @@ func res_is_continuation(b: Int) -> Bool {
 }
 
 extension ResProgram {
+    // The real path of `path`, a file's identity, asked once per process
+    // (`ResRealMemo`); messages keep the path as spelled.
+    public func real_path(&var self, path: &String) -> String { self.real_memo.real(&path) }
+
     public func intern(&var self, text: String) -> Int { self.names.intern(text) }
 
     public func name_text(&self, id: Int) -> String { self.names.text(id) }

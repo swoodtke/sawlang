@@ -16,7 +16,7 @@ import saweval.interp.{eval_step_budget}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag, mir_append_invariants, mir_empty_front, mir_status}
 import sawmir.program.{MirProgram}
-import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layer}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, FrontStep, front_inputs, front_layer}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
@@ -114,7 +114,9 @@ public func mono_front_std(std_root: String, target: TcTarget, inputs: &FrontInp
     var layer = front_layer(FrontLayerKind.Std)
     let blocked = mono_layer(&var p, &var ev, &var layer, &inputs, &var checked, &var verified, &var elaborated,
                              false, verify_values: true)
-    FrontCut(drops: move p, eval: move ev, layer: layer, checked: checked.build(), verified: verified.build(),
+    var layers = Vector<FrontLayer>()
+    try! layers.push(layer)
+    FrontCut(drops: move p, eval: move ev, layers: move layers, checked: checked.build(), verified: verified.build(),
              elaborated: elaborated.build(), blocked: blocked)
 }
 
@@ -122,6 +124,21 @@ public func mono_front_std(std_root: String, target: TcTarget, inputs: &FrontInp
 // computed or read from an image: the two are one value, so the program's
 // layer cannot tell them apart. `front` then holds the whole front end.
 public func mono_front_program(front: &var FrontCut, inputs: &FrontInputs, no_hidden_alloc: Bool) {
+    mono_front_inputs(&var front, FrontLayerKind.Program, &inputs, no_hidden_alloc)
+}
+
+// One layer after std's run on `front`, the state the layers before it left,
+// whether computed or read from the cache: the two are one value. A package
+// layer and the program's are run alike, through drop elaboration.
+// `--no-hidden-alloc` reaches every layer after std's.
+// ENTRY POINTS:
+//     mono_front_program
+//     driver_front_chain
+public func mono_front_layer(front: &var FrontCut, step: &FrontStep, no_hidden_alloc: Bool) {
+    mono_front_inputs(&var front, step.kind, &step.inputs, no_hidden_alloc)
+}
+
+func mono_front_inputs(front: &var FrontCut, kind: FrontLayerKind, inputs: &FrontInputs, no_hidden_alloc: Bool) {
     front.drops.bc.mir.tc.no_hidden_alloc = no_hidden_alloc
     var checked = StringBuilder()
     try! checked.append(front.checked)
@@ -129,10 +146,10 @@ public func mono_front_program(front: &var FrontCut, inputs: &FrontInputs, no_hi
     try! verified.append(front.verified)
     var elaborated = StringBuilder()
     try! elaborated.append(front.elaborated)
-    var layer = front_layer(FrontLayerKind.Program)
+    var layer = front_layer(kind)
     let blocked = mono_layer(&var front.drops, &var front.eval, &var layer, &inputs, &var checked, &var verified,
                              &var elaborated, front.blocked)
-    front.layer = layer
+    try! front.layers.push(layer)
     front.checked = checked.build()
     front.verified = verified.build()
     front.elaborated = elaborated.build()

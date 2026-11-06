@@ -32,7 +32,16 @@ public func tc_settle_conformances(p: &var TcProgram, visible: &Vector<Bool>, la
 
 // Every module's extension set, a row of flags per module.
 public func tc_extension_sets(p: &TcProgram) -> Vector<Bool> {
-    p.extension_sets()
+    let none = Vector<Bool>()
+    p.extension_sets(&none)
+}
+
+// `tc_extension_sets` given `earlier`, the sets of the modules an earlier
+// layer loaded: a module's set holds only modules loaded no later than it, so
+// an earlier module's row keeps its flags and gains a false for each new
+// module, and only the new modules' rows are found.
+public func tc_extension_sets_from(p: &TcProgram, earlier: &Vector<Bool>) -> Vector<Bool> {
+    p.extension_sets(&earlier)
 }
 
 // The refusal of a test-only `copy()` on a production type.
@@ -62,6 +71,17 @@ public struct TcSubst {
 }
 
 extension TcSubst: NoCopy {}
+
+// A copy of `v`, element by element.
+public func tc_copy_flags(v: &Vector<Bool>) -> Vector<Bool> {
+    var out = try! Vector<Bool>(capacity: v.len())
+    var k = 0
+    while k < v.len() {
+        try! out.push(v[k])
+        k = k + 1
+    }
+    move out
+}
 
 // A copy of `v`, element by element.
 public func tc_copy_ints(v: &Vector<Int>) -> Vector<Int> {
@@ -425,14 +445,52 @@ extension TcProgram {
         info.kind == ResModuleKind.Std
     }
 
-    // Every module's extension set, as a row of flags per module.
-    public func extension_sets(&self) -> Vector<Bool> {
+    // Every module's extension set, as a row of flags per module; the rows of
+    // the first modules are `earlier`'s, a square of the sets they had then
+    // (`tc_extension_sets_from`).
+    public func extension_sets(&self, earlier: &Vector<Bool>) -> Vector<Bool> {
         var out = Vector<Bool>()
         let n = self.res.modules.len()
+        var old = 0
+        while (old + 1) * (old + 1) <= earlier.len() {
+            old = old + 1
+        }
+        if old * old != earlier.len() || old > n {
+            old = 0
+        }
         var m = 0
-        while m < n {
-            let row = self.res.extension_modules(m)
+        while m < old {
             var k = 0
+            while k < n {
+                try! out.push(k < old && earlier[m * old + k])
+                k = k + 1
+            }
+            m = m + 1
+        }
+        if m == n {
+            return move out
+        }
+        // Each module's imports, chained, so a new module's row walks its
+        // own imports and its re-exports' rather than every import.
+        var head = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! head.push(-1)
+            k = k + 1
+        }
+        var next = Vector<Int>()
+        k = 0
+        while k < self.res.imports.len() {
+            let owner = self.res.imports[k].module
+            try! next.push(if owner >= 0 && owner < n { head[owner] } else { -1 })
+            if owner >= 0 && owner < n {
+                head[owner] = k
+            }
+            k = k + 1
+        }
+        while m < n {
+            let row = self.extension_row(m, &head, &next)
+            k = 0
             while k < n {
                 try! out.push(row[k])
                 k = k + 1
@@ -440,6 +498,48 @@ extension TcProgram {
             m = m + 1
         }
         move out
+    }
+
+    // `res.extension_modules(m)` (resolve/src/dump.saw), each module's imports
+    // read from the chains `head` and `next`: its own, its direct imports',
+    // and those their `public import`s reach, transitively.
+    func extension_row(&self, m: Int, head: &Vector<Int>, next: &Vector<Int>) -> Vector<Bool> {
+        let n = self.res.modules.len()
+        var seen = Vector<Bool>()
+        var k = 0
+        while k < n {
+            try! seen.push(false)
+            k = k + 1
+        }
+        seen[m] = true
+        var work = Vector<Int>()
+        // The chains list a module's imports last first, so the walk meets
+        // them in another order than `extension_modules`, and reaches the
+        // same set.
+        var i = head[m]
+        while i >= 0 {
+            let imp = self.res.imports[i]
+            if imp.target >= 0 && not seen[imp.target] {
+                seen[imp.target] = true
+                try! work.push(imp.target)
+            }
+            i = next[i]
+        }
+        var at = 0
+        while at < work.len() {
+            let from = work[at]
+            at = at + 1
+            i = head[from]
+            while i >= 0 {
+                let imp = self.res.imports[i]
+                if imp.reexport && imp.target >= 0 && not seen[imp.target] {
+                    seen[imp.target] = true
+                    try! work.push(imp.target)
+                }
+                i = next[i]
+            }
+        }
+        move seen
     }
 
     // The conformance table's entries, one per conformance a program's

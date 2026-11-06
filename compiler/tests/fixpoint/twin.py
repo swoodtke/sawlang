@@ -65,13 +65,23 @@ FRONT_CACHE_WARNING = re.compile(rb"^sawc build: warning: [^\n]*front cache[^\n]
 # it, which only making the cut runs.
 FRONT_CACHE_TIME = re.compile(rb"^time: front cache (?:load|store) ", re.MULTILINE)
 STD_FRONT_TIME = re.compile(rb"^time: (?:std front end|verify eval) [0-9]+\.[0-9] ms\n", re.MULTILINE)
+# A layer after std's is loaded or computed by the same rule, so `loaded`
+# and `computed` are the cache's state; so are the front end's own steps,
+# which only a computed layer runs, and the store and join of the layers a
+# stage computed. The layers' names and order, and every step after drops,
+# are the stages' to agree on.
+FRONT_LAYER = re.compile(rb"^time: front layer ", re.MULTILINE)
+FRONT_LAYER_TIME = re.compile(rb"^(time: front layer \S+) (?:loaded|computed) ", re.MULTILINE)
+FRONT_STEP_TIME = re.compile(rb"^time: (?:front layers (?:store|join)|resolve|typecheck|asserts|mir|verify resolve"
+                             rb"|verify typecheck|verify mir|eval|borrowck|verify borrowck|drops|verify drops)"
+                             rb" [0-9]+\.[0-9] ms\n", re.MULTILINE)
 
 
 def comparable_stderr(args, err):
     """`err` with the caches' warnings left out; and, for a build, clang's
     temporary object names and `--time-stages`' times made equal, a split
-    build's units compiled or `cached` alike, and a front-cache load and store
-    alike."""
+    build's units compiled or `cached` alike, a front-cache load and store
+    alike, and each later layer loaded or computed alike."""
     err = FRONT_CACHE_WARNING.sub(b"", err)
     if args[:1] != ["build"]:
         return err
@@ -81,6 +91,9 @@ def comparable_stderr(args, err):
         err = UNIT_CACHED.sub(rb"\1 ", err)
         err = STD_FRONT_TIME.sub(b"", err)
         err = FRONT_CACHE_TIME.sub(b"time: front cache ", err)
+        if FRONT_LAYER.search(err):
+            err = FRONT_STEP_TIME.sub(b"", err)
+            err = FRONT_LAYER_TIME.sub(rb"\1 ", err)
         err = STAGE_TIME.sub(rb"\1N ms", err)
     return err
 

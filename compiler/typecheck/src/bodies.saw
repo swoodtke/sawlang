@@ -29,7 +29,7 @@ import sawtypecheck.adjust.{TC_FIT_AMBIGUOUS, TC_FIT_CONVERTED, TC_FIT_EXACT, TC
                                 TC_PEEL_AMBIGUOUS, TC_PEEL_NONE}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets}
+import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets_from}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.erasure.{tc_check_object_safety}
 import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text, tc_float_bits}
@@ -40,6 +40,7 @@ import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE, TC_FLAG_BLOCKING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcConstUse, TcHeadKind, TcLend, TcMember, TcParam,
                                TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcUse}
+import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcArgSlot, TcContext}
@@ -201,7 +202,7 @@ extension TcProgram {
         self.mapped_calls = self.res.calls.len()
         let modules = self.res.modules.len()
         if self.ext_visible.len() != modules * modules {
-            let visible = tc_extension_sets(&self)
+            let visible = tc_extension_sets_from(&self, &self.ext_visible)
             self.ext_visible = move visible
         }
     }
@@ -13002,7 +13003,7 @@ extension TcProgram {
 }
 
 // How many ancestors node `e` has, memoised in `depth`.
-func tc_node_depth(e: Int, parents: &Vector<Int>, depth: &var Vector<Int>) -> Int {
+func tc_node_depth(e: Int, parents: &TcNodeTable<Int>, depth: &var TcNodeTable<Int>) -> Int {
     var path = Vector<Int>()
     var node = e
     while node >= 0 && depth[node] < 0 {
@@ -13028,26 +13029,9 @@ extension TcProgram {
     // ends it. A body lies in one layer's nodes, so `layer`'s calls and
     // nodes are settled with the parents of its nodes alone.
     public func settle_places(&var self, layer: &FrontLayer) {
-        let n = self.res.nodes.len()
-        var parents = Vector<Int>()
-        var k = 0
-        while k < n {
-            try! parents.push(-1)
-            k = k + 1
-        }
-        k = layer.node_first
-        while k < n {
-            let count = self.child_count(k)
-            var j = 0
-            while j < count {
-                let c = self.child(k, j)
-                parents[c] = k
-                j = j + 1
-            }
-            k = k + 1
-        }
+        let parents = self.layer_parents(&layer)
         let order = self.consumer_first(&parents, &layer)
-        k = 0
+        var k = 0
         while k < order.len() {
             self.settle_call(order[k], &parents)
             k = k + 1
@@ -13063,7 +13047,7 @@ extension TcProgram {
     // nothing evaluated in between, an argument of the hop's call among
     // them, changes what it reads; the hold is exclusive where that use
     // writes, which turns the base's `payload` step into `payload-var`.
-    func settle_hops(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
+    func settle_hops(&var self, parents: &TcNodeTable<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         var k = layer.node_first
         while k < n {
@@ -13091,9 +13075,9 @@ extension TcProgram {
     //     a comparison's operand: against `None` by `==`/`!=` tests, any other reads
     //     `&` and a `borrow` argument read; `&var` and a `borrow var` argument write
     //     an assignment's target writes
-    func check_whole_optional_places(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
+    func check_whole_optional_places(&var self, parents: &TcNodeTable<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
-        let skipped = self.outside_slice_marks(n)
+        let skipped = self.layer_outside_marks(layer.node_first)
         var k = layer.node_first
         while k < n {
             let e = k
@@ -13137,7 +13121,7 @@ extension TcProgram {
 
     // What the consumer of whole optional place `e` does with it, looking
     // through parentheses.
-    func whole_optional_use(&self, e: Int, parents: &Vector<Int>) -> TcWholeUse {
+    func whole_optional_use(&self, e: Int, parents: &TcNodeTable<Int>) -> TcWholeUse {
         var q = e
         var p = parents[q]
         while p >= 0 && self.has_alt(p, Alt.Expr_Paren) {
@@ -13268,16 +13252,11 @@ extension TcProgram {
     // earlier hop lends before that earlier hop reads its own use. A hop
     // under an exclusive one is then exclusive too, and charges its root so
     // (SL:borrowing §2.2, §3; pinned by borrowck's loan.window-root.chain-*).
-    func consumer_first(&self, parents: &Vector<Int>, layer: &FrontLayer) -> Vector<Int> {
+    func consumer_first(&self, parents: &TcNodeTable<Int>, layer: &FrontLayer) -> Vector<Int> {
         let n = self.res.nodes.len()
-        var depth = Vector<Int>()
-        var k = 0
-        while k < n {
-            try! depth.push(-1)
-            k = k + 1
-        }
+        var depth = tc_node_table(layer.node_first, n, -1)
         var counts = Vector<Int>()
-        k = layer.tc_call_first
+        var k = layer.tc_call_first
         while k < self.calls.len() {
             let d = tc_node_depth(self.calls[k].node, &parents, &var depth)
             while counts.len() <= d {
@@ -13316,9 +13295,8 @@ extension TcProgram {
     // silently, and lends one that does not, shared, for its expression
     // (SL:borrowing §12.4). An element that copies only by inference owes
     // design 219's requirement (`implied_copies`).
-    func check_plain_subscript_reads(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
-        let n = self.res.nodes.len()
-        let skipped = self.outside_slice_marks(n)
+    func check_plain_subscript_reads(&var self, parents: &TcNodeTable<Int>, layer: &FrontLayer) {
+        let skipped = self.layer_outside_marks(layer.node_first)
         var k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]
@@ -13371,9 +13349,8 @@ extension TcProgram {
     //     for_expr (a `for` head)
     //     match_expr (a scrutinee)
     //     check_let (a `let` or `var` initializer)
-    func lend_window(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
-        let n = self.res.nodes.len()
-        let skipped = self.outside_slice_marks(n)
+    func lend_window(&var self, parents: &TcNodeTable<Int>, layer: &FrontLayer) {
+        let skipped = self.layer_outside_marks(layer.node_first)
         var k = layer.tc_call_first
         while k < self.calls.len() {
             let at = k
@@ -13419,7 +13396,7 @@ extension TcProgram {
     // Whether call `at` lends a place: a `borrows` call, or a subscript in
     // its place role. A call that lends a borrowing struct is left to
     // `borrowing.containment`, which decides every position one may stand in.
-    func lends_unmarked(&self, at: Int, parents: &Vector<Int>) -> Bool {
+    func lends_unmarked(&self, at: Int, parents: &TcNodeTable<Int>) -> Bool {
         let c = self.calls[at]
         if c.role == TcRole.Case || c.role == TcRole.Memberwise || c.role == TcRole.Builtin {
             return false
@@ -13439,7 +13416,7 @@ extension TcProgram {
     // member, a call, a subscript, a tuple element, a force, an optional hop,
     // parentheses or an assignment target's hop, whose first operand is the
     // step below; an optional chain's wrapper is a step too.
-    func borrow_chain_top(&self, e: Int, parents: &Vector<Int>) -> Int {
+    func borrow_chain_top(&self, e: Int, parents: &TcNodeTable<Int>) -> Int {
         var node = e
         var steps = 0
         while steps < 10000 {
@@ -13494,7 +13471,7 @@ extension TcProgram {
     // itself: a `borrow` form, a binding that names the lend, a `lend`, a
     // `for` head, a `match` scrutinee, or a sigil passing it by reference
     // for a call.
-    func chain_in_borrow(&self, top: Int, parents: &Vector<Int>) -> Bool {
+    func chain_in_borrow(&self, top: Int, parents: &TcNodeTable<Int>) -> Bool {
         let p = parents[top]
         if p < 0 {
             return false
@@ -13512,7 +13489,7 @@ extension TcProgram {
     // accessor's exclusive receiver is not such a write, since an
     // exclusive-only accessor charges its root so for a read too, and a bare
     // `borrow` reaches it (SL:borrowing §3).
-    func chain_writes(&self, e: Int, top: Int, parents: &Vector<Int>) -> Bool {
+    func chain_writes(&self, e: Int, top: Int, parents: &TcNodeTable<Int>) -> Bool {
         var node = e
         var steps = 0
         while steps < 10000 {
@@ -13581,7 +13558,7 @@ extension TcProgram {
     // replaces it with the argument's sigil; one whose meaning the unprefixed
     // spelling lacks is recorded as kept, with why. A payload pattern's
     // prefix is judged where its pattern is checked (`judge_prefix_pattern`).
-    func check_old_prefixes(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
+    func check_old_prefixes(&var self, parents: &TcNodeTable<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         var k = layer.node_first
         while k < n {
@@ -13608,7 +13585,7 @@ extension TcProgram {
 
     // The place form `borrow PLACE` / `borrow var PLACE`, and an optional
     // chain's `borrow var a?.b = v`.
-    func judge_prefix_place(&var self, b: Int, alt: Alt, parents: &Vector<Int>) {
+    func judge_prefix_place(&var self, b: Int, alt: Alt, parents: &TcNodeTable<Int>) {
         let m = self.node_module(b)
         let inner = self.res.first_node_child(b)
         let exclusive = alt != Alt.Borrow_Place_Shared
@@ -13788,7 +13765,7 @@ extension TcProgram {
 
     // Whether `e` is a `match`'s scrutinee and some arm's pattern binds a
     // name: the arm reads a part, where one binding nothing tests a tag.
-    func scrutinizes_bound(&self, e: Int, parents: &Vector<Int>) -> Bool {
+    func scrutinizes_bound(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         let m = parents[e]
         if m < 0 || not self.has_alt(m, Alt.Expr_Match) || self.res.first_node_child(m) != e {
             return false
@@ -13854,7 +13831,7 @@ extension TcProgram {
     // The outermost node of the projection `e` heads: each step a member, a
     // call, a subscript, a tuple element, a force or parentheses whose first
     // operand is the step below.
-    func projection_top(&self, e: Int, parents: &Vector<Int>) -> Int {
+    func projection_top(&self, e: Int, parents: &TcNodeTable<Int>) -> Int {
         var node = e
         var steps = 0
         while steps < 10000 {
@@ -13877,7 +13854,7 @@ extension TcProgram {
     // (SL:borrowing §5.1). Its entry points:
     //     settle_call
     //     check_plain_subscript_reads
-    func lent_in_place(&self, e: Int, parents: &Vector<Int>) -> Bool {
+    func lent_in_place(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         let top = self.projection_top(e, &parents)
         self.lends_in_place(parents[top])
     }
@@ -13896,7 +13873,7 @@ extension TcProgram {
 
     // Whether subscript `e` is the receiver of a `.copy()` call, which spells
     // the copy its getitem makes.
-    func spells_copy(&self, e: Int, parents: &Vector<Int>) -> Bool {
+    func spells_copy(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         let member = parents[e]
         if member < 0 || not self.has_alt(member, Alt.Expr_Member) {
             return false
@@ -13945,7 +13922,7 @@ extension TcProgram {
         self.refuse(e, "transfer.implicit-copy", msg.build())
     }
 
-    func settle_call(&var self, at: Int, parents: &Vector<Int>) {
+    func settle_call(&var self, at: Int, parents: &TcNodeTable<Int>) {
         let c = self.calls[at]
         let e = c.node
         self.current = self.node_module(e)
@@ -14039,7 +14016,7 @@ extension TcProgram {
 
     // Whether the use that ends place `e`'s projection writes: an
     // assignment, a compound assignment, or an exclusive borrow.
-    func use_writes(&self, e: Int, parents: &Vector<Int>) -> Bool {
+    func use_writes(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         var node = e
         var guard_steps = 0
         while guard_steps < 10000 {
@@ -14195,25 +14172,8 @@ extension TcProgram {
         if self.closures.len() == layer.closure_first {
             return
         }
-        let n = self.res.nodes.len()
-        var parents = Vector<Int>()
-        var k = 0
-        while k < n {
-            try! parents.push(-1)
-            k = k + 1
-        }
-        k = layer.node_first
-        while k < n {
-            let count = self.child_count(k)
-            var j = 0
-            while j < count {
-                let c = self.child(k, j)
-                parents[c] = k
-                j = j + 1
-            }
-            k = k + 1
-        }
-        k = layer.closure_first
+        let parents = self.layer_parents(&layer)
+        var k = layer.closure_first
         while k < self.closures.len() {
             let e = self.closures[k]
             let d = self.closure_decls[k]
@@ -14673,7 +14633,7 @@ extension TcProgram {
     // storage position therefore escapes with no change here. Every reader
     // takes the answer from `closure_escaping`, mono's environment refusal
     // among them (SL-608).
-    func closure_escapes(&var self, e: Int, parents: &Vector<Int>) -> Bool {
+    func closure_escapes(&var self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         let up = parents[e]
         if up < 0 {
             return true

@@ -4,11 +4,14 @@
 // build start from it (SL-955 unit 4).
 
 // What a layer loads: std (the builtin module, std's modules and the target's
-// builtins modules), or the program (the `--module-path` packages and the
-// entry, with every module the entry's imports reach).
+// builtins modules); a package (one `--module-path` package's modules, the
+// ones the import scan found the program reaching, in module-name order); or
+// the program (the entry, with every module its imports reach that no
+// earlier layer loaded).
 public enum FrontLayerKind: UInt8 {
     case Std = 0,
-    case Program = 1
+    case Program = 1,
+    case Package = 2
 }
 
 // THE FRONT-END LAYER: one layer's kind and the watermarks its phases start
@@ -126,22 +129,57 @@ public func front_layers() -> Vector<FrontLayer> {
     move out
 }
 
-// What the layers load from outside the std root: the entry file, each
-// `--module-path` package's name and directory, and the std builtins modules
-// the target takes (`target_builtins_modules`). Std's layer reads only the
-// builtins modules; the program's reads the rest.
+// What a layer loads from outside the std root: the entry file, the
+// `--module-path` mappings the layer adds (name and directory), and the std
+// builtins modules the target takes (`target_builtins_modules`). Std's layer
+// reads only the builtins modules; a package's adds its mapping and loads
+// `files`, each the module named alike in `modules`, of package `package`;
+// the program's adds its mappings and loads the entry.
 public struct FrontInputs {
     path: String
     names: Vector<String>
     dirs: Vector<String>
     builtins: Vector<String>
+    package: String
+    files: Vector<String>
+    modules: Vector<String>
 }
 
 extension FrontInputs: NoCopy {}
 
 public func front_inputs(path: String, names: &Vector<String>, dirs: &Vector<String>,
                          builtins: Vector<String>) -> FrontInputs {
-    FrontInputs(path: path, names: names.copy(), dirs: dirs.copy(), builtins: move builtins)
+    FrontInputs(path: path, names: names.copy(), dirs: dirs.copy(), builtins: move builtins, package: "",
+                files: Vector<String>(), modules: Vector<String>())
+}
+
+// A package layer's inputs: mapping `name` to `dir`, then its modules.
+public func front_package_inputs(name: String, dir: String, files: &Vector<String>,
+                                 modules: &Vector<String>) -> FrontInputs {
+    var names = Vector<String>()
+    try! names.push(name)
+    var dirs = Vector<String>()
+    try! dirs.push(dir)
+    FrontInputs(path: "", names: move names, dirs: move dirs, builtins: Vector<String>(), package: name,
+                files: files.copy(), modules: modules.copy())
+}
+
+// One layer after std's to run: its kind, its name for `--time-stages` and
+// the cache, and what it loads.
+public struct FrontStep {
+    kind: FrontLayerKind
+    name: String
+    inputs: FrontInputs
+}
+
+extension FrontStep: NoCopy {}
+
+// The program's layer of entry file `path` under mappings `names` and `dirs`:
+// the last step of every plan, and the only one after std's when the import
+// scan falls back.
+public func front_program_step(path: String, names: &Vector<String>, dirs: &Vector<String>) -> FrontStep {
+    FrontStep(kind: FrontLayerKind.Program, name: "program", inputs: front_inputs(path, &names, &dirs,
+                                                                                  Vector<String>()))
 }
 
 // The front-end image writes these types (sawmono.frontimage). They are

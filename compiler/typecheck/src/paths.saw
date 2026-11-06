@@ -18,6 +18,7 @@ import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{tc_copy_ints}
 import sawtypecheck.model.{TC_COPY_COVERED, TcAdjustKind, TcRelocation, TcUse}
+import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.typeops.{TcClient}
@@ -37,8 +38,9 @@ static TC_FRAME_CATCH: Int = 2
 // What the walk over one body keeps. A path state is `width` slots, one per
 // tracked local and a last one that is 1 when no path reaches the position.
 public struct TcPaths {
-    // By declaring leaf: the tracked local's index, or -1.
-    index: Vector<Int>
+    // By declaring leaf, over the layer's nodes: the tracked local's index,
+    // or -1.
+    index: TcNodeTable<Int>
     // The leaves `index` holds an entry for, cleared after each body.
     leaves: Vector<Int>
     // Leaves that declare an alias of a borrowed place.
@@ -59,14 +61,8 @@ public struct TcPaths {
 
 extension TcPaths: NoCopy {}
 
-func tc_paths(nodes: Int) -> TcPaths {
-    var index = Vector<Int>()
-    var k = 0
-    while k < nodes {
-        try! index.push(-1)
-        k = k + 1
-    }
-    TcPaths(index: move index, leaves: Vector<Int>(), aliases: Vector<Int>(), reads: Vector<Int>(),
+func tc_paths(base: Int, nodes: Int) -> TcPaths {
+    TcPaths(index: tc_node_table(base, nodes, -1), leaves: Vector<Int>(), aliases: Vector<Int>(), reads: Vector<Int>(),
             read_local: Vector<Int>(), dup_first: Vector<Int>(), dup_second: Vector<Int>(), width: 1,
             frame_kinds: Vector<Int>(), frame_states: Vector<Int>(), depth: 0)
 }
@@ -96,7 +92,7 @@ extension TcProgram {
             try! self.copy_partner.push(-1)
             k = k + 1
         }
-        var w = tc_paths(total)
+        var w = tc_paths(layer.node_first, total)
         k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
