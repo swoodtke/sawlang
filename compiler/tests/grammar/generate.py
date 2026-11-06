@@ -46,9 +46,12 @@ MANY = 3
 REPAIR_DEPTH = 4
 REPAIR_FRAMES = 5
 # A repair that changes two choices tries them among this many single changes,
-# and a repair tries at most this many hosts.
+# and a repair tries at most this many hosts. PAIR_CHAINS must reach every host
+# a two-change repair needs, so that a new host sorting earlier cannot push an
+# existing one out: `consumes` needs a method's `&var self`, the fourth host of
+# an effect slot.
 PAIR_EDITS = 40
-PAIR_CHAINS = 3
+PAIR_CHAINS = 4
 HOST_CHAINS = 40
 # The recognizer results a generator keeps, for the programs it checked last:
 # a result holds its charts, and each case needs only its own.

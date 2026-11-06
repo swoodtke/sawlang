@@ -202,6 +202,12 @@ trait T {
     func n(&self)
 }
 
+// case: syntax.rule.receiver-and-static/init-requirement-without-a-receiver
+trait T {
+    init()
+    init(seed: Int) -> Result<Self, E>
+}
+
 // case: syntax.rule.extern-abi/c-block
 extern "C" {
     func puts(s: UnsafePointer<UInt8>) -> Int32

@@ -617,6 +617,15 @@ trait a {  func   static  b() }
 // case: syntax.decl.trait-member.requirement/alt/close:9
 trait a { static func b()
 
+// case: syntax.decl.trait-member.init-requirement/alt/drop:6
+trait a { init (  }
+
+// case: syntax.decl.trait-member.init-requirement/alt/dup:5
+trait a { init ( () }
+
+// case: syntax.decl.trait-member.init-requirement/alt/swap:2
+trait  {   a  init () }
+
 // case: syntax.decl.assoc-type/alt/dup:3
 trait a { { type b }
 
@@ -631,6 +640,12 @@ trait a { static func b() } }
 
 // case: syntax.decl.requirement/alt/close:8
 trait a { static func b(  }
+
+// case: syntax.decl.init-requirement/alt/dup:6
+trait a { init () ) }
+
+// case: syntax.decl.init-requirement/alt/swap:4
+trait a {  (   init ) }
 
 // case: syntax.decl.default-body/alt/drop:10
 trait a { static func b() {   }

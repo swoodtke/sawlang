@@ -114,8 +114,10 @@ FILTERS = [
     ("init-decl", "_receiver_and_static", "syntax.rule.receiver-and-static"),
     ("method-decl", "_receiver_and_static", "syntax.rule.receiver-and-static"),
     ("requirement", "_receiver_and_static", "syntax.rule.receiver-and-static"),
+    ("init-requirement", "_receiver_and_static", "syntax.rule.receiver-and-static"),
     ("func-decl", "_effect_placement", "syntax.rule.effect-slot"),
     ("init-decl", "_effect_placement", "syntax.rule.effect-slot"),
+    ("init-requirement", "_effect_placement", "syntax.rule.effect-slot"),
     ("method-decl", "_effect_placement", "syntax.rule.effect-slot"),
     ("requirement", "_requirement_consumes", "syntax.rule.requirement-borrows"),
     ("try-route", "_try_route_case", "syntax.rule.try-route-case"),
@@ -226,6 +228,7 @@ DOCUMENTED = {"syntax.decl.item.func", "syntax.decl.item.static",
               "syntax.decl.item.type-alias", "syntax.decl.extension-member.method",
               "syntax.decl.extension-member.synthesized-method",
               "syntax.decl.extension-member.init", "syntax.decl.trait-member.requirement",
+              "syntax.decl.trait-member.init-requirement",
               "syntax.decl.field", "syntax.decl.case"}
 TEST_ONLY_DECLARATION = "syntax.test.declaration.item"
 # The productions that hold a declaration's own attributes.
@@ -1379,7 +1382,7 @@ class Forest:
         (syntax.rule.receiver-and-static)."""
         params = self._params(d)
         receivers = [params[n].i for n, p in enumerate(params) if self._alt(p) in RECEIVERS]
-        if d.nt in ("func-decl", "init-decl") or self.c.tokens[d.i].value == "static":
+        if d.nt in ("func-decl", "init-decl", "init-requirement") or self.c.tokens[d.i].value == "static":
             return receivers[0] if receivers else None
         if not receivers:
             return d.i
@@ -1391,7 +1394,7 @@ class Forest:
         `borrows` on `init` (syntax.rule.effect-slot)."""
         slot = self._kids_named(d, "effect-slot")[0]
         consumes = self._word(slot, "consumes")
-        if d.nt == "init-decl" and self._kids_named(slot, "borrows-effect"):
+        if d.nt in ("init-decl", "init-requirement") and self._kids_named(slot, "borrows-effect"):
             return self._kids_named(slot, "borrows-effect")[0].i
         if consumes is None:
             return None

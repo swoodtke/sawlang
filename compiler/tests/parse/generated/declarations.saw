@@ -1102,6 +1102,9 @@ trait a { type b }
 // case: syntax.decl.trait-member.requirement/alt
 trait a { static func b() }
 
+// case: syntax.decl.trait-member.init-requirement/alt
+trait a { init () }
+
 // case: syntax.decl.assoc-type/alt
 trait a { type b }
 
@@ -1167,6 +1170,24 @@ trait a { static func b(c: d) { } }
 
 // case: syntax.decl.requirement/pair:8:return-clause?=present,9:default-body?=present
 trait a { static func b() -> c { } }
+
+// case: syntax.decl.init-requirement/alt
+trait a { init () }
+
+// case: syntax.decl.init-requirement/opt:2:param-list?=absent
+trait a { init () }
+
+// case: syntax.decl.init-requirement/opt:2:param-list?=present
+trait a { init (b: c) }
+
+// case: syntax.decl.init-requirement/opt:5:return-clause?=absent
+trait a { init () }
+
+// case: syntax.decl.init-requirement/opt:5:return-clause?=present
+trait a { init () -> b }
+
+// case: syntax.decl.init-requirement/pair:2:param-list?=present,5:return-clause?=present
+trait a { init (b: c) -> d }
 
 // case: syntax.decl.default-body/alt
 trait a { static func b() { } }

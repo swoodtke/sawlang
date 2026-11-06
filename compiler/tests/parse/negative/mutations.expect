@@ -613,6 +613,15 @@ refuses parse-error at 1:19
 // case: syntax.decl.trait-member.requirement/alt/close:9
 refuses syntax.lex.unclosed-bracket at 1:9
 
+// case: syntax.decl.trait-member.init-requirement/alt/drop:6
+refuses syntax.lex.unclosed-bracket at 1:16
+
+// case: syntax.decl.trait-member.init-requirement/alt/dup:5
+refuses syntax.lex.unclosed-bracket at 1:16
+
+// case: syntax.decl.trait-member.init-requirement/alt/swap:2
+refuses parse-error at 1:8
+
 // case: syntax.decl.assoc-type/alt/dup:3
 refuses syntax.lex.unclosed-bracket at 1:9
 
@@ -627,6 +636,12 @@ refuses parse-error at 1:29
 
 // case: syntax.decl.requirement/alt/close:8
 refuses syntax.lex.unclosed-bracket at 1:24
+
+// case: syntax.decl.init-requirement/alt/dup:6
+refuses parse-error at 1:19
+
+// case: syntax.decl.init-requirement/alt/swap:4
+refuses parse-error at 1:12
 
 // case: syntax.decl.default-body/alt/drop:10
 refuses syntax.lex.unclosed-bracket at 1:9

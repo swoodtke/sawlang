@@ -433,6 +433,19 @@
       (Requirement n
         (Param.receiver (Receiver.shared))))))
 
+// case: syntax.rule.receiver-and-static/init-requirement-without-a-receiver
+(File
+  (Declaration.trait
+    (Trait T
+      (InitRequirement)
+      (InitRequirement
+        (Param.plain seed
+          (NamedType (Path Int)))
+        (NamedType
+          (Path Result)
+          (NamedType (Path Self))
+          (NamedType (Path E)))))))
+
 // case: syntax.rule.extern-abi/c-block
 (File
   (Declaration.extern

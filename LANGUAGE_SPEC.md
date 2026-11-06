@@ -2135,18 +2135,32 @@ method lookup, the orphan rule for conformances, `@synthesize` for a derived
 policy, and the required `static` keyword on a method with no receiver.
 Methods on a generic enum monomorphize per instantiation.
 
-One difference: an enum extension may not declare an `init`. The cases are the
-constructors.
+An enum extension may also declare an `init` (**status: specified, not built
+yet, SL-966**). It returns one of the enum's cases, or a `Result` of one: the
+two forms of [What an `init` may return](#what-an-init-may-return), with the
+enum as the receiver.
 
-```saw-fragment
+```saw-pending SL-966
+enum Color { case Red, case Gray }
+
 extension Color {
-    init(bright: Bool) -> Color { Color.Red }
+    init(bright: Bool) -> Color {
+        if bright { Color.Red } else { Color.Gray }
+    }
 }
-// error: enum `Color` cannot declare an `init`: an enum's cases are its
-//        constructors
+
+func main() {
+    let c = Color(bright: true)          // runs the init
+    let d = Color.Gray                   // a case, named on the type
+    print(c == d)                        // prints: false
+}
 ```
 
-Compute which case to build in a static method returning the enum.
+Case construction stays qualified, `Color.Red` and `Color.Custom(r: 3)`, so
+`Color(...)` names an `init` and collides with no case. A raw-backed enum's
+`from(raw:)` is unchanged. An enum has no memberwise construction, so none of
+its `init`s overrides anything, and an `init` may live in any module, import
+scoped like a method (see [Where an `init` may live](#where-an-init-may-live)).
 
 #### Raw-backed enums
 
@@ -2742,6 +2756,120 @@ A trait carrying a static requirement is a generic **bound**, never an
 `any Trait` existential — dispatch needs a receiver, and a static has none.
 `Deserialize` is the standard-library case; see
 [Serialization](#serialization-serialize-deserialize-encoder-decoder).
+An init requirement does not have this restriction (below).
+
+#### Init requirements
+
+**Status: specified, not built yet (SL-966).** A trait may require that its
+conformers can be constructed. An init requirement is spelled as an `init` is,
+with no body:
+
+```saw-pending SL-966
+enum LoadError { case Missing }
+
+trait Make {
+    init(seed: Int) -> Self
+}
+
+trait Load {
+    init(path: String) -> Result<Self, LoadError>
+}
+```
+
+It returns one of the two forms an `init` may return (see
+[What an `init` may return](#what-an-init-may-return)): `Self`, which is also
+what no return clause means, or `Result<Self, E>`. `-> Self?` is refused at the
+trait, for the reason it is refused on any `init`: a `None` names no cause. An
+init requirement has no default body, because a trait has no conformer to
+build.
+
+**Satisfying one.** Each of these satisfies an init requirement, and the
+conformance checks for one:
+
+- an `init` the conformer declares with the requirement's labels, parameter
+  types and return form;
+- a struct's memberwise construction, when its fields match the requirement's
+  labels and types exactly, but only where that construction is legal at the
+  conformance's declaration. In the type's own module it always is. A
+  conformance declared elsewhere, such as in the trait's module, needs every
+  field visible there (see [Member visibility](#member-visibility)), so a
+  `private` field is never set through a requirement from outside its type's
+  module;
+- an `init` that overrides the memberwise construction (see
+  [An `init` that overrides the construction](#an-init-that-overrides-the-construction)),
+  since every construction of the type calls it, a generic body's included.
+
+Fallibility matches exactly: the conformer returns the requirement's form,
+`Self` or `Result<Self, E>`. An infallible `init` does not satisfy a fallible
+requirement; whether it should is left open until a use case needs it. A
+conformance that supplies none of the three is refused at the conformance,
+naming the requirement.
+
+**Construction through a bound.** `T(args)`, with `T` a type parameter, is
+legal exactly when `T`'s bounds declare an init requirement matching the
+call's labels and types. It builds the instantiation's value through the
+conformer's satisfying construction, and its type is the requirement's return,
+`T` or `Result<T, E>`, which is handled like any other `Result`. `T()` is the
+zero-argument case:
+
+```saw-pending SL-966
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Tally { seed: Int }               // the memberwise Tally(seed:)
+extension Tally: Make {}
+
+struct Grid { cells: Int }
+extension Grid: Make {
+    init(seed: Int) -> Grid { Grid(cells: seed * seed) }
+}
+
+func build<T: Make>(n: Int) -> T {
+    T(seed: n)
+}
+
+func main() {
+    print(build<Tally>(3).seed)          // prints: 3
+    print(build<Grid>(3).cells)          // prints: 9
+}
+```
+
+A generic body is checked against its bounds, so a `T(...)` that no
+requirement in the bounds matches is refused at type checking, in the generic
+body, whether or not any instantiation reaches it. The fix-it names the
+requirement to add:
+
+```saw-pending SL-966
+// error-contains: init requirement
+func fresh<T>() -> T {
+    T()                                  // refused: no init requirement in
+}                                        //   `T`'s bounds matches `()`; the
+                                         //   fix-it adds `init()` to a trait
+```
+
+The construction resolves only through the bounds, so the `init` it calls is
+always the conformance's, which the orphan rule places in the type's module or
+the trait's. An `init` declared in some other module and imported where the
+generic is written never changes what the generic builds (see
+[Where an `init` may live](#where-an-init-may-live)).
+
+**`Self(args)` in a default body** follows the same rule over the trait's own
+init requirements: a default body may construct `Self` with the labels and
+types an init requirement of that trait declares. Until this is built, `sawc`
+refuses `Self(...)` in a default body.
+
+```saw-pending SL-966
+trait Make {
+    init(seed: Int) -> Self
+    func reset(&self) -> Self { Self(seed: 0) }
+}
+```
+
+**Erasure.** No expression constructs through an `any Trait` existential, since
+an existential has no `Self` to build. A trait that declares an init
+requirement is still usable as `any Trait`, and its other members are callable
+through it: the requirement takes no vtable slot.
 
 #### `any Trait` existentials (dynamic dispatch)
 
@@ -2850,6 +2978,10 @@ dispatchable. These are rejected with a diagnostic naming the reason:
   addition);
 - a marker trait (`Send`/`Sync`/`NoCopy`, or any trait with no methods) — there
   is nothing to dispatch.
+
+An init requirement is not a method and is not on this list: it names `Self`
+in its return, but nothing calls it through the existential, so it blocks no
+erasure (see [Init requirements](#init-requirements)).
 
 #### `Printable` — formatting
 
@@ -3240,13 +3372,16 @@ type Handler<T> = (T) -> Result<(), Error>
 **Status: implemented** for user-defined structs and enums (methods — including
 overloaded methods and static methods, see [Functions](#functions) — overloaded
 custom `init`, and — see Traits — conformance via `extension Type: Trait`).
-An extension on an enum is an extension on a struct, with one exception: no
-`init`, because the cases are the constructors. See
-[Methods on enums](#methods-on-enums).
+An extension on an enum is an extension on a struct, an `init` included, though
+an enum has no memberwise construction (see
+[Methods on enums](#methods-on-enums); an enum `init` is specified, not built
+yet, SL-966).
 Extending built-in primitive types (`extension Int`, `extension Float`) is also
 implemented (design 57 registers them as extendable — the stdlib numeric methods
-are built this way). Computed properties and generic specialized extensions
-beyond what monomorphization already supports remain *planned*. Some method
+are built this way), and a primitive may declare an `init` too (see
+[Where an `init` may live](#where-an-init-may-live)). Computed properties and
+generic specialized extensions beyond what monomorphization already supports
+remain *planned*. Some method
 bodies below use stdlib methods (`.sqrt()`, `.cos()`) that are *(illustrative)*.
 
 ```saw-fragment
@@ -3388,6 +3523,53 @@ other operation.
 An `init` body may suspend, like any other method body. A fallible `init` that
 fails after a suspension releases what it had built, and a cancelled task
 finishes the `init` through its own code.
+
+#### Where an `init` may live
+
+An ordinary `init` may be declared in any module, in an extension of the type,
+and it is import-scoped like a method (see
+[Extension scoping](#extension-scoping-design-142)): a construction reaches it
+in the declaring module and where that module is imported. Only an `init` that
+overrides a struct's memberwise construction is confined to the struct's own
+module (see
+[An `init` that overrides the construction](#an-init-that-overrides-the-construction)).
+Enums and primitives have no memberwise construction, so none of their `init`s
+is an override.
+
+A type parameter's `T(...)` resolves only through `T`'s bounds (see
+[Init requirements](#init-requirements)), so the `init` it calls is the one the
+conformance supplies, which the orphan rule places in the type's module or the
+trait's. An import-scoped `init` elsewhere never changes what a generic builds.
+
+**Primitives.** A primitive may declare an `init` in an extension, as any
+extension may. It returns the primitive, or a `Result` of it:
+
+```saw
+extension Int {
+    init(digit: UInt8) -> Int {
+        (digit as Int) - 48
+    }
+}
+
+func main() {
+    print(Int(digit: 55))                // prints: 7
+}
+```
+
+No primitive has an implicit `init()`, and no zero default is inferred for
+one. `Int(5)` with no matching extension `init` is refused, naming this rule
+(**status: specified, not built yet, SL-966**; until then `sawc` refuses it as
+a construction outside what it builds). A trait that wants a primitive conformer to be constructible declares an init
+requirement, and the primitive's conformance supplies the `init`. The
+construction of a distinct alias, such as `Byte(65)`, is unchanged.
+
+```saw-pending SL-966
+// error-contains: implicit `init`
+func main() {
+    let n = Int(5)                       // refused: no implicit `init`, and no
+    print(n)                             //   extension `init` matches
+}
+```
 
 #### An `init` that overrides the construction
 
@@ -8846,6 +9028,10 @@ extension UInt8: Wire { func encoded(&self) -> UInt8 { self } }
 func put<T: Wire>(v: T) -> UInt8 { v.encoded() }   // monomorphized, no vtable
 ```
 
+A trait with an init requirement is conformed the same way: the primitive's
+conformance declares the `init` (see [Init requirements](#init-requirements)
+and [Where an `init` may live](#where-an-init-may-live)).
+
 A primitive cannot be **erased** to `&any Trait` or `Box<any Trait>`: an
 existential carries a vtable beside the value and a primitive has no boxed form
 to carry one. That is a clean error naming the two ways out — a generic bound
@@ -12755,6 +12941,9 @@ Implementation notes:
   resolved at instantiation: return-type reconciliation, and bound-aware method
   resolution (a method available only under a specific bound). This is
   documented honestly as a known limitation, not a guarantee.
+- A construction through a type parameter, `T(args)`, is checked there too:
+  it is legal only through an init requirement in `T`'s bounds, and never
+  refused later at an instantiation (see [Init requirements](#init-requirements)).
 - Inside a `T: Copy` body, `x.copy()` type-checks (abstractly returns `T`);
   an unbounded `T` does not get `.copy()`.
 
@@ -15973,6 +16162,32 @@ var v = Vector<Int, MySlab>()   // grow/deinit route through MySlab; A().alloc i
                                 // a direct, statically-dispatched call — no stored
                                 // allocator, no vtable
 ```
+
+**The unit rule** (**status: specified, not built yet, SL-966**). `Allocator`
+declares the init requirement `init() -> Self` beside `alloc` and `dealloc`
+(see [Init requirements](#init-requirements)), which is what licenses `A()` in a
+generic body bounded `A: Allocator`. An `Allocator` conformance must be a
+zero-field struct with no hand-written `init`, so its memberwise `A()`
+satisfies the requirement and builds nothing: the call is a no-op that emits no
+code, and `A().alloc(...)` is the direct, statically dispatched call std's
+`Box`, `Vector` and `Map` make. Allocators are zero-sized and static-backed, so
+an allocator with storage has nowhere to keep it; a conformance on a struct
+with a field, or with an `init`, is refused at the conformance with a reason
+naming that model:
+
+```saw-pending SL-966
+// error-contains: zero-sized
+struct Arena { base: Int }
+
+extension Arena: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe { }
+}
+// refused at the conformance: `Arena` has a field, and an allocator is
+//   zero-sized and static-backed
+```
+
+State an allocator needs lives in a `static`, the slab idiom below.
 
 `Vector<Int, MySlab>` is a **distinct type** from `Vector<Int>`; a value of one
 cannot be passed where the other is expected. Deinit frees through the vector's

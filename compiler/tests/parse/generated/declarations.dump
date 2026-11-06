@@ -1562,6 +1562,11 @@
   (Declaration.trait
     (Trait a (Requirement static b))))
 
+// case: syntax.decl.trait-member.init-requirement/alt
+(File
+  (Declaration.trait
+    (Trait a (InitRequirement))))
+
 // case: syntax.decl.assoc-type/alt
 (File
   (Declaration.trait
@@ -1706,6 +1711,45 @@
       (Requirement static b
         (NamedType (Path c))
         (Block)))))
+
+// case: syntax.decl.init-requirement/alt
+(File
+  (Declaration.trait
+    (Trait a (InitRequirement))))
+
+// case: syntax.decl.init-requirement/opt:2:param-list?=absent
+(File
+  (Declaration.trait
+    (Trait a (InitRequirement))))
+
+// case: syntax.decl.init-requirement/opt:2:param-list?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (InitRequirement
+        (Param.plain b
+          (NamedType (Path c)))))))
+
+// case: syntax.decl.init-requirement/opt:5:return-clause?=absent
+(File
+  (Declaration.trait
+    (Trait a (InitRequirement))))
+
+// case: syntax.decl.init-requirement/opt:5:return-clause?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (InitRequirement
+        (NamedType (Path b))))))
+
+// case: syntax.decl.init-requirement/pair:2:param-list?=present,5:return-clause?=present
+(File
+  (Declaration.trait
+    (Trait a
+      (InitRequirement
+        (Param.plain b
+          (NamedType (Path c)))
+        (NamedType (Path d))))))
 
 // case: syntax.decl.default-body/alt
 (File
