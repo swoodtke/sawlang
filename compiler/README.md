@@ -486,9 +486,18 @@ left in `.build/`. The fixpoint lane runs it with the host's seed; `--seed
 TRIPLE` runs it with another target's, which in the Linux VM includes x86_64
 under Rosetta.
 
-**Bumping the seed** is needed only when `compiler/` starts using something
-the seed does not compile; it is a patch of its own, and its diff is the
-manifest and the pin:
+**Bumping the seed** happens at two times:
+
+- **After every non-trivial release:** one that adds or changes a feature. It
+  is followed by a bump pinned to the release's merge commit. The seed is then
+  always a released compiler, and a feature that has landed is usable in
+  `compiler/` and `std/` from the next release on. A release of fixes alone
+  may skip it (SL-991).
+- **As needed:** whenever `compiler/` or `std/` starts using something the
+  seed does not compile.
+
+A pin must name a commit main holds, so a bump always follows the commit it
+pins. A bump is a patch of its own, and its diff is the manifest and the pin:
 
 1. On a clean checkout of a commit of main, build the stages (`build.py`,
    with the current seed). The check reads the pinned commit's tree from git,
