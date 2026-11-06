@@ -227,42 +227,200 @@ extension TcProgram {
         return -1
     }
 
-    // `` `f` → `g` (parks the task) ``: function `d`, then each function its
-    // first suspending call passes, to the source. A park point is std's
-    // internal, so the path ends at the function that calls it; a `blocking`
-    // extern is named as one.
+    // `` `f` → `g` (parks the task) ``: function `d`, then the path from its
+    // first suspending call.
     func suspend_chain(&var self, d: Int) -> String {
+        self.chain_from(d, TcPathKind.Suspends)
+    }
+
+    // THE EFFECT-PATH FUNNEL: the path a refusal names from the call at `e` in
+    // `root`'s body, `` `f` → `g` → `` to the source doing what `kind` asks,
+    // with `chain_from` its twin for a path that starts at a declaration.
+    // Each function is followed at the instantiation the path reaches it by,
+    // so a requirement called through a type parameter names the
+    // implementation it dispatches to (spec, "Effect polymorphism"). A park
+    // point is std's internal, so the path ends at the function calling it,
+    // `` `f` (parks the task) ``; a std function the table answers for ends
+    // in its row's label.
+    //
+    // ENTRY POINTS:
+    //     suspend_chain
+    //     append_beyond
+    //     refuse_closure_block
+    //     check_thread_call
+    //     check_task_root
+    //     check_entry_root
+    //     append_block_reason
+    func effect_path(&var self, e: Int, root: Int, kind: TcPathKind) -> String {
+        var out = StringBuilder()
+        let _ = self.append_path(&var out, e, root, kind)
+        out.build()
+    }
+
+    // `` `d` → `g` → `h` ``: function `d`, then the path from the first call
+    // in its body that does what `kind` asks, `d` itself the root.
+    func chain_from(&var self, d: Int, kind: TcPathKind) -> String {
         var out = StringBuilder()
         try! out.append("`")
         try! out.append(self.res.decl_path(d))
         try! out.append("`")
+        var hops = Vector<TcPathHop>()
         var visited = Vector<Int>()
         try! visited.push(d)
-        var at = self.suspending_call_in(d)
-        while at >= 0 {
-            if self.parks_at(at) {
-                try! out.append(" (parks the task)")
-                return out.build()
-            }
-            try! out.append(" → ")
-            let ci = self.call_at[at]
-            let target = if ci >= 0 { self.calls[ci].target } else { -1 }
-            let role = if ci >= 0 { self.calls[ci].role } else { TcRole.Builtin }
-            if target >= 0 && role != TcRole.Builtin && role != TcRole.Value && self.res.decls[target].kind == ResDeclKind.Extern && (self.sigs[target].flags & TC_FLAG_BLOCKING) != 0 {
-                try! out.append("blocking extern ")
-            }
-            try! out.append(self.callee_text(at))
-            if target < 0 || role == TcRole.Builtin || role == TcRole.Value || tc_contains(&visited, target) || self.summaries[target].state != TC_SUMMARY_BODY {
-                return out.build()
-            }
-            try! visited.push(target)
-            at = self.suspending_call_in(target)
-        }
+        let next = self.path_call_in(d, d, kind, &hops)
+        let _ = self.follow_path(&var out, next, d, kind, &var hops, &var visited)
         out.build()
     }
 
-    // The first call in function `d`'s own body that may suspend, or -1.
-    func suspending_call_in(&var self, d: Int) -> Int {
+    // The path from the call at `e` in `root`'s body, appended to `out`; the
+    // number of functions it passes beyond the call's own target.
+    func append_path(&var self, out: &var StringBuilder, e: Int, root: Int, kind: TcPathKind) -> Int {
+        var hops = Vector<TcPathHop>()
+        var visited = Vector<Int>()
+        let next = self.path_hop(&var out, e, root, kind, &var hops, &var visited)
+        self.follow_path(&var out, next, root, kind, &var hops, &var visited)
+    }
+
+    // The rest of a path, from its next call `at` (-1 when it ended); the
+    // number of hops appended.
+    func follow_path(&var self, out: &var StringBuilder, at: Int, root: Int, kind: TcPathKind,
+                     hops: &var Vector<TcPathHop>, visited: &var Vector<Int>) -> Int {
+        var next = at
+        var count = 0
+        while next >= 0 {
+            if self.parks_at(next) {
+                try! out.append(" (parks the task)")
+                return count
+            }
+            try! out.append(" → ")
+            count = count + 1
+            next = self.path_hop(&var out, next, root, kind, &var hops, &var visited)
+        }
+        count
+    }
+
+    // One hop of a path: what the call at `at` calls, appended to `out`, and
+    // the next call on the path in its body, or -1 where the path ends.
+    func path_hop(&var self, out: &var StringBuilder, at: Int, root: Int, kind: TcPathKind,
+                  hops: &var Vector<TcPathHop>, visited: &var Vector<Int>) -> Int {
+        let ci = self.call_at[at]
+        if ci < 0 {
+            return -1
+        }
+        let c = self.calls[ci]
+        if c.role == TcRole.Value {
+            try! out.append("a call through a non-`sync` function value")
+            return -1
+        }
+        if c.target < 0 || c.role == TcRole.Builtin {
+            try! out.append(self.callee_text(at))
+            return -1
+        }
+        var d = c.target
+        var hop = TcPathHop(decl: d, call: ci, receiver: -1)
+        if self.dispatches(&c) {
+            let recv = if c.owner >= 0 { self.path_type(self.strip_refs(c.owner), &hops) } else { -1 }
+            let impl = if recv >= 0 && self.kind_of(recv) == TcKind.Nominal { self.impl_of(recv, c.target) } else { -1 }
+            if impl < 0 {
+                try! out.append(self.callee_text(at))
+                return -1
+            }
+            d = impl
+            hop = TcPathHop(decl: impl, call: -1, receiver: recv)
+        }
+        let name = if hop.receiver >= 0 { self.decl_text(d) } else { self.callee_text(at) }
+        if self.is_park_point(d) {
+            try! out.append(name)
+            try! out.append(" (parks the task)")
+            return -1
+        }
+        if kind == TcPathKind.Blocks && self.declares_blocking(d) {
+            try! out.append(name)
+            try! out.append(" (blocking)")
+            return -1
+        }
+        let info = self.res.decls[d]
+        if info.kind == ResDeclKind.Extern {
+            if (self.sigs[d].flags & TC_FLAG_BLOCKING) != 0 {
+                try! out.append("blocking extern ")
+            }
+            try! out.append(name)
+            return -1
+        }
+        let s = self.summaries[d]
+        if s.state == TC_SUMMARY_TABLE {
+            let row = self.std_row_of(d)
+            let label = if row >= 0 { self.std_rows.labels.get(row) ?? "" } else { "" }
+            if label.equals(self.name_text(info.name)) {
+                try! out.append(label)
+                return -1
+            }
+            try! out.append(name)
+            if label.len() > 0 {
+                try! out.append(" → ")
+                try! out.append(label)
+            }
+            return -1
+        }
+        try! out.append(name)
+        if s.state != TC_SUMMARY_BODY || tc_contains(&visited, d) {
+            return -1
+        }
+        try! visited.push(d)
+        try! hops.push(hop)
+        self.path_call_in(d, root, kind, &hops)
+    }
+
+    // `` `d` ``, as a path names a function.
+    func decl_text(&self, d: Int) -> String {
+        var out = StringBuilder()
+        try! out.append("`")
+        try! out.append(self.res.decl_path(d))
+        try! out.append("`")
+        out.build()
+    }
+
+    // Whether call `c` reaches its requirement's implementation through its
+    // receiver, as `eval_made_call` routes it: a requirement with no default
+    // body, or one called through a type parameter, `Self` or `any`.
+    func dispatches(&self, c: &TcCall) -> Bool {
+        let info = self.res.decls[c.target]
+        if info.kind != ResDeclKind.Requirement {
+            return false
+        }
+        if (self.sigs[c.target].flags & TC_FLAG_DEFAULT_BODY) == 0 {
+            return true
+        }
+        if c.owner < 0 {
+            return false
+        }
+        let rk = self.kind_of(self.strip_refs(c.owner))
+        rk == TcKind.Param || rk == TcKind.SelfType || rk == TcKind.Any
+    }
+
+    // Type `t`, over the innermost function `hops` passes, as the path's root
+    // sees it: through each hop's call outward, until an implementation's
+    // hop, whose receiver is already the root's.
+    func path_type(&var self, t: Int, hops: &Vector<TcPathHop>) -> Int {
+        var out = t
+        var k = hops.len() - 1
+        while k >= 0 {
+            let hop = hops[k]
+            if hop.receiver >= 0 {
+                return self.impl_subst(out, hop.decl, hop.receiver)
+            }
+            let c = self.calls[hop.call]
+            out = self.call_subst(out, hop.decl, &c)
+            k = k - 1
+        }
+        out
+    }
+
+    // The first call in function `d`'s own body that does what `kind` asks,
+    // at the instantiation `hops` reach `d` by, or -1. A call whose answer is
+    // a condition over `d`'s own type parameters answers it at the types the
+    // hops give them, as a call site does (`eval_summary`).
+    func path_call_in(&var self, d: Int, root: Int, kind: TcPathKind, hops: &Vector<TcPathHop>) -> Int {
         let u = self.decl_unit[d]
         if u < 0 {
             return -1
@@ -277,11 +435,37 @@ extension TcProgram {
             }
             var acc = TcAcc(owner: d, unit: -1)
             self.eval_call(item.node, &var acc)
-            if acc.suspends {
+            if tc_path_takes(&acc, kind) {
+                return item.node
+            }
+            if hops.len() > 0 && self.path_conditions_take(&acc, item.node, root, kind, &hops) {
                 return item.node
             }
         }
         return -1
+    }
+
+    // Whether the conditions `acc` keeps over its function's own type
+    // parameters, answered at the types `hops` give them in `root`, do what
+    // `kind` asks.
+    func path_conditions_take(&var self, acc: &TcAcc, e: Int, root: Int, kind: TcPathKind,
+                              hops: &Vector<TcPathHop>) -> Bool {
+        var at_root = TcAcc(owner: root, unit: -1)
+        var k = 0
+        while k < acc.suspend_atoms.len() {
+            let a = acc.suspend_atoms[k]
+            k = k + 1
+            let t = self.path_type(a.ty, &hops)
+            self.eval_condition(t, a.req, e, true, &var at_root)
+        }
+        k = 0
+        while k < acc.nonsync_atoms.len() {
+            let a = acc.nonsync_atoms[k]
+            k = k + 1
+            let t = self.path_type(a.ty, &hops)
+            self.eval_condition(t, a.req, e, false, &var at_root)
+        }
+        tc_path_takes(&at_root, kind)
     }
 
     // A generic body's inferred Copy requirement against what its signature
@@ -565,9 +749,11 @@ extension TcProgram {
     // What the call at `e` does that suspends, or, when `suspends` is false,
     // that is not sync-callable: its target, or else a default it leaves
     // out, which the caller evaluates. `` `f`, which may suspend `` or
-    // `` `f` leaving out `n`, whose default value may suspend ``.
+    // `` `f` leaving out `n`, whose default value may suspend ``. A target's
+    // path past itself follows, `` (`f` → `g` (parks the task)) ``.
     func blamed_call_text(&var self, e: Int, owner: Int, suspends: Bool) -> String {
         let effect = if suspends { "may suspend" } else { "is not sync-callable" }
+        let kind = if suspends { TcPathKind.Suspends } else { TcPathKind.NotSyncCallable }
         var out = StringBuilder()
         try! out.append(self.callee_text(e))
         var target = TcAcc(owner: owner, unit: -1)
@@ -576,6 +762,7 @@ extension TcProgram {
         if (target.suspends || (not suspends && target.nonsync)) || at < 0 {
             try! out.append(", which ")
             try! out.append(effect)
+            self.append_beyond(&var out, e, owner, kind)
             return out.build()
         }
         let c = self.calls[at]
@@ -597,7 +784,20 @@ extension TcProgram {
         }
         try! out.append(", which ")
         try! out.append(effect)
+        self.append_beyond(&var out, e, owner, kind)
         out.build()
+    }
+
+    // `` (`f` → `g` → …) ``, the path from the call at `e` in `owner`'s body,
+    // when it passes a function beyond the call's own target; nothing when
+    // the target is the whole of it.
+    func append_beyond(&var self, out: &var StringBuilder, e: Int, owner: Int, kind: TcPathKind) {
+        var path = StringBuilder()
+        if self.append_path(&var path, e, owner, kind) > 0 {
+            try! out.append(" (")
+            try! out.append(path.build())
+            try! out.append(")")
+        }
     }
 
     // A call inside a closure body must not suspend (spec: suspension, "a
@@ -608,7 +808,7 @@ extension TcProgram {
         self.eval_call(e, &var acc)
         if not acc.suspends {
             if (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0 {
-                self.refuse_closure_block(e)
+                self.refuse_closure_block(e, owner)
             }
             return
         }
@@ -623,10 +823,10 @@ extension TcProgram {
     // `blocking` is written): a closure is called wherever its value goes,
     // where no task root sees the call, so it may not block, as it may not
     // suspend. A `Thread.spawn` brace is thread context, and no closure here.
-    func refuse_closure_block(&var self, e: Int) {
+    func refuse_closure_block(&var self, e: Int, owner: Int) {
         var msg = StringBuilder()
         try! msg.append("a closure body cannot block its thread, and this calls ")
-        try! msg.append(self.block_chain(e))
+        try! msg.append(self.effect_path(e, owner, TcPathKind.Blocks))
         try! msg.append(": a closure runs wherever its value is called, a task included, where nothing sees the call; call it outside the closure")
         self.refuse_at(e, "effect.closure-blocks", msg.build())
     }
@@ -648,80 +848,15 @@ extension TcProgram {
             try! msg.append("cannot suspend in `")
             try! msg.append(self.res.decl_path(owner))
             try! msg.append("`, which is `blocking`: it calls ")
-            try! msg.append(self.thread_chain(e))
+            try! msg.append(self.effect_path(e, owner, TcPathKind.ThreadStruck))
             try! msg.append(": a `blocking` body is thread context, where no executor runs to resume a suspension. A `blocking` extern, another `blocking` function and a pair, which runs its `blocking` twin there, are what it may call")
             self.refuse_at(e, "effect.blocking-body", msg.build())
             return
         }
         try! msg.append("cannot suspend in a `Thread.spawn \{ ... \}` body: closure calls ")
-        try! msg.append(self.thread_chain(e))
+        try! msg.append(self.effect_path(e, owner, TcPathKind.ThreadStruck))
         try! msg.append(": a spawned thread runs no executor, so there is nothing there to resume a suspension, and it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body may do, and it blocks the spawned thread on purpose")
         self.refuse_at(e, "effect.thread-body", msg.build())
-    }
-
-    // The path from the call at `e` to the first suspension source a
-    // `Thread.spawn` body refuses: each function it passes, `` `f` → ``, then
-    // the source, `__saw_suspend` or a call through a function value; a std
-    // function the table answers for ends in its row's label. A park point is
-    // std's internal, so the path ends at the function that calls it, `` `f`
-    // (parks the task) ``.
-    func thread_chain(&var self, e: Int) -> String {
-        var out = StringBuilder()
-        var visited = Vector<Int>()
-        var at = e
-        while at >= 0 {
-            let ci = self.call_at[at]
-            let c = self.calls[ci]
-            if c.role == TcRole.Value {
-                try! out.append("a call through a non-`sync` function value")
-                return out.build()
-            }
-            let d = c.target
-            if d < 0 || c.role == TcRole.Builtin {
-                try! out.append(self.callee_text(at))
-                return out.build()
-            }
-            let info = self.res.decls[d]
-            let name = self.name_text(info.name)
-            if self.is_park_point(d) {
-                try! out.append(self.callee_text(at))
-                try! out.append(" (parks the task)")
-                return out.build()
-            }
-            if info.kind == ResDeclKind.Extern {
-                try! out.append(self.callee_text(at))
-                return out.build()
-            }
-            let s = self.summaries[d]
-            if s.state == TC_SUMMARY_TABLE {
-                let row = self.std_row_of(d)
-                let label = if row >= 0 { self.std_rows.labels.get(row) ?? "" } else { "" }
-                if label.equals(name) {
-                    try! out.append(label)
-                    return out.build()
-                }
-                try! out.append(self.callee_text(at))
-                if label.len() > 0 {
-                    try! out.append(" → ")
-                    try! out.append(label)
-                }
-                return out.build()
-            }
-            try! out.append(self.callee_text(at))
-            if s.state != TC_SUMMARY_BODY || tc_contains(&visited, d) {
-                return out.build()
-            }
-            try! visited.push(d)
-            at = self.struck_call_in(d)
-            if at >= 0 && self.parks_at(at) {
-                try! out.append(" (parks the task)")
-                return out.build()
-            }
-            if at >= 0 {
-                try! out.append(" → ")
-            }
-        }
-        out.build()
     }
 
     // Whether the call at `e` is a park point's.
@@ -734,82 +869,11 @@ extension TcProgram {
         c.target >= 0 && c.role != TcRole.Builtin && c.role != TcRole.Value && self.is_park_point(c.target)
     }
 
-    // The first call in function `d`'s own body that may suspend by a cause a
-    // `Thread.spawn` body refuses, or -1.
-    func struck_call_in(&var self, d: Int) -> Int {
-        let u = self.decl_unit[d]
-        if u < 0 {
-            return -1
-        }
-        let unit = self.units[u]
-        var k = unit.item_first
-        while k < unit.item_end {
-            let item = self.items[k]
-            k = k + 1
-            if item.kind != TC_ITEM_CALL || item.unit != u {
-                continue
-            }
-            var acc = TcAcc(owner: d, unit: -1)
-            self.eval_call(item.node, &var acc)
-            if tc_thread_struck(acc.thread_causes) != 0 {
-                return item.node
-            }
-        }
-        return -1
-    }
-
-    // The path from the call at `e` to the `blocking` function it blocks the
-    // thread through: each function it passes, `` `f` → ``, then the
-    // `blocking` one, `` `g` (blocking) ``.
-    func block_chain(&var self, e: Int) -> String {
-        var out = StringBuilder()
-        var visited = Vector<Int>()
-        var at = e
-        while at >= 0 {
-            let ci = self.call_at[at]
-            if ci < 0 {
-                break
-            }
-            let d = self.calls[ci].target
-            try! out.append(self.callee_text(at))
-            if d < 0 || self.declares_blocking(d) {
-                try! out.append(" (blocking)")
-                return out.build()
-            }
-            if tc_contains(&visited, d) {
-                return out.build()
-            }
-            try! visited.push(d)
-            at = self.blocking_call_in(d)
-            if at >= 0 {
-                try! out.append(" → ")
-            }
-        }
-        out.build()
-    }
-
     // The first call in function `d`'s own body that blocks the thread, or
     // -1.
     func blocking_call_in(&var self, d: Int) -> Int {
-        let u = self.decl_unit[d]
-        if u < 0 {
-            return -1
-        }
-        let unit = self.units[u]
-        var k = unit.item_first
-        while k < unit.item_end {
-            let item = self.items[k]
-            k = k + 1
-            if item.kind != TC_ITEM_CALL || item.unit != u {
-                continue
-            }
-            var acc = TcAcc(owner: d, unit: -1)
-            self.eval_call(item.node, &var acc)
-            if (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0 {
-                return item.node
-            }
-        }
-        return -1
+        let hops = Vector<TcPathHop>()
+        self.path_call_in(d, d, TcPathKind.Blocks, &hops)
     }
 
     // THE TASK-ROOT FUNNEL: a task root that reaches a `blocking` function,
@@ -834,7 +898,7 @@ extension TcProgram {
         } else {
             try! msg.append("a task blocks its thread here: the task runs ")
         }
-        try! msg.append(self.block_chain(e))
+        try! msg.append(self.effect_path(e, owner, TcPathKind.Blocks))
         try! msg.append(", which would stop the executor's thread and every task on it. Call it from a `Thread.spawn` body, or from a `main` that runs no executor")
         self.refuse_at(e, "effect.task-blocks", msg.build())
     }
@@ -861,7 +925,7 @@ extension TcProgram {
         }
         var msg = StringBuilder()
         try! msg.append("`main` suspends, so it runs the executor, and it blocks its thread here: it calls ")
-        try! msg.append(self.block_chain(at))
+        try! msg.append(self.effect_path(at, d, TcPathKind.Blocks))
         try! msg.append(", which would stop the executor's thread and every task on it. Call it from a `Thread.spawn` body, or from a `main` that never suspends")
         self.refuse_at(at, "effect.task-blocks", msg.build())
     }
@@ -1719,14 +1783,11 @@ extension TcProgram {
             try! msg.append(", declared `blocking`")
             return
         }
-        let at = self.blocking_call_in(d)
-        if at < 0 {
+        if self.blocking_call_in(d) < 0 {
             return
         }
-        try! msg.append(" (`")
-        try! msg.append(self.res.decl_path(d))
-        try! msg.append("` → ")
-        try! msg.append(self.block_chain(at))
+        try! msg.append(" (")
+        try! msg.append(self.chain_from(d, TcPathKind.Blocks))
         try! msg.append(")")
     }
 
@@ -2077,4 +2138,38 @@ func tc_symbol_index(symbols: &Vector<String>, symbol: String) -> Int {
         k = k + 1
     }
     return -1
+}
+
+// What the next call on a refusal's path does, which picks it among a body's
+// calls (`effect_path`).
+enum TcPathKind: UInt8 {
+    // It may suspend.
+    case Suspends = 0,
+    // It is not sync-callable.
+    case NotSyncCallable = 1,
+    // It may suspend by a cause thread context refuses (`tc_thread_struck`).
+    case ThreadStruck = 2,
+    // It blocks its thread.
+    case Blocks = 3
+}
+
+// One function a refusal's path passes, with what carries its types to the
+// path's root: the call record that reached it, or, for the implementation a
+// requirement call dispatches to, its receiver as the root sees it (-1 for a
+// call's hop).
+struct TcPathHop {
+    decl: Int
+    call: Int
+    receiver: Int
+}
+
+// Whether a call evaluated into `acc` does what `kind` asks of a path's next
+// call.
+func tc_path_takes(acc: &TcAcc, kind: TcPathKind) -> Bool {
+    match kind {
+        case Suspends -> acc.suspends,
+        case NotSyncCallable -> acc.suspends || acc.nonsync,
+        case ThreadStruck -> tc_thread_struck(acc.thread_causes) != 0,
+        case Blocks -> (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0
+    }
 }

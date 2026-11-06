@@ -1,0 +1,13 @@
+// refuses: effect.sync at 11:20
+// flags: --std-root std
+// message: it calls `Command.output`, which may suspend (`Command.output` → `process_captured` → `process_drained` → `process_drain_pipe` → `yield_now` (parks the task))
+// a `sync` body calling a non-generic std method that parks: the refusal
+// names the path through std's helpers to the park (SL-982)
+
+import std.process.{Command}
+
+func exit_code() sync -> Int {
+    var c = Command(program: "true")
+    let out = try! c.output()
+    out.exit_code as Int
+}

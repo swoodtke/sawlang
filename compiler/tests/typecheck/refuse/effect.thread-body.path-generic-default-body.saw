@@ -1,0 +1,31 @@
+// refuses: effect.thread-body at 29:33
+// flags: --std-root std
+// message: closure calls `both` → `run_twice` → `Step.twice` → `Slow.step` → `yield_now` (parks the task):
+// a `Thread.spawn` body reaching a user generic whose `T` suspends through a
+// trait default body: the path passes the default, its `Self` the type
+// argument, to the implementation it calls and its park (SL-982)
+
+import std.task.{yield_now}
+
+trait Step {
+    func step(&self) -> Int
+    func twice(&self) -> Int { self.step() + self.step() }
+}
+
+struct Slow { n: Int }
+
+extension Slow: Step {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func run_twice<T: Step>(t: &T) -> Int { t.twice() }
+
+func both() -> Int { run_twice(&Slow(n: 1)) }
+
+func main() {
+    var t = try! Thread.spawn { both() }
+    print(t.join())
+}

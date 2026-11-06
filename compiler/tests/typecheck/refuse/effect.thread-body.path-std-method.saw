@@ -1,0 +1,18 @@
+// refuses: effect.thread-body at 16:33
+// flags: --std-root std
+// message: closure calls `exit_code` → `Command.output` → `process_captured` → `process_drained` → `process_drain_pipe` → `yield_now` (parks the task):
+// a `Thread.spawn` body reaching a non-generic std method that parks: the
+// path runs through std's helpers to the park (SL-982)
+
+import std.process.{Command}
+
+func exit_code() -> Int {
+    var c = Command(program: "true")
+    let out = try! c.output()
+    out.exit_code as Int
+}
+
+func main() {
+    var t = try! Thread.spawn { exit_code() }
+    print(t.join())
+}

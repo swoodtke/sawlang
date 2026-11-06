@@ -1,0 +1,15 @@
+// refuses: effect.thread-body at 13:33
+// flags: --std-root std
+// message: closure calls `measured` → `apply_to` → a call through a non-`sync` function value:
+// a `Thread.spawn` body reaching a generic that calls through a function
+// value not declared `sync`: the path ends at the call through the value
+// (SL-982)
+
+func apply_to<T>(x: &T, f: (&T) -> Int) -> Int { f(&x) }
+
+func measured(n: Int) -> Int { apply_to(&n, { v in v + 1 }) }
+
+func main() {
+    var t = try! Thread.spawn { measured(4) }
+    print(t.join())
+}

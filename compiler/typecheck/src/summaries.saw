@@ -1030,7 +1030,7 @@ extension TcProgram {
     //   check_sync_call
     //   check_closure_call
     //   check_thread_call
-    //   struck_call_in
+    //   path_call_in
     //   check_window_calls
     //   verify_unit_suspensions
     public func eval_call(&var self, e: Int, acc: &var TcAcc) {

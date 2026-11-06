@@ -1,0 +1,30 @@
+// refuses: effect.thread-body at 28:33
+// flags: --std-root std
+// message: closure calls `once` → `run_one` → `Slow.step` → `yield_now` (parks the task):
+// a `Thread.spawn` body reaching a generic that calls a requirement on its
+// generic receiver: the path names the implementation the type argument
+// dispatches to, and goes on to its park (SL-982)
+
+import std.task.{yield_now}
+
+trait Step {
+    func step(&self) -> Int
+}
+
+struct Slow { n: Int }
+
+extension Slow: Step {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func run_one<T: Step>(t: &T) -> Int { t.step() }
+
+func once() -> Int { run_one(&Slow(n: 1)) }
+
+func main() {
+    var t = try! Thread.spawn { once() }
+    print(t.join())
+}

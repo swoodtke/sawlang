@@ -1,0 +1,25 @@
+// refuses: effect.sync at 25:35
+// flags: --std-root std
+// message: it calls `run_one`, which may suspend (`run_one` → `Slow.step` → `yield_now` (parks the task))
+// a `sync` body calling a generic that calls a requirement on its generic
+// receiver: the path names the implementation the call's type argument
+// dispatches to, and goes on to its park (SL-982)
+
+import std.task.{yield_now}
+
+trait Step {
+    func step(&self) -> Int
+}
+
+struct Slow { n: Int }
+
+extension Slow: Step {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func run_one<T: Step>(t: &T) -> Int { t.step() }
+
+func once(s: &Slow) sync -> Int { run_one(&s) }

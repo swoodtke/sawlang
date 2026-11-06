@@ -1,0 +1,27 @@
+// refuses: effect.sync at 27:36
+// flags: --std-root std
+// message: it calls `run_two`, which may suspend (`run_two` → `run_one` → `Slow.step` → `yield_now` (parks the task))
+// a `sync` body calling a generic that forwards its `T` to another generic:
+// the path follows both levels at the call's type argument to the park
+// (SL-982)
+
+import std.task.{yield_now}
+
+trait Step {
+    func step(&self) -> Int
+}
+
+struct Slow { n: Int }
+
+extension Slow: Step {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func run_one<T: Step>(t: &T) -> Int { t.step() }
+
+func run_two<U: Step>(u: &U) -> Int { run_one(&u) + 1 }
+
+func twice(s: &Slow) sync -> Int { run_two(&s) }

@@ -1,0 +1,34 @@
+// refuses: effect.thread-body at 32:33
+// flags: --std-root std
+// message: closure calls `run` → `Runner.go` → `Slow.step` → `yield_now` (parks the task):
+// a `Thread.spawn` body reaching a user generic method over a suspending `T`:
+// the path goes on from the method, at the receiver's type argument, to the
+// park (SL-982)
+
+import std.task.{yield_now}
+
+trait Step {
+    func step(&self) -> Int
+}
+
+struct Slow { n: Int }
+
+extension Slow: Step {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Runner<T: Step> { held: T }
+
+extension Runner<T: Step> {
+    func go(&self) -> Int { self.held.step() }
+}
+
+func run() -> Int { Runner<Slow>(held: Slow(n: 1)).go() }
+
+func main() {
+    var t = try! Thread.spawn { run() }
+    print(t.join())
+}

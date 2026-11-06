@@ -1,0 +1,25 @@
+// refuses: effect.sync at 24:5
+// flags: --std-root std
+// message: it calls `Vector.sort`, which may suspend (`Vector.sort` → `merge_sort` → `insertion_sort` → `greater_at` → `NaturalOrder.greater` → `Slow.compare` → `yield_now` (parks the task))
+// a `sync` body sorting elements whose `compare` parks: the path runs from
+// `Vector.sort` through the generic std free functions and the natural
+// order's `>` to the element's `compare` (SL-982)
+
+import std.task.{yield_now}
+
+struct Slow { n: Int }
+
+extension Slow: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.n == other.n }
+}
+
+extension Slow: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        yield_now()
+        self.n.compare(&other.n)
+    }
+}
+
+func sorted(v: &var Vector<Slow>) sync {
+    v.sort()
+}

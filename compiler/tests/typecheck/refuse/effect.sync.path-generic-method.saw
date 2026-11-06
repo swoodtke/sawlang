@@ -1,0 +1,29 @@
+// refuses: effect.sync at 29:42
+// flags: --std-root std
+// message: it calls `Runner.go`, which may suspend (`Runner.go` → `Slow.step` → `yield_now` (parks the task))
+// a `sync` body calling a user generic method over a suspending `T`: the path
+// goes on from the method, at the receiver's type argument, to the park
+// (SL-982)
+
+import std.task.{yield_now}
+
+trait Step {
+    func step(&self) -> Int
+}
+
+struct Slow { n: Int }
+
+extension Slow: Step {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Runner<T: Step> { held: T }
+
+extension Runner<T: Step> {
+    func go(&self) -> Int { self.held.step() }
+}
+
+func run(r: &Runner<Slow>) sync -> Int { r.go() }

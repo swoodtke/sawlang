@@ -1,0 +1,19 @@
+// refuses: effect.sync at 19:39
+// flags: --std-root std
+// message: it calls `via`, which is not sync-callable (`via` → `Greeter.greet` through `any effect.sync.path-any.Greeter`, a requirement not declared `sync`)
+// a `sync` body calling a helper that dispatches through `any` to a
+// requirement not declared `sync`: the path ends at the dispatch (SL-982)
+
+trait Greeter {
+    func greet(&self) -> Int
+}
+
+struct Plain { n: Int }
+
+extension Plain: Greeter {
+    func greet(&self) -> Int { self.n }
+}
+
+func via(g: &any Greeter) -> Int { g.greet() }
+
+func greeted(p: &Plain) sync -> Int { via(&p) }

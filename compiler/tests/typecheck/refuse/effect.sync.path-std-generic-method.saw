@@ -1,0 +1,10 @@
+// refuses: effect.sync at 9:5
+// flags: --std-root std
+// message: it calls `Vector.sort_by`, which is not sync-callable (`Vector.sort_by` → `merge_sort` → `insertion_sort` → `greater_at` → `ClosureOrder.greater` → a call through a non-`sync` function value)
+// a `sync` body calling `Vector.sort_by`, a generic std method whose path
+// runs through generic std free functions and the order's requirement, at
+// the instantiation the call makes, to the comparator's call (SL-982)
+
+func sorted(v: &var Vector<Int>) sync {
+    v.sort_by({ a, b in a.compare(&b) })
+}

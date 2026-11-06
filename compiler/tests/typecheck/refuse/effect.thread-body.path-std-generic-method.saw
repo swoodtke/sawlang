@@ -1,0 +1,19 @@
+// refuses: effect.thread-body at 15:9
+// flags: --std-root std
+// message: closure calls `sorted` → `Vector.sort_by` → `merge_sort` → `insertion_sort` → `greater_at` → `ClosureOrder.greater` → a call through a non-`sync` function value:
+// a `Thread.spawn` body sorting with `Vector.sort_by`: the path runs through
+// the generic std free functions and the order's requirement, at the
+// instantiation the call makes, to the comparator's call (SL-982)
+
+func sorted(v: &var Vector<Int>) {
+    v.sort_by({ a, b in a.compare(&b) })
+}
+
+func main() {
+    var t = try! Thread.spawn {
+        var v: Vector<Int> = [3, 1, 2]
+        sorted(&var v)
+        v.len()
+    }
+    print(t.join())
+}
