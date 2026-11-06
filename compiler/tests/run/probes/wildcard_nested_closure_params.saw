@@ -1,0 +1,11 @@
+// probe: stated
+// about: a closure's `_` parameter inside a closure with a `_` parameter shadows nothing (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 29
+
+func apply1(f: (Int) -> Int) -> Int { f(5) }
+
+func main() {
+    print(apply1({ _ in apply1({ _ in 29 }) }))
+}

@@ -1,0 +1,16 @@
+// probe: stated
+// about: `_` closure parameters beside named locals, and a `let _` after them, read the locals (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 2
+// prints: 1
+
+func apply2(f: (Int, Int) -> Int) -> Int { f(5, 6) }
+
+func main() {
+    let x = 1
+    let (a, _) = (x, 2)
+    print(apply2({ _, _ in a + x }))
+    let _ = a
+    print(a)
+}

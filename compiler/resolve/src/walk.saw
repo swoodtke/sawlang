@@ -689,14 +689,10 @@ extension ResProgram {
         }
     }
 
-    // A BindingName's leaf, bound unless it is `_`.
+    // A BindingName's leaf, bound (`bind_local` declares nothing for `_`).
     public func bind_binding_name(&var self, id: Int, shadow: ResShadow, before: Int) {
         let leaf = self.first_leaf(id)
         let name = self.leaf_name(leaf)
-        let text = self.name_text(name)
-        if text.equals("_") {
-            return
-        }
         self.bind_value(name, leaf, shadow, before)
     }
 

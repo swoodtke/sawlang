@@ -1,0 +1,28 @@
+// probe: stated
+// about: a method, a static method and an `init` with two `_` parameters each bind nothing (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 21
+// prints: 23
+// prints: 39
+
+struct P { n: Int }
+
+extension P {
+    func m(&self, _: Int, _: Int) -> Int { self.n }
+    static func s(_: Int, _: Int) -> Int { 23 }
+}
+
+struct Q { n: Int }
+
+extension Q {
+    init(_: Int, _: Int) -> Q { Q(n: 39) }
+}
+
+func main() {
+    let p = P(n: 21)
+    print(p.m(1, 2))
+    print(P.s(1, 2))
+    let q = Q(1, 2)
+    print(q.n)
+}

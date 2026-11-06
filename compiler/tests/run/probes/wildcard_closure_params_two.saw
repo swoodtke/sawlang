@@ -1,0 +1,11 @@
+// probe: stated
+// about: a closure with two `_` parameters binds nothing, so neither redefines the other (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 9
+
+func apply2(f: (Int, Int) -> Int) -> Int { f(5, 6) }
+
+func main() {
+    print(apply2({ _, _ in 9 }))
+}

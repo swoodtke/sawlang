@@ -896,9 +896,14 @@ extension ResProgram {
     // Declares a value binding named `name` at `leaf` in the innermost scope,
     // with binding `binding`. A binding that shadows a local, or a module
     // static, is refused unless it is Derivable and a name record since
-    // `mentions_from` refers to the binding it shadows.
+    // `mentions_from` refers to the binding it shadows. `_` declares nothing,
+    // at every position: it is never found, so it never shadows, is never
+    // shadowed, is never a duplicate, and reading it is `name.undefined`.
     public func bind_local(&var self, name: Int, leaf: Int, binding: ResBinding, shadow: ResShadow,
                            mentions_from: Int) {
+        if self.name_text(name).equals("_") {
+            return
+        }
         let depth = self.scope_top
         if shadow != ResShadow.Capture {
             self.check_shadow(name, leaf, shadow, mentions_from, depth)

@@ -1,0 +1,16 @@
+// probe: stated
+// about: a `sort_by` comparator that ignores both comparands writes `{ _, _ in ... }` (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 3
+// prints: 1
+// prints: 2
+
+// Every pair compares equal and the sort is stable, so the order is kept.
+func main() {
+    var v: Vector<Int> = [3, 1, 2]
+    v.sort_by({ _, _ in Ordering.Equal })
+    print(v[0])
+    print(v[1])
+    print(v[2])
+}

@@ -1,0 +1,11 @@
+// probe: stated
+// about: a closure with three `_` parameters binds nothing (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 11
+
+func apply3(f: (Int, Int, Int) -> Int) -> Int { f(5, 6, 7) }
+
+func main() {
+    print(apply3({ _, _, _ in 11 }))
+}

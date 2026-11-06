@@ -1,0 +1,60 @@
+// probe: stated
+// about: the one-`_` positions that already bind nothing: a closure and a function parameter, `for _`, `let _` twice, `let (_, _)`, `if let`/`guard let`/`while let` tuples and `match` arms (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 7
+// prints: 17
+// prints: 27
+// prints: 6
+// prints: 3
+// prints: 1
+// prints: 2
+// prints: 2
+// prints: 1
+// prints: 3
+
+func apply1(f: (Int) -> Int) -> Int { f(5) }
+
+func one(_: Int) -> Int {
+    let _ = 5
+    17
+}
+
+func pair() -> (Int, Int)? { (1, 2) }
+
+enum Both { case Two(a: Int, b: Int), case Neither }
+
+func main() {
+    print(apply1({ _ in 7 }))
+    print(one(3))
+    print(apply1({ _ in let _ = 3; 27 }))
+    var n = 0
+    for _ in 0..3 {
+        for _ in 0..2 {
+            n += 1
+        }
+    }
+    print(n)
+    let _ = 1
+    let _ = 2
+    let (_, _) = (1, 2)
+    let (a, _, _) = (3, 4, 5)
+    print(a)
+    if let (_, _) = pair() { print(1) }
+    if let _ = pair() { print(2) }
+    guard let (_, _) = pair() else { return }
+    var v: Vector<(Int, Int)> = [(1, 2), (3, 4)]
+    var popped = 0
+    while let (_, _) = v.pop() { popped += 1 }
+    print(popped)
+    let t = (1, 2, 3)
+    let r = match t {
+        case (_, _, 3) -> 1,
+        case _ -> 2
+    }
+    print(r)
+    match Both.Two(a: 1, b: 2) {
+        case Two(_, _) -> print(3),
+        case Neither -> print(4)
+    }
+}

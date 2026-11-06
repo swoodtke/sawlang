@@ -1,0 +1,6 @@
+// refuses: name.undefined at 5:5
+// a `_` parameter binds nothing, so reading `_` finds no name
+
+func one(_: Int) -> Int {
+    _
+}

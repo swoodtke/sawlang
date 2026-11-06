@@ -1,0 +1,9 @@
+// refuses: name.undefined at 6:41
+// a `var _` payload binds nothing, so reading `_` finds no name
+
+func f(o: Int?) {
+    match o {
+        case Some(var _) -> print("{}", _),
+        case None -> {}
+    }
+}

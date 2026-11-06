@@ -1,0 +1,15 @@
+// probe: stated
+// about: a function with two `_` parameters binds nothing, so neither is a duplicate of the other (SL-978)
+// stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
+// speeds: -O0 -O2
+// prints: 19
+// prints: 37
+
+func two(_: Int, _: Int) -> Int { 19 }
+
+func mix(a: Int, _: Int, c: Int, _: Int) -> Int { a + c }
+
+func main() {
+    print(two(3, 4))
+    print(mix(1, 100, 36, 200))
+}
