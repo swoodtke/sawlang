@@ -147,3 +147,45 @@ refuses syntax.rule.import-names at 1:14
 
 // case: syntax.rule.discard-binding/var-discard
 refuses syntax.stmt.refused-var-discard
+
+// case: syntax.rule.discard-binding/payload-var
+refuses syntax.rule.discard-binding at 3:23
+
+// case: syntax.rule.discard-binding/payload-borrow-var
+refuses syntax.rule.discard-binding at 3:30
+
+// case: syntax.rule.discard-binding/payload-second-var
+refuses syntax.rule.discard-binding at 3:29
+
+// case: syntax.rule.discard-binding/if-var
+refuses syntax.rule.discard-binding at 2:12
+
+// case: syntax.rule.discard-binding/if-var-over-a-lend
+refuses syntax.rule.discard-binding at 2:12
+
+// case: syntax.rule.discard-binding/else-if-var
+refuses syntax.rule.discard-binding at 3:19
+
+// case: syntax.rule.discard-binding/while-var
+refuses syntax.rule.discard-binding at 2:15
+
+// case: syntax.rule.discard-binding/guard-var
+refuses syntax.rule.discard-binding at 2:15
+
+// case: syntax.rule.discard-binding/borrow-block-var
+refuses syntax.rule.discard-binding at 4:24
+
+// case: syntax.rule.discard-binding/borrow-block-later-var
+refuses syntax.rule.discard-binding at 2:30
+
+// case: syntax.rule.discard-binding/if-borrow-var
+refuses syntax.rule.discard-binding at 2:19
+
+// case: syntax.rule.discard-binding/while-borrow-var
+refuses syntax.rule.discard-binding at 2:22
+
+// case: syntax.rule.discard-binding/for-var
+refuses syntax.rule.discard-binding at 2:13
+
+// case: syntax.rule.discard-binding/for-borrow-var
+refuses syntax.rule.discard-binding at 2:20

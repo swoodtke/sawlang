@@ -1,5 +1,5 @@
 // probe: stated
-// about: two `var _` payload bindings in one pattern bind nothing (SL-978)
+// about: two `_` payload wildcards in one pattern bind nothing and never collide (SL-978)
 // stage 0: not run; the probe holds sawc to the spec's `_` binds-nothing rule, row by row
 // speeds: -O0 -O2
 // prints: 1
@@ -10,12 +10,12 @@ enum Both { case Two(a: Int, b: Int), case Neither }
 func main() {
     let o: Int? = 5
     match o {
-        case Some(var _) -> print(1),
+        case Some(_) -> print(1),
         case None -> print(2)
     }
     let b = Both.Two(a: 1, b: 2)
     match b {
-        case Two(var _, var _) -> print(3),
+        case Two(_, _) -> print(3),
         case Neither -> print(4)
     }
 }

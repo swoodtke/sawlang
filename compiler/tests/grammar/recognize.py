@@ -98,6 +98,15 @@ FILTERS = [
     ("range-from", "_range_open_end", "syntax.rule.range-open-end"),
     ("range-upto", "_range_open_end", "syntax.rule.range-open-end"),
     ("let-stmt", "_discard_binding", "syntax.rule.discard-binding"),
+    ("var-binding-pattern", "_discard_binding", "syntax.rule.discard-binding"),
+    ("borrow-binding-pattern", "_discard_binding", "syntax.rule.discard-binding"),
+    ("optional-binding", "_discard_binding", "syntax.rule.discard-binding"),
+    ("while-let-expr", "_discard_binding", "syntax.rule.discard-binding"),
+    ("guard-stmt", "_discard_binding", "syntax.rule.discard-binding"),
+    ("borrow-binding", "_discard_binding", "syntax.rule.discard-binding"),
+    ("borrow-unwrap", "_discard_binding", "syntax.rule.discard-binding"),
+    ("for-expr", "_discard_binding", "syntax.rule.discard-binding"),
+    ("for-borrow", "_discard_binding", "syntax.rule.discard-binding"),
     ("extern-block", "_extern_abi", "syntax.rule.extern-abi"),
     ("declaration-item", "_attribute_position", "syntax.rule.attribute-position"),
     ("attributed-local", "_attribute_position", "syntax.rule.attribute-position"),
@@ -112,6 +121,21 @@ FILTERS = [
     ("try-route", "_try_route_case", "syntax.rule.try-route-case"),
     ("import-target", "_import_names", "syntax.rule.import-names"),
 ]
+# Every alternative that binds a name with `var`, and how many tokens after the
+# alternative's first the name stands; each one's production has a
+# `_discard_binding` row above (syntax.rule.discard-binding).
+VAR_BINDINGS = {
+    "syntax.stmt.let.mutable": 1,
+    "syntax.pat.var-binding": 1,
+    "syntax.pat.borrow-binding.var": 2,
+    "syntax.expr.optional-binding.var": 1,
+    "syntax.expr.while-let.var": 2,
+    "syntax.stmt.guard.var": 2,
+    "syntax.borrow.binding.var": 1,
+    "syntax.borrow.unwrap.var": 2,
+    "syntax.expr.for.var": 2,
+    "syntax.borrow.for.var": 3,
+}
 # The filters that decide by the token after the derivation they refuse, even
 # when they report a token inside it; the others decide by its own tokens, and
 # so do these wherever the refused token lies past the derivation.
@@ -1320,12 +1344,15 @@ class Forest:
         return d.j
 
     def _discard_binding(self, d):
-        """`var _ = e` is the refused form, never a binding
-        (syntax.rule.discard-binding)."""
-        if self._alt(d) != "syntax.stmt.let.mutable":
+        """No `var` binding is named `_`, which binds nothing to mutate
+        (syntax.rule.discard-binding); `var _ = e` is the refused statement."""
+        offset = VAR_BINDINGS.get(self._alt(d))
+        if offset is None:
             return None
-        name = self._kids_named(d, "binding-name")[0]
-        return name.i if self.c.tokens[name.i].value == "_" else None
+        name = self._token(d.i + offset)
+        if name is None or name.kind != "IDENT" or name.value != "_":
+            return None
+        return d.i + offset
 
     def _extern_abi(self, d):
         """The ABI string is "C" (syntax.rule.extern-abi)."""

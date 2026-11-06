@@ -283,10 +283,27 @@ discard: it evaluates the right-hand side (running its side effects), consumes
 the value as the final owner (through the value-transfer checkpoint — a NoCopy
 source needs `move`), drops it immediately at the end of the statement like an
 unused temporary, and creates **no** binding. `_` is unreadable, and two
-`let _` in one scope never collide. `var _` is rejected (a discard has nothing
-to mutate). Per-position `_` in a tuple destructuring (`let (a, _) = pair`,
-design 63) discards that component the same way. Parameter discards are out of
-scope for now.
+`let _` in one scope never collide. Per-position `_` in a tuple destructuring
+(`let (a, _) = pair`, design 63) discards that component the same way.
+Parameter discards are out of scope for now.
+
+`var _` is rejected at every position a `var` binding can stand, because a
+discard has nothing to mutate. On a borrowed place a `var` binding may also
+take an exclusive borrow, and through `_` that borrow would belong to no name.
+Each position has its fix: a payload's `case Some(var _)` or
+`case Some(borrow var _)` is written `case Some(_)`; `if var _`, `else if var _`,
+`while var _`, `guard var _`, `if borrow var _` and `while borrow var _` are
+written with `let _`; a `borrow` block's `var _` binding is written `let _`
+(`borrow let _ = v[0] { … }`); and `for var _ in` is written `for _ in`.
+
+```saw-error
+// error-rule: syntax.rule.discard-binding
+// error-contains: `_` binds nothing, so there is nothing to mutate
+let reading: Int? = 3
+if var _ = reading {
+    print("present")
+}
+```
 
 ```saw-fragment
 let _ = compute()      // run compute() for its effect; drop the result now

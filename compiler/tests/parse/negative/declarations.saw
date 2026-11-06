@@ -245,3 +245,95 @@ import m.{a, a}
 func f() {
     var _ = e
 }
+
+// case: syntax.rule.discard-binding/payload-var
+func f() {
+    match o {
+        case Some(var _) -> 1
+    }
+}
+
+// case: syntax.rule.discard-binding/payload-borrow-var
+func f() {
+    match o {
+        case Some(borrow var _) -> 1
+    }
+}
+
+// case: syntax.rule.discard-binding/payload-second-var
+func f() {
+    match o {
+        case Two(var a, var _) -> a
+    }
+}
+
+// case: syntax.rule.discard-binding/if-var
+func f() {
+    if var _ = o {
+    }
+}
+
+// case: syntax.rule.discard-binding/if-var-over-a-lend
+func f() {
+    if var _ = v.find(0) {
+    }
+}
+
+// case: syntax.rule.discard-binding/else-if-var
+func f() {
+    if c {
+    } else if var _ = o {
+    }
+}
+
+// case: syntax.rule.discard-binding/while-var
+func f() {
+    while var _ = v.pop() {
+    }
+}
+
+// case: syntax.rule.discard-binding/guard-var
+func f() {
+    guard var _ = o else {
+        return
+    }
+}
+
+// case: syntax.rule.discard-binding/borrow-block-var
+func f() {
+    // As a value: at a statement's start the text also reads as the place
+    // form's assignment, which syntax.rule.borrow-form refuses.
+    let x = borrow var _ = v[0] {
+        1
+    }
+}
+
+// case: syntax.rule.discard-binding/borrow-block-later-var
+func f() {
+    borrow let a = v[0], var _ = w[0] {
+    }
+}
+
+// case: syntax.rule.discard-binding/if-borrow-var
+func f() {
+    if borrow var _ = v.find(0) {
+    }
+}
+
+// case: syntax.rule.discard-binding/while-borrow-var
+func f() {
+    while borrow var _ = v.find(0) {
+    }
+}
+
+// case: syntax.rule.discard-binding/for-var
+func f() {
+    for var _ in v {
+    }
+}
+
+// case: syntax.rule.discard-binding/for-borrow-var
+func f() {
+    for borrow var _ in v {
+    }
+}

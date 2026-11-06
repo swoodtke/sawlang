@@ -4520,22 +4520,45 @@ extension Parser {
         self.see(Alt.Expr_Postfix)
     }
 
+    // Whether the `var` `ahead` tokens on binds `_`, refused at that `var`
+    // with `hint`, the position's fix-it: `_` binds nothing, so a `var` there
+    // has nothing to mutate, and on a borrowed place it could take an
+    // exclusive borrow for no name (syntax.rule.discard-binding). The
+    // statement passes its removed production's rule, the other positions
+    // the rule's own.
+    // ENTRY POINTS:
+    //     parse_let
+    //     payload_pattern
+    //     parse_optional_binding
+    //     parse_guard
+    //     parse_while
+    //     parse_borrow_unwrap
+    //     parse_borrow_binding
+    //     parse_for
+    //     parse_for_borrow
+    func refused_var_discard(&var self, ahead: Int, rule: Rule, hint: String) -> Bool {
+        if self.kind_at(ahead) != TokenKind.Var || not self.word_at(ahead + 1, "_") {
+            return false
+        }
+        let at = self.pos + ahead
+        let _ = self.refuse(rule, at, "`_` binds nothing, so there is nothing to mutate", hint)
+        true
+    }
+
     // `let-stmt ::= ("let" | "var") binding-name type-annotation? "=" expr`,
-    // where `var _` is the refused discard (syntax.rule.discard-binding) and a
-    // binding with no initializer is refused (syntax.stmt.refused-uninitialized).
+    // where `var _` is the refused discard (syntax.stmt.refused-var-discard) and
+    // a binding with no initializer is refused (syntax.stmt.refused-uninitialized).
     func parse_let(&var self) -> Bool {
         let start = self.here()
         let mark = self.builder.mark()
         let keyword = self.pos
         let mutable = self.kind() == TokenKind.Var
+        if self.refused_var_discard(0, Rule.Stmt_RefusedVarDiscard, "write `let _ = e`") {
+            return false
+        }
         self.advance()
         if self.kind() != TokenKind.Ident {
             return self.error("expected the binding's name")
-        }
-        if mutable && self.word_at(0, "_") {
-            return self.refuse(Rule.Stmt_RefusedVarDiscard, keyword,
-                               "`_` binds nothing, so there is nothing to mutate",
-                               "write `let _ = e`")
         }
         let alt = if mutable { Alt.Stmt_Let_Mutable } else { Alt.Stmt_Let_Immutable }
         self.see(alt)
@@ -4847,6 +4870,9 @@ extension Parser {
                                "a borrow binding at an `if` or `while` head unwraps an optional place into one name",
                                "bind a name, then destructure it in the body")
         }
+        if self.refused_var_discard(1, Rule.Rule_DiscardBinding, "write `let _`") {
+            return false
+        }
         let alt = if self.kind_at(1) == TokenKind.Var { Alt.Borrow_Unwrap_Var } else { Alt.Borrow_Unwrap_Let }
         self.see(alt)
         let start = self.here()
@@ -4867,6 +4893,9 @@ extension Parser {
 
     // `optional-binding ::= ("let" | "var") binding-target "=" binding-subject`
     func parse_optional_binding(&var self) -> Bool {
+        if self.refused_var_discard(0, Rule.Rule_DiscardBinding, "write `let _`") {
+            return false
+        }
         let alt = if self.kind() == TokenKind.Var { Alt.Expr_OptionalBinding_Var } else { Alt.Expr_OptionalBinding_Let }
         self.see(alt)
         let start = self.here()
@@ -5046,6 +5075,9 @@ extension Parser {
         let mark = self.builder.mark()
         var alt = Alt.Stmt_Guard_Condition
         if self.kind_at(1) == TokenKind.Let || self.kind_at(1) == TokenKind.Var {
+            if self.refused_var_discard(1, Rule.Rule_DiscardBinding, "write `let _`") {
+                return false
+            }
             alt = if self.kind_at(1) == TokenKind.Var { Alt.Stmt_Guard_Var } else { Alt.Stmt_Guard_Let }
             self.see(alt)
             self.advance()
@@ -5143,6 +5175,9 @@ extension Parser {
                 return false
             }
         } else if next == TokenKind.Let || next == TokenKind.Var {
+            if self.refused_var_discard(1, Rule.Rule_DiscardBinding, "write `let _`") {
+                return false
+            }
             alt = if next == TokenKind.Var { Alt.Expr_WhileLet_Var } else { Alt.Expr_WhileLet_Let }
             self.see(alt)
             self.advance()
@@ -5256,6 +5291,9 @@ extension Parser {
         if self.kind() == TokenKind.Borrow {
             return self.parse_for_borrow(mark, start)
         }
+        if self.refused_var_discard(0, Rule.Rule_DiscardBinding, "write `for _ in`") {
+            return false
+        }
         var alt = Alt.Expr_For_Plain
         if self.kind() == TokenKind.Var {
             alt = Alt.Expr_For_Var
@@ -5288,6 +5326,9 @@ extension Parser {
         if mode != TokenKind.Let && mode != TokenKind.Var {
             self.advance()
             return self.error("expected `let` or `var` after `for borrow`")
+        }
+        if self.refused_var_discard(1, Rule.Rule_DiscardBinding, "write `for _ in`") {
+            return false
         }
         let alt = if mode == TokenKind.Var { Alt.Borrow_For_Var } else { Alt.Borrow_For_Let }
         self.see(Alt.Expr_For_Borrow)
@@ -5672,6 +5713,9 @@ extension Parser {
             if self.kind_at(1) != TokenKind.Ident {
                 return self.error("a `var` binding in a payload is `var` and a name")
             }
+            if self.refused_var_discard(0, Rule.Rule_DiscardBinding, "write `_`") {
+                return false
+            }
             self.see(Alt.Pat_Payload_Var)
             self.see(Alt.Pat_VarBinding)
             let start = self.here()
@@ -5688,6 +5732,9 @@ extension Parser {
         let mode = self.kind_at(1)
         if (mode != TokenKind.Let && mode != TokenKind.Var) || self.kind_at(2) != TokenKind.Ident {
             return self.error("a borrow binding in a payload is `borrow let` or `borrow var` and a name")
+        }
+        if self.refused_var_discard(1, Rule.Rule_DiscardBinding, "write `_`") {
+            return false
         }
         let alt = if mode == TokenKind.Var { Alt.Pat_BorrowBinding_Var } else { Alt.Pat_BorrowBinding_Let }
         self.see(Alt.Pat_Payload_Borrow)
@@ -7175,6 +7222,11 @@ extension Parser {
         let kind = self.kind()
         if kind != TokenKind.Let && kind != TokenKind.Var {
             return self.error("expected `let` or `var` and the next binding")
+        }
+        let first = self.pos > 0 && self.tokens[self.pos - 1].kind == TokenKind.Borrow
+        let hint = if first { "write `borrow let _`" } else { "write `let _`" }
+        if self.refused_var_discard(0, Rule.Rule_DiscardBinding, hint) {
+            return false
         }
         let alt = if kind == TokenKind.Var { Alt.Borrow_Binding_Var } else { Alt.Borrow_Binding_Let }
         self.see(alt)

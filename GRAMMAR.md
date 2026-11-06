@@ -940,7 +940,8 @@ non-expr-statement ::= let-stmt  @syntax.stmt.non-expr.let
 ### 6.1 Bindings
 
 Every binding is initialized where it is declared. `_` as the name discards the
-value.
+value. No `var` binding, here or in any other position, is named `_`
+(§13, syntax.rule.discard-binding).
 
 ```ebnf
 # syntax.stmt.let  status=current  spec="Variables and Mutability"  node=Let
@@ -1906,7 +1907,7 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.expr.refused-while-let-else | The loop ends when the binding fails, so an `else` has nothing to mean. | `if let … else` |
 | syntax.expr.refused-brace-condition | A `{` right after `while` begins the infinite loop's body (syntax.rule.infinite-loop), so the condition never starts with a closure, map or set literal. | `while ({ check() }()) { step() }` |
 | syntax.expr.refused-for-tuple | A `for` head binds one name. | `for p in v { let (a, b) = p }` |
-| syntax.stmt.refused-var-discard | `_` binds nothing, so there is nothing to mutate. | `let _ = e` |
+| syntax.stmt.refused-var-discard | `_` binds nothing, so there is nothing to mutate. The statement is the one position whose refusal is this production's; syntax.rule.discard-binding refuses `var _` at every other. | `let _ = e` |
 | syntax.stmt.refused-uninitialized | Every binding is initialized where it is declared. | `var x: T = …` |
 | syntax.stmt.refused-local-type-alias | An alias is declared at module level, or as an associated type. | a module-level `type` |
 | syntax.stmt.refused-local-const | A local that never changes is a `let`. | `let x = 5` |
@@ -2221,7 +2222,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.refusal-body | syntax.test.case, syntax.test.refusal-unit | A refusal case's body is one REFUSAL_TEXT token (syntax.lex.refusal-text), and a normal build reads nothing in it. In a test build its text is lexed and parsed as a unit of its own, and its errors belong to the case. | Attributes (design 58); SL:testing §5; SL-614 | lockdown |
 | syntax.rule.requirement-borrows | syntax.decl.requirement, syntax.decl.borrows-effect | A trait requirement may be `borrows` or `borrows(sync)`. It may not be `consumes`. | Traits; SL:borrowing §5.4 | lockdown |
 | syntax.rule.reference-position | syntax.expr.ref | `&x` and `&var x` stand only as a call argument, or as the operand of a cast to a pointer type. | Reference passing | current |
-| syntax.rule.discard-binding | syntax.stmt.let, syntax.stmt.refused-var-discard | `let _ = e` discards the value. `var _ = e` matches the refused form, never a binding. | Variables and Mutability | current |
+| syntax.rule.discard-binding | syntax.stmt.let, syntax.stmt.refused-var-discard, syntax.pat.var-binding, syntax.pat.borrow-binding, syntax.expr.optional-binding, syntax.expr.while-let, syntax.stmt.guard, syntax.borrow.binding, syntax.borrow.unwrap, syntax.expr.for, syntax.borrow.for | `let _ = e` discards the value, and `_` is the wildcard pattern. No `var` binding is named `_`: `_` binds nothing, so there is nothing to mutate, and in a `match` on a borrowed place a `var` binding may take an exclusive borrow for a name that does not exist. The rule refuses `var _` wherever a `var` binding stands: a payload's `var _` and `borrow var _` (write `_`), `if var _`, `else if var _`, `while var _` and `guard var _` (write `let _`), `if borrow var _` and `while borrow var _` (write `let _`), a `borrow` block's `var _` binding (write `let _`, so `borrow let _` for the first), and `for var _` and `for borrow var _` (write `for _ in`). The statement `var _ = e` matches the refused form, never a binding, so its refusal is named by syntax.stmt.refused-var-discard; every other position is refused by this rule's name. | Variables and Mutability; SL-980 | current |
 | syntax.rule.try-route-case | syntax.expr.try-route | The routing clause names an enum and a case, so its path has at least two segments: `try(as ConfigError.Alloc)`. | Error routing at `try` | current |
 | syntax.rule.import-names | syntax.decl.import-symbols, syntax.decl.import-symbol | One selective import binds each local name once, so `import m.{a, b as a}` is refused. | Imports | current |
 | syntax.rule.interpolation-whole | syntax.expr.interp-segment | An interpolation segment must be exactly one expression: `"{a b}"` and `"{1F600}"` are refused, not read as their first token. | String | current |
