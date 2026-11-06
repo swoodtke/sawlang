@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 8:14
+// message: `p[1..]` leaves out its upper bound, and a raw pointer has no length to run to: name the end, as `p[a..b]`
+// A raw pointer's range view names its end (SL-988).
+
+func total(s: &[Int]) -> Int { s.len() }
+
+func run(p: UnsafePointer<Int>) unsafe -> Int {
+    total(&p[1..])
+}
+
+func main() {
+}

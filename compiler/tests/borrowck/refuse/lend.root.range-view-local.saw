@@ -1,0 +1,19 @@
+// refuses: lend.root at 12:9
+// A slice accessor lends storage its receiver owns, so a view of its own
+// local is refused (SL:borrowing §2.7, SL-988).
+
+struct Ring {
+    store: [Int; 6]
+}
+
+extension Ring {
+    func [](&var self, range: Range) borrows -> &var [Int] {
+        var local: [Int; 3] = [1, 2, 3]
+        lend local[range.current..range.end]
+    }
+}
+
+func main() {
+    var r = Ring(store: [1, 2, 3, 4, 5, 6])
+    r[0..2][0] = 1
+}

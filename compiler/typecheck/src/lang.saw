@@ -222,7 +222,20 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
             try! out.push("struct (generics (T))")
             try! out.push("(field value T public)")
         },
-        case ThreadStruct -> try! out.push("struct (generics (T))")
+        case ThreadStruct -> try! out.push("struct (generics (T))"),
+        case RangeFromStruct -> {
+            try! out.push("struct")
+            try! out.push("(field start Int public)")
+        },
+        case RangeToStruct -> {
+            try! out.push("struct")
+            try! out.push("(field end Int public)")
+        },
+        case RangeToInclusiveStruct -> {
+            try! out.push("struct")
+            try! out.push("(field last Int public)")
+        },
+        case RangeFullStruct -> try! out.push("struct")
     }
     move out
 }

@@ -1,0 +1,10 @@
+// refuses: subscript.string-range at 8:13
+// message: `s[1..3]` is a range of a `String`, which is not built yet; copy the bytes out with `s.substring(start, end)`
+// A `String` is one pointer to NUL-terminated text, so a range of it waits
+// on a representation for windows; `substring` copies (SL-988).
+
+func main() {
+    let s = "hello"
+    let t = s[1..3]
+    print(t)
+}

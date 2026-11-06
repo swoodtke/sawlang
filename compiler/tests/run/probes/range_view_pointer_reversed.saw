@@ -1,0 +1,16 @@
+// probe: panics
+// about: a raw pointer's range view, which has no length to check, panics when its range is out of order, naming it as written (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: pointer: range out of order: 3..1
+func bound(n: Int) -> Int { n }
+
+func count(p: UnsafePointer<Int>) unsafe -> Int {
+    let s = bound(3)
+    p[s..1].len()
+}
+
+func main() unsafe {
+    var a: [Int; 4] = [1, 2, 3, 4]
+    print(count((&a) as UnsafePointer<Int>))
+}

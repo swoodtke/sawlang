@@ -128,7 +128,8 @@ extension ResProgram {
     }
 
     // Rewrites copied method `method` to the shared signature: its receiver
-    // `&self`, and a result written `&var T` read as `&T`.
+    // `&self`, a result written `&var T` read as `&T`, and one written
+    // `&var [T]` read as `&[T]`, so a shared twin never lends a writable place.
     func share_signature(&var self, method: Int) {
         let n = self.child_count(method)
         var k = 0
@@ -141,6 +142,8 @@ extension ResProgram {
                 }
             } else if not self.is_leaf(c) && res_is_type_alt(self.alt_of(c)) && self.is_alt(c, Alt.Type_Ref_Exclusive) {
                 self.set_alt(c, Alt.Type_Ref_Shared)
+            } else if not self.is_leaf(c) && res_is_type_alt(self.alt_of(c)) && self.is_alt(c, Alt.Type_Slice_Exclusive) {
+                self.set_alt(c, Alt.Type_Slice_Shared)
             }
             k = k + 1
         }

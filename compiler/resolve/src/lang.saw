@@ -99,7 +99,13 @@ public enum ResLang {
     case WriteOnlyStruct,
     // The OS-thread engine's handle, which a `Thread.spawn` site hands back
     // and whose members its lowering calls (SL-965).
-    case ThreadStruct
+    case ThreadStruct,
+    // The ranges with a bound left out, `a..`, `..b`, `..=b` and `..`, which a
+    // range subscript takes (SL:borrowing §6). Stage 0's vocabulary has none.
+    case RangeFromStruct,
+    case RangeToStruct,
+    case RangeToInclusiveStruct,
+    case RangeFullStruct
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -165,6 +171,10 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.ReadOnlyStruct)
     try! out.push(ResLang.WriteOnlyStruct)
     try! out.push(ResLang.ThreadStruct)
+    try! out.push(ResLang.RangeFromStruct)
+    try! out.push(ResLang.RangeToStruct)
+    try! out.push(ResLang.RangeToInclusiveStruct)
+    try! out.push(ResLang.RangeFullStruct)
     move out
 }
 
@@ -201,6 +211,12 @@ extension ResLangRow {
     static func type(index: Int, name: String) -> ResLangRow {
         ResLangRow(index: index, name: name, home: "std.prelude", builtin_home: "builtin",
                    builtin_name: name)
+    }
+
+    // A type role of the new std's prelude that Stage 0's root has no
+    // declaration for, so it stays unbound there.
+    static func new_vocabulary(index: Int, name: String) -> ResLangRow {
+        ResLangRow(index: index, name: name, home: "std.prelude", builtin_home: "builtin", builtin_name: "")
     }
 
     // A function role of `std.string` that Stage 0's compiler synthesizes.
@@ -282,7 +298,11 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case NormalStruct -> ResLangRow.type(44, "Normal"),
         case ReadOnlyStruct -> ResLangRow.type(45, "ReadOnly"),
         case WriteOnlyStruct -> ResLangRow.type(46, "WriteOnly"),
-        case ThreadStruct -> ResLangRow.thread_item(47, "Thread", "Thread")
+        case ThreadStruct -> ResLangRow.thread_item(47, "Thread", "Thread"),
+        case RangeFromStruct -> ResLangRow.new_vocabulary(48, "RangeFrom"),
+        case RangeToStruct -> ResLangRow.new_vocabulary(49, "RangeTo"),
+        case RangeToInclusiveStruct -> ResLangRow.new_vocabulary(50, "RangeToInclusive"),
+        case RangeFullStruct -> ResLangRow.new_vocabulary(51, "RangeFull")
     }
 }
 

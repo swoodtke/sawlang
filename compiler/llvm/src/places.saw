@@ -10,7 +10,7 @@ import sawllvm.module.{LlEmitter, ll_bare_code, ll_code_thunk_symbol, ll_export_
                           ll_symbol, ll_value_thunk_symbol, ll_value_type}
 import sawllvm.text.{ll_double_constant, ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.build.{mir_func_local}
-import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
+import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind, MirRvalue}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MonoItemKind, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
@@ -43,6 +43,16 @@ public func ll_tag_type(l: &TargetLayout) -> String {
 //   LlEmitter.store_slice
 public func ll_slice_length_at(target: &Target) -> Int {
     target.word
+}
+
+// `and i1 a, b`.
+func ll_and(a: String, b: String) -> String {
+    var text = StringBuilder()
+    try! text.append("and i1 ")
+    try! text.append(a)
+    try! text.append(", ")
+    try! text.append(b)
+    text.build()
 }
 
 // The address of MIR local `l`'s slot.
@@ -284,6 +294,141 @@ extension LlEmitter {
         ll_parts_push(&var parts, LL_PART_RUN, h, close_len.build())
         self.fail_parts(&var mono, node, "slice: index out of range: ", &parts)
         self.put_label(pass)
+    }
+
+    // THE RANGE VIEW'S BACKEND (SL:borrowing §6): range view `rv` (MIR's
+    // `range_view`, `mir_range_slice`) into slice `dest`. Its base is a
+    // reference to a fixed array, a slice, or a raw pointer, and its range
+    // one of the six range structs. The range is checked against the base's
+    // length, or only for order over a raw pointer, which has none; one
+    // outside panics, naming the range as written and the length, as an
+    // index's check does. Inside, the slice is the elements from the lower
+    // bound up to the upper.
+    // ENTRY POINTS:
+    //     slice_into
+    public func range_slice_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue,
+                                 dest: String, node: Int) {
+        let o = mono.dp.bc.mir.lists[rv.first]
+        let r = mono.dp.bc.mir.lists[rv.first + 1]
+        let base_type = mono.dp.bc.mir.operands[o].ty
+        let element = mono.dp.bc.mir.tc.deref_type(rv.ty)
+        let size = self.lay_at(&var mono, &var target, element, node).size
+        var start = ""
+        var length = ""
+        let kind = mono.dp.bc.mir.tc.kind_of(base_type)
+        if kind == TcKind.Slice {
+            let base_at = self.operand_addr(&var mono, &var target, o, base_type, node)
+            let (first, count) = self.slice_start_length(&target, base_at)
+            start = first
+            length = count
+        } else if kind == TcKind.Ref {
+            let array = mono.dp.bc.mir.tc.referent(base_type)
+            let l = self.lay_at(&var mono, &var target, array, node)
+            start = self.operand_value(&var mono, &var target, o, node)
+            var n = StringBuilder()
+            try! n.append(l.length)
+            length = n.build()
+        } else {
+            start = self.operand_value(&var mono, &var target, o, node)
+        }
+        let range_type = mono.dp.bc.mir.operands[r].ty
+        let range_at = self.operand_addr(&var mono, &var target, r, range_type, node)
+        let d = mono.dp.bc.mir.tc.nominal_decl(range_type)
+        let known = mono.dp.bc.mir.tc.known
+        let two = d == known.range || d == known.range_inclusive
+        let upto = d == known.range_to || d == known.range_to_inclusive
+        let inclusive = d == known.range_inclusive || d == known.range_to_inclusive
+        var low = "0"
+        var high = length
+        if two || d == known.range_from {
+            low = self.range_bound(&var mono, &var target, range_at, range_type, 0)
+        }
+        if two || upto {
+            high = self.range_bound(&var mono, &var target, range_at, range_type, if two { 1 } else { 0 })
+        }
+        var upper = high
+        if inclusive {
+            upper = self.word_op("add", high, "1")
+        }
+        if d != known.range_full {
+            var within = ""
+            if length.len() > 0 {
+                let order = self.word_compare("ule", low, upper)
+                let fits = if inclusive { self.word_compare("ult", high, length) } else { self.word_compare("ule", upper, length) }
+                within = self.assign(ll_and(order, fits))
+            } else {
+                let order = self.word_compare("sle", low, upper)
+                let positive = self.word_compare("sge", low, "0")
+                within = self.assign(ll_and(order, positive))
+            }
+            let pass = self.new_label("inrange")
+            let fail = self.new_label("outofrange")
+            self.branch(within, pass, fail)
+            self.put_label(fail)
+            var parts = LlParts()
+            if two || d == known.range_from {
+                ll_parts_push(&var parts, LL_PART_SIGNED, low, "")
+            }
+            self.text_part(&var parts, if inclusive { "..=" } else { ".." })
+            if two || upto {
+                ll_parts_push(&var parts, LL_PART_SIGNED, high, "")
+            }
+            if length.len() > 0 {
+                self.text_part(&var parts, " (len ")
+                ll_parts_push(&var parts, LL_PART_SIGNED, length, "")
+                self.text_part(&var parts, ")")
+                self.fail_parts(&var mono, node, "slice: range out of range: ", &parts)
+            } else {
+                self.fail_parts(&var mono, node, "pointer: range out of order: ", &parts)
+            }
+            self.put_label(pass)
+        }
+        let first = self.element_addr(start, low, size)
+        let count = self.word_op("sub", upper, low)
+        self.store_slice(&target, dest, first, count)
+    }
+
+    // Field `index` of the range struct of type `t` at `at`, a word.
+    func range_bound(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int, index: Int) -> String {
+        let field = self.offset_addr(at, target.member_offset(&var mono.dp.bc.mir.tc, t, index))
+        let word = self.word
+        self.load(word, field)
+    }
+
+    // `a op b` over two words, `op` an integer instruction that cannot trap.
+    func word_op(&var self, op: String, a: String, b: String) -> String {
+        var text = StringBuilder()
+        try! text.append(op)
+        try! text.append(" ")
+        try! text.append(self.word)
+        try! text.append(" ")
+        try! text.append(a)
+        try! text.append(", ")
+        try! text.append(b)
+        self.assign(text.build())
+    }
+
+    // `icmp cond a, b` over two words.
+    func word_compare(&var self, cond: String, a: String, b: String) -> String {
+        var text = StringBuilder()
+        try! text.append("icmp ")
+        try! text.append(cond)
+        try! text.append(" ")
+        try! text.append(self.word)
+        try! text.append(" ")
+        try! text.append(a)
+        try! text.append(", ")
+        try! text.append(b)
+        self.assign(text.build())
+    }
+
+    // A constant run of `text` added to a panic's parts.
+    func text_part(&var self, parts: &var LlParts, text: String) {
+        let bytes = self.text_bytes(text)
+        let g = self.pooled(&bytes, false, 0)
+        var n = StringBuilder()
+        try! n.append(bytes.len())
+        ll_parts_push(&var parts, LL_PART_RUN, g, n.build())
     }
 
     // A forced payload's check: the value at `addr` holds case `decl`, or

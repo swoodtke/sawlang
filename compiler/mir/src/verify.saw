@@ -629,10 +629,11 @@ extension MirProgram {
         }
     }
 
-    // Whether declaration `d` is a `borrows` accessor that lends a place.
+    // Whether declaration `d` is a `borrows` accessor that lends a place, a
+    // slice among them.
     func lends_place_decl(&self, d: Int) -> Bool {
         let s = self.tc.sigs[d]
-        let place = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace
+        let place = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace || s.lending == TcLend.Slice
         (s.effects & TC_EFFECT_BORROWS) != 0 && place
     }
 
@@ -1878,14 +1879,28 @@ extension MirProgram {
         }
         let s = self.tc.sigs[d]
         var lent = s.result
+        let o = self.lists[c.arg_first]
+        let have = self.operands[o].ty
+        // A slice is lent as itself, of the accessor's elements and mode.
+        if s.lending == TcLend.Slice || s.lending == TcLend.ConditionalSlice {
+            let declared = if s.lending == TcLend.ConditionalSlice { self.tc.arg_of(lent, 0) } else { lent }
+            if have != declared {
+                var text = StringBuilder()
+                try! text.append("a `lend` passes a `")
+                try! text.append(self.tc.type_text(have))
+                try! text.append("` where its accessor lends the slice `")
+                try! text.append(self.tc.type_text(declared))
+                try! text.append("`")
+                self.problem(f, &var out, text.build())
+            }
+            return
+        }
         if self.tc.kind_of(lent) == TcKind.Ref {
             lent = self.tc.referent(lent)
         }
         if s.lending == TcLend.ConditionalPlace {
             lent = self.tc.arg_of(lent, 0)
         }
-        let o = self.lists[c.arg_first]
-        let have = self.operands[o].ty
         if self.tc.kind_of(have) != TcKind.Ref || self.tc.referent(have) != lent {
             var text = StringBuilder()
             try! text.append("a `lend` passes a `")

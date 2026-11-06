@@ -18,7 +18,7 @@ import sawllvm.places.{ll_local_slot, ll_tag_type}
 import sawllvm.literals.{ll_zero_constant}
 import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_fit_signed, ll_integer_value}
-import sawmir.build.{mir_func_local}
+import sawmir.build.{mir_func_local, mir_range_slice}
 import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirProjKind, MirRvalue, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoProgram}
@@ -80,6 +80,10 @@ extension LlEmitter {
     // funnel answered, the second operand, a `(UnsafePointer<UInt8>, Int)`.
     func slice_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
                     node: Int) {
+        if mir_range_slice(&mono.dp.bc.mir.tc, &rv) {
+            self.range_slice_into(&var mono, &var target, &rv, dest, node)
+            return
+        }
         let o = mono.dp.bc.mir.lists[rv.first]
         if rv.count == 1 {
             let reference = mono.dp.bc.mir.operands[o].ty

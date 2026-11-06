@@ -1,0 +1,11 @@
+// refuses: loan.exclusive-twice at 8:5
+// Two writable range views of one array at once are refused, however their
+// ranges fall: the compiler does not prove two ranges disjoint
+// (SL:borrowing §7, SL-988).
+
+func main() {
+    var a: [Int; 4] = [1, 2, 3, 4]
+    borrow var x = a[0..2], var y = a[2..4] {
+        x[0] = y[0]
+    }
+}

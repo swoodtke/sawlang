@@ -1,0 +1,25 @@
+// refuses: borrows.let-lend at 23:13
+// message: `r[1..3]` views elements where they sit, and is lent
+// A `let` of a slice accessor's lend is refused as a range view's is: the
+// slice is lent for its statement (SL:borrowing §12.1, SL-988).
+
+struct Ring {
+    store: [Int; 6]
+}
+
+extension Ring {
+    func base(&self) unsafe -> UnsafePointer<Int> {
+        (&self.store) as UnsafePointer<Int>
+    }
+
+    @synthesize(shared)
+    func [](&var self, range: Range) unsafe borrows -> &var [Int] {
+        lend self.base()[range.current..range.end]
+    }
+}
+
+func main() {
+    let r = Ring(store: [1, 2, 3, 4, 5, 6])
+    let s = r[1..3]
+    print(s.len())
+}

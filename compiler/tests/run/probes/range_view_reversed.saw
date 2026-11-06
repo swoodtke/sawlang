@@ -1,0 +1,11 @@
+// probe: panics
+// about: a reversed range view panics, naming the range as written and the length (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: slice: range out of range: 2..1 (len 3)
+func bound(n: Int) -> Int { n }
+
+func main() {
+    let a: [Int; 3] = [1, 2, 3]
+    borrow let s = a[bound(2)..1] { print(s.len()) }
+}

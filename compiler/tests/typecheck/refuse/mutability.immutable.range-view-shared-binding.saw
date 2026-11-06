@@ -1,0 +1,10 @@
+// refuses: mutability.immutable at 8:9
+// message: this assignment writes `s[0]`, and `s` is a shared reference
+// A `borrow let` view is read-only (SL:borrowing §3, SL-988).
+
+func main() {
+    var a: [Int; 3] = [1, 2, 3]
+    borrow let s = a[0..2] {
+        s[0] = 5
+    }
+}

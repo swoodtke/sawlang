@@ -771,14 +771,21 @@ extension TcProgram {
         if t < 0 || self.has_error(t) {
             return false
         }
-        let lender = self.lend_in_chain(value)
-        if lender < 0 {
-            return false
-        }
         let m = self.current
         let word = if self.has_alt(s, Alt.Stmt_Let_Mutable) { "var" } else { "let" }
         let place = self.text(m, value)
         let name = self.text(m, target)
+        // A view, a range subscript's or a slice accessor's, is lent whatever
+        // its element, and its copy is the `Vector` `.copy()` makes.
+        if self.kind_of(t) == TcKind.Slice && (self.is_range_view(self.unparen(value)) || self.lend_in_chain(value) >= 0) {
+            self.set_use(value, TcUse.Borrow)
+            self.refuse_view_binding(value, word, &place, &name)
+            return true
+        }
+        let lender = self.lend_in_chain(value)
+        if lender < 0 {
+            return false
+        }
         let c = self.call_at[lender]
         let lent = if c >= 0 && self.calls[c].target >= 0 { self.sigs[self.calls[c].target].lending } else { TcLend.Place }
         if lent == TcLend.BorrowingStruct && lender == self.unparen(value) {
@@ -839,6 +846,24 @@ extension TcProgram {
         }
         self.refuse(value, "borrows.let-lend", msg.build())
         true
+    }
+
+    // A `let` or `var` of view `value` (SL:borrowing §6, §12.5): the view is
+    // lent for its statement, and its owned copy is the one `.copy()` makes.
+    func refuse_view_binding(&var self, value: Int, word: String, place: &String, name: &String) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(place)
+        try! msg.append("` views elements where they sit, and is lent, so a `")
+        try! msg.append(word)
+        try! msg.append("` would keep the lend past this statement. Copy the elements out with `")
+        try! msg.append(place)
+        try! msg.append(".copy()`, a `Vector`, or name the view for a block: `borrow let ")
+        try! msg.append(name)
+        try! msg.append(" = ")
+        try! msg.append(place)
+        try! msg.append(" \{ … \}`")
+        self.refuse(value, "borrows.let-lend", msg.build())
     }
 
     // The source text of a single subscript `e`'s key.
@@ -1596,6 +1621,12 @@ extension TcProgram {
         if (sig.lending == TcLend.ConditionalPlace || sig.lending == TcLend.ConditionalSlice) && self.is_optional(wanted) {
             also = wanted
             wanted = self.arg_of(wanted, 0)
+        }
+        // A slice is lent as a slice of the same elements; its mode is the
+        // lend's (`lend_mode`), and a view takes it once settled.
+        let slices = self.kind_of(wanted) == TcKind.Slice && self.kind_of(t) == TcKind.Slice
+        if slices && self.types.ty(t).b == self.types.ty(wanted).b {
+            return
         }
         if t != wanted && t != also && not self.has_error(wanted) {
             var msg = StringBuilder()
@@ -3270,6 +3301,8 @@ extension TcProgram {
             case Expr_Compare_Pair -> self.compare_expr(e),
             case Expr_Coalesce -> self.coalesce_expr(e, want),
             case Expr_Range_Closed -> self.range_expr(e),
+            case Expr_Range_From -> self.range_expr(e),
+            case Expr_Range_Upto -> self.range_expr(e),
             case Expr_Cast -> self.cast_expr(e),
             case Expr_Ref_Shared -> self.ref_expr(e, false),
             case Expr_Ref_Exclusive -> self.ref_expr(e, true),
@@ -5284,20 +5317,63 @@ extension TcProgram {
         self.set_type(e, payload, false)
     }
 
-    // `a..b`, `a..=b`: a `Range` or `RangeInclusive` of `Int`s.
+    // THE RANGE TYPING FUNNEL: `a..b` and `a..=b` are a `Range` and a
+    // `RangeInclusive`, and with a bound left out `a..`, `..b`, `..=b` and
+    // `..` are a `RangeFrom`, a `RangeTo`, a `RangeToInclusive` and a
+    // `RangeFull` (`range_form`). Every bound is an `Int`.
+    // ENTRY POINTS:
+    //     expr_as (Expr_Range_Closed, Expr_Range_From, Expr_Range_Upto)
     func range_expr(&var self, e: Int) -> Int {
-        let low = self.res.first_node_child(e)
-        let high = self.res.last_node_child(e)
         let m = self.current
         let op_leaf = self.res.first_leaf(e)
         let op = self.text(m, op_leaf)
         let i = self.int_type()
-        let _ = self.check_operand(low, i)
-        let _ = self.check_operand(high, i)
-        let d = if op.equals("..=") { self.known.range_inclusive } else { self.known.range }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if not self.is_leaf(c) {
+                let _ = self.check_operand(c, i)
+            }
+            k = k + 1
+        }
+        let d = self.range_form(e, &op)
+        if d < 0 {
+            self.not_yet(e, "a range with a bound left out, under a std root that declares no type for it,")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         let t = self.prim(d)
         self.record_builtin(e, -1, TcRole.BuiltinOperator, op)
         self.set_type(e, t, false)
+    }
+
+    // The range struct range expression `e`, whose operator is `op`, builds.
+    public func range_form(&self, e: Int, op: &String) -> Int {
+        let inclusive = op.equals("..=")
+        if self.has_alt(e, Alt.Expr_Range_Closed) {
+            return if inclusive { self.known.range_inclusive } else { self.known.range }
+        }
+        if self.has_alt(e, Alt.Expr_Range_From) {
+            return self.known.range_from
+        }
+        if self.res.first_node_child(e) < 0 {
+            return self.known.range_full
+        }
+        if inclusive { self.known.range_to_inclusive } else { self.known.range_to }
+    }
+
+    // Whether `t` is one of the range structs a range expression builds.
+    public func is_range_type(&self, t: Int) -> Bool {
+        if t < 0 || self.kind_of(t) != TcKind.Nominal {
+            return false
+        }
+        let d = self.types.ty(t).decl
+        if d < 0 {
+            return false
+        }
+        let k = self.known
+        d == k.range || d == k.range_inclusive || d == k.range_from || d == k.range_to || d == k.range_to_inclusive || d == k.range_full
     }
 
     // `x as T`: a numeric conversion, a raw-backed enum to its backing, or a
@@ -7489,9 +7565,13 @@ extension TcProgram {
                     return self.set_type(e, poisoned, false)
                 }
                 self.lend_mode(place, exclusive)
-                let pt = self.through_refs(place)
+                var pt = self.through_refs(place)
                 if not self.has_error(pt) && not self.expr_place[place] {
                     self.refuse_not_a_place(place)
+                }
+                // A view's binding is the slice in the binding's own mode.
+                if not self.has_error(pt) && self.kind_of(pt) == TcKind.Slice {
+                    pt = self.reborrowed(pt, exclusive)
                 }
                 self.bind_borrow(target, pt, exclusive)
                 let leaf = self.res.first_leaf(target)
@@ -8596,17 +8676,19 @@ extension TcProgram {
         self.set_type(e, i, false)
     }
 
-    // A slice's `get(i)`, `sort()` and `fill(value)` (SL:borrowing §6): each
-    // a call of its std function (`TcKnown.slice_get` and its siblings),
-    // which MIR makes with the slice as the first argument, so the element
-    // meets that function's bound here. `get` copies an element out, so it
-    // needs `Copy`; `sort` and `fill` write through a `&var [T]`, and need
-    // `Comparable` and `ExplicitCopy`.
+    // A slice's `get(i)`, `sort()`, `fill(value)` and `copy()` (SL:borrowing
+    // §6): each a call of its std function (`TcKnown.slice_get` and its
+    // siblings), which MIR makes with the slice as the first argument, so the
+    // element meets that function's bound here. `get` copies an element out,
+    // so it needs `Copy`; `sort` and `fill` write through a `&var [T]`, and
+    // need `Comparable` and `ExplicitCopy`; `copy` reads the elements into a
+    // new `Vector`, and needs `ExplicitCopy`.
     func slice_operation(&var self, e: Int, base: Int, t: Int, text: &String, args: &TcArgs) -> Int {
         let element = self.types.ty(t).b
         let get = text.equals("get")
         let sort = text.equals("sort")
-        let wanted = if sort { 0 } else { 1 }
+        let copy = text.equals("copy")
+        let wanted = if sort || copy { 0 } else { 1 }
         var k = 0
         while k < args.values.len() {
             if args.labels[k] >= 0 {
@@ -8615,7 +8697,7 @@ extension TcProgram {
             if k == 0 && get {
                 let i = self.int_type()
                 self.check_argument(args.values[k], i)
-            } else if k == 0 && not sort {
+            } else if k == 0 && not sort && not copy {
                 self.check_argument(args.values[k], element)
             } else {
                 let v = args.values[k]
@@ -8626,7 +8708,7 @@ extension TcProgram {
             k = k + 1
         }
         if args.values.len() != wanted {
-            self.refuse(e, "call.arity", "a slice's `get(i)` takes an index, `fill(value)` a value and `sort()` nothing")
+            self.refuse(e, "call.arity", "a slice's `get(i)` takes an index, `fill(value)` a value, and `sort()` and `copy()` nothing")
         }
         var bound = self.known.explicit_copy
         var callee = self.known.slice_fill
@@ -8636,6 +8718,8 @@ extension TcProgram {
         } else if sort {
             bound = self.known.comparable
             callee = self.known.slice_sort
+        } else if copy {
+            callee = self.known.slice_copy
         }
         if callee < 0 {
             var none = StringBuilder()
@@ -8660,12 +8744,14 @@ extension TcProgram {
                 try! msg.append("` is not: `get` copies the element out; `s[i]` reaches it in place")
             } else if sort {
                 try! msg.append("` is not: `sort` orders the elements by `>`")
+            } else if copy {
+                try! msg.append("` is not: `copy` copies every element into a new `Vector`")
             } else {
                 try! msg.append("` is not: `fill` writes a copy of the value into every slot")
             }
             self.refuse(e, "type.bound", msg.build())
         }
-        if get {
+        if get || copy {
             self.set_use(base, TcUse.Borrow)
         } else {
             self.set_use(base, TcUse.BorrowVar)
@@ -8673,6 +8759,18 @@ extension TcProgram {
         self.record_builtin(e, -1, TcRole.Builtin, text)
         if get {
             let r = self.mk_optional(element)
+            return self.set_type(e, r, false)
+        }
+        if copy {
+            if callee < 0 {
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, false)
+            }
+            self.build_decl(callee)
+            var inst = Vector<Int>()
+            try! inst.push(element)
+            let own = TcSubst(owner: callee, args: move inst)
+            let r = self.subst(self.sigs[callee].result, &own)
             return self.set_type(e, r, false)
         }
         let v = self.void_type()
@@ -12645,6 +12743,10 @@ extension TcProgram {
             if lent >= 0 && (sig.lending == TcLend.Place || sig.lending == TcLend.ConditionalPlace) {
                 return self.set_type(e, lent, true)
             }
+            // A lent slice is a place as a slice binding is.
+            if sig.lending == TcLend.Slice {
+                return self.set_type(e, result, true)
+            }
         }
         self.set_type(e, result, false)
     }
@@ -12709,7 +12811,7 @@ public func tc_memory_accessor(name: &String) -> Bool {
 
 // Whether `name` is a slice method a std function answers (`slice_operation`).
 public func tc_slice_operation(name: &String) -> Bool {
-    name.equals("get") || name.equals("sort") || name.equals("fill")
+    name.equals("get") || name.equals("sort") || name.equals("fill") || name.equals("copy")
 }
 
 // Whether `name` is a method that changes a container's length, which a slice
@@ -13050,6 +13152,9 @@ extension TcProgram {
             if inner >= 0 {
                 self.add_adjust(base, TcAdjustKind.Deref, inner)
             }
+            if args.values.len() == 1 && self.is_range_syntax(args.values[0]) {
+                return self.range_view(e, base, t, pointer, args.values[0])
+            }
             if pointer {
                 self.consume(base)
             } else {
@@ -13078,6 +13183,11 @@ extension TcProgram {
                 let poisoned = self.error_type
                 return self.set_type(e, poisoned, true)
             }
+            if info.decl == self.known.string && args.values.len() == 1 && self.is_range_syntax(args.values[0]) {
+                self.refuse_string_range(e, base)
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, true)
+            }
             var msg = StringBuilder()
             try! msg.append("`")
             try! msg.append(self.type_text(t))
@@ -13101,6 +13211,77 @@ extension TcProgram {
         }
         self.expr_place[e] = true
         result
+    }
+
+    // A range of a `String`, `s[a..b]`: not built, since a `String` is one
+    // pointer to text that ends in a NUL, and a window of it would be
+    // neither; `substring` copies the bytes out.
+    func refuse_string_range(&var self, e: Int, base: Int) {
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` is a range of a `String`, which is not built yet; copy the bytes out with `")
+        try! msg.append(self.text(m, base))
+        try! msg.append(".substring(start, end)`, which panics on a range outside `0...len()` or reversed")
+        self.refuse(e, "subscript.string-range", msg.build())
+    }
+
+    // Whether `e`, through parentheses, is a range expression.
+    public func is_range_syntax(&self, e: Int) -> Bool {
+        let at = self.unparen(e)
+        self.has_alt(at, Alt.Expr_Range_Closed) || self.has_alt(at, Alt.Expr_Range_From) || self.has_alt(at, Alt.Expr_Range_Upto)
+    }
+
+    // THE RANGE VIEW (SL:borrowing §6): `a[r]` over a fixed array, a slice or
+    // a raw pointer `t`, with `r` a range, is a place that views the elements
+    // `r` names, a slice of them, as a slice binding is a place. It is typed
+    // shared here, and exclusive once its use is known to write
+    // (`settle_range_views`); a write's root is the base's (`place_verdict`).
+    // The backend checks the range against the length and panics outside
+    // it; a raw pointer has no length, so its range names its upper bound.
+    // ENTRY POINTS:
+    //     subscript_expr
+    func range_view(&var self, e: Int, base: Int, t: Int, pointer: Bool, arg: Int) -> Int {
+        let _ = self.expr(arg, TC_WANT_NONE)
+        self.consume(arg)
+        if pointer {
+            self.consume(base)
+        } else {
+            self.set_use(base, TcUse.Project)
+        }
+        self.record_builtin(e, -1, TcRole.BuiltinOperator, "[]")
+        let rt = self.final_type(arg)
+        if self.has_error(rt) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, true)
+        }
+        let d = self.nominal_decl(rt)
+        if pointer && (d == self.known.range_from || d == self.known.range_full) {
+            let m = self.current
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.text(m, e))
+            try! msg.append("` leaves out its upper bound, and a raw pointer has no length to run to: name the end, as `p[a..b]`")
+            self.refuse(arg, "type.mismatch", msg.build())
+        }
+        let element = if pointer { self.arg_of(t, 0) } else { self.types.ty(t).b }
+        let s = self.mk_slice(false, element)
+        self.set_type(e, s, true)
+    }
+
+    // Whether subscript `e` is a range view (`range_view`): a builtin
+    // subscript typed a slice, which an element never is.
+    public func is_range_view(&self, e: Int) -> Bool {
+        if e < 0 || self.call_at[e] < 0 {
+            return false
+        }
+        let subscript = self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi)
+        if not subscript || self.calls[self.call_at[e]].role != TcRole.BuiltinOperator {
+            return false
+        }
+        let t = self.expr_types[e]
+        t >= 0 && self.kind_of(t) == TcKind.Slice
     }
 }
 
@@ -13436,10 +13617,26 @@ extension TcProgram {
             k = k + 1
         }
         self.settle_hops(&parents, &layer)
+        self.settle_range_views(&parents, &layer)
         self.check_plain_subscript_reads(&parents, &layer)
         self.lend_window(&parents, &layer)
         self.check_whole_optional_places(&parents, &layer)
         self.check_old_prefixes(&parents, &layer)
+    }
+
+    // A range view (`range_view`) takes its use's mode: exclusive where the
+    // use that ends it writes, an element write, a `&var`, a writing method
+    // or an exclusive lend among them, and shared everywhere else.
+    func settle_range_views(&var self, parents: &TcNodeTable<Int>, layer: &FrontLayer) {
+        let n = self.res.nodes.len()
+        var k = layer.node_first
+        while k < n {
+            if self.is_range_view(k) && self.use_writes(k, &parents) {
+                let element = self.types.ty(self.expr_types[k]).b
+                self.expr_types[k] = self.mk_slice(true, element)
+            }
+            k = k + 1
+        }
     }
 
     // A `?.` hop holds its base's payload from its test to the hop's use, so
@@ -14359,6 +14556,12 @@ extension TcProgram {
         var exclusive = writes
         let settled_target = self.calls[at].target
         let lending = (self.sigs[settled_target].effects & TC_EFFECT_BORROWS) != 0
+        // A lent slice is typed in its accessor's mode, which the switch to
+        // a twin above may have changed.
+        if lending && self.sigs[settled_target].lending == TcLend.Slice && self.kind_of(self.expr_types[e]) == TcKind.Slice {
+            let mode = self.sigs[settled_target].lending_exclusive
+            self.expr_types[e] = self.reborrowed(self.expr_types[e], mode)
+        }
         if not subscript && not lending {
             return
         }

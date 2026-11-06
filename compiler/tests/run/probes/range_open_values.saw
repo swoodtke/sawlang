@@ -1,0 +1,33 @@
+// probe: stated
+// about: the open ranges `a..`, `..b`, `..=b` and `..` are values of `RangeFrom`, `RangeTo`, `RangeToInclusive` and `RangeFull`, in every position an expression takes (SL-988)
+// stage 0: not run; v0.18.0 refuses an open range outside a subscript, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: from 3
+// prints: to 7
+// prints: to inclusive 9
+// prints: full
+// prints: from 5
+// prints: 1 4 2 5
+// prints: 3
+func show_from(r: RangeFrom) { print("from {}", r.start) }
+func show_to(r: RangeTo) { print("to {}", r.end) }
+func show_to_inclusive(r: RangeToInclusive) { print("to inclusive {}", r.last) }
+func show_full(r: RangeFull) { print("full") }
+
+func main() {
+    let a = 3..
+    let b = ..7
+    let c = ..=9
+    let d = ..
+    show_from(a)
+    show_to(b)
+    show_to_inclusive(c)
+    show_full(d)
+    show_from(4 + 1..)
+    let e = 1..4
+    let f = 2..=5
+    print("{} {} {} {}", e.current, e.end, f.current, f.last)
+    var sum = 0
+    for i in 0..3 { sum += i }
+    print(sum)
+}

@@ -1,0 +1,15 @@
+// probe: panics
+// about: an inclusive range view whose last index is the length panics, naming it as written with `..=`; one inside views its last element (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 3
+// panics: slice: range out of range: 1..=3 (len 3)
+func bound(n: Int) -> Int { n }
+
+func total(s: &[Int]) -> Int { s.len() }
+
+func main() {
+    let a: [Int; 3] = [1, 2, 3]
+    print(total(&a[..=bound(2)]))
+    print(total(&a[1..=bound(3)]))
+}

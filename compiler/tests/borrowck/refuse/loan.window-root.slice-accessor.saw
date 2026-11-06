@@ -1,0 +1,26 @@
+// refuses: loan.window-root at 24:9
+// A slice accessor's window charges its whole root until it closes, as a
+// place accessor's does (SL:borrowing §6, SL-988).
+
+struct Ring {
+    store: [Int; 6]
+}
+
+extension Ring {
+    func base(&self) unsafe -> UnsafePointer<Int> {
+        (&self.store) as UnsafePointer<Int>
+    }
+
+    @synthesize(shared)
+    func [](&var self, range: Range) unsafe borrows -> &var [Int] {
+        lend self.base()[range.current..range.end]
+    }
+}
+
+func main() {
+    var r = Ring(store: [1, 2, 3, 4, 5, 6])
+    borrow var w = r[0..2] {
+        w[0] = 9
+        r.store[5] = 0
+    }
+}

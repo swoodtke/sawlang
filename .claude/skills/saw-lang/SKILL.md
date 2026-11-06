@@ -1356,12 +1356,31 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   `s.len()`, `s[i]` (a place; panics `slice: index out of range: 5 (len 3)`),
   `s.get(i)` (`T?`, needs `T: Copy`), and through `&var [T]`: element writes,
   `swap(i, j)`, `sort()` (`T: Comparable`, stable, allocates nothing) and
-  `fill(value)` (`T: ExplicitCopy`). `push`/`pop`/`insert`/`remove`/`append`/
+  `fill(value)` (`T: ExplicitCopy`), and `s.copy()`, a new `Vector<T>` (`T:
+  ExplicitCopy`). `push`/`pop`/`insert`/`remove`/`append`/
   `clear`/`reserve` are refused: a view cannot change its container's length.
   An extern takes `(&s[0]) as UnsafePointer<T>` and `s.len()`. A slice may be
   held across a suspension, captured by a non-escaping closure, forwarded with
   `&s`/`&var s`, and crosses threads on the reference rule (`&[T]` needs
-  `T: Sync`). NOT YET: views of PART of a container (`v[a..b]`), SL-988 unit 2.
+  `T: Sync`).
+  **RANGE VIEWS of a fixed array or a slice**: `a[i..j]`, `a[i..=j]`, `a[i..]`,
+  `a[..j]`, `a[..=j]`, `a[..]` are places of type `&[T]`/`&var [T]` holding the
+  base. They stand where a lent place does: `borrow let s = a[1..4] { … }`,
+  `borrow var`, `checksum(&a[4..])` (the sigil passes it for the call),
+  `a[3..][1] = 0`, `a[..3].sort()`. `let h = a[0..2]` is refused
+  (`borrows.let-lend`): write `a[0..2].copy()` for an owned `Vector`. Outside
+  the base panics at the subscript's line, `slice: range out of range: 1..5
+  (len 3)`, the range named as written (`1..=3`, `-1..`). Two writable views of
+  one base at once are refused even when the ranges do not overlap; a view's
+  loan ends at its last use, like an element binding's. A raw pointer's view,
+  `p[a..b]`/`p[..=b]` in an `unsafe` function, names its end (`p[a..]` is
+  refused) and is checked for order only. A `borrows` accessor may lend one:
+  `(&var self, range: Range) borrows -> &var [T]` with `lend
+  self.store[range.current..range.end]`, and `@synthesize(shared)` derives its
+  `-> &[T]` twin. The open ranges are values too: `a..`, `..b`, `..=b`, `..`
+  are `RangeFrom`, `RangeTo`, `RangeToInclusive`, `RangeFull`. NOT YET:
+  `Vector`/`Data` range subscripts (SL-988 unit 2b, after a seed bump), and a
+  `String` range, refused naming `substring`.
   Older builds refused every slice in the backend (`a slice is not in the
   backend slice yet`).
 - **`Vector.append(other: &[T]) -> Result<Void, AllocError>` (SL-971)** copies

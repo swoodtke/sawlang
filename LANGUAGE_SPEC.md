@@ -4694,6 +4694,7 @@ through `d[i]` does, and panics if that copy cannot be allocated.
 | `s.swap(i, j)` | `&var [T]` | exchanges two elements without copying either; panics on an index out of range |
 | `s.sort()` | `&var [T]`, `T: Comparable` | sorts in place by `>`, stably, with O(n log n) comparisons; nothing is copied or allocated |
 | `s.fill(value)` | `&var [T]`, `T: ExplicitCopy` | writes a copy of `value` into every slot but the last, which takes `value` itself, and destroys each element it overwrites |
+| `s.copy()` | `T: ExplicitCopy` | a new `Vector<T>` holding a copy of each element, in order; panics when the allocator refuses, as every `copy()` does |
 
 An index out of range panics in the accessor rule's words:
 `panic at s.saw:4: slice: index out of range: 5 (len 3)`. A slice cannot change
@@ -4737,7 +4738,68 @@ func main() {
 }
 ```
 
-A view of part of a container, `v[a..b]`, is planned.
+##### Range views
+
+A range subscript views part of a fixed array or a slice: `a[i..j]`,
+`a[i..=j]`, `a[i..]`, `a[..j]`, `a[..=j]` and `a[..]` are each a place of
+slice type, `&[T]`, or `&var [T]` where its use writes, which holds the base as
+`&a` or `&var a` does. The view stands where a lent place stands
+(SL:borrowing §6, §12): named for a block (`borrow let s = a[1..4] { … }`,
+`borrow var`), passed by reference for a call (`checksum(&a[4..])`,
+`zero(&var a[..2])`), or as the base of an element access or a slice method
+(`a[3..][1] = 0`, `a[..3].sort()`). With no sigil it is a value read, and a
+view is lent, so `let h = a[0..2]` is refused (`borrows.let-lend`) and `.copy()`
+makes the owned copy, a `Vector<T>` of the elements, for `T: ExplicitCopy`. A
+range with constant bounds copies the same way.
+
+```saw
+func checksum(bytes: &[Int]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < bytes.len() {
+        sum = sum + bytes[i]
+        i = i + 1
+    }
+    sum
+}
+
+func main() {
+    var readings: [Int; 6] = [4, 8, 15, 16, 23, 42]
+    print(checksum(&readings[2..]))                    // prints: 96
+    borrow var head = readings[..2] { head[0] = 99 }
+    readings[..3].sort()
+    print("{} {} {}", readings[0], readings[1], readings[2])  // prints: 8 15 99
+    let middle = readings[1..=3].copy()
+    print("{} {}", middle.len(), middle[2])            // prints: 3 16
+}
+```
+
+The range is checked against the base's length. One past the end, reversed,
+with a negative bound, or inclusive of the length panics at the subscript's
+line, naming the range as written: `panic at s.saw:6: slice: range out of
+range: 1..5 (len 3)`, `… 1..=3 (len 3)`, `… -1.. (len 3)`. A writable view holds
+its base exclusively while it is in use, so a write to the base between two of
+its uses is refused, and so are two writable views of one base at once, however
+their ranges fall, since the compiler does not prove two ranges disjoint
+(SL:borrowing §7). Its loan ends at its last use, as an element binding's does.
+
+A raw pointer has a range view too, in an `unsafe` function: `p[a..b]`,
+`p[..b]`, `p[a..=b]` and `p[..=b]`. A pointer has no length, so the range names
+its end (`p[a..]` and `p[..]` are refused), and it is checked for order alone:
+`pointer: range out of order: 3..1`.
+
+A `borrows` accessor may lend a slice: `(&var self, range: Range) borrows ->
+&var [T]` lends a view of storage the receiver owns, `lend
+self.store[range.current..range.end]` or a view through a pointer read out of
+the receiver, and `@synthesize(shared)` derives its `(&self) borrows -> &[T]`
+twin, which a read and a shared root reach. A `let` of the accessor's lend is
+refused as a view's is.
+
+`Vector` and `Data` take no range subscript yet: theirs are `borrows` accessors
+in std, and the compiler that builds this one does not yet build a slice lend. A
+range of a `String` is refused (`subscript.string-range`), naming `substring`,
+which copies the bytes out: a `String` is one pointer to text that ends in a
+NUL, which a window could not keep.
 
 #### Capturing `self` and reference parameters
 
@@ -16783,7 +16845,10 @@ Implemented
   Comparison:     == != <  >  <= >=
   Logical:        &&  ||  not        (`not` is logical NOT — not `!`)
   Assignment:     =  += -= *= /= %=  &= |= ^= <<= >>=
-  Range:          ..  ..=            (`..` half-open, `..=` inclusive — design 53)
+  Range:          ..  ..=            (`..` half-open, `..=` inclusive — design 53;
+                                      `a..`, `..b`, `..=b` and `..` leave a bound
+                                      out: `RangeFrom`, `RangeTo`,
+                                      `RangeToInclusive`, `RangeFull`)
   Optional:       ?  ??  ?.  !        (`!` is force-unwrap; `?.` optional chain)
   Reference:      &  &var             (`&x` at a call site; `&var` params)
   Cast:           as                 (`x as Int`)

@@ -258,6 +258,28 @@ extension RangeInclusive: Iterator {
     }
 }
 
+/// The range `start..` with no upper bound, as a subscript's argument: from
+/// `start` to the end of what it subscripts.
+public struct RangeFrom {
+    start: Int
+}
+
+/// The range `..end`, from the start of what it subscripts up to `end`,
+/// which it excludes.
+public struct RangeTo {
+    end: Int
+}
+
+/// The range `..=last`, from the start of what it subscripts through
+/// `last`.
+public struct RangeToInclusive {
+    last: Int
+}
+
+/// The range `..`, all of what it subscripts.
+public struct RangeFull {
+}
+
 /// The interior-mutability cell: a `T` held inline, which a shared borrow
 /// writes through the address `ptr()` hands out.
 ///

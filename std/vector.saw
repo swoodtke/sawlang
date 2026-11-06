@@ -770,17 +770,30 @@ extension EnumeratedIterator<T: ExplicitCopy, A: Allocator = GlobalAllocator>: I
     }
 }
 
-// THE SLICE OPERATIONS: `s.get(i)`, `s.sort()` and `s.fill(value)` on a
-// `&[T]` or a `&var [T]` are each a call of one function here, which the
-// compiler makes in the method call's place, so a slice of any container
-// reaches the one body (SL-988). `len()`, `s[i]` and `swap(i, j)` are the
-// compiler's own and need no body. Nothing else calls these, so none is
-// public.
+// THE SLICE OPERATIONS: `s.get(i)`, `s.sort()`, `s.fill(value)` and
+// `s.copy()` on a `&[T]` or a `&var [T]` are each a call of one function
+// here, which the compiler makes in the method call's place, so a slice of
+// any container reaches the one body (SL-988). `len()`, `s[i]`, `s[a..b]` and
+// `swap(i, j)` are the compiler's own and need no body. Nothing else calls
+// these, so none is public.
 //
 // ENTRY POINTS:
 //   slice_get
 //   slice_sort
 //   slice_fill
+//   slice_copy
+
+// A new `Vector` holding a copy of each element, in order. Like every
+// `copy()`, it panics when the allocator refuses.
+func slice_copy<T: ExplicitCopy>(s: &[T]) -> Vector<T> {
+    var out = try! Vector<T>(capacity: s.len())
+    var i = 0
+    while i < s.len() {
+        try! out.push(s[i].copy())
+        i = i + 1
+    }
+    move out
+}
 
 // A copy of the element at `index`, or `None` outside `0..<s.len()`.
 func slice_get<T: Copy>(s: &[T], index: Int) -> T? {

@@ -1,0 +1,20 @@
+// probe: stated
+// about: a builtin range view's loan ends at the view's last use, as an array element binding's does, so the root may be written inside a `borrow` block after it (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 5 9
+// prints: 5 9
+func main() {
+    var a: [Int; 4] = [1, 2, 3, 4]
+    borrow var s = a[0..2] {
+        s[0] = 5
+        a[3] = 9
+    }
+    print("{} {}", a[0], a[3])
+    var b: [Int; 4] = [1, 2, 3, 4]
+    borrow var x = b[0] {
+        x = 5
+        b[3] = 9
+    }
+    print("{} {}", b[0], b[3])
+}

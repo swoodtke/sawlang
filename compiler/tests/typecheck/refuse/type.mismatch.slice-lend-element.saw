@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 11:14
+// message: `lend` hands out a place of type `Int`, and this accessor lends `&var [Int]`
+// A slice accessor lends a slice, so one element is not its lend (SL-988).
+
+struct Ring {
+    store: [Int; 6]
+}
+
+extension Ring {
+    func [](&var self, range: Range) borrows -> &var [Int] {
+        lend self.store[range.current]
+    }
+}
+
+func main() {
+}

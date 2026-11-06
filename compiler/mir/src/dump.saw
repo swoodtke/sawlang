@@ -7,6 +7,7 @@ import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirCo
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
                          MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
+import sawmir.build.{mir_range_slice}
 import sawmir.program.{MirProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
@@ -538,7 +539,10 @@ extension MirProgram {
             case Widen -> self.append_conversion(&var out, "widen", &info),
             case Adopt -> self.append_conversion(&var out, "adopt", &info),
             case Erase -> self.append_conversion(&var out, "erase", &info),
-            case Slice -> self.append_conversion(&var out, "slice", &info),
+            case Slice -> {
+                let word = if mir_range_slice(&self.tc, &info) { "slice-range" } else { "slice" }
+                self.append_conversion(&var out, word, &info)
+            },
             case Conversion -> {
                 let word = self.tc.name_text(info.op)
                 self.append_conversion(&var out, word, &info)

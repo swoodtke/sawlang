@@ -1,0 +1,11 @@
+// refuses: borrows.let-lend at 9:13
+// message: `a[0..2]` views elements where they sit, and is lent, so a `let` would keep the lend past this statement. Copy the elements out with `a[0..2].copy()`, a `Vector`, or name the view for a block: `borrow let h = a[0..2] { … }`
+// A plain range of a fixed array is refused: its copy would be a `Vector`,
+// which is ExplicitCopy, so the copy is the spelled `.copy()` (SL:borrowing
+// §6, SL-988).
+
+func main() {
+    let a: [Int; 4] = [1, 2, 3, 4]
+    let h = a[0..2]
+    print(h.len())
+}

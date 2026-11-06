@@ -83,6 +83,7 @@ static MIR_STEP_FORCE: Int = 4
 static MIR_STEP_INDEX: Int = 5
 static MIR_STEP_WINDOW: Int = 6
 static MIR_STEP_SETITEM: Int = 7
+static MIR_STEP_RANGE: Int = 8
 
 extension MirVal {
     init(place: Int, fresh: Bool) -> MirVal {
@@ -142,7 +143,7 @@ extension MirProgram {
     }
 
     // Whether `root` is the block of a `borrows` accessor: one that lends a
-    // place, lowered as two halves, or one that lends a borrowing struct,
+    // place or a slice, lowered as two halves, or one that lends a borrowing struct,
     // whose whole body is its window's open.
     func is_accessor_root(&self, d: Int, root: Int) -> Bool {
         if d < 0 || not self.tc.has_alt(root, Alt.Stmt_Block) {
@@ -153,7 +154,7 @@ extension MirProgram {
             return false
         }
         let s = self.tc.sigs[d]
-        let lent = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace || s.lending == TcLend.BorrowingStruct
+        let lent = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace || s.lending == TcLend.Slice || s.lending == TcLend.BorrowingStruct
         (s.effects & TC_EFFECT_BORROWS) != 0 && lent
     }
 
@@ -1513,7 +1514,9 @@ extension MirProgram {
         let exclusive = self.tc.expr_use[e] == TcUse.BorrowVar
         let _ = self.open_scope()
         let p = self.place_of(e)
-        let rv = self.rv_ref(exclusive, p)
+        // A slice is lent as itself in the lend's mode, as `&s` reborrows it.
+        let pt = self.place_type(p)
+        let rv = if self.tc.kind_of(pt) == TcKind.Slice { self.rv_reborrow(exclusive, p) } else { self.rv_ref(exclusive, p) }
         let r = self.temp_of(rv)
         let rp = self.place_local(r)
         var args = Vector<Int>()
@@ -2129,6 +2132,8 @@ extension MirProgram {
             case Expr_Compare_Pair -> MirVal(operand: self.comparison(e)),
             case Expr_Coalesce -> MirVal(operand: self.coalesce(e)),
             case Expr_Range_Closed -> MirVal(operand: self.range(e)),
+            case Expr_Range_From -> MirVal(operand: self.range(e)),
+            case Expr_Range_Upto -> MirVal(operand: self.range(e)),
             case Expr_Cast -> MirVal(operand: self.cast(e)),
             case Expr_Ref_Shared -> MirVal(operand: self.reference(e, false)),
             case Expr_Ref_Exclusive -> MirVal(operand: self.reference(e, true)),
@@ -3109,7 +3114,8 @@ extension MirProgram {
             let p = self.as_place(MirVal(operand: o), key[0])
             let l = self.bare_local(p)
             let t = self.node_type(e)
-            self.push_step(&var steps, MIR_STEP_INDEX, e, -1, l, t)
+            let kind = if self.tc.is_range_view(e) { MIR_STEP_RANGE } else { MIR_STEP_INDEX }
+            self.push_step(&var steps, kind, e, -1, l, t)
             return
         }
         // A getitem's copy is a value like any other a place projects, owned
@@ -3167,7 +3173,7 @@ extension MirProgram {
             return false
         }
         let s = self.tc.sigs[c.target]
-        let place_lent = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace
+        let place_lent = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace || s.lending == TcLend.Slice
         (s.effects & TC_EFFECT_BORROWS) != 0 && place_lent
     }
 
@@ -3238,6 +3244,8 @@ extension MirProgram {
                 }
             } else if s.kind == MIR_STEP_INDEX {
                 p = self.project(p, MirProjKind.Index, -1, s.index, s.ty)
+            } else if s.kind == MIR_STEP_RANGE {
+                p = self.range_view(p, s.index, s.ty)
             } else if s.kind == MIR_STEP_WINDOW {
                 let opened = self.window_open(s.node, p, s.index == 1, s.first, s.count, false)
                 self.scope_window(opened.window)
@@ -3246,6 +3254,8 @@ extension MirProgram {
                 if info.conditional {
                     p = w
                     optional_ref = true
+                } else if self.tc.kind_of(self.local_type(opened.dest)) == TcKind.Slice {
+                    p = w
                 } else {
                     p = self.project(w, MirProjKind.Deref, -1, -1, s.ty)
                 }
@@ -3257,6 +3267,35 @@ extension MirProgram {
             self.not_yet(steps[n - 1].node, "a conditional lend's place read other than through `!`")
         }
         p
+    }
+
+    // THE RANGE VIEW FUNNEL (SL:borrowing §6): the slice of the elements
+    // range `key`, a local, names of base place `p`, a fixed array, a slice
+    // or a raw pointer, as a fresh local of slice type `t`, whose mode is the
+    // view's (typecheck's `settle_range_views`). The slice keeps the base's
+    // loan as its first operand, an array's reference or a slice's reborrow,
+    // or reads a raw pointer, and the backend checks the range against the
+    // base's length (`mir_range_slice`).
+    // ENTRY POINTS:
+    //     realize_as (MIR_STEP_RANGE)
+    func range_view(&var self, p: Int, key: Int, t: Int) -> Int {
+        let exclusive = self.tc.is_exclusive_ref(t)
+        let bt = self.place_type(p)
+        let kind = self.tc.kind_of(bt)
+        var base = -1
+        if kind == TcKind.Slice {
+            base = self.temp_operand(self.rv_reborrow(exclusive, p))
+        } else if kind == TcKind.Array {
+            base = self.temp_operand(self.rv_ref(exclusive, p))
+        } else {
+            base = self.op_copy(p)
+        }
+        var ops = Vector<Int>()
+        try! ops.push(base)
+        try! ops.push(self.op_copy(self.place_local(key)))
+        let rv = self.rv_over(MirRvalueKind.Slice, t, "range", &ops)
+        let l = self.temp_of(rv)
+        self.place_local(l)
     }
 
     // Whether `t` is an Optional of a reference: a conditional lend's
@@ -3348,6 +3387,10 @@ extension MirProgram {
         let w = self.new_window(c.target, exclusive, sync, conditional, e)
         let lent = self.tc.expr_types[e]
         var dest_type = self.tc.mk_ref(exclusive, lent)
+        // A lent slice arrives as the slice itself, in the window's mode.
+        if s.lending == TcLend.Slice {
+            dest_type = self.tc.reborrowed(lent, exclusive)
+        }
         if conditional {
             let payload = self.tc.arg_of(lent, 0)
             let r = self.tc.mk_ref(exclusive, payload)
@@ -4374,12 +4417,12 @@ extension MirProgram {
     }
 
     // Slice method `e` (SL:borrowing §6): the arguments first, then the
-    // slice, reborrowed shared for `len()` and `get(i)` and exclusive for
+    // slice, reborrowed shared for `len()`, `get(i)` and `copy()` and exclusive for
     // `swap(i, j)`, `sort()` and `fill(value)`, so an argument may read the
     // slice, as one may read a vector whose method it feeds. `len` and
-    // `swap` stay builtins the backend lowers; `get`, `sort` and `fill` are
-    // calls of their std functions (`TcKnown.slice_get` and its siblings)
-    // at the element type, the slice first.
+    // `swap` stay builtins the backend lowers; `get`, `sort`, `fill` and
+    // `copy` are calls of their std functions (`TcKnown.slice_get` and its
+    // siblings) at the element type, the slice first.
     func slice_call(&var self, e: Int, c: &TcCall, base: Int, name: &String, t: Int) -> MirVal {
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
@@ -4401,6 +4444,8 @@ extension MirProgram {
             funnel = self.tc.known.slice_sort
         } else if name.equals("fill") {
             funnel = self.tc.known.slice_fill
+        } else if name.equals("copy") {
+            funnel = self.tc.known.slice_copy
         }
         var call = self.blank_call(MirCallKind.Builtin, e)
         call.spelling = c.spelling
@@ -4912,7 +4957,25 @@ extension MirProgram {
     }
 
     // `a..b`, `a..=b`.
+    // THE RANGE CONSTRUCTION FUNNEL: range expression `e` as the value of
+    // the range struct typecheck typed it (`range_form`). `a..b` and `a..=b`
+    // are the range operator, which the backend builds; a range with a bound
+    // left out is its struct's memberwise construction from the bound it
+    // has, `..` from none.
+    // ENTRY POINTS:
+    //     lower_val_as (Expr_Range_Closed, Expr_Range_From, Expr_Range_Upto)
     func range(&var self, e: Int) -> Int {
+        let t = self.tc.expr_types[e]
+        if not self.tc.has_alt(e, Alt.Expr_Range_Closed) {
+            var bounds = Vector<Int>()
+            let bound = self.tc.res.first_node_child(e)
+            if bound >= 0 {
+                try! bounds.push(self.operand(bound))
+            }
+            let d = self.tc.nominal_decl(t)
+            let rv = self.rv_aggregate(MirAggregate.Struct, d, t, &bounds)
+            return self.temp_operand(rv)
+        }
         let low = self.tc.res.first_node_child(e)
         let high = self.tc.res.last_node_child(e)
         let m = self.tc.node_module(e)
@@ -4926,7 +4989,6 @@ extension MirProgram {
         var pair = Vector<Int>()
         try! pair.push(a)
         try! pair.push(b)
-        let t = self.tc.expr_types[e]
         let rv = self.rv_over(MirRvalueKind.Binary, t, op, &pair)
         self.temp_operand(rv)
     }
@@ -5812,6 +5874,17 @@ extension MirProgram {
         let m = self.tc.node_module(p)
         let name = self.leaf_name(m, leaf)
         let t = self.tc.expr_types[p]
+        // A binding of a slice is the slice reborrowed in its own mode, as a
+        // slice parameter is, so its loan stands on what the slice views.
+        let pt = self.place_type(place)
+        if (u == TcUse.Borrow || u == TcUse.BorrowVar) && self.tc.kind_of(pt) == TcKind.Slice {
+            let rv = self.rv_reborrow(u == TcUse.BorrowVar, place)
+            let rt = self.rvalues[rv].ty
+            let l = self.new_local(rt, MirLocalKind.User, name, leaf)
+            self.assign_local(l, rv)
+            self.bind_leaf(leaf, l)
+            return l
+        }
         if u == TcUse.Borrow || u == TcUse.BorrowVar {
             let rv = self.rv_ref(u == TcUse.BorrowVar, place)
             let rt = self.rvalues[rv].ty

@@ -1,0 +1,69 @@
+// probe: stated
+// about: range views of a fixed array: named shared and writable, unnamed at a by-reference argument and under an element write, every range form, and `sort`/`swap`/`fill`/`get`/`len` through a view (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6, §12.1)
+// speeds: -O0 -O2
+// prints: 3 20 90
+// prints: 10 21 30 41 51
+// prints: from 3 30
+// prints: upto 2 20
+// prints: full 5 50
+// prints: incl 3 40
+// prints: uptoincl 2 20
+// prints: empty 0 0
+// prints: 12
+// prints: 0 0 3
+// prints: 12 5
+// prints: 9 1 3 5 7 8
+// prints: 1 9
+// prints: 0 0
+// prints: 5 -1
+// prints: 3
+func total(s: &[Int]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < s.len() {
+        sum += s[i]
+        i += 1
+    }
+    sum
+}
+
+func zero(s: &var [Int]) {
+    var i = 0
+    while i < s.len() {
+        s[i] = 0
+        i += 1
+    }
+}
+
+func main() {
+    let fixed: [Int; 5] = [10, 20, 30, 40, 50]
+    borrow let s = fixed[1..4] { print("{} {} {}", s.len(), s[0], total(&s)) }
+    var a: [Int; 5] = [10, 20, 30, 40, 50]
+    borrow var w = a[1..4] {
+        w[0] = 21
+        w[2] = 41
+    }
+    a[3..][1] = 51
+    print("{} {} {} {} {}", a[0], a[1], a[2], a[3], a[4])
+    borrow let f = fixed[2..] { print("from {} {}", f.len(), f[0]) }
+    borrow let u = fixed[..2] { print("upto {} {}", u.len(), u[1]) }
+    borrow let all = fixed[..] { print("full {} {}", all.len(), all[4]) }
+    borrow let i = fixed[1..=3] { print("incl {} {}", i.len(), i[2]) }
+    borrow let ui = fixed[..=1] { print("uptoincl {} {}", ui.len(), ui[1]) }
+    print("empty {} {}", fixed[5..].len(), fixed[2..2].len())
+    var b: [Int; 5] = [1, 2, 3, 4, 5]
+    print(total(&b[2..5]))
+    zero(&var b[..2])
+    print("{} {} {}", b[0], b[1], b[2])
+    print("{} {}", total(&b[..]), total(&b[4..]))
+    var c: [Int; 6] = [9, 5, 7, 1, 3, 8]
+    borrow var m = c[1..5] { m.sort() }
+    print("{} {} {} {} {} {}", c[0], c[1], c[2], c[3], c[4], c[5])
+    c[..2].swap(0, 1)
+    print("{} {}", c[0], c[1])
+    c[4..].fill(0)
+    print("{} {}", c[4], c[5])
+    borrow let g = c[2..4] { print("{} {}", g.get(1) ?? -1, g.get(2) ?? -1) }
+    print(c[..3].len())
+}

@@ -1,0 +1,13 @@
+// probe: panics
+// about: a range view of a slice whose lower bound is negative panics, naming `a..` as written and the slice's length (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: slice: range out of range: -1.. (len 3)
+func bound(n: Int) -> Int { n }
+
+func total(s: &[Int]) -> Int { s[bound(-1)..].len() }
+
+func main() {
+    let a: [Int; 3] = [1, 2, 3]
+    print(total(&a))
+}

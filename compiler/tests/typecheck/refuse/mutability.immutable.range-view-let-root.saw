@@ -1,0 +1,10 @@
+// refuses: mutability.immutable at 7:20
+// message: this exclusive borrow of `a[0..2]` would let it be written, and `a` is a `let` binding
+// A writable view writes its base, so a `let` array has none (SL-988).
+
+func main() {
+    let a: [Int; 3] = [1, 2, 3]
+    borrow var s = a[0..2] {
+        s[0] = 5
+    }
+}

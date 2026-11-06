@@ -31,6 +31,12 @@ public func mir_func_local(p: &MirProgram, f: Int, l: Int) -> MirLocal {
     p.locals[info.local_first + l]
 }
 
+// Whether `rv` is a range view's slice (`range_view`): its base, then the
+// range, which the backend checks against the base's length.
+public func mir_range_slice(tc: &TcProgram, rv: &MirRvalue) -> Bool {
+    rv.kind == MirRvalueKind.Slice && rv.op >= 0 && tc.name_text(rv.op).equals("range")
+}
+
 extension MirProgram {
     // Locals.
 

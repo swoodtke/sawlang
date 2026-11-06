@@ -15,7 +15,7 @@ import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_UNSAFE_VAR, TcReceiver, TcRole, TcUse}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_UNSAFE_VAR, TcLend, TcReceiver, TcRole, TcUse}
 import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
@@ -301,8 +301,19 @@ extension TcProgram {
         if e < 0 {
             return TcWriteVerdict.ok()
         }
+        // A range view writes where its base does, as an element does.
+        if self.is_range_view(e) {
+            let base = self.res.first_node_child(e)
+            if self.points(base) {
+                return TcWriteVerdict.ok()
+            }
+            return self.place_verdict(base, &var tables)
+        }
         let t = self.expr_types[e]
-        if self.is_reference(t) {
+        // An accessor's lent slice writes where its receiver does, as a lent
+        // place does, whatever mode the slice is typed in.
+        let lent_slice = self.call_at[e] >= 0 && self.calls[self.call_at[e]].target >= 0 && self.sigs[self.calls[self.call_at[e]].target].lending == TcLend.Slice
+        if self.is_reference(t) && not lent_slice {
             if self.types.ty(t).a != 1 {
                 return TcWriteVerdict.refused(TcWriteRefusal.SharedReference, e)
             }

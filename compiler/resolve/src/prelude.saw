@@ -212,6 +212,13 @@ public func res_declare_prelude(p: &var ResProgram) {
     p.prelude_name("Iterator", "builtin")
     p.prelude_name("Range", "builtin")
     p.prelude_name("RangeInclusive", "builtin")
+    if p.std_new {
+        // Stage 0's vocabulary has no range with a bound left out.
+        p.prelude_name("RangeFrom", "builtin")
+        p.prelude_name("RangeTo", "builtin")
+        p.prelude_name("RangeToInclusive", "builtin")
+        p.prelude_name("RangeFull", "builtin")
+    }
     p.prelude_name("Allocator", "std.alloc")
     p.prelude_name("GlobalAllocator", "std.alloc")
     p.prelude_name("AllocError", "std.alloc")

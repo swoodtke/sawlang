@@ -63,6 +63,12 @@ public struct TcKnown {
     bool_type: Int
     range: Int
     range_inclusive: Int
+    // The ranges with a bound left out (`a..`, `..b`, `..=b`, `..`); -1
+    // under Stage 0's std, which has none.
+    range_from: Int
+    range_to: Int
+    range_to_inclusive: Int
+    range_full: Int
     iterator: Int
     box: Int
     vector: Int
@@ -75,6 +81,8 @@ public struct TcKnown {
     slice_get: Int
     slice_sort: Int
     slice_fill: Int
+    // The function a slice's `copy()` calls: a `Vector` of its elements.
+    slice_copy: Int
     // The declarations whose uses lie outside the bootstrap slice and are
     // refused by name: `Arc`'s forwarding, `FuncPointer`.
     arc: Int
@@ -660,9 +668,10 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                         unsafe_send: -1, unsafe_sync: -1, interior: -1, atomic: -1, serialize: -1,
                         deserialize: -1, int: -1, uint: -1, int8: -1, int16: -1, int32: -1,
                         int64: -1, uint8: -1, uint16: -1, uint32: -1, uint64: -1, float: -1,
-                        bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
+                        bool_type: -1, range: -1, range_inclusive: -1, range_from: -1, range_to: -1,
+                        range_to_inclusive: -1, range_full: -1, iterator: -1, box: -1,
                         vector: -1, map: -1, set: -1, data: -1, slice_get: -1, slice_sort: -1,
-                        slice_fill: -1, arc: -1, task_group: -1, task: -1,
+                        slice_fill: -1, slice_copy: -1, arc: -1, task_group: -1, task: -1,
                         thread: -1, system_error: -1, func_pointer: -1,
                         ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1, unsafe_memory: -1,
                         device: -1, normal: -1, read_only: -1, write_only: -1)

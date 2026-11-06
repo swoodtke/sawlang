@@ -1,0 +1,32 @@
+// probe: stated
+// about: a range view of a slice parameter, a view of a view written through, and a view held across a suspension (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 9
+// prints: 4 5 106 7
+// prints: 3
+import std.task.*
+
+func head_sum(s: &[Int]) -> Int {
+    var sum = 0
+    borrow let h = s[..2] {
+        yield_now()
+        sum = h[0] + h[1]
+    }
+    sum
+}
+
+func bump_tail(s: &var [Int]) {
+    borrow var t = s[1..] {
+        borrow var u = t[1..] { u[0] = u[0] + 100 }
+    }
+}
+
+func main() {
+    var v: Vector<Int> = [4, 5, 6, 7]
+    print(head_sum(&v))
+    bump_tail(&var v)
+    print("{} {} {} {}", v[0], v[1], v[2], v[3])
+    let a: [Int; 3] = [1, 2, 3]
+    print(head_sum(&a))
+}

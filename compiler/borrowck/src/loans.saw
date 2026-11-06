@@ -2622,6 +2622,16 @@ extension BorrowckProgram {
             let src = self.path_of(o.place, &var facts)
             let step = MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: first.ty)
             base = self.path_then(&src, step, &var facts)
+        } else if rv.kind == MirRvalueKind.Slice && rv.count >= 1 {
+            // A slice's elements are those its first operand reaches: an
+            // array's reference, a slice's reborrow, or a raw pointer.
+            let o = self.mir.operands[self.mir.lists[rv.first]]
+            if o.kind == MirOperandKind.Const || o.place < 0 {
+                return BorrowckPath.none()
+            }
+            let src = self.path_of(o.place, &var facts)
+            let step = MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: first.ty)
+            base = self.path_then(&src, step, &var facts)
         } else {
             return BorrowckPath.none()
         }

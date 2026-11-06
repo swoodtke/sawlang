@@ -1,0 +1,29 @@
+// refuses: mutability.immutable at 24:9
+// message: this assignment writes `s[0]`, and `s` is a shared reference
+// Through a `&Ring` only the `@synthesize(shared)` twin is reached, and it
+// lends `&[Int]`, so a write through its view is refused (SL:borrowing §4,
+// SL-988).
+
+struct Ring {
+    store: [Int; 6]
+}
+
+extension Ring {
+    func base(&self) unsafe -> UnsafePointer<Int> {
+        (&self.store) as UnsafePointer<Int>
+    }
+
+    @synthesize(shared)
+    func [](&var self, range: Range) unsafe borrows -> &var [Int] {
+        lend self.base()[range.current..range.end]
+    }
+}
+
+func poke(r: &Ring) {
+    borrow let s = r[0..2] {
+        s[0] = 9
+    }
+}
+
+func main() {
+}
