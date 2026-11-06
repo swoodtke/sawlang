@@ -8524,8 +8524,7 @@ names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
   single-precision stay out permanently under the shortest-form rule, which
   admits one spelling per value.
 - `encode<T: Serialize>(value:)` is the one-call write. There is **no**
-  `decode<T>` twin: a static trait requirement is not callable on a type
-  parameter yet (DF-169e), so a value is read back through its own type,
+  `decode<T>` twin yet, so a value is read back through its own type,
   `LockEntry.deserialize(from: &var dec)`.
 
 ### `std.json` — the tree, and the format

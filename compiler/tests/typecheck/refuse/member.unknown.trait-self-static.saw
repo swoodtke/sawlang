@@ -1,0 +1,13 @@
+// refuses: member.unknown at 7:14
+// a static call on a trait's `Self` naming no static requirement of the
+// trait or its parents, refused naming `Self` (SL-987)
+trait Fresh {
+    static func make() -> Self
+    func fresh(&self) -> Self {
+        Self.remake()
+    }
+}
+
+func main() {
+    print(1)
+}

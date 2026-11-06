@@ -1,0 +1,14 @@
+// refuses: type.not-a-value at 7:17
+// a trait's static requirement named on `Self` without its call, refused as
+// `T.make` is through a bound (SL-987)
+trait Fresh {
+    static func make() -> Self
+    func fresh(&self) -> Self {
+        let f = Self.make
+        f()
+    }
+}
+
+func main() {
+    print(1)
+}

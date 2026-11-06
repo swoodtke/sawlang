@@ -1,0 +1,18 @@
+// refuses: slice.not-yet at 7:9
+// constructing a trait's `Self` with arguments in a default body, which
+// waits on SL-966 as the bare construction does (SL-987)
+// message: declare a static requirement, `static func make() -> Self`, and call `Self.make()`
+trait Fresh {
+    func fresh(&self) -> Self {
+        Self(x: 4)
+    }
+}
+
+struct Point { x: Int }
+
+extension Point: Fresh {}
+
+func main() {
+    let p = Point(x: 1)
+    print(p.fresh().x)
+}

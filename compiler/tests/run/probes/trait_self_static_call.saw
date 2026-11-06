@@ -1,0 +1,117 @@
+// probe: stated
+// about: a static requirement called on `Self` in a trait's default body dispatches to the conformer's implementation (SL-987)
+// stage 0: not run; the probe holds sawc to the spec's static requirements, conformer by conformer
+// speeds: -O0 -O2
+// prints: 5
+// prints: 11
+// prints: 2
+// prints: 60
+// prints: 61
+// prints: 2
+// prints: 2
+// prints: 57
+// prints: 31
+// prints: 0
+// prints: 105
+// `Self.make(seed:)` in a default body names the trait's own requirement and
+// reaches each conformer's implementation, as `T.make()` does through a
+// bound: a struct, a fieldless struct, an enum and two instances of a
+// generic struct. A static requirement's own default body calls another on
+// `Self`, and is reached through the conformer's type and through a bound; a
+// requirement of a parent trait is called on the refining trait's `Self`;
+// and an instance default reaches the static one through `self.fresh()`.
+
+trait Base {
+    static func base() -> Self
+}
+
+trait Fresh: Base {
+    static func make(seed: Int) -> Self
+    static func twice() -> Self {
+        Self.make(seed: 2)
+    }
+    func tag(&self) -> Int
+    func fresh(&self) -> Self {
+        Self.make(seed: 5)
+    }
+    func from_parent(&self) -> Self {
+        Self.base()
+    }
+    func fresh_tag(&self) -> Int {
+        self.fresh().tag() + 100
+    }
+}
+
+struct Point { x: Int }
+
+extension Point: Base {
+    static func base() -> Point { Point(x: 31) }
+}
+
+extension Point: Fresh {
+    static func make(seed: Int) -> Point { Point(x: seed) }
+    func tag(&self) -> Int { self.x }
+}
+
+struct Unit {}
+
+extension Unit: Base {
+    static func base() -> Unit { Unit() }
+}
+
+extension Unit: Fresh {
+    static func make(seed: Int) -> Unit { Unit() }
+    func tag(&self) -> Int { 11 }
+}
+
+enum Light { case Red, case Green }
+
+extension Light: Base {
+    static func base() -> Light { Light.Red }
+}
+
+extension Light: Fresh {
+    static func make(seed: Int) -> Light {
+        if seed > 3 { Light.Green } else { Light.Red }
+    }
+    func tag(&self) -> Int {
+        match self {
+            case Red -> 1,
+            case Green -> 2
+        }
+    }
+}
+
+struct Gen<T> { n: Int }
+
+extension Gen<T>: Base {
+    static func base() -> Self { Gen<T>(n: 0) }
+}
+
+extension Gen<T>: Fresh {
+    static func make(seed: Int) -> Self { Gen<T>(n: seed + 55) }
+    func tag(&self) -> Int { self.n }
+}
+
+func twice_of<T: Fresh>() -> T {
+    T.twice()
+}
+
+func main() {
+    let p = Point(x: 0)
+    print(p.fresh().tag())
+    let u = Unit()
+    print(u.fresh().tag())
+    let l = Light.Red
+    print(l.fresh().tag())
+    let g = Gen<String>(n: 0)
+    print(g.fresh().tag())
+    let h = Gen<Int>(n: 0)
+    print(h.fresh().tag() + 1)
+    print(Point.twice().tag())
+    print(twice_of<Point>().tag())
+    print(Gen<Int>.twice().tag())
+    print(p.from_parent().tag())
+    print(h.from_parent().tag())
+    print(p.fresh_tag())
+}

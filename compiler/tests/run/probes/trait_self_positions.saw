@@ -1,0 +1,67 @@
+// probe: stated
+// about: `Self` in a trait's default body as a parameter, a return, a local's annotation and inside a closure, beside a static call on it (SL-987)
+// stage 0: not run; the probe holds sawc to the spec's static requirements, position by position
+// speeds: -O0 -O2
+// prints: 7
+// prints: 4
+// prints: 9
+// prints: 21
+// prints: 22
+// A default body names `Self` as a by-reference and a by-value parameter, a
+// local's annotation and its return, and calls the static requirement on it
+// inside a closure, its result bound to a `Self`-annotated local there too.
+// `Maker` is a generic trait, which no conformance can name yet; its default
+// body still checks.
+
+func run(body: () sync -> Int) -> Int {
+    body()
+}
+
+trait Fresh {
+    static func make() -> Self
+    func tag(&self) -> Int
+    func sum(&self, other: &Self) -> Int {
+        self.tag() + other.tag()
+    }
+    func pick(&self, other: Self) -> Self {
+        let local: Self = other
+        local
+    }
+    func fresh(&self) -> Self {
+        let made: Self = Self.make()
+        made
+    }
+    func via_closure(&self) -> Int {
+        run({ Self.make().tag() + 12 })
+    }
+    func annotated_closure(&self) -> Int {
+        run({
+            let v: Self = Self.make()
+            v.tag() + 13
+        })
+    }
+}
+
+trait Maker<U> {
+    static func make(seed: U) -> Self
+    func remade(&self, seed: U) -> Self {
+        Self.make(seed: seed)
+    }
+}
+
+struct Point { x: Int }
+
+extension Point: Fresh {
+    static func make() -> Point { Point(x: 9) }
+    func tag(&self) -> Int { self.x }
+}
+
+func main() {
+    let a = Point(x: 3)
+    let b = Point(x: 4)
+    print(a.sum(&b))
+    print(a.pick(b).tag())
+    print(a.fresh().tag())
+    print(a.via_closure())
+    print(a.annotated_closure())
+}

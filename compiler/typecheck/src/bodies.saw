@@ -8591,14 +8591,16 @@ extension TcProgram {
         if b.decl >= 0 && b.decl == self.known.task && text.equals("spawn") {
             return self.task_spawn(e, &args)
         }
-        var t = -1
-        if b.decl >= 0 {
+        // A trait's `Self` owns the call as a bound type parameter would, so
+        // the requirement dispatches to the conformer's implementation.
+        var t = self.trait_self_head(self.binding_at(self.res.first_leaf(base)))
+        if t < 0 && b.decl >= 0 {
             let written = self.explicit_type_args(base)
             t = self.named_owner(b.decl, &written, leaf, base)
             if t == TC_OWNER_INFER {
                 return self.inferred_static_call(e, callee, b.decl, name, &args, want)
             }
-        } else if b.node >= 0 {
+        } else if t < 0 && b.node >= 0 {
             t = self.param_type(b.node)
         }
         if t < 0 || self.has_error(t) {
@@ -9906,11 +9908,39 @@ extension TcProgram {
         self.mk_nominal(d, &args)
     }
 
+    // The type a trait's own `Self` names as the head of a call, in the
+    // trait's default bodies: the abstract `Self` its conformers instantiate,
+    // the one a written `Self` type names there. -1 for any other head, an
+    // extension's `Self` included, which names its nominal type.
+    // ENTRY POINTS:
+    //   init_call
+    //   static_call
+    func trait_self_head(&var self, b: ResBinding) -> Int {
+        if b.kind != ResBindKind.SelfType || b.decl < 0 || self.res.decls[b.decl].kind != ResDeclKind.Trait {
+            return -1
+        }
+        let t = self.current_self
+        if t >= 0 && self.kind_of(t) == TcKind.SelfType {
+            return t
+        }
+        self.mk_self(b.decl)
+    }
+
     // `T(...)`: the constructions the funnel, `construction_candidates`,
     // leaves this call. A generic type takes its arguments
     // from the head, from the expected type (a construction peels it), or
     // from inference.
     func init_call(&var self, e: Int, callee: Int, b: ResBinding, args: &TcArgs, want: Int) -> Int {
+        if self.trait_self_head(b) >= 0 {
+            // Constructing a conformer has no settled meaning yet, so the
+            // static requirement is the spelling (SL-966).
+            self.type_args_alone(&args)
+            self.refuse(e, "slice.not-yet",
+                        "constructing `Self` in a trait's default body is not in the bootstrap slice yet; declare a static requirement, `static func make() -> Self`, and call `Self.make()`")
+            try! self.skipped.push(e)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         var d = -1
         if b.kind == ResBindKind.Decl && b.decl >= 0 {
             if self.is_nominal(b.decl) {

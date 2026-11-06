@@ -2195,9 +2195,13 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   64 / 16 MiB / 100000), walking an EXPLICIT work stack — depth is the stack's
   height, so a hostile blob never reaches the call stack and never panics.
   FLOATS ARE A DECODE ERROR in v1 (`Float` has no settled serialization).
-  `encode<T: Serialize>(value:)` is the one-call write; there is NO `decode<T>`
-  twin — name the type (`LockEntry.deserialize(from:)`), because a static
-  requirement is not callable on a type parameter yet (DF-169e).
+  `encode<T: Serialize>(value:)` is the one-call write; std has no `decode<T>`
+  twin, so name the type (`LockEntry.deserialize(from:)`). A static
+  requirement IS callable through a bound — `T.deserialize(from: &var dec)`
+  under `<T: Deserialize>`, as std's own `Optional` and `Vector` conformances
+  do — and on `Self` in a trait's default body (`Self.make()`, SL-987), where
+  it reaches the conformer's implementation. `Self()` there is refused
+  (`slice.not-yet`) until SL-966 rules on constructing a conformer.
   `v[i].serialize(to: &var enc)` over a LOCAL encoder works — the element is
   reached through a place window and the encoder is borrowed where it stands.
   It was refused until Aug 22 (DF-169h: the window's body captured the local by
