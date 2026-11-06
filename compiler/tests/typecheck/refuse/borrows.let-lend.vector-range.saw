@@ -1,0 +1,10 @@
+// refuses: borrows.let-lend at 8:13
+// message: `v[0..2]` views elements where they sit, and is lent, so a `let` would keep the lend past this statement. Copy the elements out with `v[0..2].copy()`, a `Vector`, or name the view for a block: `borrow let h = v[0..2] { … }`
+// A plain range of a `Vector` is refused: the parent is ExplicitCopy, so the
+// copy is the spelled `.copy()` (SL:borrowing §6, SL-988).
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3, 4]
+    let h = v[0..2]
+    print(h.len())
+}

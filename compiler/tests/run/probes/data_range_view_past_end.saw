@@ -1,0 +1,16 @@
+// probe: panics
+// about: a `Data` range view past the end panics, naming `Data`, the range and the length (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: Data.[]: range out of range: 2..9 (len 3)
+import std.data.{Data}
+
+func bound(n: Int) -> Int { n }
+
+func main() {
+    var d = Data()
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
+    borrow let s = d[2..bound(9)] { print(s.len()) }
+}

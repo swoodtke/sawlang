@@ -1,0 +1,11 @@
+// probe: panics
+// about: a `Vector` inclusive range view whose last index is the length panics, naming the range as written (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: Vector.[]: range out of range: 0..=3 (len 3)
+func bound(n: Int) -> Int { n }
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    borrow var s = v[0..=bound(3)] { s[0] = 9 }
+}

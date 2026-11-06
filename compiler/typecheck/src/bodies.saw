@@ -14127,7 +14127,14 @@ extension TcProgram {
     // Whether subscript call `at` has a plain role a read takes instead of
     // its place: a declared getitem, or the getitem derived from a shared
     // place accessor for an element that copies silently (SL:borrowing
-    // §12.4). A subscript with none lends its place to a read.
+    // §12.4). A subscript with none lends its place to a read. A lent slice
+    // has none: its referent is a run of elements with no value of its own,
+    // so `v[a..b][i]` reads the element inside the view's window
+    // (`slice_view_read.saw`).
+    //
+    // ENTRY POINTS:
+    //   settle_call
+    //   judge_prefix_place
     func plain_role_exists(&var self, at: Int) -> Bool {
         let c = self.calls[at]
         if c.target < 0 {
@@ -14145,6 +14152,9 @@ extension TcProgram {
         let t = self.expr_types[c.node]
         if t < 0 || self.has_error(t) {
             return true
+        }
+        if self.kind_of(t) == TcKind.Slice {
+            return false
         }
         self.copies_silently(t) && not self.accessor_exclusive_only(c.target)
     }

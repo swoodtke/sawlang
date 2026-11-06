@@ -1,0 +1,27 @@
+// probe: stated
+// about: `.copy()` on a `Vector`'s range view is an owned `Vector` of copies, and `sort`/`fill` through a view of owning elements release each element once (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 3 b c x
+// prints: B 4
+// prints: 2 b c
+// prints: a b c d
+// prints: a z z z
+// leaks: none
+func bound(n: Int) -> Int { n }
+
+func main() {
+    var v: Vector<String> = ["a", "b", "c", "d"]
+    var h = v[1..3].copy()
+    try! h.push("x")
+    v[1] = "B"
+    print("{} {} {} {}", h.len(), h[0], h[1], h[2])
+    print("{} {}", v[1], v.len())
+    let runtime = h[bound(0)..bound(2)].copy()
+    print("{} {} {}", runtime.len(), runtime[0], runtime[1])
+    var t: Vector<String> = ["d", "c", "b", "a"]
+    t[..].sort()
+    print("{} {} {} {}", t[0], t[1], t[2], t[3])
+    t[1..].fill("z")
+    print("{} {} {} {}", t[0], t[1], t[2], t[3])
+}

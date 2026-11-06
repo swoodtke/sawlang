@@ -1,0 +1,11 @@
+// refuses: loan.window-root at 9:14
+// A `Vector`'s range view holds its root for the window, so the vector cannot
+// grow under it (SL:borrowing §6, SL-988).
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    borrow var s = v[0..2] {
+        s[0] = 5
+        try! v.push(4)
+    }
+}

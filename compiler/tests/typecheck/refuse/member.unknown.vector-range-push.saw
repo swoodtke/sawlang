@@ -1,0 +1,11 @@
+// refuses: member.unknown at 9:14
+// message: `&var [Int]` is a slice, a view of elements it cannot add or remove, so it has no `push`
+// A range view of a `Vector` cannot grow it (SL:borrowing §6, SL-988).
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    borrow var s = v[0..2] {
+        s[0] = 4
+        try! s.push(4)
+    }
+}

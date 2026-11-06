@@ -1,0 +1,11 @@
+// probe: panics
+// about: a `Vector` open range view with a negative start panics, naming the range as written (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: Vector.[]: range out of range: -1.. (len 3)
+func bound(n: Int) -> Int { n }
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    borrow let s = v[bound(-1)..] { print(s.len()) }
+}

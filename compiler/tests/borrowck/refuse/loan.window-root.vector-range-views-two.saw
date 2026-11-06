@@ -1,0 +1,11 @@
+// refuses: loan.window-root at 8:37
+// Two writable range views of one `Vector` at once are refused, however their
+// ranges fall: the first view's window charges the whole vector
+// (SL:borrowing §7, SL-988).
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3, 4]
+    borrow var a = v[0..2], var b = v[2..4] {
+        a[0] = b[0]
+    }
+}

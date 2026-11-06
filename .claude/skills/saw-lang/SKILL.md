@@ -1378,9 +1378,18 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   `(&var self, range: Range) borrows -> &var [T]` with `lend
   self.store[range.current..range.end]`, and `@synthesize(shared)` derives its
   `-> &[T]` twin. The open ranges are values too: `a..`, `..b`, `..=b`, `..`
-  are `RangeFrom`, `RangeTo`, `RangeToInclusive`, `RangeFull`. NOT YET:
-  `Vector`/`Data` range subscripts (SL-988 unit 2b, after a seed bump), and a
-  `String` range, refused naming `substring`.
+  are `RangeFrom`, `RangeTo`, `RangeToInclusive`, `RangeFull`.
+  **`Vector` and `Data` take all six forms** through std `borrows` accessors,
+  at the same positions: `borrow let s = v[1..4] { … }`, `total(&v[2..])`,
+  `zero(&var d[..2])`, `v[1..].sort()`, and an element read in place,
+  `v[1..][0]` (a NoCopy/ExplicitCopy element follows the place rules). A
+  `Data` view is `&[UInt8]`/`&var [UInt8]`, and the writable one separates
+  shared bytes first. Out of range panics in the accessor at std's line, as
+  `v[9]` does: `Vector.[]: range out of range: 1..5 (len 3)`.
+  `let h = v[0..2]` is refused for both (`borrows.let-lend`): a `Vector`'s
+  owned copy is `v[0..2].copy()`, and a `Data`'s owned O(1) window is
+  `d.slice(a, b)` (`Data?`), since the plain `let w = d[a..b]` window §6
+  describes waits on SL-994. A `String` range is refused, naming `substring`.
   Older builds refused every slice in the backend (`a slice is not in the
   backend slice yet`).
 - **`Vector.append(other: &[T]) -> Result<Void, AllocError>` (SL-971)** copies
@@ -1391,8 +1400,8 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   first, so an `Err` leaves the vector unchanged. `v.append(&v)` is a compile
   error (`loan.write-while-shared`): append a `v.copy()` instead. It replaces
   the hand-written push loop over another vector. An owned copy of PART of a
-  vector will be an empty vector plus `append` of a range view, once SL-988
-  unit 2 lands; there is no `copy(range:)`.
+  vector is `v[a..b].copy()`, and `out.append(&v[a..b])` appends one; there
+  is no `copy(range:)`.
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works

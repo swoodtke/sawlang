@@ -17,3 +17,4 @@ V75	tests/corpus/conformance/V75_escaping_and_non_escaping_release_identically.s
 V76	tests/corpus/conformance/V76_fold_threads_its_accumulator.saw	drops 8, flags 0	the accumulator moves through each call; only its final owner drops it
 V115	tests/corpus/conformance/V115_stored_closure_owns_its_captures.saw	refused type.mismatch	the migrated file is refused by typecheck first, a migration artifact
 V116	tests/corpus/conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	drops 2, flags 0	a non-escaping closure's environment owns nothing a drop releases
+V169	tests/corpus/conformance/V169_data_window_keeps_block.saw	drops 9, flags 0	each `Data` binding, a window included, is dropped once, statically; the window's retain is the block's, which its last owner frees

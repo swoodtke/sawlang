@@ -1,0 +1,14 @@
+// refuses: borrows.let-lend at 12:13
+// message: `d[0..2]` views elements where they sit, and is lent, so a `let` would keep the lend past this statement
+// A plain range of a `Data` is refused too: `Data` declares only the range
+// views, and its owned O(1) window is `d.slice(a, b)`. The plain copy §6
+// describes waits on a plain member beside a `borrows` pair whose types
+// differ (SL:borrowing §6, SL-988).
+import std.data.{Data}
+
+func main() {
+    var d = Data()
+    try! d.push(1)
+    let w = d[0..2]
+    print(w.len())
+}

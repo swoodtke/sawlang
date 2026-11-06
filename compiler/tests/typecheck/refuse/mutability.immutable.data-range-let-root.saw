@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 9:20
+// message: this exclusive borrow of `d[..]` would let it be written, and `d` is a `let` binding
+// A writable range view of a `Data` takes its exclusive accessor, which
+// separates shared bytes, so it needs a `var` root (SL:borrowing §3, SL-988).
+import std.data.{Data}
+
+func main() {
+    let d = Data()
+    borrow var t = d[..] {
+        t[0] = 1
+    }
+}

@@ -1,0 +1,16 @@
+// probe: panics
+// about: a writable `Data` inclusive range view whose last index is the length panics before it separates anything, naming the range as written (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: Data.[]: range out of range: 1..=3 (len 3)
+import std.data.{Data}
+
+func bound(n: Int) -> Int { n }
+
+func main() {
+    var d = Data()
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
+    borrow var s = d[1..=bound(3)] { s[0] = 9 }
+}

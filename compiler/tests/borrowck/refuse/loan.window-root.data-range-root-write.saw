@@ -1,0 +1,14 @@
+// refuses: loan.window-root at 12:9
+// A `Data`'s writable range view holds its root for the window, so a write
+// to the root beside it is refused (SL:borrowing §6, SL-988).
+import std.data.{Data}
+
+func main() {
+    var d = Data()
+    try! d.push(1)
+    try! d.push(2)
+    borrow var t = d[0..1] {
+        t[0] = 5
+        d[1] = 6
+    }
+}

@@ -230,6 +230,114 @@ extension Data {
         (self.byte_ptr() as UnsafePointer<UInt8>, self.length)
     }
 
+    // THE RANGE VIEWS: every range subscript of a `Data` that lends goes
+    // through the `view` pair, which checks the bounds and lends the bytes
+    // where they sit. The two bodies differ because the exclusive one
+    // separates shared bytes first, as a write through `d[i]` does. Each
+    // subscript checks its own bounds first, so a panic names the range as
+    // written, and an inclusive end is tested against the length before it is
+    // stepped past, so `..=Int.max` cannot overflow. There is no plain
+    // getitem beside the views, so `let w = d[a..b]` is refused; `slice` is
+    // the owned O(1) window.
+    //
+    // ENTRY POINTS:
+    //   [](range: Range)
+    //   [](range: RangeInclusive)
+    //   [](range: RangeFrom)
+    //   [](range: RangeTo)
+    //   [](range: RangeToInclusive)
+    //   [](range: RangeFull)
+    func view(&self, range: Range) unsafe borrows -> &[UInt8] {
+        self.check_range(range.current, range.end)
+        let (bytes, _) = self.view_parts()
+        lend bytes[range.current..range.end]
+    }
+
+    func view(&var self, range: Range) unsafe borrows -> &var [UInt8] {
+        self.check_range(range.current, range.end)
+        let (bytes, _) = self.writable_view_parts()
+        lend bytes[range.current..range.end]
+    }
+
+    /// Lends the bytes in `range` where they sit, as a view:
+    /// `borrow let header = packet[0..20] { … }`, or `checksum(&packet[4..])`
+    /// for one call.
+    ///
+    /// Panics if the range is reversed or reaches outside `0..len()`. A view
+    /// read separates nothing, so it works on a `let` binding, a `&Data`
+    /// parameter or bytes several `Data`s share. A write view needs a `var`
+    /// root and separates shared bytes first; if that copy cannot be
+    /// allocated, it panics (see `detached`). A view cannot be kept with
+    /// `let`: for a `Data` of its own, an O(1) window onto the same block,
+    /// write `packet.slice(0, 20)`.
+    @synthesize(shared)
+    public func [](&var self, range: Range) borrows -> &var [UInt8] {
+        lend self.view(range)
+    }
+
+    /// Lends the bytes in `range`, its last included, as a view.
+    ///
+    /// Panics if the range is reversed or reaches outside `0..len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeInclusive) borrows -> &var [UInt8] {
+        let start = range.current
+        let last = range.last
+        if last < 0 || last >= self.length || start < 0 || start > last + 1 {
+            panic("Data.[]: range out of range: {}..={} (len {})", start, last, self.length)
+        }
+        lend self.view(start..last + 1)
+    }
+
+    /// Lends the bytes from `range.start` to the end, as a view.
+    ///
+    /// Panics if the start is outside `0...len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeFrom) borrows -> &var [UInt8] {
+        let start = range.start
+        if start < 0 || start > self.length {
+            panic("Data.[]: range out of range: {}.. (len {})", start, self.length)
+        }
+        lend self.view(start..self.length)
+    }
+
+    /// Lends the bytes before `range.end`, as a view.
+    ///
+    /// Panics if the end is outside `0...len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeTo) borrows -> &var [UInt8] {
+        let end = range.end
+        if end < 0 || end > self.length {
+            panic("Data.[]: range out of range: ..{} (len {})", end, self.length)
+        }
+        lend self.view(0..end)
+    }
+
+    /// Lends the bytes through `range.last`, as a view.
+    ///
+    /// Panics if the last index is outside `0..<len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeToInclusive) borrows -> &var [UInt8] {
+        let last = range.last
+        if last < 0 || last >= self.length {
+            panic("Data.[]: range out of range: ..={} (len {})", last, self.length)
+        }
+        lend self.view(0..last + 1)
+    }
+
+    /// Lends every byte, as a view.
+    @synthesize(shared)
+    public func [](&var self, range: RangeFull) borrows -> &var [UInt8] {
+        lend self.view(0..self.length)
+    }
+
+    // Panics unless `start..end` lies in `0..len()` in order: the check both
+    // `view`s make before lending.
+    func check_range(&self, start: Int, end: Int) {
+        if start < 0 || start > end || end > self.length {
+            panic("Data.[]: range out of range: {}..{} (len {})", start, end, self.length)
+        }
+    }
+
     /// The byte at `index`, or `None` when it is out of range.
     ///
     /// The `None`-returning twin of `[]`, which panics.

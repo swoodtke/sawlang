@@ -1,0 +1,9 @@
+// probe: panics
+// about: a `Vector` inclusive range view ending at `Int.max` panics as out of range rather than overflowing past its end (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// panics: Vector.[]: range out of range: ..=9223372036854775807 (len 3)
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    borrow let s = v[..=Int.max] { print(s.len()) }
+}

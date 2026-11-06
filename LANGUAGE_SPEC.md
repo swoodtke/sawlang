@@ -4795,9 +4795,51 @@ the receiver, and `@synthesize(shared)` derives its `(&self) borrows -> &[T]`
 twin, which a read and a shared root reach. A `let` of the accessor's lend is
 refused as a view's is.
 
-`Vector` and `Data` take no range subscript yet: theirs are `borrows` accessors
-in std, and the compiler that builds this one does not yet build a slice lend. A
-range of a `String` is refused (`subscript.string-range`), naming `substring`,
+`Vector` and `Data` take all six range forms through std's `borrows`
+accessors, at the positions an array's view takes them. A `Vector<T>` lends
+`&[T]` or `&var [T]`; a `Data` lends `&[UInt8]` or `&var [UInt8]`, and its
+writable view first separates bytes another `Data` shares, as `d[i] = x` does.
+An element of either view is read in place, `v[1..][0]` included. A range out
+of bounds panics in the accessor, at std's line as the index accessor's panic
+does, naming the type and the range as written: `Vector.[]: range out of
+range: 1..5 (len 3)`.
+
+`let h = v[0..2]` is refused for both (`borrows.let-lend`). A `Vector` is
+ExplicitCopy, so `.copy()` is its owned copy. The plain copy §6 gives a `Data`,
+an O(1) window sharing the parent's block, is not built yet: a plain getitem
+beside the views is owed to SL-994. Until then the window is `d.slice(a, b)`,
+which returns `None` for a range out of bounds and keeps the whole block alive;
+`detached()` copies a small window out of a large block.
+
+```saw
+import std.data.{Data}
+
+func checksum(bytes: &[UInt8]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < bytes.len() {
+        sum = sum + (bytes[i] as Int)
+        i = i + 1
+    }
+    sum
+}
+
+func main() {
+    var scores: Vector<Int> = [30, 10, 20, 40]
+    scores[..3].sort()
+    print("{} {} {}", scores[0], scores[1], scores[3])   // prints: 10 20 40
+    var packet = Data()
+    try! packet.push(1)      // a refused allocation ends this example
+    try! packet.push(2)
+    try! packet.push(3)
+    print(checksum(&packet[1..]))                         // prints: 5
+    borrow var body = packet[1..] { body[0] = 7 }
+    let header = packet.slice(0, 2)!
+    print("{} {}", header.len(), header[1])               // prints: 2 7
+}
+```
+
+A range of a `String` is refused (`subscript.string-range`), naming `substring`,
 which copies the bytes out: a `String` is one pointer to text that ends in a
 NUL, which a window could not keep.
 

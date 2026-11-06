@@ -1,0 +1,97 @@
+// probe: stated
+// about: a `Vector`'s range subscripts lend views of its elements in every range form: `borrow let`/`borrow var` blocks, by-reference arguments, a shared root through the `&self` twin, writes and `sort`/`swap`/`fill`/`get` through a view, a view of a view across a suspension (SL-988)
+// stage 0: not run; v0.18.0's spec calls range views planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 3 20 90
+// prints: 10 21 30 41 50
+// prints: from 3 30
+// prints: upto 2 20
+// prints: full 5 50
+// prints: incl 3 40
+// prints: uptoincl 2 20
+// prints: empty 0
+// prints: 12
+// prints: 0 0 3
+// prints: 12
+// prints: 9 1 3 5 7 8
+// prints: 1 9
+// prints: 0 0
+// prints: 5 -1
+// prints: 9
+// prints: 11
+// prints: 7 1
+// prints: 0
+// leaks: none
+import std.task.*
+
+func total(s: &[Int]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < s.len() {
+        sum += s[i]
+        i += 1
+    }
+    sum
+}
+
+func zero(s: &var [Int]) {
+    var i = 0
+    while i < s.len() {
+        s[i] = 0
+        i += 1
+    }
+}
+
+func head_sum(s: &[Int]) -> Int {
+    var sum = 0
+    borrow let h = s[..2] {
+        yield_now()
+        sum = h[0] + h[1]
+    }
+    sum
+}
+
+func tail_total(v: &Vector<Int>) -> Int {
+    total(&v[1..])
+}
+
+func main() {
+    let v: Vector<Int> = [10, 20, 30, 40, 50]
+    borrow let s = v[1..4] {
+        print("{} {} {}", s.len(), s[0], total(&s))
+    }
+    var w: Vector<Int> = [10, 20, 30, 40, 50]
+    borrow var s = w[1..4] {
+        s[0] = 21
+        s[2] = 41
+    }
+    print("{} {} {} {} {}", w[0], w[1], w[2], w[3], w[4])
+    borrow let a = v[2..] { print("from {} {}", a.len(), a[0]) }
+    borrow let b = v[..2] { print("upto {} {}", b.len(), b[1]) }
+    borrow let c = v[..] { print("full {} {}", c.len(), c[4]) }
+    borrow let d = v[1..=3] { print("incl {} {}", d.len(), d[2]) }
+    borrow let e = v[..=1] { print("uptoincl {} {}", e.len(), e[1]) }
+    borrow let f = v[5..] { print("empty {}", f.len()) }
+    var n: Vector<Int> = [1, 2, 3, 4, 5]
+    print(total(&n[2..5]))
+    zero(&var n[..2])
+    print("{} {} {}", n[0], n[1], n[2])
+    print(total(&n[..]))
+    var m: Vector<Int> = [9, 5, 7, 1, 3, 8]
+    borrow var s = m[1..5] { s.sort() }
+    print("{} {} {} {} {} {}", m[0], m[1], m[2], m[3], m[4], m[5])
+    borrow var s = m[..2] { s.swap(0, 1) }
+    print("{} {}", m[0], m[1])
+    borrow var s = m[4..] { s.fill(0) }
+    print("{} {}", m[4], m[5])
+    borrow let s = m[2..4] { print("{} {}", s.get(1) ?? -1, s.get(2) ?? -1) }
+    let k: Vector<Int> = [4, 5, 6]
+    print(head_sum(&k))
+    print(head_sum(&k[1..]))
+    var p: Vector<Int> = [1, 2, 3]
+    p[1..][1] = 7
+    p[..2].swap(0, 1)
+    print("{} {}", p[2], p[1])
+    let empty = Vector<Int>()
+    print(tail_total(&k) - 11 + total(&empty[..]))
+}

@@ -109,6 +109,89 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         lend buf[index]
     }
 
+    // THE RANGE VIEWS: every range subscript of a vector lends through the
+    // `Range` one, which checks the bounds and lends the elements where they
+    // sit. Each other form checks its own bounds first, so a panic names the
+    // range as written, and an inclusive end is tested against the length
+    // before it is stepped past, so `..=Int.max` cannot overflow.
+    //
+    // ENTRY POINTS:
+    //   [](range: Range)
+    //   [](range: RangeInclusive)
+    //   [](range: RangeFrom)
+    //   [](range: RangeTo)
+    //   [](range: RangeToInclusive)
+    //   [](range: RangeFull)
+
+    /// Lends the elements in `range` where they sit, as a view.
+    ///
+    /// Panics if the range is reversed or reaches outside `0..len()`.
+    @synthesize(shared)
+    public func [](&var self, range: Range) unsafe borrows -> &var [T] {
+        let start = range.current
+        let end = range.end
+        if start < 0 || start > end || end > self.length {
+            panic("Vector.[]: range out of range: {}..{} (len {})", start, end, self.length)
+        }
+        let (bytes, _) = self.view_parts()
+        lend (bytes as UnsafePointer<T>)[start..end]
+    }
+
+    /// Lends the elements in `range`, its last included, as a view.
+    ///
+    /// Panics if the range is reversed or reaches outside `0..len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeInclusive) borrows -> &var [T] {
+        let start = range.current
+        let last = range.last
+        if last < 0 || last >= self.length || start < 0 || start > last + 1 {
+            panic("Vector.[]: range out of range: {}..={} (len {})", start, last, self.length)
+        }
+        lend self[start..last + 1]
+    }
+
+    /// Lends the elements from `range.start` to the end, as a view.
+    ///
+    /// Panics if the start is outside `0...len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeFrom) borrows -> &var [T] {
+        let start = range.start
+        if start < 0 || start > self.length {
+            panic("Vector.[]: range out of range: {}.. (len {})", start, self.length)
+        }
+        lend self[start..self.length]
+    }
+
+    /// Lends the elements before `range.end`, as a view.
+    ///
+    /// Panics if the end is outside `0...len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeTo) borrows -> &var [T] {
+        let end = range.end
+        if end < 0 || end > self.length {
+            panic("Vector.[]: range out of range: ..{} (len {})", end, self.length)
+        }
+        lend self[0..end]
+    }
+
+    /// Lends the elements through `range.last`, as a view.
+    ///
+    /// Panics if the last index is outside `0..<len()`.
+    @synthesize(shared)
+    public func [](&var self, range: RangeToInclusive) borrows -> &var [T] {
+        let last = range.last
+        if last < 0 || last >= self.length {
+            panic("Vector.[]: range out of range: ..={} (len {})", last, self.length)
+        }
+        lend self[0..last + 1]
+    }
+
+    /// Lends every element, as a view.
+    @synthesize(shared)
+    public func [](&var self, range: RangeFull) borrows -> &var [T] {
+        lend self[0..self.length]
+    }
+
     /// Replaces the element at `index`, destroying the one it overwrites.
     /// Panics if `index` is outside `0..<len()`; `value` is consumed either
     /// way.

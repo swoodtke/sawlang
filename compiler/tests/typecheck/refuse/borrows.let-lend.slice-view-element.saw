@@ -1,0 +1,10 @@
+// refuses: borrows.let-lend at 8:13
+// message: `rows[1..][0]` is lent, and a `let` would keep the lend past this statement. Copy it out with `rows[1..][0].copy()`
+// An ExplicitCopy element of an accessor-lent view is read in place like any
+// lent element, so a `let` of it is refused (SL:borrowing §12.1, SL-988).
+
+func main() {
+    let rows: Vector<Vector<Int>> = [[1, 2], [3, 4], [5]]
+    let r = rows[1..][0]
+    print(r.len())
+}
