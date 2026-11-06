@@ -12,30 +12,136 @@
 // prints: children still running after the sweep: false
 // prints: deinits=4
 //
-// Every child keeps its standard output open for its whole second, so the
-// drain is still reading when the cancel lands 50 ms in. A drain that is not
-// cut short returns once the child exits, far outside EARLY_MS. Once the
-// children have exited, one more spawn sweeps the orphan list, and
-// `waitpid(-1, WNOHANG)` then counts what no one reaped.
+// Every child keeps its standard output open until a gate pipe, its standard
+// input, closes, which happens only once every cell is over. So a drain that
+// returns before that was cut short by its cancel, and one that is not cut
+// short never returns before the gate closes. Each cancel lands once its
+// child runs, which the child says by writing one byte to its standard error,
+// the write end of a second pipe. A child inherits only its standard
+// descriptors, so the program puts that write end at its own standard error
+// while it launches a child, and puts its own back once the byte has come.
+// Closing the gate ends every child, and the second pipe then reads end of
+// file exactly when every child holding it has exited. One more spawn sweeps
+// the orphan list, and `waitpid(-1, WNOHANG)` then counts what no one reaped.
 
 import std.process.{Command, CommandOutput, CommandByteOutput}
 import std.systemerror.{SystemError, SystemErrorKind}
 import std.task.*
 
+struct PollFd { fd: Int32, events: Int16, revents: Int16 }
+
 extern "C" {
-    func __saw_rt_clock_monotonic_nanos() -> Int64
     func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func dup(fd: Int32) -> Int32
+    func dup2(from: Int32, to: Int32) -> Int32
+    func close(fd: Int32) -> Int32
+    func read(fd: Int32, bytes: UnsafePointer<UInt8>, count: Int) -> Int
+    // `nfds_t` is 32 bits on macOS and 64 on Linux; a word carries either.
+    func poll(fds: UnsafePointer<PollFd>, count: UInt, timeout_ms: Int32) -> Int32
 }
 
-static EARLY_MS: Int = 400
 static WNOHANG: Int32 = 1
+static POLLIN: Int16 = 1
+static STANDARD_INPUT: Int32 = 0
+static STANDARD_ERROR: Int32 = 2
+// The waits below tick every millisecond for at most 10 s.
+static TICK_MS: UInt64 = 1
+static DEADLINE_TICKS: Int = 10_000
 static DEINITS: Atomic<Int> = Atomic(0)
+static GATE_WRITE: Atomic<Int> = Atomic(-1)
+static GATE_CLOSED: Atomic<Int> = Atomic(0)
+static ALIVE_READ: Atomic<Int> = Atomic(-1)
+static ALIVE_WRITE: Atomic<Int> = Atomic(-1)
+static SAVED_ERROR: Atomic<Int> = Atomic(-1)
+// The bytes the children have written on the second pipe.
+static STARTED: Atomic<Int> = Atomic(0)
 
 struct Held { id: Int }
 extension Held: NoCopy { func deinit(&var self) { let _ = DEINITS.fetch_add(1) } }
 
-func now_ms() -> Int {
-    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+func pipe_ends() unsafe -> (Int32, Int32) {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
+    }
+    (ends[0], ends[1])
+}
+
+func open_pipes() unsafe {
+    let (gate_read, gate_write) = pipe_ends()
+    let (alive_read, alive_write) = pipe_ends()
+    if dup2(gate_read, STANDARD_INPUT) < 0 {
+        panic("dup2(2) of the gate failed")
+    }
+    let _ = close(gate_read)
+    GATE_WRITE.store(gate_write as Int)
+    ALIVE_READ.store(alive_read as Int)
+    ALIVE_WRITE.store(alive_write as Int)
+    SAVED_ERROR.store(dup(STANDARD_ERROR) as Int)
+}
+
+func divert_error() unsafe {
+    let _ = dup2(ALIVE_WRITE.load() as Int32, STANDARD_ERROR)
+}
+
+func restore_error() unsafe {
+    let _ = dup2(SAVED_ERROR.load() as Int32, STANDARD_ERROR)
+}
+
+// What one look at the second pipe found: bytes, end of file, or nothing yet.
+enum Look { case Bytes, case Ended, case Empty }
+
+func look() unsafe -> Look {
+    var watched = PollFd(fd: ALIVE_READ.load() as Int32, events: POLLIN, revents: 0)
+    if poll((&watched) as UnsafePointer<PollFd>, 1, 0) == 0 {
+        return Look.Empty
+    }
+    var got: [UInt8; 64] = [0; 64]
+    let n = read(ALIVE_READ.load() as Int32, (&got) as UnsafePointer<UInt8>, 64)
+    if n <= 0 {
+        return Look.Ended
+    }
+    let _ = STARTED.fetch_add(n)
+    Look.Bytes
+}
+
+// Waits, a tick at a time, until `count` children have said they run.
+func await_started(count: Int) {
+    var ticks = 0
+    while STARTED.load() < count {
+        if ticks == DEADLINE_TICKS {
+            restore_error()
+            panic("child {} never said it runs within 10 s", count)
+        }
+        match look() {
+            case Ended -> {
+                restore_error()
+                panic("the children's pipe ended while child {} was launching", count)
+            },
+            case _ -> {}
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
+}
+
+// Waits, a tick at a time, for the second pipe's end of file.
+func await_exits() {
+    var ticks = 0
+    var ended = false
+    while not ended {
+        if ticks == DEADLINE_TICKS {
+            panic("the children never all exited within 10 s")
+        }
+        match look() {
+            case Ended -> { ended = true },
+            case _ -> {
+                sleep(Duration.ms(TICK_MS))
+                ticks = ticks + 1
+            }
+        }
+    }
 }
 
 func child(script: String) -> Command {
@@ -56,7 +162,6 @@ func interrupted(e: &SystemError) -> Bool {
 func cell(name: String, script: String, bytes: Bool) -> Int {
     let _held = Held(id: 1)
     let c = child(script)
-    let start = now_ms()
     let stopped = if bytes {
         match c.output_bytes() {
             case Ok(_) -> false,
@@ -68,23 +173,29 @@ func cell(name: String, script: String, bytes: Bool) -> Int {
             case Err(e) -> interrupted(&e)
         }
     }
-    let early = stopped && now_ms() - start < EARLY_MS
+    let early = stopped && GATE_CLOSED.load() == 0
     print("{}: interrupted early {}, cancelled {}", name, early, cancelled())
     0
 }
 
 func cancelled_cell(name: String, script: String, bytes: Bool) {
+    let launched = STARTED.load() + 1
     var g = TaskGroup()
+    divert_error()
     let t = g.spawn(cell(name, script, bytes))
-    sleep(Duration.ms(50))
+    await_started(launched)
+    restore_error()
     t.cancel()
     let _ = t.join()
 }
 
 func pool_cell() {
+    let launched = STARTED.load() + 1
     var pool = try! TaskGroup(threads: 2)
-    let t = pool.spawn(cell("output in a pool", "sleep 1", false))
-    sleep(Duration.ms(50))
+    divert_error()
+    let t = pool.spawn(cell("output in a pool", "printf x >&2; read gate", false))
+    await_started(launched)
+    restore_error()
     t.cancel()
     let _ = t.join()
 }
@@ -104,12 +215,16 @@ func leftovers() unsafe -> Int {
 }
 
 func main() {
-    cancelled_cell("output, silent child", "sleep 1", false)
-    cancelled_cell("output, child wrote first", "echo hi; sleep 1", false)
-    cancelled_cell("output_bytes, silent child", "sleep 1", true)
+    open_pipes()
+    cancelled_cell("output, silent child", "printf x >&2; read gate", false)
+    cancelled_cell("output, child wrote first", "echo hi; printf x >&2; read gate", false)
+    cancelled_cell("output_bytes, silent child", "printf x >&2; read gate", true)
     pool_cell()
     print("children still running after the cancels: {}", running_children())
-    sleep(Duration.ms(1200))
+    let _ = close(ALIVE_WRITE.load() as Int32)
+    GATE_CLOSED.store(1)
+    let _ = close(GATE_WRITE.load() as Int32)
+    await_exits()
     var sweeper = Command(program: "/bin/sh")
     try! sweeper.arg("-c")
     try! sweeper.arg("exit 0")

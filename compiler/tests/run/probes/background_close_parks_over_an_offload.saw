@@ -5,51 +5,95 @@
 // prints: main returns
 // prints: caller: cancelled after the call: true
 // prints: spinner: never stalled through the call: true
-// The spinner keeps running for 400 ms whatever its cancel word says and
-// records the longest stretch it could not run; the caller's 200 ms call
-// ends inside that, so a blocked executor would stall it for most of it.
+// The caller's call is a `poll` on a pipe that only the spinner writes to.
+// The spinner keeps yielding until `main`'s exit has cancelled it too, notes
+// whether the caller is still inside its call, and only then writes. So the
+// call ends only by that byte, and an executor whose thread the cancelled
+// offload blocked would stall the spinner until the call's 10 s timeout.
 import std.task.*
 
+struct PollFd { fd: Int32, events: Int16, revents: Int16 }
+
 extern "C" {
-    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func write(fd: Int32, bytes: UnsafePointer<UInt8>, count: Int) -> Int
+    // `nfds_t` is 32 bits on macOS and 64 on Linux; a word carries either.
+    blocking func poll(fds: UnsafePointer<PollFd>, count: UInt, timeout_ms: Int32) -> Int32
     func __saw_rt_clock_monotonic_nanos() -> Int64
 }
 
-static CALL_MS: Int = 200
-static SPIN_MS: Int = 400
-static AT_MOST_STALL_MS: Int = 100
+static POLLIN: Int16 = 1
+static CALL_TIMEOUT_MS: Int32 = 10_000
+static DEADLINE_MS: Int = 10_000
+static READ_END: Atomic<Int> = Atomic(-1)
+static WRITE_END: Atomic<Int> = Atomic(-1)
+static IN_CALL: Atomic<Int> = Atomic(0)
+static CALLER_DONE: Atomic<Int> = Atomic(0)
 
 func now_ms() -> Int {
     (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
 }
 
-func caller() -> Int {
-    let r = __saw_rt_blocking_sleep(CALL_MS)
+func make_pipe() unsafe {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
+    }
+    READ_END.store(ends[0] as Int)
+    WRITE_END.store(ends[1] as Int)
+}
+
+func feed() unsafe {
+    var byte: [UInt8; 1] = [1; 1]
+    if write(WRITE_END.load() as Int32, (&byte) as UnsafePointer<UInt8>, 1) != 1 {
+        panic("write(2) to the pipe failed")
+    }
+}
+
+func caller() unsafe -> Int {
+    var watched = PollFd(fd: READ_END.load() as Int32, events: POLLIN, revents: 0)
+    // Nothing suspends between this store and the call's park.
+    IN_CALL.store(1)
+    let r = poll((&watched) as UnsafePointer<PollFd>, 1, CALL_TIMEOUT_MS)
+    if r == 0 {
+        panic("the spinner's byte never reached the call within 10 s")
+    }
     print("caller: cancelled after the call: {}", cancelled())
-    r
+    CALLER_DONE.store(1)
+    r as Int
 }
 
 func spinner() {
     let start = now_ms()
-    var last = start
-    var stall = 0
-    while now_ms() - start < SPIN_MS {
+    while not cancelled() {
         yield_now()
-        let t = now_ms()
-        if t - last > stall {
-            stall = t - last
+        if now_ms() - start > DEADLINE_MS {
+            panic("main's exit never cancelled the spinner within 10 s")
         }
-        last = t
     }
-    print("spinner: never stalled through the call: {}", stall < AT_MOST_STALL_MS)
+    let ran_during_the_call = IN_CALL.load() == 1 && CALLER_DONE.load() == 0
+    feed()
+    while CALLER_DONE.load() == 0 {
+        yield_now()
+        if now_ms() - start > DEADLINE_MS {
+            panic("the caller never came back from its call within 10 s")
+        }
+    }
+    print("spinner: never stalled through the call: {}", ran_during_the_call)
 }
 
 func main() {
+    make_pipe()
     let a = Task.spawn(caller())
     a.detach()
     let b = Task.spawn(spinner())
     b.detach()
-    yield_now()
-    yield_now()
+    let start = now_ms()
+    while IN_CALL.load() == 0 {
+        yield_now()
+        if now_ms() - start > DEADLINE_MS {
+            panic("the caller never made its call within 10 s")
+        }
+    }
     print("main returns")
 }

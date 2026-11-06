@@ -19,28 +19,30 @@ import std.task.*
 import std.channel.{Channel}
 
 extern "C" {
-    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+    blocking func poll(fds: UnsafePointer<PollFd>, count: UInt, timeout_ms: Int32) -> Int32
 }
 
-static CALL_MS: Int = 200
+static CALL_ENTRIES: Int = 200
 
 func receive(orders: Channel<Int>) -> Int {
     try! orders.receive()
 }
 
-func offload() -> Int {
-    let r = __saw_rt_blocking_sleep(CALL_MS)
+func offload() unsafe {
+    let r = poll((&WATCHED) as UnsafePointer<PollFd>, CALL_ENTRIES as UInt, CALL_TIMEOUT_MS)
+    if r == 0 { panic("the watcher's byte never reached the call within 10 s") }
     print("offloader: the call returned {}", r)
-    r
 }
 
 func watch() {
     sleep(Duration.ms(50))
     print("watcher: dumping")
     dump_tasks()
+    feed()
 }
 
 func main() {
+    make_pipe()
     var g = TaskGroup()
     let orders = try! Channel<Int>()
     let h = g.spawn(receive(orders.copy()))
@@ -48,4 +50,52 @@ func main() {
     let _ = g.spawn(watch())
     print("waiting")
     print("never reached {}", h.join())
+}
+
+// The offloaded call is a `poll` of a pipe that only the watcher writes to,
+// once it has dumped, so the call cannot return before the dump whatever the
+// timers do. It watches the pipe's read end through CALL_ENTRIES descriptors,
+// each its own `dup`, since macOS counts repeated entries for one descriptor
+// once; the byte makes every one readable, so the call returns CALL_ENTRIES.
+// The dump lines above pin where each task is parked, which is why these
+// declarations come last.
+
+struct PollFd { fd: Int32, events: Int16, revents: Int16 }
+
+extern "C" {
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func dup(fd: Int32) -> Int32
+    func write(fd: Int32, bytes: UnsafePointer<UInt8>, count: Int) -> Int
+}
+
+static POLLIN: Int16 = 1
+static CALL_TIMEOUT_MS: Int32 = 10_000
+static WRITE_END: Atomic<Int> = Atomic(-1)
+// The call's entries. `nfds_t` is 32 bits on macOS and 64 on Linux; the
+// call's word count carries either.
+unsafe static var WATCHED: [PollFd; CALL_ENTRIES]
+
+func make_pipe() unsafe {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
+    }
+    WRITE_END.store(ends[1] as Int)
+    WATCHED[0] = PollFd(fd: ends[0], events: POLLIN, revents: 0)
+    var i = 1
+    while i < CALL_ENTRIES {
+        let copy = dup(ends[0])
+        if copy < 0 {
+            panic("dup(2) of the pipe's read end failed")
+        }
+        WATCHED[i] = PollFd(fd: copy, events: POLLIN, revents: 0)
+        i = i + 1
+    }
+}
+
+func feed() unsafe {
+    var byte: [UInt8; 1] = [1; 1]
+    if write(WRITE_END.load() as Int32, (&byte) as UnsafePointer<UInt8>, 1) != 1 {
+        panic("write(2) to the pipe failed")
+    }
 }

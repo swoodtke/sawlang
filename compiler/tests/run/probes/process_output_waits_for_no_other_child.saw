@@ -4,50 +4,101 @@
 // speeds: -O0 -O2
 // prints: no output() waited for another child: true
 // Four pool tasks run quick captures for as long as two threads launch
-// children that sleep a second each. A capture whose pipe a sleeper inherited
-// would take most of a second; one that did not takes milliseconds, so the
-// bound below is far from both.
-import std.process.{Command}
+// children that wait on a gate pipe, their standard input, which stays open
+// until every capture is over. A capture whose pipe one of those children
+// inherited could not end before the gate closes, so the captures all ending
+// first is the evidence. A capture still running at the 10 s deadline counts
+// as one that waited; the gate then closes so that it, too, can end.
+import std.process.{Child, Command}
 import std.thread.{Thread}
-import std.time
+
+extern "C" {
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func dup2(from: Int32, to: Int32) -> Int32
+    func close(fd: Int32) -> Int32
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
 
 static TASKS: Int = 4
 static SLEEPER_THREADS: Int = 2
-static SLEEPS: Int = 3
-static STALL_MS: UInt64 = 500
-// How many sleeper threads have finished.
-static SLEEPERS_DONE: Atomic<Int> = Atomic(0)
+static LAUNCHES: Int = 8
+static LAUNCH_PACE_NANOS: UInt64 = 5_000_000
+static STANDARD_INPUT: Int32 = 0
+// The wait for the captures ticks every millisecond for at most 10 s.
+static TICK_MS: UInt64 = 1
+static DEADLINE_TICKS: Int = 10_000
+static GATE_WRITE: Atomic<Int> = Atomic(-1)
+// How many sleeper threads have launched all their children.
+static SLEEPERS_LAUNCHED: Atomic<Int> = Atomic(0)
+// How many capture tasks have finished.
+static CAPTURES_DONE: Atomic<Int> = Atomic(0)
 
-// The longest quick capture, in milliseconds, of those run until every
-// sleeper thread has finished.
-func slowest_capture() -> UInt64 {
-    var slowest: UInt64 = 0
-    while SLEEPERS_DONE.load() < SLEEPER_THREADS {
-        var c = Command(program: "/bin/echo")
-        try! c.arg("x")
-        let start = time.Instant.now()
-        let _ = try! c.output()
-        let took = start.elapsed().as_millis()
-        if took > slowest {
-            slowest = took
-        }
+func open_gate() unsafe {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
     }
-    slowest
+    if dup2(ends[0], STANDARD_INPUT) < 0 {
+        panic("dup2(2) of the gate failed")
+    }
+    let _ = close(ends[0])
+    GATE_WRITE.store(ends[1] as Int)
 }
 
+func close_gate() unsafe {
+    let _ = close(GATE_WRITE.load() as Int32)
+}
+
+// Quick captures, run until every sleeper thread has launched its children.
+func captures() -> Int {
+    var count = 0
+    var going = true
+    while going {
+        var c = Command(program: "/bin/echo")
+        try! c.arg("x")
+        let _ = try! c.output()
+        count = count + 1
+        going = SLEEPERS_LAUNCHED.load() < SLEEPER_THREADS
+    }
+    let _ = CAPTURES_DONE.fetch_add(1)
+    count
+}
+
+// Launches children that last until the gate closes, then waits for each.
 func sleep_children() -> Int {
+    var children = Vector<Child>()
     var i = 0
-    while i < SLEEPS {
-        var c = Command(program: "/bin/sleep")
-        try! c.arg("1")
-        let _ = try! c.wait()
+    while i < LAUNCHES {
+        var c = Command(program: "/bin/sh")
+        try! c.arg("-c")
+        try! c.arg("read gate")
+        try! children.push(try! c.spawn())
+        __saw_rt_sleep_ns(LAUNCH_PACE_NANOS)
         i = i + 1
     }
-    let _ = SLEEPERS_DONE.fetch_add(1)
+    let _ = SLEEPERS_LAUNCHED.fetch_add(1)
+    while children.len() > 0 {
+        var child = children.pop()!
+        let _ = try! child.wait()
+    }
     i
 }
 
+// Whether every capture task ended while the gate was still open.
+func captures_ended_first() -> Bool {
+    var ticks = 0
+    while CAPTURES_DONE.load() < TASKS {
+        if ticks == DEADLINE_TICKS {
+            return false
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
+    true
+}
+
 func main() {
+    open_gate()
     var sleepers = Vector<Thread<Int>>()
     var s = 0
     while s < SLEEPER_THREADS {
@@ -55,23 +106,21 @@ func main() {
         s = s + 1
     }
     var group = try! TaskGroup(threads: TASKS)
-    var handles = Vector<Task<UInt64>>()
+    var handles = Vector<Task<Int>>()
     var t = 0
     while t < TASKS {
-        try! handles.push(group.spawn(slowest_capture()))
+        try! handles.push(group.spawn(captures()))
         t = t + 1
     }
-    var slowest: UInt64 = 0
+    let first = captures_ended_first()
+    close_gate()
     while handles.len() > 0 {
         let h = handles.pop()!
-        let took = h.join()
-        if took > slowest {
-            slowest = took
-        }
+        let _ = h.join()
     }
     while sleepers.len() > 0 {
         var th = sleepers.pop()!
         let _ = th.join()
     }
-    print("no output() waited for another child: {}", slowest < STALL_MS)
+    print("no output() waited for another child: {}", first)
 }

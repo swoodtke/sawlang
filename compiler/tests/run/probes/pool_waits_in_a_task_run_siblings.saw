@@ -1,45 +1,78 @@
 // probe: stated
-// about: a cooperative task that joins a `TaskGroup(threads: 2)` task, or drops such a group with a task still live, runs its thread's other tasks meanwhile: a sibling ticks every 5 ms through both 100 ms waits, conformance row K188 (SL-793)
+// about: a cooperative task that joins a `TaskGroup(threads: 2)` task, or drops such a group with a task still live, runs its thread's other tasks meanwhile: a sibling ticks every 5 ms through both waits, conformance row K188 (SL-793)
 // stage 0: blocks the executor's thread on the pool's condition variable for both waits, so the sibling never ticks (SL-793)
 // speeds: -O0 -O2
 // prints: sibling ticked during the join: true
 // prints: joined 7
 // prints: sibling ticked during the teardown: true
+// Each pool task waits on a gate that only the sibling opens, and the sibling
+// opens it only once the waiter has begun that wait. So each wait ends only
+// after the sibling ran during it. A wait that blocked the executor's thread
+// would leave the pool task to panic at its 10 s deadline.
 import std.task.*
 
-static TICKS: Atomic<Int> = Atomic(0)
+// The pool tasks poll their gates every millisecond for at most 10 s.
+static TICK_MS: UInt64 = 1
+static DEADLINE_TICKS: Int = 10_000
 static STOP: Atomic<Int> = Atomic(0)
+static JOINING: Atomic<Int> = Atomic(0)
+static JOIN_GATE: Atomic<Int> = Atomic(0)
+static TEARING_DOWN: Atomic<Int> = Atomic(0)
+static TEARDOWN_GATE: Atomic<Int> = Atomic(0)
 
 func ticker() -> Int {
     while STOP.load() == 0 {
         sleep(Duration.ms(5))
-        let _ = TICKS.fetch_add(1)
+        if JOINING.load() == 1 {
+            JOIN_GATE.store(1)
+        }
+        if TEARING_DOWN.load() == 1 {
+            TEARDOWN_GATE.store(1)
+        }
     }
     0
 }
 
-func napper() -> Int {
-    sleep(Duration.ms(100))
+// Waits until `gate` is open; panics naming `what` after the deadline.
+func napper(gate: &Atomic<Int>, what: String) -> Int {
+    var ticks = 0
+    while gate.load() == 0 {
+        if ticks == DEADLINE_TICKS {
+            panic("the sibling never opened the {} gate within 10 s", what)
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
     7
+}
+
+func join_napper() -> Int {
+    napper(&JOIN_GATE, "join's")
+}
+
+func teardown_napper() -> Int {
+    napper(&TEARDOWN_GATE, "teardown's")
 }
 
 func pool_scope_ends() {
     var pool = try! TaskGroup(threads: 2)
-    let _ = pool.spawn(napper())
+    let _ = pool.spawn(teardown_napper())
+    // Nothing suspends between this store and the pool's teardown.
+    TEARING_DOWN.store(1)
 }
 
 // The pool is the waiter's own: a `TaskGroup` is not `Sync`, so a spawned
 // frame cannot hold a reference to one its spawner made.
 func waiter() -> Int {
     var pool = try! TaskGroup(threads: 2)
-    let h = pool.spawn(napper())
-    let before_join = TICKS.load()
+    let h = pool.spawn(join_napper())
+    // Nothing suspends between this store and the join's park.
+    JOINING.store(1)
     let v = h.join()
-    print("sibling ticked during the join: {}", TICKS.load() > before_join)
+    print("sibling ticked during the join: {}", JOIN_GATE.load() == 1)
     print("joined {}", v)
-    let before_teardown = TICKS.load()
     pool_scope_ends()
-    print("sibling ticked during the teardown: {}", TICKS.load() > before_teardown)
+    print("sibling ticked during the teardown: {}", TEARDOWN_GATE.load() == 1)
     STOP.store(1)
     v
 }

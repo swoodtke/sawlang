@@ -5,58 +5,97 @@
 // prints: the cancelled task waited for the call: true
 // prints: the sibling ticked through the call: true
 // prints: cancelled after the call: true
-// The caller yields until `main` has cancelled it, then makes a 200 ms call.
+// The caller yields until `main` has cancelled it, then makes its call: a
+// `poll` on a pipe that only the sibling writes to, once the caller is inside
+// the call. So the call returns early only by its byte, which proves the
+// sibling ran while the cancelled caller waited. An executor whose thread
+// the cancelled offload blocked would leave the call to its 10 s timeout.
 import std.task.*
 
+struct PollFd { fd: Int32, events: Int16, revents: Int16 }
+
 extern "C" {
-    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
-    func __saw_rt_clock_monotonic_nanos() -> Int64
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func write(fd: Int32, bytes: UnsafePointer<UInt8>, count: Int) -> Int
+    // `nfds_t` is 32 bits on macOS and 64 on Linux; a word carries either.
+    blocking func poll(fds: UnsafePointer<PollFd>, count: UInt, timeout_ms: Int32) -> Int32
 }
 
-static CALL_MS: Int = 200
-static AT_LEAST_MS: Int = 150
-static AT_LEAST_TICKS: Int = 10
-static TICKS: Atomic<Int> = Atomic(0)
-static AT_CANCEL: Atomic<Int> = Atomic(-1)
-static STOP: Atomic<Int> = Atomic(0)
+static POLLIN: Int16 = 1
+static CALL_TIMEOUT_MS: Int32 = 10_000
+// The waits below tick every millisecond for at most 10 s.
+static TICK_MS: UInt64 = 1
+static DEADLINE_TICKS: Int = 10_000
+static READ_END: Atomic<Int> = Atomic(-1)
+static WRITE_END: Atomic<Int> = Atomic(-1)
+static CANCELLED: Atomic<Int> = Atomic(0)
+static IN_CALL: Atomic<Int> = Atomic(0)
+static FED: Atomic<Int> = Atomic(0)
+static DONE: Atomic<Int> = Atomic(0)
 
-func now_ms() -> Int {
-    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+func make_pipe() unsafe {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
+    }
+    READ_END.store(ends[0] as Int)
+    WRITE_END.store(ends[1] as Int)
+}
+
+func feed() unsafe {
+    var byte: [UInt8; 1] = [1; 1]
+    if write(WRITE_END.load() as Int32, (&byte) as UnsafePointer<UInt8>, 1) != 1 {
+        panic("write(2) to the pipe failed")
+    }
+}
+
+// Waits, a tick at a time, until `flag` is set; panics naming `what` after
+// the deadline.
+func await_flag(flag: &Atomic<Int>, what: String) {
+    var ticks = 0
+    while flag.load() == 0 {
+        if ticks == DEADLINE_TICKS {
+            panic("{} never happened within 10 s", what)
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
 }
 
 func ticker() -> Int {
-    while STOP.load() == 0 {
-        sleep(Duration.ms(5))
-        let _ = TICKS.fetch_add(1)
-    }
+    await_flag(&IN_CALL, "the caller's call")
+    FED.store(1)
+    feed()
     0
 }
 
-func caller() -> Int {
-    while AT_CANCEL.load() < 0 {
+func caller() unsafe -> Int {
+    while CANCELLED.load() == 0 {
         yield_now()
     }
-    let before = TICKS.load()
-    let start = now_ms()
-    let r = __saw_rt_blocking_sleep(CALL_MS)
-    let ms = now_ms() - start
-    let ticks = TICKS.load() - before
-    print("the cancelled task waited for the call: {}", ms >= AT_LEAST_MS)
-    print("the sibling ticked through the call: {}", ticks >= AT_LEAST_TICKS)
+    var watched = PollFd(fd: READ_END.load() as Int32, events: POLLIN, revents: 0)
+    // Nothing suspends between this store and the call's park.
+    IN_CALL.store(1)
+    let r = poll((&watched) as UnsafePointer<PollFd>, 1, CALL_TIMEOUT_MS)
+    if r == 0 {
+        panic("the sibling's byte never reached the call within 10 s")
+    }
+    print("the cancelled task waited for the call: {}", r == 1 && (watched.revents & POLLIN) != 0)
+    print("the sibling ticked through the call: {}", FED.load() == 1)
     print("cancelled after the call: {}", cancelled())
-    r
+    DONE.store(1)
+    r as Int
 }
 
 func main() {
+    make_pipe()
     var g = TaskGroup()
     let t = g.spawn(ticker())
     let c = g.spawn(caller())
-    sleep(Duration.ms(20))
-    AT_CANCEL.store(TICKS.load())
     c.cancel()
+    CANCELLED.store(1)
     // A timer park, so `main` is not joining while `caller` waits.
-    sleep(Duration.ms(400))
+    await_flag(&DONE, "the caller's return")
     let _ = c.join()
-    STOP.store(1)
     let _ = t.join()
 }

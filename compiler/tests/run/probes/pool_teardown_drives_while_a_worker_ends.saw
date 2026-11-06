@@ -1,30 +1,57 @@
 // probe: stated
-// about: a `TaskGroup(threads: 2)` worker leaves a detached background task joining a thread that sleeps 200 ms, and the pool is torn down inside a cooperative task while a sibling ticks; the worker's end waits on that join, and the teardown drives the thread's tasks until the worker has ended, so the sibling keeps ticking, conformance row K188 (SL-806)
+// about: a `TaskGroup(threads: 2)` worker leaves a detached background task joining a thread that waits on a pipe, and the pool is torn down inside a cooperative task while a sibling ticks; the worker's end waits on that join, and the teardown drives the thread's tasks until the worker has ended, so the sibling keeps ticking, conformance row K188 (SL-806)
 // stage 0: keeps one process-wide background group, which the worker never closes (SL-797)
 // speeds: -O0 -O2
 // prints: the teardown waited for the worker: true
 // prints: the sibling ticked through the teardown: true
+// The joined thread waits in `poll` on a pipe that only the sibling writes
+// to, once the owner has begun the teardown. So the thread ends only by that
+// byte, and the teardown ends only after the thread, which proves the
+// sibling ran during the teardown. A teardown that blocked the executor's
+// thread would leave the thread's `poll` to its 10 s timeout.
 import std.task.*
 
+struct PollFd { fd: Int32, events: Int16, revents: Int16 }
+
 extern "C" {
-    func __saw_rt_sleep_ns(ns: UInt64)
-    func __saw_rt_clock_monotonic_nanos() -> Int64
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func write(fd: Int32, bytes: UnsafePointer<UInt8>, count: Int) -> Int
+    // `nfds_t` is 32 bits on macOS and 64 on Linux; a word carries either.
+    blocking func poll(fds: UnsafePointer<PollFd>, count: UInt, timeout_ms: Int32) -> Int32
 }
 
-static NAP_NANOS: UInt64 = 200_000_000
-static AT_LEAST_MS: Int = 150
-// A sibling ticking every 5 ms ticks about 40 times in 200 ms, and none at
-// all while the executor's thread is blocked.
-static AT_LEAST_TICKS: Int = 10
-static TICKS: Atomic<Int> = Atomic(0)
+static POLLIN: Int16 = 1
+static NAP_TIMEOUT_MS: Int32 = 10_000
+static READ_END: Atomic<Int> = Atomic(-1)
+static WRITE_END: Atomic<Int> = Atomic(-1)
+static TEARDOWN: Atomic<Int> = Atomic(0)
+static FED: Atomic<Int> = Atomic(0)
+static NAPPED: Atomic<Int> = Atomic(0)
 static STOP: Atomic<Int> = Atomic(0)
 
-func now_ms() -> Int {
-    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+func make_pipe() unsafe {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
+    }
+    READ_END.store(ends[0] as Int)
+    WRITE_END.store(ends[1] as Int)
 }
 
-func nap() -> Int {
-    __saw_rt_sleep_ns(NAP_NANOS)
+func feed() unsafe {
+    var byte: [UInt8; 1] = [1; 1]
+    if write(WRITE_END.load() as Int32, (&byte) as UnsafePointer<UInt8>, 1) != 1 {
+        panic("write(2) to the pipe failed")
+    }
+}
+
+// Blocks the calling thread until the sibling's byte arrives.
+func nap() unsafe -> Int {
+    var watched = PollFd(fd: READ_END.load() as Int32, events: POLLIN, revents: 0)
+    if poll((&watched) as UnsafePointer<PollFd>, 1, NAP_TIMEOUT_MS) == 0 {
+        panic("the sibling's byte never reached the napping thread within 10 s")
+    }
+    NAPPED.store(1)
     7
 }
 
@@ -42,7 +69,10 @@ func leave_one() -> Int {
 func ticker() -> Int {
     while STOP.load() == 0 {
         sleep(Duration.ms(5))
-        let _ = TICKS.fetch_add(1)
+        if TEARDOWN.load() == 1 && FED.load() == 0 {
+            FED.store(1)
+            feed()
+        }
     }
     0
 }
@@ -50,21 +80,21 @@ func ticker() -> Int {
 func pool_scope() -> Int {
     var pool = try! TaskGroup(threads: 2)
     let a = pool.spawn(leave_one())
-    a.join()
+    let r = a.join()
+    // Nothing suspends between this store and the pool's teardown.
+    TEARDOWN.store(1)
+    r
 }
 
 func owner() -> Int {
-    let before = TICKS.load()
-    let start = now_ms()
     let r = pool_scope()
-    let ms = now_ms() - start
-    let ticks = TICKS.load() - before
-    print("the teardown waited for the worker: {}", ms >= AT_LEAST_MS)
-    print("the sibling ticked through the teardown: {}", ticks >= AT_LEAST_TICKS)
+    print("the teardown waited for the worker: {}", NAPPED.load() == 1)
+    print("the sibling ticked through the teardown: {}", FED.load() == 1)
     r
 }
 
 func main() {
+    make_pipe()
     var g = TaskGroup()
     let t = g.spawn(ticker())
     let o = g.spawn(owner())
