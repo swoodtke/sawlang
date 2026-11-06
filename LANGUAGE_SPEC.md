@@ -9674,7 +9674,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   its `join`/`Deinit` drive the shared queue until the group's own members
   finish, honoring wake reasons — `yield_now` requeues immediately, `sleep(d)`
   is scheduled earliest-deadline over relative sleeps, and a channel wait parks
-  until a send. When nothing is runnable the scheduler parks in the reactor with
+  until a send. Among sleepers past their deadline, the earliest deadline
+  resumes first, and a tie goes to the sleep that began first, however late the
+  scheduler finds them; a pool's workers take them in the same order. When nothing is runnable the scheduler parks in the reactor with
   the earliest deadline as its timeout, whether anything is waiting on an fd or
   not, so a cancel arriving mid-nap is observed then rather than at the deadline;
   a cancelled sleeper is made runnable and takes its cancel path on resume. The drive loop is `sync` (built from `resume`), which is what

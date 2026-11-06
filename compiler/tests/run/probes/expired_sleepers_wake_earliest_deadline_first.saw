@@ -1,0 +1,166 @@
+// probe: stated
+// about: sleepers whose deadlines have all passed when the executor next looks wake earliest deadline first, ties to the earlier sleep, in a cooperative group, the background group, a pool, two groups and a drive point (SL-977)
+// stage 0: runs it on its own std's executor, which wakes expired sleepers in its walk's order (SL-977)
+// speeds: -O0 -O2
+// prints: group: 10
+// prints: group: 30
+// prints: equal spans: 2
+// prints: equal spans: 1
+// prints: equal spans: 0
+// prints: background: 10
+// prints: background: 30
+// prints: pool: 10
+// prints: pool: 30
+// prints: two groups: 10
+// prints: two groups: 30
+// prints: drive: 10
+// prints: drive: driven 30
+// Each case parks every sleeper, then a task holds the thread in a `sync`
+// helper, which the op budget does not reach, until every deadline has
+// passed, so the sweep that follows finds them all expired at once: their
+// order is the executor's choice, never the clock's. In every case the
+// sleeper whose deadline is earlier begins its sleep first and sleeps no
+// longer, so a stall between two sleeps cannot swap their deadlines, while
+// the slot order runs the other way. The equal-spans case prints each
+// sleeper's slot.
+import std.task.*
+import std.time.{Instant}
+
+// How many sleepers have begun their sleep, and how many have woken.
+static SLEPT: Atomic<Int> = Atomic(0)
+static WOKE: Atomic<Int> = Atomic(0)
+// Longer than every sleep here, so the hold outlasts each deadline.
+static HOLD_MS: UInt64 = 100
+// The 1 ms tick paces a gate's poll and decides nothing; a wait for an event
+// that never comes ends at the deadline (TESTING.md rule 3).
+static POLL_TICK_MS: UInt64 = 1
+static GIVE_UP_MS: UInt64 = 10000
+
+func hold(millis: UInt64) sync {
+    let start = Instant.now()
+    while start.elapsed().as_millis() < millis {}
+}
+
+func hold_until_woken(count: Int) sync {
+    let start = Instant.now()
+    while WOKE.load() < count {
+        if start.elapsed().as_millis() > GIVE_UP_MS {
+            panic("holder: the sleepers never woke")
+        }
+    }
+}
+
+// Waits until `before` sleeps have begun, then begins its own.
+func await_sleeps(before: Int) {
+    let start = Instant.now()
+    while SLEPT.load() < before {
+        if start.elapsed().as_millis() > GIVE_UP_MS {
+            panic("gate: the earlier sleeps never began")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+    }
+}
+
+func sleeper(label: String, id: Int, after: Int, nap: Duration) -> Int {
+    await_sleeps(after)
+    let _ = SLEPT.fetch_add(1)
+    sleep(nap)
+    print("{label}: {id}")
+    let _ = WOKE.fetch_add(1)
+    id
+}
+
+// Holds the thread once `sleepers` sleeps have begun.
+func hog(sleepers: Int) -> Int {
+    while SLEPT.load() < sleepers {
+        yield_now()
+    }
+    hold(HOLD_MS)
+    0
+}
+
+// Holds a pool worker until `count` sleepers have woken, so the pool's other
+// worker resumes them one at a time.
+func holder(count: Int) -> Int {
+    hold_until_woken(count)
+    0
+}
+
+func driven() {
+    await_sleeps(1)
+    let _ = SLEPT.fetch_add(1)
+    sleep(Duration.ms(30))
+    print("drive: driven 30")
+}
+
+func reset() {
+    SLEPT.store(0)
+    WOKE.store(0)
+}
+
+func group_case() {
+    reset()
+    var g = TaskGroup()
+    let a = g.spawn(sleeper("group", 30, 1, Duration.ms(30)))
+    let b = g.spawn(sleeper("group", 10, 0, Duration.ms(10)))
+    let h = g.spawn(hog(2))
+    let _ = a.join() + b.join() + h.join()
+}
+
+func equal_spans_case() {
+    reset()
+    var g = TaskGroup()
+    let a = g.spawn(sleeper("equal spans", 0, 2, Duration.ms(10)))
+    let b = g.spawn(sleeper("equal spans", 1, 1, Duration.ms(10)))
+    let c = g.spawn(sleeper("equal spans", 2, 0, Duration.ms(10)))
+    let h = g.spawn(hog(3))
+    let _ = a.join() + b.join() + c.join() + h.join()
+}
+
+func background_case() {
+    reset()
+    let a = Task.spawn(sleeper("background", 30, 1, Duration.ms(30)))
+    let b = Task.spawn(sleeper("background", 10, 0, Duration.ms(10)))
+    let h = Task.spawn(hog(2))
+    let _ = a.join() + b.join() + h.join()
+}
+
+func pool_case() {
+    reset()
+    var g = try! TaskGroup(threads: 2)
+    let d = g.spawn(holder(2))
+    let a = g.spawn(sleeper("pool", 30, 1, Duration.ms(30)))
+    let b = g.spawn(sleeper("pool", 10, 0, Duration.ms(10)))
+    let h = g.spawn(hog(2))
+    let _ = d.join() + a.join() + b.join() + h.join()
+}
+
+// The newer group is walked first, so the hold ends with the older group's
+// sleeper next in the walk.
+func two_groups_case() {
+    reset()
+    var older = TaskGroup()
+    let a = older.spawn(sleeper("two groups", 30, 1, Duration.ms(30)))
+    var newer = TaskGroup()
+    let b = newer.spawn(sleeper("two groups", 10, 0, Duration.ms(10)))
+    let h = newer.spawn(hog(2))
+    let _ = a.join() + b.join() + h.join()
+}
+
+func drive_case() {
+    reset()
+    var g = TaskGroup()
+    let a = g.spawn(sleeper("drive", 10, 0, Duration.ms(10)))
+    let h = g.spawn(hog(2))
+    __saw_drive(driven())
+    let _ = a.join() + h.join()
+}
+
+func main() {
+    group_case()
+    equal_spans_case()
+    background_case()
+    pool_case()
+    two_groups_case()
+    drive_case()
+}

@@ -2,11 +2,12 @@
 // about: a `TaskGroup(threads:)` whose lock the allocator refuses returns `Err(AllocError)` naming the lock, and a pool made after the refusal runs (SL-933)
 // stage 0: its pool is fork-join over a lock allocated at the constructor, and the refusal is the same lock's (SL-933)
 // speeds: -O0 -O2
-// prints: lock refused: allocation of 128 bytes (align 16) failed
+// prints: lock refused: allocation of 200 bytes (align 16) failed
 // prints: joined 42
 // The pool's code is a link-time constant, so the constructor's only
-// allocation is its lock and condition variable block (std.taskgroup): 128
-// bytes at alignment 16 on a 64-bit host. With every allocation refused that
+// allocation is its gate block (std.taskgroup), which holds its lock, its
+// condition variable and its timers: 200 bytes at alignment 16 on a 64-bit
+// host. With every allocation refused that
 // block is the one refused, and nothing is left half-made. A `TaskGroup` is
 // `NoMove`, so the result is matched where the constructor builds it, and
 // denial is turned off before anything renders.

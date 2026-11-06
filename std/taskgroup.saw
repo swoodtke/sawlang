@@ -22,7 +22,7 @@ import std.thread.{reap_thread_block, thread_exit_word, thread_join_park}
 // A pool's run-queue lock and its idle workers' condition variable. Both live
 // in one block the group owns, each in a conservative slot: `pthread_mutex_t`
 // is 64 bytes at most on the hosted targets, and `pthread_cond_t` 48
-// (runtime/ABI.md). Every operation on them is a runtime seam, and only the
+// (runtime/ABI.md); the pool's timers follow them (`PoolTimers`). Every operation on them is a runtime seam, and only the
 // try-lock answers: 1 taken, 0 busy.
 extern "C" {
     func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<UInt8>) -> Int
@@ -140,6 +140,9 @@ enum ParkReason {
 //   polls_for
 //   bounded_by
 //   waits_on
+//   expired_sleep
+//   timer_parked
+//   SleepEntry.live
 //   dump_status
 func park_reason(park: Int) -> ParkReason {
     if park == PARK_UNSET {
@@ -372,6 +375,10 @@ struct TaskCell {
     // (`await_task`). Read and written atomically, since a pool's worker
     // writes it.
     finished: Int
+    // The task's latest timer park's place in the order its run queue
+    // recorded sleeps (`take_sleep_order`): what breaks a tie between two
+    // equal deadlines (`next_sleeper`).
+    slept: UInt64
     descriptor: UnsafePointer<FrameDescriptor>
     result: UnsafePointer<UInt8>
     bytes: Int
@@ -492,7 +499,7 @@ extension TaskGroup {
             return TaskGroup()
         }
         install_pool_engine()
-        let size = QUEUE_GATE_SLOT * 2
+        let size = pool_gate_size()
         guard let raw = GlobalAllocator().alloc(size, QUEUE_GATE_ALIGN) else {
             return AllocError(size: size, align: QUEUE_GATE_ALIGN)
         }
@@ -506,6 +513,8 @@ extension TaskGroup {
             panic("TaskGroup(threads:): initializing its condition variable failed (errno {})",
                   __saw_rt_last_raw_code())
         }
+        let timers = (raw as Int + QUEUE_GATE_SLOT * 2) as UnsafePointer<PoolTimers>
+        timers[0] = PoolTimers(sleeps: 0, wake: SleepQueue())
         return TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
                          owner: 0, outstanding: 0, threads: threads, lock: raw as Int, holder: 0,
                          started: false, stopping: false, pollers: 0, drained: 0,
@@ -538,6 +547,7 @@ extension TaskGroup {
     //   TaskGroup.enqueue
     //   should_stop
     //   sweep_passes
+    //   SleepQueue.rebuild
     //   idle
     //   record_parks
     //   waits_drive
@@ -617,6 +627,31 @@ func queue_mutex(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
 
 func queue_cond(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
     (at[0].lock + QUEUE_GATE_SLOT) as UnsafePointer<UInt8>
+}
+
+// A pool's timer bookkeeping, under its lock, which sits in the block beside
+// its lock and condition variable, so a cooperative group carries none.
+struct PoolTimers {
+    // How many timer parks the pool's tasks have recorded: the count its
+    // sleeps take their order from (`take_sleep_order`).
+    sleeps: UInt64
+    // The pool's timer parks in the sleep order (`pool_turn`).
+    wake: SleepQueue
+}
+
+extension PoolTimers: NoCopy {}
+
+static_assert(alignof<PoolTimers>() <= QUEUE_GATE_ALIGN, "a pool's timers follow its gate's slots")
+
+// The bytes of a pool's gate: its lock's slot, its condition variable's, then
+// its timers.
+func pool_gate_size() -> Int {
+    QUEUE_GATE_SLOT * 2 + sizeof<PoolTimers>()
+}
+
+// The timers of the pool at `at`.
+func pool_timers(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<PoolTimers> {
+    (at[0].lock + QUEUE_GATE_SLOT * 2) as UnsafePointer<PoolTimers>
 }
 
 // Takes the run-queue lock of the group at `at`: a pool's own mutex, or, for
@@ -735,12 +770,13 @@ func retire_pool(at: UnsafePointer<TaskGroup>) unsafe {
     shutdown_crew(at)
 }
 
-// Frees a pool's lock and condition variable, once every worker has joined,
-// so nothing waits on either.
+// Frees a pool's lock, condition variable and timers, once every worker has
+// joined, so nothing waits on either.
 func destroy_pool_gate(gate: UnsafePointer<UInt8>) unsafe {
     __saw_rt_pthread_cond_destroy(gate + QUEUE_GATE_SLOT)
     __saw_rt_pthread_mutex_destroy(gate)
-    GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, QUEUE_GATE_SLOT * 2, QUEUE_GATE_ALIGN)
+    drop_in_place((gate as Int + QUEUE_GATE_SLOT * 2) as UnsafePointer<PoolTimers>)
+    GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, pool_gate_size(), QUEUE_GATE_ALIGN)
 }
 
 // A group may be destroyed only once every `group.spawn` handle to it has let
@@ -838,6 +874,15 @@ struct ExecutorRecord {
     // in code no frame lowers. Only the record's own thread reads or writes
     // it (`begin_turn`).
     current: Int
+    // How many timer parks this thread has recorded, its cooperative groups'
+    // tasks' and its drive points' own: the count their sleeps take their
+    // order from (`take_sleep_order`). Only the record's own thread reads or
+    // writes it.
+    sleeps: UInt64
+    // How many groups have been unlinked from this record's list, under its
+    // latch, by whichever thread tears each down: a cooperative sleep queue
+    // built before the count moved may name a freed group (`next_sleeper`).
+    regroups: Int
 }
 
 // A walk's mark in a latch, which is no record's address.
@@ -1022,7 +1067,7 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     let raw = exec_alloc(size, align, "executor")
     let fresh = raw as UnsafePointer<ExecutorRecord>
     fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1, latch: 0,
-                              turns: 0, current: 0)
+                              turns: 0, current: 0, sleeps: 0, regroups: 0)
     var linked = false
     while not linked {
         let head = EXEC_RECORDS.load()
@@ -1135,7 +1180,7 @@ func new_cell(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointe
     let context = TaskContext(park: 0 as UnsafePointer<Int>, cancel: 0 as UnsafePointer<Bool>,
                               task: raw as Int, deadline: 0)
     cell[0] = TaskCell(context: context, park: PARK_READY, cancel: false, unclaimed: false,
-                       holding: false, finished: 0, descriptor: descriptor, result: result,
+                       holding: false, finished: 0, slept: 0, descriptor: descriptor, result: result,
                        bytes: bytes, align: align)
     let park = (&cell[0].park) as UnsafePointer<Int>
     let cancel = (&cell[0].cancel) as UnsafePointer<Bool>
@@ -1587,6 +1632,8 @@ extension TaskGroup {
         latch_take(record)
         self.registered = false
         unlink_group(record, (&self) as UnsafePointer<TaskGroup> as Int, self.next)
+        let regroups = (&record[0].regroups) as UnsafePointer<Int>
+        store_word(regroups, load_word(regroups) + 1)
         latch_give(record)
     }
 }
@@ -1696,11 +1743,15 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     match poll {
         case Ready -> { retired = g[0].complete(slot) },
         case Pending -> {
-            if park_reason(cell[0].park) == ParkReason.Unset {
+            let reason = park_reason(cell[0].park)
+            if reason == ParkReason.Unset {
                 // The section's writes are done, so the latch goes back first
                 // and the panic's dump names this task.
                 unlock_queue(at)
                 panic("executor: a task reported Pending without recording a park")
+            }
+            if reason == ParkReason.Timer {
+                cell[0].slept = take_sleep_order((&record[0].sleeps) as UnsafePointer<UInt64>)
             }
         }
     }
@@ -1740,12 +1791,13 @@ func should_stop(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
 // The sweep a join, a group's teardown and the entry executor run: until the
 // task, the group or every group named is finished (`should_stop`).
 func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
-    sweep(term_group, term_slot, term_gen, 0)
+    sweep(term_group, term_slot, term_gen, 0, 0)
 }
 
 // The scheduler sweep, shared by every drive point: resumes woken frames
-// round-robin across every cooperative group the calling thread registered
-// until `should_stop` says the sweep is finished, and when a pass wakes
+// round-robin across every cooperative group the calling thread registered,
+// expired sleepers in the sleep order (`next_sleeper`), until `should_stop`
+// says the sweep is finished, and when a pass wakes
 // nothing, waits for the earliest timer (`idle`). Another thread's groups are
 // that thread's to run, and a pool's frames are its workers', so the sweep
 // never resumes either.
@@ -1753,18 +1805,24 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
 // A nested sweep (a task joins a task) skips every frame active on this
 // thread's stack, and returns when every live frame is one of those and it
 // has no timer of its own to wait for, ceding to the sweep further up.
-func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
+//
+// `waiter_order` is the drive point's own sleep's place in the sleep order
+// when its park at `waiter` is a timer (`next_sleeper`), and is read only
+// then. The sweep keeps its own queue of this thread's timer parks in that
+// order (`SleepQueue`).
+func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64) unsafe {
     let record = this_executor()
     enter_executor(record)
     record[0].sweeps += 1
-    sweep_passes(term_group, term_slot, term_gen, waiter, record)
+    var queue = SleepQueue()
+    sweep_passes(term_group, term_slot, term_gen, waiter, waiter_order, &var queue, record)
     record[0].sweeps -= 1
     leave_executor(record)
 }
 
-func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
-                  record: UnsafePointer<ExecutorRecord>) unsafe {
-    while not should_stop(term_group, term_slot, term_gen, waiter, record) {
+func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64,
+                  queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe {
+    while not sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, &var queue, record) {
         var resumed = false
         var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
         while cur != 0 {
@@ -1772,18 +1830,351 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
             var i = 0
             while g[0].engine() == 0 && i < g[0].slots.len() {
                 if g[0].runnable(i) {
-                    resume_slot(g, i, record)
-                    resumed = true
-                    if should_stop(term_group, term_slot, term_gen, waiter, record) {
+                    let turn = walk_turn(g, i, waiter, waiter_order, &var queue, record)
+                    if turn.slot < 0 {
+                        // The drive point's own sleep wakes next, which ends
+                        // the sweep.
+                        let _ = sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, &var queue,
+                                               record)
                         return
                     }
+                    resume_queued(turn.group, turn.slot, &var queue, record)
+                    resumed = true
+                    if sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, &var queue, record) {
+                        return
+                    }
+                    // A turn given to another sleeper keeps the walk here,
+                    // where this slot's own sleep is still due.
+                    if turn.group == cur && turn.slot == i {
+                        i = i + 1
+                    }
+                } else {
+                    i = i + 1
                 }
-                i = i + 1
             }
             cur = g[0].next
         }
         if not resumed && not idle(waiter, record) {
             return
+        }
+    }
+}
+
+// Whether the sweep `sweep` was asked for is finished (`should_stop`). When
+// the drive point's own park at `waiter` is an expired sleep, every expired
+// sleeper that wakes ahead of it (`next_sleeper`) has its turn first, so the
+// drive resumes in its place in the sleep order.
+func sweep_finished(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64,
+                    queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
+    if waiter != 0 {
+        let w = waiter as UnsafePointer<TaskContext>
+        if expired_sleep(w, monotonic_now()) {
+            let own = SleepKey(deadline: w[0].deadline, order: waiter_order)
+            var ahead = cooperative_sleeper(&var queue, own, monotonic_now(), record)
+            while ahead.slot >= 0 {
+                resume_queued(ahead.group, ahead.slot, &var queue, record)
+                ahead = cooperative_sleeper(&var queue, own, monotonic_now(), record)
+            }
+        }
+    }
+    should_stop(term_group, term_slot, term_gen, waiter, record)
+}
+
+// Resumes `slot` of the cooperative group at `group` once (`resume_slot`),
+// and gives `queue` the timer park it made, if it made one.
+func resume_queued(group: Int, slot: Int, queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe {
+    let g = group as UnsafePointer<TaskGroup>
+    resume_slot(g, slot, record)
+    if let entry = timer_parked(g, slot) {
+        queue.note(entry)
+    }
+}
+
+// The entry for slot `slot` of the group at `g` when it is parked on a timer
+// it recorded, or None.
+func timer_parked(g: UnsafePointer<TaskGroup>, slot: Int) unsafe -> SleepEntry? {
+    let s = g[0].slots[slot]
+    if s.done {
+        return None
+    }
+    guard let cell = s.cell else {
+        return None
+    }
+    if park_reason(park_word((&cell[0].context) as UnsafePointer<TaskContext>)) != ParkReason.Timer {
+        return None
+    }
+    SleepEntry(group: g as Int, slot: slot, cell: cell as Int,
+               key: SleepKey(deadline: cell[0].context.deadline, order: cell[0].slept))
+}
+
+// The expired sleeper ahead of `bound` at clock reading `now` among the
+// cooperative groups of `record`'s thread (`next_sleeper`).
+func cooperative_sleeper(queue: &var SleepQueue, bound: SleepKey, now: UInt64,
+                         record: UnsafePointer<ExecutorRecord>) unsafe -> SleeperPick {
+    let first = load_word((&record[0].groups) as UnsafePointer<Int>)
+    let epoch = load_word((&record[0].regroups) as UnsafePointer<Int>)
+    next_sleeper(&var queue, first, true, bound, now, record[0].sleeps, epoch)
+}
+
+// The turn the cooperative walk gives at runnable slot `slot` of the group
+// at `g`: that slot's, unless it is an expired sleep and another expired
+// sleeper wakes ahead of it (`next_sleeper`) among `record`'s groups, or the
+// drive point's own park at `waiter`, whose turn is the pick with a negative
+// slot.
+func walk_turn(g: UnsafePointer<TaskGroup>, slot: Int, waiter: Int, waiter_order: UInt64,
+               queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe -> SleeperPick {
+    let cell = g[0].cell_at(slot)
+    let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+    let own = SleepKey(deadline: cell[0].context.deadline, order: cell[0].slept)
+    let here = SleeperPick(group: g as Int, slot: slot, key: own)
+    let now = monotonic_now()
+    if not expired_sleep(cx, now) {
+        return here
+    }
+    var pick = cooperative_sleeper(&var queue, own, now, record)
+    if pick.slot < 0 {
+        pick = here
+    }
+    if waiter != 0 {
+        let w = waiter as UnsafePointer<TaskContext>
+        let drive = SleepKey(deadline: w[0].deadline, order: waiter_order)
+        if expired_sleep(w, now) && precedes(drive, pick.key) {
+            return SleeperPick(group: 0, slot: -1, key: drive)
+        }
+    }
+    pick
+}
+
+// A sleep's place in the sleep order: its deadline, then its order.
+struct SleepKey {
+    deadline: UInt64
+    order: UInt64
+}
+
+// Whether the sleep at `a` wakes ahead of the one at `b`.
+func precedes(a: SleepKey, b: SleepKey) -> Bool {
+    a.deadline < b.deadline || (a.deadline == b.deadline && a.order < b.order)
+}
+
+// An expired sleeper `next_sleeper` chose: slot `slot` of the group at
+// `group`, whose sleep is `key`, or none when `slot` is negative.
+struct SleeperPick {
+    group: Int
+    slot: Int
+    key: SleepKey
+}
+
+// Whether the park recorded through `cx` is an expired sleep at the clock
+// reading `now`: a timer, its task not asked to stop, whose deadline has
+// passed. A cancelled sleeper wakes by its cancel, at its walk position, as
+// any cancelled park does.
+func expired_sleep(cx: UnsafePointer<TaskContext>, now: UInt64) unsafe -> Bool {
+    park_reason(park_word(cx)) == ParkReason.Timer && not cx[0].cancel[0] && now >= cx[0].deadline
+}
+
+// The next place in a sleep order, from the count at `count`: a cooperative
+// thread's record's or a pool's, advanced only by its own thread or under
+// its pool's lock.
+//
+// ENTRY POINTS:
+//   resume_slot
+//   worker_resume
+//   drive_frame
+func take_sleep_order(count: UnsafePointer<UInt64>) unsafe -> UInt64 {
+    let order = count[0]
+    count[0] = order + 1
+    order
+}
+
+// THE SLEEP ORDER: which expired sleeper wakes next. A sleeper is a task, or
+// a drive point's own frame, parked on a timer and not asked to stop, and it
+// is expired once the clock reaches its deadline. Expired sleepers wake
+// earliest deadline first, and a tie goes to the lower slot, where a sleep's
+// slot is its place in the order its run queue recorded timer parks
+// (`take_sleep_order`): the earlier sleep wins. A walk that reaches an expired
+// sleeper gives the turn to the expired sleeper that wakes first, and stays
+// there until the sleeper it reached has had its own, so however late a walk
+// runs, what it finds expired wakes in this order, and every other turn keeps
+// its place.
+//
+// This answers, among the groups `first` heads (the list through each group's
+// `next` when `walk`, skipping pools, or that one group alone), the expired
+// sleeper at clock reading `now` that wakes first and still ahead of `bound`;
+// a sleeper's own key never precedes itself, so one passed as `bound` is never
+// its own answer. The answer is `queue`'s top (`SleepQueue`), so a choice
+// costs a heap operation rather than a scan; the queue is rebuilt from the
+// groups first when it may lack a park: it was never built, a park was
+// recorded that it did not see (`count`, the run queue's sleep count, is past
+// the one it expects), a group of the list was unlinked (`epoch` moved), or its
+// dropped entries outgrew its live ones. The queue's entries are heap storage
+// that grows at its first build and as parks are noted, from the global
+// allocator, in a freestanding executor too; a refused growth panics, naming
+// `sleep`, as the executor's other bookkeeping does (`alloc_or_fault`).
+//
+// ENTRY POINTS:
+//   walk_turn (through cooperative_sleeper)
+//   sweep_finished (through cooperative_sleeper)
+//   pool_turn
+func next_sleeper(queue: &var SleepQueue, first: Int, walk: Bool, bound: SleepKey, now: UInt64, count: UInt64,
+                  epoch: Int) unsafe -> SleeperPick {
+    let stale = queue.entries.len() > 2 * queue.built + SLEEP_QUEUE_SLACK
+    if not queue.whole || queue.seen != count || queue.epoch != epoch || stale {
+        queue.rebuild(first, walk, count, epoch)
+    }
+    while queue.entries.len() > 0 {
+        let top = queue.entries[0]
+        if not top.live() {
+            queue.pop_top()
+        } else if now < top.key.deadline || not precedes(top.key, bound) {
+            return SleeperPick(group: 0, slot: -1, key: bound)
+        } else {
+            return SleeperPick(group: top.group, slot: top.slot, key: top.key)
+        }
+    }
+    SleeperPick(group: 0, slot: -1, key: bound)
+}
+
+// How many dropped entries a sleep queue holds before a rebuild, beyond as
+// many as it had live ones at its last build.
+static SLEEP_QUEUE_SLACK: Int = 64
+
+// One timer park in a sleep queue: slot `slot` of the group at `group`, whose
+// task's cell was at `cell` when it parked with key `key`.
+struct SleepEntry {
+    group: Int
+    slot: Int
+    cell: Int
+    key: SleepKey
+}
+
+extension SleepEntry {
+    // Whether the park is still the slot's: the same task, parked on the same
+    // timer (its stamp unchanged), and not asked to stop. A stamp is never
+    // reused, so an entry that is not live never becomes live again. The cell
+    // is read only once the slot holds it, so a freed cell is never read.
+    func live(&self) unsafe -> Bool {
+        let g = self.group as UnsafePointer<TaskGroup>
+        if self.slot >= g[0].slots.len() {
+            return false
+        }
+        let s = g[0].slots[self.slot]
+        if s.done || s.active {
+            return false
+        }
+        guard let cell = s.cell else {
+            return false
+        }
+        if cell as Int != self.cell {
+            return false
+        }
+        let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+        if park_reason(park_word(cx)) != ParkReason.Timer || cx[0].cancel[0] {
+            return false
+        }
+        cell[0].slept == self.key.order
+    }
+}
+
+// Timer parks in the sleep order: a binary heap whose top is the first to
+// wake (`next_sleeper`). An entry is checked only when it reaches the top,
+// where one whose task has moved on is dropped. A cooperative sweep keeps one
+// over its thread's groups, a pool one over its own slots, under its lock.
+struct SleepQueue {
+    entries: Vector<SleepEntry>
+    // Whether the entries hold every timer park of the run queues: false until
+    // the first build, and once a park was recorded that no `note` saw.
+    whole: Bool
+    // The stamp the next `note` expects: one past the last the queue saw.
+    seen: UInt64
+    // The list's epoch at the build, for a cooperative queue (`regroups`).
+    epoch: Int
+    // How many entries the last build made.
+    built: Int
+}
+
+extension SleepQueue: NoCopy {}
+
+extension SleepQueue {
+    init() -> SleepQueue {
+        SleepQueue(entries: Vector<SleepEntry>(), whole: false, seen: 0, epoch: 0, built: 0)
+    }
+
+    // A timer park its run queue just recorded, stamped `entry.key.order`.
+    func note(&var self, entry: SleepEntry) unsafe {
+        if self.whole && entry.key.order == self.seen {
+            self.push(entry)
+            self.seen = entry.key.order + 1
+        } else {
+            self.whole = false
+        }
+    }
+
+    // Refills the queue from every timer park of the groups `first` heads, as
+    // `next_sleeper` reads them, the run queue's count then being `count`.
+    func rebuild(&var self, first: Int, walk: Bool, count: UInt64, epoch: Int) unsafe {
+        self.entries.clear()
+        var cur = first
+        while cur != 0 {
+            let g = cur as UnsafePointer<TaskGroup>
+            if not walk || g[0].engine() == 0 {
+                var i = 0
+                while i < g[0].slots.len() {
+                    let s = g[0].slots[i]
+                    if not s.active {
+                        if let entry = timer_parked(g, i) {
+                            if entry.live() {
+                                self.push(entry)
+                            }
+                        }
+                    }
+                    i = i + 1
+                }
+            }
+            if not walk {
+                cur = 0
+            } else {
+                cur = g[0].next
+            }
+        }
+        self.whole = true
+        self.seen = count
+        self.epoch = epoch
+        self.built = self.entries.len()
+    }
+
+    func push(&var self, entry: SleepEntry) unsafe {
+        alloc_or_fault(self.entries.push(entry), "sleep")
+        var i = self.entries.len() - 1
+        while i > 0 {
+            let up = (i - 1) / 2
+            if not precedes(self.entries[i].key, self.entries[up].key) {
+                return
+            }
+            self.entries.swap(i, up)
+            i = up
+        }
+    }
+
+    func pop_top(&var self) unsafe {
+        let last = self.entries.len() - 1
+        self.entries.swap(0, last)
+        let _ = self.entries.pop()
+        let n = self.entries.len()
+        var i = 0
+        while true {
+            let left = 2 * i + 1
+            if left >= n {
+                return
+            }
+            var least = left
+            if left + 1 < n && precedes(self.entries[left + 1].key, self.entries[left].key) {
+                least = left + 1
+            }
+            if not precedes(self.entries[least].key, self.entries[i].key) {
+                return
+            }
+            self.entries.swap(i, least)
+            i = least
         }
     }
 }
@@ -2446,7 +2837,7 @@ func drive_until_set(word: UnsafePointer<Int>) unsafe {
     var cancel = false
     var context = TaskContext(park: (&park) as UnsafePointer<Int>, cancel: (&cancel) as UnsafePointer<Bool>,
                               task: 0, deadline: 0)
-    sweep(0, -1, 0, (&context) as UnsafePointer<TaskContext> as Int)
+    sweep(0, -1, 0, (&context) as UnsafePointer<TaskContext> as Int, 0)
 }
 
 // Joins each of a stopping pool's workers, putting each back in
@@ -2482,7 +2873,7 @@ func drive_on_exit(word: UnsafePointer<Int>) unsafe {
     var context = TaskContext(park: (&park) as UnsafePointer<Int>, cancel: (&cancel) as UnsafePointer<Bool>,
                               task: 0, deadline: 0)
     while load_word(word) >= 0 {
-        sweep(0, -1, 0, (&context) as UnsafePointer<TaskContext> as Int)
+        sweep(0, -1, 0, (&context) as UnsafePointer<TaskContext> as Int, 0)
     }
 }
 
@@ -2563,8 +2954,9 @@ func exec_worker(addr: Int) unsafe {
 }
 
 // One look at the run queue, with the lock held: resumes the first frame
-// whose park wakes, or waits for one to, and answers false once the worker
-// is to leave. `record` is the worker's own.
+// whose park wakes, an expired sleeper's turn going to the pool's expired
+// sleeper that wakes first (`pool_turn`), or waits for one to, and answers
+// false once the worker is to leave. `record` is the worker's own.
 func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     var g = at
     let lead = "TaskGroup(threads:)"
@@ -2584,7 +2976,7 @@ func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRec
                 let cell = g[0].cell_at(i)
                 let cx = (&cell[0].context) as UnsafePointer<TaskContext>
                 if park_wakes(cx) {
-                    worker_resume(at, i, record)
+                    worker_resume(at, pool_turn(at, i), record)
                     return true
                 }
                 let park = park_word(cx)
@@ -2629,6 +3021,26 @@ func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRec
     true
 }
 
+// The slot a worker resumes when the first slot its turn finds woken is
+// `slot` of the pool at `at`, with the lock held: that one, unless it is an
+// expired sleep and another of the pool's expired sleepers wakes ahead of it
+// (`next_sleeper`).
+func pool_turn(at: UnsafePointer<TaskGroup>, slot: Int) unsafe -> Int {
+    let cell = at[0].cell_at(slot)
+    let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+    let now = monotonic_now()
+    if not expired_sleep(cx, now) {
+        return slot
+    }
+    let own = SleepKey(deadline: cell[0].context.deadline, order: cell[0].slept)
+    var timers = pool_timers(at)
+    let ahead = next_sleeper(&var timers[0].wake, at as Int, false, own, now, timers[0].sleeps, 0)
+    if ahead.slot < 0 {
+        return slot
+    }
+    ahead.slot
+}
+
 // Resumes `slot` of the pool at `at`, claimed under the lock, which is
 // released for the resume and held again when this returns. The worker's own
 // `record` counts the resume, with the lock held again.
@@ -2662,11 +3074,19 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointe
                 finished = true
             },
             case Pending -> {
-                if park_reason(cell[0].park) == ParkReason.Unset {
+                let reason = park_reason(cell[0].park)
+                if reason == ParkReason.Unset {
                     // As the cooperative resume does: the lock goes back
                     // first, so the panic's dump names this task.
                     unlock_queue(at)
                     panic("executor: a task reported Pending without recording a park")
+                }
+                if reason == ParkReason.Timer {
+                    var timers = pool_timers(at)
+                    cell[0].slept = take_sleep_order((&timers[0].sleeps) as UnsafePointer<UInt64>)
+                    if let entry = timer_parked(at, slot) {
+                        timers[0].wake.note(entry)
+                    }
                 }
             }
         }
@@ -2971,7 +3391,13 @@ func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointe
             if not waits_on(parked) {
                 refuse_park(&site, "the driven frame", parked)
             }
-            sweep(0, -1, 0, cx as Int)
+            // A sleep takes its place in the order this thread's tasks' sleeps
+            // are recorded in, so the sweep wakes it among theirs.
+            var order: UInt64 = 0
+            if reason == ParkReason.Timer {
+                order = take_sleep_order((&record[0].sleeps) as UnsafePointer<UInt64>)
+            }
+            sweep(0, -1, 0, cx as Int, order)
         }
         word[0] = PARK_UNSET
     }

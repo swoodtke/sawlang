@@ -2454,7 +2454,7 @@ taskgroup_send_containers.saw	pass	judged by its own directives (edited since it
 taskgroup_sleep_ordering.saw	pass	-	-
 taskgroup_slot_reuse_mt.saw	stage0-wrong	annotated SL-769	sawc meets its directives
 taskgroup_slot_reuse_o_live.saw	pass	judged by its own directives (edited since its oracle)	-
-taskgroup_spawn_and_loop.saw	pass	-	-
+taskgroup_spawn_and_loop.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_spawn_generic.saw	pass	-	-
 taskgroup_spawn_void.saw	pass	-	-
 taskgroup_stale_handle_cancel.saw	stage0-wrong	annotated SL-769	sawc meets its directives

@@ -1,16 +1,16 @@
-// design 89-b core-gap test: main spawns a child, then runs its own sleep-loop.
-// Under the OLD split executors the child ran ONLY at the final join
-// (0,1,2,100,101,102,7); under the unified ambient scheduler the child runs
-// eagerly whenever main parks, so the output INTERLEAVES. Deterministic (the
-// relative-sleep virtual clock + list order fix the interleaving).
+// main spawns a child, then runs its own sleep loop: the child runs eagerly
+// whenever main parks, so the two loops' output interleaves. Both sleep 10 ms
+// and main sleeps first in each round, so its deadline is the earlier one, and
+// expired sleepers wake earliest deadline first; that fixes the order whether
+// the executor looks between the two deadlines or after both.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 0
 // 100
-// 101
 // 1
-// 102
+// 101
 // 2
+// 102
 // 7
 
 func child() -> Int {
