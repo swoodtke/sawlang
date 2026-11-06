@@ -1,0 +1,52 @@
+// probe: stated
+// about: `Vector.sort` is sync-callable: a `sync` function and a `Thread.spawn` body sort a `Vector<Int>` and a user `Comparable` struct (SL-981)
+// stage 0: refuses `import std.thread.{Thread}`: v0.18.0 has no `std.thread`, its `Thread` lives in `std.task`
+// speeds: -O0 -O2
+// prints: sync Int: 1 2 3 5 8
+// prints: sync Key: 1 2 3 5 8
+// prints: thread Int: 1 2 3 5 8
+// prints: thread Key: 1 2 3 5 8
+// `sort` reaches its comparisons through an order type, not a function
+// value, so no call in its instantiation counts as a possible suspension:
+// each `sync` function below compiles, and each thread body is `sync` too.
+
+import std.thread.{Thread}
+
+struct Key { n: Int }
+
+@synthesize
+extension Key: Equatable {}
+@synthesize
+extension Key: Comparable {}
+
+func unsorted() -> Vector<Int> {
+    let v: Vector<Int> = [5, 2, 8, 1, 3]
+    move v
+}
+
+func sorted_ints() sync -> String {
+    var v = unsorted()
+    v.sort()
+    "{v[0]} {v[1]} {v[2]} {v[3]} {v[4]}"
+}
+
+func sorted_keys() sync -> String {
+    let raw = unsorted()
+    var keys = Vector<Key>()
+    var i = 0
+    while i < raw.len() {
+        try! keys.push(Key(n: raw[i]))
+        i = i + 1
+    }
+    keys.sort()
+    "{keys[0].n} {keys[1].n} {keys[2].n} {keys[3].n} {keys[4].n}"
+}
+
+func main() blocking {
+    print("sync Int: {}", sorted_ints())
+    print("sync Key: {}", sorted_keys())
+    var ints = try! Thread.spawn { sorted_ints() }
+    print("thread Int: {}", ints.join())
+    var keys = try! Thread.spawn { sorted_keys() }
+    print("thread Key: {}", keys.join())
+}

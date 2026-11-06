@@ -320,13 +320,6 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         move acc
     }
 
-    // A bottom-up merge sort whose merges are in place (SymMerge, Kim and
-    // Kutzner 2004): insertion-sorted runs of SORT_RUN elements, then merges
-    // of doubling width. Nothing is allocated, which keeps the signature free
-    // of an `AllocError`, and every element moves by the byte-level `swap`, so
-    // none is duplicated. Only `compare(x, y) == Greater` is ever asked, and an
-    // element passes another only when it is strictly greater, which is what
-    // keeps equal elements in order.
     /// Sorts the elements in place by `compare`, which is lent the two
     /// comparands as `&T`.
     ///
@@ -334,125 +327,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// O(n log n) calls of `compare` and O(n log² n) element swaps, and
     /// allocates nothing.
     public func sort_by(&var self, compare: (&T, &T) -> Ordering) unsafe {
-        let count = self.length
-        var start = 0
-        while start < count {
-            let stop = if start + SORT_RUN < count { start + SORT_RUN } else { count }
-            self.insertion_sort(start, stop, compare)
-            start = stop
-        }
-        var width = SORT_RUN
-        while width < count {
-            var low = 0
-            while low + width < count {
-                let middle = low + width
-                let high = if middle + width < count { middle + width } else { count }
-                // Two runs already in order need no merge, so sorted input
-                // costs one comparison per run.
-                if self.greater_by(middle - 1, middle, compare) {
-                    self.sym_merge(low, middle, high, compare)
-                }
-                low = high
-            }
-            width = width * 2
-        }
-    }
-
-    // Whether the element at `i` orders strictly after the one at `j`.
-    func greater_by(&self, i: Int, j: Int, compare: (&T, &T) -> Ordering) unsafe -> Bool {
-        guard let left = self.buffer else {
-            return false
-        }
-        let right = left
-        compare(&left[i], &right[j]) == Ordering.Greater
-    }
-
-    // Sorts `low..<high`; an element moves only past a strictly greater
-    // predecessor.
-    func insertion_sort(&var self, low: Int, high: Int, compare: (&T, &T) -> Ordering) unsafe {
-        var i = low + 1
-        while i < high {
-            var j = i
-            while j > low && self.greater_by(j - 1, j, compare) {
-                self.swap(j - 1, j)
-                j = j - 1
-            }
-            i = i + 1
-        }
-    }
-
-    // Merges the sorted runs `low..<middle` and `middle..<high` in place. It
-    // splits both runs at a point found by binary search, rotates the two
-    // inner pieces past each other and recurses on each side, so the depth is
-    // O(log n). Ties resolve toward the left run, which is the stability rule.
-    func sym_merge(&var self, low: Int, middle: Int, high: Int, compare: (&T, &T) -> Ordering) unsafe {
-        if middle - low == 1 {
-            // The one left element goes before the first right element that
-            // is not strictly less than it.
-            var i = middle
-            var j = high
-            while i < j {
-                let h = i + (j - i) / 2
-                if self.greater_by(low, h, compare) {
-                    i = h + 1
-                } else {
-                    j = h
-                }
-            }
-            var k = low
-            while k < i - 1 {
-                self.swap(k, k + 1)
-                k = k + 1
-            }
-            return
-        }
-        if high - middle == 1 {
-            // The one right element goes before the first left element that
-            // is strictly greater than it.
-            var i = low
-            var j = middle
-            while i < j {
-                let h = i + (j - i) / 2
-                if not self.greater_by(h, middle, compare) {
-                    i = h + 1
-                } else {
-                    j = h
-                }
-            }
-            var k = middle
-            while k > i {
-                self.swap(k, k - 1)
-                k = k - 1
-            }
-            return
-        }
-        let half = low + (high - low) / 2
-        let span = half + middle
-        var start = low
-        var bound = middle
-        if middle > half {
-            start = span - high
-            bound = half
-        }
-        let last = span - 1
-        while start < bound {
-            let c = start + (bound - start) / 2
-            if not self.greater_by(c, last - c, compare) {
-                start = c + 1
-            } else {
-                bound = c
-            }
-        }
-        let stop = span - start
-        if start < middle && middle < stop {
-            self.rotate(start, middle, stop)
-        }
-        if low < start && start < half {
-            self.sym_merge(low, start, half, compare)
-        }
-        if half < stop && stop < high {
-            self.sym_merge(half, stop, high, compare)
-        }
+        merge_sort(&var self, &ClosureOrder<T>(), compare)
     }
 
     // Exchanges the blocks `low..<middle` and `middle..<high` by swapping
@@ -479,6 +354,170 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             self.swap(first + k, second + k)
             k = k + 1
         }
+    }
+}
+
+// The order a sort asks one question of: whether `left` orders strictly
+// after `right`. `compare` travels beside the order rather than inside it: a
+// non-escaping function value cannot be held in a field, and an order that
+// called through one in `sort`'s instantiation would make `sort` non-sync,
+// since a call through a function value counts as a possible suspension.
+// `NaturalOrder` never calls it, so `sort` stays sync-callable.
+trait SortOrder {
+    type Element
+    func greater(&self, left: &Element, right: &Element, compare: (&Element, &Element) -> Ordering) -> Bool
+}
+
+// `sort`'s order: `T`'s own `>`.
+struct NaturalOrder<T: Comparable> {}
+
+extension NaturalOrder<T: Comparable>: SortOrder {
+    type Element = T
+    func greater(&self, left: &T, right: &T, compare: (&T, &T) -> Ordering) -> Bool {
+        left > right
+    }
+}
+
+// `sort_by`'s order: the caller's comparator.
+struct ClosureOrder<T> {}
+
+extension ClosureOrder<T>: SortOrder {
+    type Element = T
+    func greater(&self, left: &T, right: &T, compare: (&T, &T) -> Ordering) -> Bool {
+        compare(&left, &right) == Ordering.Greater
+    }
+}
+
+// A bottom-up merge sort whose merges are in place (SymMerge, Kim and Kutzner
+// 2004): insertion-sorted runs of SORT_RUN elements, then merges of doubling
+// width. Nothing is allocated, which keeps the signature free of an
+// `AllocError`, and every element moves by the byte-level `swap`, so none is
+// duplicated. Only "strictly greater" is ever asked, and an element passes
+// another only when it is strictly greater, which is what keeps equal
+// elements in order.
+func merge_sort<O: SortOrder, A: Allocator>(v: &var Vector<O.Element, A>, order: &O,
+                                            compare: (&O.Element, &O.Element) -> Ordering) {
+    let count = v.len()
+    var start = 0
+    while start < count {
+        let stop = if start + SORT_RUN < count { start + SORT_RUN } else { count }
+        insertion_sort(&var v, start, stop, &order, compare)
+        start = stop
+    }
+    var width = SORT_RUN
+    while width < count {
+        var low = 0
+        while low + width < count {
+            let middle = low + width
+            let high = if middle + width < count { middle + width } else { count }
+            // Two runs already in order need no merge, so sorted input costs
+            // one comparison per run.
+            if greater_at(&v, middle - 1, middle, &order, compare) {
+                sym_merge(&var v, low, middle, high, &order, compare)
+            }
+            low = high
+        }
+        width = width * 2
+    }
+}
+
+// Whether the element at `i` orders strictly after the one at `j`.
+func greater_at<O: SortOrder, A: Allocator>(v: &Vector<O.Element, A>, i: Int, j: Int, order: &O,
+                                            compare: (&O.Element, &O.Element) -> Ordering) unsafe -> Bool {
+    guard let left = v.buffer else {
+        return false
+    }
+    let right = left
+    order.greater(&left[i], &right[j], compare)
+}
+
+// Sorts `low..<high`; an element moves only past a strictly greater
+// predecessor.
+func insertion_sort<O: SortOrder, A: Allocator>(v: &var Vector<O.Element, A>, low: Int, high: Int, order: &O,
+                                                compare: (&O.Element, &O.Element) -> Ordering) {
+    var i = low + 1
+    while i < high {
+        var j = i
+        while j > low && greater_at(&v, j - 1, j, &order, compare) {
+            v.swap(j - 1, j)
+            j = j - 1
+        }
+        i = i + 1
+    }
+}
+
+// Merges the sorted runs `low..<middle` and `middle..<high` in place. It
+// splits both runs at a point found by binary search, rotates the two inner
+// pieces past each other and recurses on each side, so the depth is
+// O(log n). Ties resolve toward the left run, which is the stability rule.
+func sym_merge<O: SortOrder, A: Allocator>(v: &var Vector<O.Element, A>, low: Int, middle: Int, high: Int,
+                                           order: &O, compare: (&O.Element, &O.Element) -> Ordering) {
+    if middle - low == 1 {
+        // The one left element goes before the first right element that is
+        // not strictly less than it.
+        var i = middle
+        var j = high
+        while i < j {
+            let h = i + (j - i) / 2
+            if greater_at(&v, low, h, &order, compare) {
+                i = h + 1
+            } else {
+                j = h
+            }
+        }
+        var k = low
+        while k < i - 1 {
+            v.swap(k, k + 1)
+            k = k + 1
+        }
+        return
+    }
+    if high - middle == 1 {
+        // The one right element goes before the first left element that is
+        // strictly greater than it.
+        var i = low
+        var j = middle
+        while i < j {
+            let h = i + (j - i) / 2
+            if not greater_at(&v, h, middle, &order, compare) {
+                i = h + 1
+            } else {
+                j = h
+            }
+        }
+        var k = middle
+        while k > i {
+            v.swap(k, k - 1)
+            k = k - 1
+        }
+        return
+    }
+    let half = low + (high - low) / 2
+    let span = half + middle
+    var start = low
+    var bound = middle
+    if middle > half {
+        start = span - high
+        bound = half
+    }
+    let last = span - 1
+    while start < bound {
+        let c = start + (bound - start) / 2
+        if not greater_at(&v, c, last - c, &order, compare) {
+            start = c + 1
+        } else {
+            bound = c
+        }
+    }
+    let stop = span - start
+    if start < middle && middle < stop {
+        v.rotate(start, middle, stop)
+    }
+    if low < start && start < half {
+        sym_merge(&var v, low, start, half, &order, compare)
+    }
+    if half < stop && stop < high {
+        sym_merge(&var v, half, stop, high, &order, compare)
     }
 }
 
@@ -595,9 +634,8 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
     }
 }
 
-// `sort_by` asks only whether one comparand is strictly greater, so the
-// comparator answers `Less` for both "less" and "equal": `>` is the one
-// question `T`'s order is asked.
+// `>` is the one question `T`'s order is asked. The comparator handed down
+// beside `NaturalOrder` is never called.
 extension Vector<T: Comparable, A: Allocator = GlobalAllocator> {
     /// Sorts the elements in ascending order by `T`'s `Comparable` order.
     ///
@@ -605,9 +643,7 @@ extension Vector<T: Comparable, A: Allocator = GlobalAllocator> {
     /// O(n log n) comparisons and O(n log² n) element swaps, and allocates
     /// nothing. No element is copied, so a NoCopy element type sorts.
     public func sort(&var self) {
-        self.sort_by({ a, b in
-            if a > b { Ordering.Greater } else { Ordering.Less }
-        })
+        merge_sort(&var self, &NaturalOrder<T>(), { a, b in Ordering.Equal })
     }
 }
 

@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 355 declarations in 24 modules
+# 358 declarations in 24 modules
 
 std.alloc: 9
   extern __saw_rt_alloc
@@ -382,15 +382,18 @@ std.utf8: 4
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 21
+std.vector: 24
+  func greater_at
+  func insertion_sort
+  func merge_sort
+  func sym_merge
   init Vector.init
+  method NaturalOrder.greater
   method Vector.clear
   method Vector.copy
   method Vector.deinit
   method Vector.get
-  method Vector.greater_by
   method Vector.grow_target
-  method Vector.insertion_sort
   method Vector.is_empty
   method Vector.len
   method Vector.pop
@@ -399,8 +402,8 @@ std.vector: 21
   method Vector.reserve_slots
   method Vector.rotate
   method Vector.sort
-  method Vector.sort_by
   method Vector.swap
   method Vector.swap_blocks
-  method Vector.sym_merge
+  requirement SortOrder.greater
+  struct NaturalOrder
   struct Vector
