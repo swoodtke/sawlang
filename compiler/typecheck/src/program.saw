@@ -14,6 +14,7 @@ import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, Tc
 import sawtypecheck.stdsuspension.{TcStdRows}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
 
 // The declarations typecheck knows by identity, found once: `T?` names
 // `Optional` with no name occurrence, and the Copy family, the derivable
@@ -603,9 +604,44 @@ public struct TcProgram {
     // of a twin, or -1 (`match_blocking_twin`).
     blocking_twins: Vector<Int>  // front: rewritten in place
     pair_defaults: Vector<Int>  // front: rewritten in place
+    // Each struct's fields as `struct_field_at` listed them: this process's
+    // alone, never in an image.
+    field_memo: TcFieldMemo  // front: process-local
 }
 
 extension TcProgram: NoCopy {}
+
+// THE FIELD MEMO: each struct's fields, listed once per process, so binding
+// a construction's N arguments lists its fields once rather than once per
+// argument. An entry never goes stale, since a struct's fields are the
+// declarations collected right after it and no later layer adds one; it
+// serializes as nothing and loads empty.
+public struct TcFieldMemo {
+    // Struct declaration -> where its run starts in `runs`: the field count,
+    // then each field.
+    starts: Map<Int, Int>
+    runs: Vector<Int>
+}
+
+extension TcFieldMemo: NoCopy {}
+
+public func tc_field_memo() -> TcFieldMemo {
+    TcFieldMemo(starts: Map<Int, Int>(), runs: Vector<Int>())
+}
+
+extension TcFieldMemo: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(0)
+        return
+    }
+}
+
+extension TcFieldMemo: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<TcFieldMemo, DecodeError> {
+        try from.expect_array(0)
+        return tc_field_memo()
+    }
+}
 
 // The program under type checking over `res`, its tables sized to what `res`
 // holds; each layer grows them to what resolve adds (`begin_layer`).
@@ -685,7 +721,8 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       length_param_owners: Vector<Int>(), length_param_indexes: Vector<Int>(),
                       profile: tc_profile(false, false, false), no_hidden_alloc: false, target: target,
                       export_symbols: Vector<String>(), export_nodes: Vector<Int>(),
-                      erased_nodes: Vector<Int>(), blocking_twins: Vector<Int>(), pair_defaults: Vector<Int>())
+                      erased_nodes: Vector<Int>(), blocking_twins: Vector<Int>(), pair_defaults: Vector<Int>(),
+                      field_memo: tc_field_memo())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)

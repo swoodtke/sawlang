@@ -43,6 +43,24 @@ public func ll_local_slot(l: Int) -> String {
 }
 
 extension LlEmitter {
+    // Field `field`'s index among struct `owner`'s fields, its last if
+    // listed twice, or -1. Each struct's fields are listed once per emitter.
+    func field_slot(&var self, mono: &MonoProgram, owner: Int, field: Int) -> Int {
+        if (self.field_owners.get(field) ?? -1) != owner {
+            let fields = target_struct_fields(&mono.dp.bc.mir.tc, owner)
+            var j = 0
+            while j < fields.len() {
+                let _ = try! self.field_owners.insert(fields[j], owner)
+                let _ = try! self.field_slots.insert(fields[j], j)
+                j = j + 1
+            }
+        }
+        if (self.field_owners.get(field) ?? -1) != owner {
+            return -1
+        }
+        self.field_slots.get(field) ?? -1
+    }
+
     // The address place `p` names.
     public func place_addr(&var self, mono: &var MonoProgram, target: &var Target, p: Int, node: Int) -> String {
         let count = mono.dp.bc.mir.places[p].count
@@ -69,15 +87,7 @@ extension LlEmitter {
             match step.kind {
                 case Field -> {
                     let owner = mono.dp.bc.mir.tc.nominal_decl(current)
-                    let fields = target_struct_fields(&mono.dp.bc.mir.tc, owner)
-                    var index = -1
-                    var j = 0
-                    while j < fields.len() {
-                        if fields[j] == step.decl {
-                            index = j
-                        }
-                        j = j + 1
-                    }
+                    let index = self.field_slot(&mono, owner, step.decl)
                     let off = target.member_offset(&var mono.dp.bc.mir.tc, current, index)
                     addr = self.offset_addr(addr, off)
                 },

@@ -143,7 +143,10 @@ extension LlEmitter {
     }
 
     func debug_set(&var self, file: Int, line: Int, column: Int) {
-        let key = (file * LL_DEBUG_SPAN + ll_debug_clamp(line)) * LL_DEBUG_SPAN + ll_debug_clamp(column)
+        // The line, which varies most, takes the low bits: std's `Hasher`
+        // spreads keys that differ only far above them over few buckets, and
+        // a map of such keys probes in long runs.
+        let key = (file * LL_DEBUG_SPAN + ll_debug_clamp(column)) * LL_DEBUG_SPAN + ll_debug_clamp(line)
         var id = self.dbg_locs.get(key) ?? -1
         if id < 0 {
             let scope = self.debug_scope_for(file)

@@ -111,22 +111,55 @@ extension ResProgram {
 
     public func pop_scope(&var self) {
         self.scope_top = self.scope_top - 1
-        self.local_top = self.scope_marks[self.scope_top]
+        self.drop_locals_to(self.scope_marks[self.scope_top])
     }
 
     // Drops every local and scope: a declaration starts with none.
     public func reset_scopes(&var self) {
-        self.local_top = 0
+        self.drop_locals_to(0)
         self.scope_top = 0
     }
 
+    // Pops the locals above `height`, each name's chain going back to the
+    // local it shadowed. Every pop comes through here, so with no local live
+    // every chain is empty.
+    func drop_locals_to(&var self, height: Int) {
+        while self.local_top > height {
+            self.local_top = self.local_top - 1
+            let name = self.locals[self.local_top].name
+            if name >= 0 {
+                self.name_newest[name] = self.local_prev[self.local_top]
+            }
+        }
+    }
+
     func push_local(&var self, local: ResLocal) {
+        let name = local.name
+        var prev = -1
+        if name >= 0 {
+            while self.name_newest.len() <= name {
+                try! self.name_newest.push(-1)
+            }
+            prev = self.name_newest[name]
+            self.name_newest[name] = self.local_top
+        }
         if self.local_top < self.locals.len() {
             self.locals[self.local_top] = local
+            self.local_prev[self.local_top] = prev
         } else {
             try! self.locals.push(local)
+            try! self.local_prev.push(prev)
         }
         self.local_top = self.local_top + 1
+    }
+
+    // The newest live local named `name`, or -1; `local_prev` goes on to
+    // the one it shadows.
+    public func newest_local(&self, name: Int) -> Int {
+        if name < 0 || name >= self.name_newest.len() {
+            return -1
+        }
+        self.name_newest[name]
     }
 
     // Declares a type-level binding: a type parameter, an associated type.
@@ -137,15 +170,12 @@ extension ResProgram {
 
     // The innermost local of `name` in `space`, or -1.
     public func find_local(&self, name: Int, space: ResSpace) -> Int {
-        var k = self.local_top - 1
+        var k = self.newest_local(name)
         while k >= 0 {
-            let local = self.locals[k]
-            if local.name == name {
-                if local.type_level || space == ResSpace.Value {
-                    return k
-                }
+            if self.locals[k].type_level || space == ResSpace.Value {
+                return k
             }
-            k = k - 1
+            k = self.local_prev[k]
         }
         return -1
     }

@@ -283,14 +283,13 @@ extension ResProgram {
 
     // A type-level binding of `name` declared in the innermost scope, or -1.
     func find_type_level_here(&self, name: Int) -> Int {
-        var k = self.local_top - 1
+        var k = self.newest_local(name)
         let floor = if self.scope_top > 0 { self.scope_marks[self.scope_top - 1] } else { 0 }
         while k >= floor {
-            let local = self.locals[k]
-            if local.name == name && local.type_level {
+            if self.locals[k].type_level {
                 return k
             }
-            k = k - 1
+            k = self.local_prev[k]
         }
         return -1
     }
@@ -371,14 +370,13 @@ extension ResProgram {
 
     // A value binding of `name` declared in the innermost scope, or -1.
     func find_value_here(&self, name: Int) -> Int {
-        var k = self.local_top - 1
+        var k = self.newest_local(name)
         let floor = if self.scope_top > 0 { self.scope_marks[self.scope_top - 1] } else { 0 }
         while k >= floor {
-            let local = self.locals[k]
-            if local.name == name && not local.type_level {
+            if not self.locals[k].type_level {
                 return k
             }
-            k = k - 1
+            k = self.local_prev[k]
         }
         return -1
     }

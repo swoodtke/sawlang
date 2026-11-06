@@ -10759,13 +10759,36 @@ extension TcProgram {
         move out
     }
 
+    // Field `k` of struct `d`, listed once per struct (`TcFieldMemo`): a
+    // construction's parameters are read one at a time, and listing the
+    // fields walks every member the struct declares.
+    func struct_field_at(&var self, d: Int, k: Int) -> Int {
+        var start = self.field_memo.starts.get(d) ?? -1
+        if start < 0 {
+            let fields = self.struct_fields(d)
+            start = self.field_memo.runs.len()
+            try! self.field_memo.runs.push(fields.len())
+            var j = 0
+            while j < fields.len() {
+                try! self.field_memo.runs.push(fields[j])
+                j = j + 1
+            }
+            let _ = try! self.field_memo.starts.insert(d, start)
+        }
+        let count = self.field_memo.runs[start]
+        if k < 0 || k >= count {
+            panic("struct_field_at: index out of range: {} (len {})", k, count)
+        }
+        self.field_memo.runs[start + 1 + k]
+    }
+
     // The name of candidate `c`'s parameter `k`.
     public func cand_param_name(&var self, c: TcCand, k: Int) -> Int {
         match c.kind {
             case Function -> self.params[self.sigs[c.decl].param_first + k].name,
             case Memberwise -> {
-                let fields = self.struct_fields(c.decl)
-                self.res.decls[fields[k]].name
+                let field = self.struct_field_at(c.decl, k)
+                self.res.decls[field].name
             },
             case Case -> {
                 let info = self.res.decls[c.decl]
@@ -10787,9 +10810,9 @@ extension TcProgram {
         match c.kind {
             case Function -> self.params[self.sigs[c.decl].param_first + k].ty,
             case Memberwise -> {
-                let fields = self.struct_fields(c.decl)
-                self.build_decl(fields[k])
-                self.sigs[fields[k]].result
+                let field = self.struct_field_at(c.decl, k)
+                self.build_decl(field)
+                self.sigs[field].result
             },
             case Case -> {
                 let info = self.res.decls[c.decl]
@@ -10945,18 +10968,24 @@ extension TcProgram {
         }
         let ordered = self.cand_ordered(c)
         if not ordered {
+            // Each name's last parameter, which a scan of every parameter per
+            // label would find; built at the first label, since a case's
+            // parameter names are interned as they are asked.
+            var by_name = Map<Int, Int>()
+            var named = false
             k = 0
             while k < args.values.len() {
                 let label = args.labels[k]
                 if label >= 0 {
-                    var p = 0
-                    var found = -1
-                    while p < count {
-                        if self.cand_param_name(c, p) == label {
-                            found = p
+                    if not named {
+                        var p = 0
+                        while p < count {
+                            let _ = try! by_name.insert(self.cand_param_name(c, p), p)
+                            p = p + 1
                         }
-                        p = p + 1
+                        named = true
                     }
+                    let found = by_name.get(label) ?? -1
                     if found < 0 {
                         return TcBind(arg_param: move arg_param, status: TC_BIND_UNKNOWN_LABEL, detail: k)
                     }

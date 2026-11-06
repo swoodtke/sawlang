@@ -663,25 +663,53 @@ extension TcProgram {
             try! values.push(self.pattern_value(pattern))
             k = k + 1
         }
-        k = 1
+        // A literal arm can repeat only an earlier literal of its own kind and
+        // value (`tc_same_values`), so each kind keeps the first arm of each
+        // value; a structural arm can repeat only an earlier structural one,
+        // still compared pair by pair; a range repeats nothing.
+        var first_integer = Map<Int, Int>()
+        var first_boolean = Map<Int, Int>()
+        var first_text = Map<String, Int>()
+        var structural = Vector<Int>()
+        k = 0
         while k < arms.len() {
-            let later = self.res.first_node_child(arms[k])
             let lv = values[k]
-            var j = 0
             var found = -1
-            while j < k && found < 0 {
-                let earlier = self.res.first_node_child(arms[j])
-                let ev = values[j]
-                var repeats = false
-                if ev.kind != TcPatternKind.Other || lv.kind != TcPatternKind.Other {
-                    repeats = ev.kind != TcPatternKind.Range && tc_same_values(&ev, &lv) == TcSameTest.Same
+            if lv.kind == TcPatternKind.Other {
+                let later = self.res.first_node_child(arms[k])
+                var j = 0
+                while j < structural.len() && found < 0 {
+                    let earlier = self.res.first_node_child(arms[structural[j]])
+                    if self.repeats_pattern(earlier, later) {
+                        found = arms[structural[j]]
+                    }
+                    j = j + 1
+                }
+                try! structural.push(k)
+            } else if lv.misfit < 0 && lv.kind != TcPatternKind.Range {
+                var at = -1
+                if lv.kind == TcPatternKind.Integer {
+                    at = first_integer.get(lv.low) ?? -1
+                    if at < 0 {
+                        let _ = try! first_integer.insert(lv.low, k)
+                    }
+                } else if lv.kind == TcPatternKind.Boolean {
+                    at = first_boolean.get(lv.low) ?? -1
+                    if at < 0 {
+                        let _ = try! first_boolean.insert(lv.low, k)
+                    }
                 } else {
-                    repeats = self.repeats_pattern(earlier, later)
+                    at = first_text.get(lv.text) ?? -1
+                    if at < 0 {
+                        let _ = try! first_text.insert(lv.text, k)
+                    }
                 }
-                if repeats {
-                    found = arms[j]
+                if at >= 0 {
+                    let ev = values[at]
+                    if tc_same_values(&ev, &lv) == TcSameTest.Same {
+                        found = arms[at]
+                    }
                 }
-                j = j + 1
             }
             if found >= 0 {
                 self.refuse_duplicate_arm(arms[k], found)

@@ -88,6 +88,11 @@ public struct LlEmitter {
     local_align: Map<Int, Int>
     decl_align: Map<Int, Int>
     decl_section: Map<Int, String>
+    // Each field's struct and index there, for every struct `field_slot` has
+    // listed: a field place reaches its index without listing its struct's
+    // fields again.
+    field_owners: Map<Int, Int>
+    field_slots: Map<Int, Int>
     // The effective subtarget features the module is compiled for, which
     // decide whether a Float method is its instruction (`float_method_intrinsic`).
     features: String
@@ -187,6 +192,7 @@ extension LlEmitter {
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
                   local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>(),
+                  field_owners: Map<Int, Int>(), field_slots: Map<Int, Int>(),
                   features: "", code_thunks: Vector<Int>(), code_externs: Vector<Int>(),
                   value_thunks: Vector<Int>(), builtins: Vector<Bool>())
     }

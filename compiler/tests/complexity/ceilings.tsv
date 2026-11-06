@@ -6,9 +6,10 @@
 # `complexity_lane.py --write`; a shape gets its row, at N = 1,600, from the
 # unit that makes it near-linear.
 shape	N	ceiling	slack
-lets	1600	2.28	0.13
-calls	1600	2.35	0.10
-match	1600	2.42	0.10
-params	1600	2.58	0.10
-yields	1600	2.27	0.10
-match_mixed	1600	2.20	0.10
+lets	1600	2.02	0.10
+calls	1600	2.05	0.10
+match	1600	2.06	0.10
+params	1600	2.07	0.10
+yields	1600	2.11	0.10
+match_mixed	1600	2.08	0.10
+ctor	1600	2.05	0.10
