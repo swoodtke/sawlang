@@ -1,0 +1,168 @@
+// probe: stated
+// about: `Vector.copy()` and `try_copy()` duplicate every element type through one reservation and one write per slot: a type copied by its bits has no copy glue, a `Copy` type's hand-written hook runs once per element, and a `String` element is retained, at 0, 1 and many elements (SL-971)
+// stage 0: not run; the probe states what each copy prints, so it needs no Stage 0 oracle
+// speeds: -O0 -O2
+// leaks: none
+// ll defines: saw member glue ExplicitCopy.copy() on vector_copy_element_tiers.Small
+// ll omits: saw copy glue vector_copy_element_tiers.Small
+// ll omits: saw copy glue Int
+// ll omits: saw copy glue Bool
+// ll omits: saw copy glue UInt8
+// ll defines: saw copy glue vector_copy_element_tiers.Counted
+// prints: emptied copy lengths 0 0 0
+// prints: Int copy true true true 1000
+// prints: Bool copy true true true 1000
+// prints: UInt8 copy true true true 1000
+// prints: Small copy true true true 1000
+// prints: String copy true true true 1000
+// prints: Counted copy true true true 1000
+// prints: Counted copy hooks 0 1 1000 lengths 0 1 1000
+// prints: String copy outlives its source true 1000
+// prints: Int copy independent 0 999 99 -1
+// prints: emptied try_copy lengths 0 0 0
+// prints: Int try_copy true true true 1000
+// prints: Bool try_copy true true true 1000
+// prints: UInt8 try_copy true true true 1000
+// prints: Small try_copy true true true 1000
+// prints: String try_copy true true true 1000
+// prints: Counted try_copy true true true 1000
+// prints: Counted try_copy hooks 0 1 1000 lengths 0 1 1000
+// prints: String try_copy outlives its source true 1000
+// prints: Int try_copy independent 0 999 99 -1
+
+static HOOKS: Atomic<Int> = Atomic(0)
+
+// Copied by its bits: no owning member and no hook.
+struct Small { a: Int32, b: Bool, c: Int }
+
+// On the Copy tier with a hook whose every run is counted, so its copy is
+// never a bit copy.
+struct Counted { n: Int }
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        HOOKS.store(HOOKS.load() + 1)
+        Counted(n: self.n)
+    }
+}
+
+@synthesize
+extension Counted: Equatable {}
+
+func filled<T>(n: Int, at: (Int) -> T) -> Vector<T> {
+    var v = Vector<T>()
+    var i = 0
+    while i < n {
+        try! v.push(at(i))
+        i = i + 1
+    }
+    move v
+}
+
+func same<T: Equatable>(a: &Vector<T>, b: &Vector<T>) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i = 0
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+func duplicate<T: ExplicitCopy>(v: &Vector<T>, reporting: Bool) -> Vector<T> {
+    if reporting { try! v.try_copy() } else { v.copy() }
+}
+
+func path(reporting: Bool) -> String {
+    if reporting { "try_copy" } else { "copy" }
+}
+
+// Prints whether the copy equals its source at 0, 1 and 1000 elements.
+func check<T: Copy + Equatable>(label: String, reporting: Bool, at: (Int) -> T) {
+    let none = filled(0, at)
+    let one = filled(1, at)
+    let many = filled(1000, at)
+    let a = duplicate(&none, reporting)
+    let b = duplicate(&one, reporting)
+    let c = duplicate(&many, reporting)
+    print("{} {} {} {} {} {}", label, path(reporting), same(&none, &a), same(&one, &b), same(&many, &c), c.len())
+}
+
+// Prints how many times the hook ran for copies of 0, 1 and 1000 elements.
+func hooks(reporting: Bool) {
+    let none = filled(0, { i in Counted(n: i) })
+    let one = filled(1, { i in Counted(n: i) })
+    let many = filled(1000, { i in Counted(n: i) })
+    HOOKS.store(0)
+    let a = duplicate(&none, reporting)
+    let after_none = HOOKS.load()
+    let b = duplicate(&one, reporting)
+    let after_one = HOOKS.load() - after_none
+    let c = duplicate(&many, reporting)
+    let after_many = HOOKS.load() - after_none - after_one
+    print("Counted {} hooks {} {} {} lengths {} {} {}", path(reporting), after_none, after_one, after_many,
+          a.len(), b.len(), c.len())
+}
+
+// The copy's strings outlive the source's: each element was retained.
+func strings(reporting: Bool) {
+    var source = filled(1000, { i in "item {i}" })
+    let dup = duplicate(&source, reporting)
+    source = Vector<String>()
+    var ok = true
+    var i = 0
+    while i < dup.len() {
+        if dup[i] != "item {i}" {
+            ok = false
+        }
+        i = i + 1
+    }
+    print("String {} outlives its source {} {}", path(reporting), ok, dup.len())
+}
+
+// A bit copy is a buffer of its own: writing the copy leaves the source alone.
+func independent(reporting: Bool) {
+    let source = filled(1000, { i in i })
+    var dup = duplicate(&source, reporting)
+    dup[0] = 99
+    dup[999] = -1
+    print("Int {} independent {} {} {} {}", path(reporting), source[0], source[999], dup[0], dup[999])
+}
+
+// An empty vector that still holds a buffer copies to an empty vector: one
+// popped, one cleared and one only reserved.
+func emptied(reporting: Bool) {
+    var popped = Vector<Int>()
+    try! popped.push(1)
+    let _ = popped.pop()
+    var cleared = filled(3, { i in "s{i}" })
+    cleared.clear()
+    var reserved = Vector<Int>()
+    try! reserved.reserve(16)
+    let a = duplicate(&popped, reporting)
+    let b = duplicate(&cleared, reporting)
+    let c = duplicate(&reserved, reporting)
+    print("emptied {} lengths {} {} {}", path(reporting), a.len(), b.len(), c.len())
+}
+
+func run(reporting: Bool) {
+    emptied(reporting)
+    check("Int", reporting, { i in i * 7 - 3 })
+    check("Bool", reporting, { i in i % 3 == 0 })
+    check("UInt8", reporting, { i in UInt8.from(truncating: i * 5) })
+    check("Small", reporting, { i in Small(a: Int32.from(truncating: i), b: i % 2 == 0, c: i * 3) })
+    check("String", reporting, { i in "s{i}" })
+    check("Counted", reporting, { i in Counted(n: i) })
+    hooks(reporting)
+    strings(reporting)
+    independent(reporting)
+}
+
+func main() {
+    run(false)
+    run(true)
+}

@@ -576,21 +576,10 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy 
     /// Panics if `A` refuses: `copy()` is the ExplicitCopy hook, whose
     /// signature has no error channel.
     public func copy(&self) unsafe -> Vector<T, A> {
-        var result = Vector<T, A>()
-        if not result.reserve_slots(self.length) {
-            panic("Vector.copy: {}", AllocError(size: self.length * sizeof<T>(), align: alignof<T>()))
+        match self.copy_elements() {
+            case Ok(copied) -> move copied,
+            case Err(_) -> panic("Vector.copy: {}", AllocError(size: self.length * sizeof<T>(), align: alignof<T>()))
         }
-        if let buf = self.buffer {
-            var i = 0
-            while i < self.length {
-                match result.push(buf[i].copy()) {
-                    case Ok(_) -> {},
-                    case Err(e) -> panic("Vector.copy: {}", e)
-                }
-                i = i + 1
-            }
-        }
-        move result
     }
 
     // The copy policy is the type's for every `T`, a move-only element's
@@ -618,19 +607,43 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
     /// Returns `Err(AllocError)` when `A` refuses. The whole buffer is
     /// reserved first, so the result is a complete copy or nothing.
     public func try_copy(&self) unsafe -> Result<Vector<T, A>, AllocError> {
+        self.copy_elements()
+    }
+
+    // Every vector duplicate is made here: one reservation, then each slot
+    // written in place, with no push and no bounds check per element. For a
+    // type copied by its bits, `copy()` is a plain load of them, so the
+    // optimizer turns the loop into a bulk copy at `memcpy` speed; any other
+    // type runs its copy glue per element (SL-961). The length is set once at the end, which is
+    // sound because a panic in an element's `copy()` ends the process, so no
+    // partly copied vector is ever dropped.
+    //
+    // ENTRY POINTS:
+    //   copy
+    //   try_copy
+    func copy_elements(&self) unsafe -> Result<Vector<T, A>, AllocError> {
         var result = Vector<T, A>()
-        try result.reserve(self.length)
-        guard let buf = self.buffer else {
+        let count = self.length
+        // An empty vector may still hold a buffer (after `pop`, `clear` or
+        // `reserve`); its copy reserves nothing, so it has no target buffer.
+        if count == 0 {
             return move result
         }
+        try result.reserve(count)
+        guard let source = self.buffer else {
+            return move result
+        }
+        guard let target = result.buffer else {
+            panic("Vector.copy: buffer is empty")
+        }
         var i = 0
-        while i < self.length {
-            // The reservation holds every element, so this push allocates
-            // nothing.
-            try result.push(buf[i].copy())
+        while i < count {
+            // The slot is uninitialized, so this placement releases nothing.
+            target[i] = source[i].copy()
             i = i + 1
         }
-        return move result
+        result.length = count
+        move result
     }
 }
 
