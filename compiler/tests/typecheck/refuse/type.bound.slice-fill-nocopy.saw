@@ -1,0 +1,14 @@
+// refuses: type.bound at 10:5
+// message: `fill` on a slice needs its element to be `ExplicitCopy`
+// `fill` writes a copy of its value into every slot, so a NoCopy element is
+// refused (SL-988).
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func reset(s: &var [Token]) {
+    s.fill(Token(id: 0))
+}
+
+func main() {
+}

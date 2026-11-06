@@ -99,14 +99,16 @@ fn reborrow_captures.run_int(f: () -> Int) -> Int {
 fn reborrow_captures.total(s: &[Int]) -> Int {
     let _0: Int;  // return
     let _1: &[Int];  // param s
-    let _2: Int;
+    let _2: &[Int];
+    let _3: Int;
 
     bb0: {
-        _2 = call builtin len [copy _1] -> [return: bb1];
+        _2 = ref(shared, (*_1));
+        _3 = call builtin len [move _2] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _2;
+        _0 = move _3;
         return;
     }
 }
@@ -331,11 +333,13 @@ fn reborrow_captures.main() -> Void {
     let _3: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _4: Int;
     let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    let _6: &var [Int];
-    let _7: Int;
-    let _8: reborrow_captures.Counter;  // c
-    let _9: reborrow_captures.Counter;
-    let _10: &var reborrow_captures.Counter;
+    let _6: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _7: (UnsafePointer<UInt8>, Int);
+    let _8: &var [Int];
+    let _9: Int;
+    let _10: reborrow_captures.Counter;  // c
+    let _11: reborrow_captures.Counter;
+    let _12: &var reborrow_captures.Counter;
 
     bb0: {
         _2 = vector [const 0: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
@@ -350,26 +354,31 @@ fn reborrow_captures.main() -> Void {
 
     bb2: {
         _5 = ref(exclusive, _1);
-        _6 = slice(move _5 as &var [Int]);
-        _7 = call reborrow_captures.slices(s: &var [Int]) [move _6] -> [return: bb3];
+        _6 = ref(exclusive, (*_5));
+        _7 = call std.vector.Vector.writable_view_parts() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6] -> [return: bb3];
     }
 
     bb3: {
-        call builtin print [copy _7] -> [return: bb4];
+        _8 = slice(move _5, move _7 as &var [Int]);
+        _9 = call reborrow_captures.slices(s: &var [Int]) [move _8] -> [return: bb4];
     }
 
     bb4: {
-        _9 = reborrow_captures.Counter { n: const 0: Int };
-        _8 = move _9;
-        _10 = ref(exclusive, _8);
-        call reborrow_captures.Counter.bump() (owner reborrow_captures.Counter) [move _10] -> [return: bb5];
+        call builtin print [copy _9] -> [return: bb5];
     }
 
     bb5: {
-        call builtin print [copy _8.n] -> [return: bb6];
+        _11 = reborrow_captures.Counter { n: const 0: Int };
+        _10 = move _11;
+        _12 = ref(exclusive, _10);
+        call reborrow_captures.Counter.bump() (owner reborrow_captures.Counter) [move _12] -> [return: bb6];
     }
 
     bb6: {
+        call builtin print [copy _10.n] -> [return: bb7];
+    }
+
+    bb7: {
         drop(_1);
         return;
     }

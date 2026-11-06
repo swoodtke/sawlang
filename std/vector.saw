@@ -62,6 +62,23 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         self.length == 0
     }
 
+    // The start and length of the elements a `&[T]` of the whole vector
+    // views, for the compiler's whole-container coercion (SL-988): null and 0
+    // for a vector with no buffer, whose view reaches no element. The start
+    // travels as bytes because the coercion reads its two words alone.
+    func view_parts(&self) unsafe -> (UnsafePointer<UInt8>, Int) {
+        guard let buf = self.buffer else {
+            return (0 as UnsafePointer<UInt8>, 0)
+        }
+        (buf as UnsafePointer<UInt8>, self.length)
+    }
+
+    // The same for a `&var [T]`: a vector's elements are its own, so nothing
+    // separates first.
+    func writable_view_parts(&var self) unsafe -> (UnsafePointer<UInt8>, Int) {
+        self.view_parts()
+    }
+
     /// Lends the element at `index` where it sits.
     ///
     /// A read of `v[i]` copies the element out, and a write replaces it in
@@ -721,5 +738,186 @@ extension EnumeratedIterator<T: ExplicitCopy, A: Allocator = GlobalAllocator>: I
         } else {
             None
         }
+    }
+}
+
+// THE SLICE OPERATIONS: `s.get(i)`, `s.sort()` and `s.fill(value)` on a
+// `&[T]` or a `&var [T]` are each a call of one function here, which the
+// compiler makes in the method call's place, so a slice of any container
+// reaches the one body (SL-988). `len()`, `s[i]` and `swap(i, j)` are the
+// compiler's own and need no body. Nothing else calls these, so none is
+// public.
+//
+// ENTRY POINTS:
+//   slice_get
+//   slice_sort
+//   slice_fill
+
+// A copy of the element at `index`, or `None` outside `0..<s.len()`.
+func slice_get<T: Copy>(s: &[T], index: Int) -> T? {
+    if index < 0 || index >= s.len() {
+        return None
+    }
+    s[index]
+}
+
+// Every element replaced by a copy of `value`, each one it overwrites
+// destroyed. The last slot takes `value` itself, so a fill makes one copy
+// fewer than the slice has elements.
+func slice_fill<T: ExplicitCopy>(s: &var [T], value: T) {
+    let count = s.len()
+    if count == 0 {
+        return
+    }
+    var i = 0
+    while i < count - 1 {
+        s[i] = value.copy()
+        i = i + 1
+    }
+    s[count - 1] = move value
+}
+
+// `merge_sort` over a slice: insertion-sorted runs, then in-place merges of
+// doubling width. Every element moves by `swap`, so none is copied and
+// nothing is allocated, and an element passes another only when it is
+// strictly greater, which keeps equal elements in order.
+func slice_sort<T: Comparable>(s: &var [T]) {
+    let count = s.len()
+    var start = 0
+    while start < count {
+        let stop = if start + SORT_RUN < count { start + SORT_RUN } else { count }
+        slice_insertion_sort(&var s, start, stop)
+        start = stop
+    }
+    var width = SORT_RUN
+    while width < count {
+        var low = 0
+        while low + width < count {
+            let middle = low + width
+            let high = if middle + width < count { middle + width } else { count }
+            // Two runs already in order need no merge, so sorted input costs
+            // one comparison per run.
+            if slice_greater(&s, middle - 1, middle) {
+                slice_sym_merge(&var s, low, middle, high)
+            }
+            low = high
+        }
+        width = width * 2
+    }
+}
+
+// Whether the element at `i` orders strictly after the one at `j`.
+func slice_greater<T: Comparable>(s: &[T], i: Int, j: Int) -> Bool {
+    s[i] > s[j]
+}
+
+// Sorts `low..<high`; an element moves only past a strictly greater
+// predecessor.
+func slice_insertion_sort<T: Comparable>(s: &var [T], low: Int, high: Int) {
+    var i = low + 1
+    while i < high {
+        var j = i
+        while j > low && slice_greater(&s, j - 1, j) {
+            s.swap(j - 1, j)
+            j = j - 1
+        }
+        i = i + 1
+    }
+}
+
+// `sym_merge` over a slice: the runs `low..<middle` and `middle..<high`
+// merged in place, ties resolving toward the left run.
+func slice_sym_merge<T: Comparable>(s: &var [T], low: Int, middle: Int, high: Int) {
+    if middle - low == 1 {
+        // The one left element goes before the first right element that is
+        // not strictly less than it.
+        var i = middle
+        var j = high
+        while i < j {
+            let h = i + (j - i) / 2
+            if slice_greater(&s, low, h) {
+                i = h + 1
+            } else {
+                j = h
+            }
+        }
+        var k = low
+        while k < i - 1 {
+            s.swap(k, k + 1)
+            k = k + 1
+        }
+        return
+    }
+    if high - middle == 1 {
+        // The one right element goes before the first left element that is
+        // strictly greater than it.
+        var i = low
+        var j = middle
+        while i < j {
+            let h = i + (j - i) / 2
+            if not slice_greater(&s, h, middle) {
+                i = h + 1
+            } else {
+                j = h
+            }
+        }
+        var k = middle
+        while k > i {
+            s.swap(k, k - 1)
+            k = k - 1
+        }
+        return
+    }
+    let half = low + (high - low) / 2
+    let span = half + middle
+    var start = low
+    var bound = middle
+    if middle > half {
+        start = span - high
+        bound = half
+    }
+    let last = span - 1
+    while start < bound {
+        let c = start + (bound - start) / 2
+        if not slice_greater(&s, c, last - c) {
+            start = c + 1
+        } else {
+            bound = c
+        }
+    }
+    let stop = span - start
+    if start < middle && middle < stop {
+        slice_rotate(&var s, start, middle, stop)
+    }
+    if low < start && start < half {
+        slice_sym_merge(&var s, low, start, half)
+    }
+    if half < stop && stop < high {
+        slice_sym_merge(&var s, half, stop, high)
+    }
+}
+
+// `Vector.rotate` over a slice: Gries and Mills's block swap.
+func slice_rotate<T>(s: &var [T], low: Int, middle: Int, high: Int) {
+    var left = middle - low
+    var right = high - middle
+    while left != right {
+        if left > right {
+            slice_swap_blocks(&var s, middle - left, middle, right)
+            left = left - right
+        } else {
+            slice_swap_blocks(&var s, middle - left, middle + right - left, left)
+            right = right - left
+        }
+    }
+    slice_swap_blocks(&var s, middle - left, middle, left)
+}
+
+// Swaps the `count` elements from `first` with the `count` from `second`.
+func slice_swap_blocks<T>(s: &var [T], first: Int, second: Int, count: Int) {
+    var k = 0
+    while k < count {
+        s.swap(first + k, second + k)
+        k = k + 1
     }
 }

@@ -1,0 +1,27 @@
+// probe: stated
+// about: a `&[T]` parameter of a generic function, its `T` inferred from a coerced `&v` (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 2 2 9 x
+// prints: 3
+// leaks: none
+import std.data.{Data}
+
+func count<T>(s: &[T]) -> Int {
+    s.len()
+}
+
+func first<T: Copy>(s: &[T]) -> T {
+    s[0]
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(9)
+    try! v.push(8)
+    let a: [String; 2] = ["x", "y"]
+    print("{} {} {} {}", count(&v), count(&a), first(&v), first(&a))
+    var d = Data()
+    try! d.push(3)
+    print("{}", first(&d))
+}

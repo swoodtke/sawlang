@@ -1,0 +1,15 @@
+// refuses: type.bound at 10:13
+// message: `get` on a slice needs its element to be `Copy`
+// `get` copies an element out, so a NoCopy element is refused; `s[i]`
+// reaches it in place (SL-988).
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func peek(s: &[Token]) -> Bool {
+    let t = s.get(0)
+    t.is_some()
+}
+
+func main() {
+}

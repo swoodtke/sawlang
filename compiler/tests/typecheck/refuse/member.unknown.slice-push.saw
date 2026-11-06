@@ -1,0 +1,11 @@
+// refuses: member.unknown at 7:5
+// message: is a slice, a view of elements it cannot add or remove, so it has no `push`
+// A slice cannot change the length of the container it views
+// (SL:borrowing §6, SL-988).
+
+func grow(s: &var [Int]) {
+    s.push(4)
+}
+
+func main() {
+}

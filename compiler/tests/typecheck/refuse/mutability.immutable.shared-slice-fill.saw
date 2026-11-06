@@ -1,0 +1,8 @@
+// refuses: mutability.immutable at 5:25
+// message: `s` is a shared reference, through which nothing is written
+// `fill` writes the slice's elements, so it needs a `&var [T]` (SL-988).
+
+func clear(s: &[Int]) { s.fill(0) }
+
+func main() {
+}

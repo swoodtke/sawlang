@@ -1,0 +1,11 @@
+// refuses: loan.read-while-exclusive at 10:30
+// A `&var [T]` coerced from `&var v` holds `v` exclusively for its call, so a
+// shared borrow of `v` beside it in the same call is refused
+// (SL:borrowing §6, SL-988).
+
+func both(a: &var [Int], b: &Vector<Int>) -> Int { a.len() + b.len() }
+
+func main() {
+    var v = Vector<Int>()
+    print("{}", both(&var v, &v))
+}

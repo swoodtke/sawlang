@@ -1,0 +1,36 @@
+// probe: stated
+// about: `&[Int]` and `&var [Int]` cross into a `threads: 2` group: a shared slice is `Send` when its element is `Sync`, an exclusive one when it is `Send` (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 3
+// prints: 40
+// prints: 40
+// leaks: none
+func sum(s: &[Int]) -> Int {
+    var t = 0
+    var i = 0
+    while i < s.len() {
+        t = t + s[i]
+        i = i + 1
+    }
+    t
+}
+
+func scale(s: &var [Int]) -> Int {
+    s[0] = s[0] * 10
+    s[0]
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.push(2)
+    var w = Vector<Int>()
+    try! w.push(4)
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(sum(&v))
+    print("{}", h.join())
+    let k = group.spawn(scale(&var w))
+    print("{}", k.join())
+    print("{}", w[0])
+}

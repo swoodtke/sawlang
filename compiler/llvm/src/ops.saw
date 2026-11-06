@@ -19,7 +19,7 @@ import sawllvm.literals.{ll_zero_constant}
 import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_fit_signed, ll_integer_value}
 import sawmir.build.{mir_func_local}
-import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
+import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirProjKind, MirRvalue, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoProgram}
 import sawresolve.model.{ResDeclKind}
@@ -46,6 +46,10 @@ extension LlEmitter {
                     self.erased_ref_into(&var mono, &var target, rv.place, dest, node)
                     return
                 }
+                if mono.dp.bc.mir.tc.kind_of(rv.ty) == TcKind.Slice {
+                    self.reborrowed_slice_into(&var mono, &var target, rv.place, dest, node)
+                    return
+                }
                 let addr = self.place_addr(&var mono, &var target, rv.place, node)
                 self.store("ptr", addr, dest)
             },
@@ -65,9 +69,56 @@ extension LlEmitter {
             case Aggregate -> self.aggregate_into(&var mono, &var target, r, dest, node),
             case Interpolate -> self.interpolation_into(&var mono, &var target, &rv, dest, node),
             case Erase -> self.erase_into(&var mono, &var target, r, dest, node),
-            case Slice -> self.refuse_here(&var mono, node, "a slice is not in the backend slice yet"),
+            case Slice -> self.slice_into(&var mono, &var target, &rv, dest, node),
             case Take -> self.take_into(&var mono, &var target, &rv, dest, node)
         }
+    }
+
+    // The whole-container coercion into `dest` (MIR's `whole_slice`):
+    // over an array, the reference and the array's length, which its type
+    // carries; over any other container, the start and length its view
+    // funnel answered, the second operand, a `(UnsafePointer<UInt8>, Int)`.
+    func slice_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                    node: Int) {
+        let o = mono.dp.bc.mir.lists[rv.first]
+        if rv.count == 1 {
+            let reference = mono.dp.bc.mir.operands[o].ty
+            let array = mono.dp.bc.mir.tc.referent(reference)
+            let l = self.lay_at(&var mono, &var target, array, node)
+            if l.shape != TargetShape.Array {
+                self.refuse_here(&var mono, node, "a slice of one operand over no array")
+                return
+            }
+            let start = self.operand_value(&var mono, &var target, o, node)
+            var length = StringBuilder()
+            try! length.append(l.length)
+            self.store_slice(&target, dest, start, length.build())
+            return
+        }
+        let p = mono.dp.bc.mir.lists[rv.first + 1]
+        let parts_type = mono.dp.bc.mir.operands[p].ty
+        let parts = self.operand_addr(&var mono, &var target, p, parts_type, node)
+        let start_at = self.offset_addr(parts, target.member_offset(&var mono.dp.bc.mir.tc, parts_type, 0))
+        let count_at = self.offset_addr(parts, target.member_offset(&var mono.dp.bc.mir.tc, parts_type, 1))
+        let word = self.word
+        let start = self.load("ptr", start_at)
+        let count = self.load(word, count_at)
+        self.store_slice(&target, dest, start, count)
+    }
+
+    // A reborrow of a slice into `dest`: `place` is `(*s)`, a slice's deref,
+    // which names its elements, so the new slice is `s`'s two words, the
+    // mode changing nothing in them.
+    func reborrowed_slice_into(&var self, mono: &var MonoProgram, target: &var Target, place: Int, dest: String,
+                               node: Int) {
+        let pl = mono.dp.bc.mir.places[place]
+        if pl.count == 0 || mono.dp.bc.mir.projs[pl.first + pl.count - 1].kind != MirProjKind.Deref {
+            self.refuse_here(&var mono, node, "a slice reborrowed from a place that is no slice's deref")
+            return
+        }
+        let src = self.place_prefix_addr(&var mono, &var target, place, pl.count - 1, node)
+        let (start, length) = self.slice_start_length(&target, src)
+        self.store_slice(&target, dest, start, length)
     }
 
     // A view's projection into `dest` (SL-914): the base view's address

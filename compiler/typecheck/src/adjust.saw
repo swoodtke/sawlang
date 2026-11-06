@@ -179,9 +179,14 @@ extension TcProgram {
         TC_FIT_NONE
     }
 
-    // The element type of a `Vector` or an array, which `&v` passes as a
-    // slice of; -1 for any other type.
-    public func element_of_sequence(&self, t: Int) -> Int {
+    // The element type of a `Vector`, an array or a `Data`, which `&v`
+    // passes as a slice of (SL:borrowing §6); -1 for any other type. A
+    // `Data`'s elements are `UInt8`, the type its `[]` lends.
+    //
+    // ENTRY POINTS:
+    //   convert
+    //   unify_pair
+    public func element_of_sequence(&var self, t: Int) -> Int {
         let info = self.types.ty(t)
         if info.kind == TcKind.Array {
             return info.b
@@ -189,6 +194,11 @@ extension TcProgram {
         let d = self.known.vector
         if self.is_nominal_of(t, d) && info.count > 0 {
             return self.types.arg(t, 0)
+        }
+        let data = self.known.data
+        if data >= 0 && self.is_nominal_of(t, data) {
+            let byte = self.known.uint8
+            return self.prim(byte)
         }
         return -1
     }

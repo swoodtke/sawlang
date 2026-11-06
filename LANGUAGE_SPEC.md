@@ -1033,7 +1033,8 @@ G2 note).
 traits, and generic types/functions with monomorphization are all built (see
 the subsection notes). `Map`/`Set` and their `{ }` literals, context-driven
 Vector literals, and trait default methods are **implemented**. Planned pieces
-called out below: slices (`&a[1..4]`), supertrait *enforcement*, and some
+called out below: views of part of a container (`v[1..4]`; whole-container
+slices are implemented, see Slices), supertrait *enforcement*, and some
 primitive widths. `any Trait` existentials (type-erased dynamic dispatch)
 are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
 `.sqrt()`) are marked *(illustrative)*.
@@ -1788,8 +1789,8 @@ print(fixed.len())            // 5
 var reversible = [10, 20, 30]
 reversible.swap(0, 2)         // -> [30, 20, 10]
 
-// Slices (view into contiguous memory)  (illustrative — slices are planned)
-let slice: [Int] = &fixed[1..4]
+// A whole array passes as a slice, `&fixed` where a `&[Int]` is expected (see
+// Slices); a view of part of one, `fixed[1..4]`, is planned.
 
 // Vectors (dynamic, heap allocated) — stdlib `Vector<T>`. A bracket literal
 // builds a Vector when the EXPECTED type is `Vector<T, A>` (design 54); with no
@@ -4670,6 +4671,72 @@ let f = { &x }
 // error: `&` here is not a call argument, and references are parameters
 //        only ...
 ```
+
+#### Slices
+
+`&[T]` and `&var [T]` are slices: a reference to a run of `T` elements, held as
+the address of the first element and a count. A slice is a reference, so every
+rule above applies to it: it is a parameter, never a field or a return, and its
+call holds the borrow of what it views.
+
+A whole container passes where a slice is expected. `&v` and `&var v` coerce for
+a `Vector<T>`, a fixed array `[T; N]` and a `Data`, whose elements are its bytes,
+so a `Data` passes as `&[UInt8]` and as nothing else. A `&var [UInt8]` of a
+`Data` whose bytes another `Data` shares separates them first, as a write
+through `d[i]` does, and panics if that copy cannot be allocated.
+
+| Operation | Needs | Does |
+|---|---|---|
+| `s.len()` | | the element count |
+| `s[i]` | | the element at `i` as a place: read it, write it through a `&var [T]`, take its address; panics outside `0..<s.len()` |
+| `s.get(i)` | `T: Copy` | a copy of the element at `i`, or `None` outside `0..<s.len()` |
+| `s.swap(i, j)` | `&var [T]` | exchanges two elements without copying either; panics on an index out of range |
+| `s.sort()` | `&var [T]`, `T: Comparable` | sorts in place by `>`, stably, with O(n log n) comparisons; nothing is copied or allocated |
+| `s.fill(value)` | `&var [T]`, `T: ExplicitCopy` | writes a copy of `value` into every slot but the last, which takes `value` itself, and destroys each element it overwrites |
+
+An index out of range panics in the accessor rule's words:
+`panic at s.saw:4: slice: index out of range: 5 (len 3)`. A slice cannot change
+its container's length, so `push`, `pop`, `insert`, `remove`, `append`, `clear`
+and `reserve` are refused at the call, naming the container as the parameter to
+take instead. An extern receives a slice as `(&s[0]) as UnsafePointer<T>` and
+`s.len()`. A slice held across a suspension is an ordinary borrow, and it crosses
+into another thread on the reference rule (see Send and Sync).
+
+```saw
+import std.data.{Data}
+
+func checksum(bytes: &[UInt8]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < bytes.len() {
+        sum = sum + (bytes[i] as Int)
+        i = i + 1
+    }
+    sum
+}
+
+func rank(scores: &var [Int]) {
+    scores.sort()
+    let top = scores.len() - 1
+    scores[top] = scores[top] * 10
+}
+
+func first_or_zero(values: &[Int]) -> Int { values.get(0) ?? 0 }
+
+func main() {
+    var packet = Data()
+    try! packet.push(7)
+    try! packet.push(9)
+    print(checksum(&packet))                            // prints: 16
+    var scores: Vector<Int> = [3, 1, 2]
+    rank(&var scores)
+    print("{} {} {}", scores[0], scores[1], scores[2])  // prints: 1 2 30
+    let empty: [Int; 0] = []
+    print(first_or_zero(&empty))                        // prints: 0
+}
+```
+
+A view of part of a container, `v[a..b]`, is planned.
 
 #### Capturing `self` and reference parameters
 
@@ -7651,12 +7718,11 @@ a `Result` a caller may always ignore should not have been a `Result`.
 
 Panics halt execution (unrecoverable). The compiler emits them for `try!`/
 force-unwrap failures and division by zero (see Runtime Semantics). The
-`panic(...)` builtin (design 49) and `.len()` on a fixed array (design 72) are
-implemented; the `[Int]` slice parameter below is still *(illustrative)* — on a
-fixed array `[Int; N]` the same code type-checks and runs today.
+`panic(...)` builtin (design 49), `.len()` on a fixed array (design 72) and the
+`&[Int]` slice parameter below are implemented.
 
 ```saw-fragment
-func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
+func get_index(arr: &[Int], i: Int) -> Int {
     if i >= arr.len() {
         panic("Index {} out of bounds", i)
     }
@@ -15838,9 +15904,9 @@ function is short enough to review as a unit.
 On a safe type, every indexed accessor is checked. Unchecked access exists only
 through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
 (`Vector.[]`, `Vector.set`, `Vector.swap`, `Vector.swap_out`, `Data.[]`,
-`Data.set`, `FixedBuf.set`, `String.byte_at`, `String.substring`) or yields
-`None`/`Err` for a `get`-shaped one
-(`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`). Never a silent
+`Data.set`, `FixedBuf.set`, `String.byte_at`, `String.substring`, a slice's
+`s[i]` and `swap`) or yields `None`/`Err` for a `get`-shaped one
+(`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`, a slice's `get`). Never a silent
 no-op, never a clamp to a plausible-looking result, and never a status flag a
 caller can ignore. The two halves are a rule about the NAME, so a member on
 either list is on it whatever type declares it: `FixedBuf.get` answered a
@@ -15857,8 +15923,8 @@ prologue in the standard library alike:
 
 so `v[5]` on a three-element vector is
 `panic at v.saw:9: Vector.[]: index out of range: 5 (len 3)`, and `a[i]` on a
-`[Int; 3]` is `array: index out of range: 5 (len 3)`. A range or slice accessor
-spells both bounds: `String.substring: range out of range: 5..2 (len 5)`. The
+`[Int; 3]` is `array: index out of range: 5 (len 3)`, and through a slice
+`slice: index out of range: 5 (len 3)`. A range accessor spells both bounds: `String.substring: range out of range: 5..2 (len 5)`. The
 index is reported at its own signedness, so a negative one reads `-1` rather
 than the huge unsigned value the check folds it to.
 

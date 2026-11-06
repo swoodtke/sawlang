@@ -96,14 +96,16 @@ fn adjustments.outcome(n: Int, fault: adjustments.Fault) -> Result<Int, adjustme
 fn adjustments.total(values: &[Int]) -> Int {
     let _0: Int;  // return
     let _1: &[Int];  // param values
-    let _2: Int;
+    let _2: &[Int];
+    let _3: Int;
 
     bb0: {
-        _2 = call builtin len [copy _1] -> [return: bb1];
+        _2 = ref(shared, (*_1));
+        _3 = call builtin len [move _2] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _2;
+        _0 = move _3;
         return;
     }
 }
@@ -224,69 +226,76 @@ fn adjustments.adjustments(v: &var std.vector.Vector<Int, std.alloc.GlobalAlloca
     let _2: &var adjustments.Square;  // param s
     let _3: Int;  // n
     let _4: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    let _5: &[Int];
-    let _6: Int;
-    let _7: Int;  // m
-    let _8: &adjustments.Square;
-    let _9: Int;
-    let _10: &var adjustments.Square;
-    let _11: Int;  // side
-    let _12: Int;  // shape
-    let _13: adjustments.Square;
-    let _14: &adjustments.Square;
-    let _15: &any adjustments.Shape;
-    let _16: Int;
-    let _17: adjustments.Square;  // square
-    let _18: adjustments.Square;
-    let _19: Int;  // area
-    let _20: &adjustments.Square;
-    let _21: Int;
-    let _22: Int;
+    let _5: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: (UnsafePointer<UInt8>, Int);
+    let _7: &[Int];
+    let _8: Int;
+    let _9: Int;  // m
+    let _10: &adjustments.Square;
+    let _11: Int;
+    let _12: &var adjustments.Square;
+    let _13: Int;  // side
+    let _14: Int;  // shape
+    let _15: adjustments.Square;
+    let _16: &adjustments.Square;
+    let _17: &any adjustments.Shape;
+    let _18: Int;
+    let _19: adjustments.Square;  // square
+    let _20: adjustments.Square;
+    let _21: Int;  // area
+    let _22: &adjustments.Square;
     let _23: Int;
     let _24: Int;
     let _25: Int;
+    let _26: Int;
+    let _27: Int;
 
     bb0: {
         _4 = ref(shared, (*_1));
-        _5 = slice(move _4 as &[Int]);
-        _6 = call adjustments.total(values: &[Int]) [move _5] -> [return: bb1];
+        _5 = ref(shared, (*_4));
+        _6 = call std.vector.Vector.view_parts() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5] -> [return: bb1];
     }
 
     bb1: {
-        _3 = move _6;
-        _8 = ref(shared, (*_2));
-        _9 = call adjustments.peek(p: &adjustments.Square) [move _8] -> [return: bb2];
+        _7 = slice(move _4, move _6 as &[Int]);
+        _8 = call adjustments.total(values: &[Int]) [move _7] -> [return: bb2];
     }
 
     bb2: {
-        _7 = move _9;
-        _10 = ref(exclusive, (*_2));
-        call adjustments.Square.grow() (owner adjustments.Square) [move _10] -> [return: bb3];
+        _3 = move _8;
+        _10 = ref(shared, (*_2));
+        _11 = call adjustments.peek(p: &adjustments.Square) [move _10] -> [return: bb3];
     }
 
     bb3: {
-        _11 = copy (*_2).side;
-        _13 = adjustments.Square { side: const 2: Int };
-        _14 = ref(shared, _13);
-        _15 = erase(move _14 as &any adjustments.Shape);
-        _16 = call adjustments.measure(shape: &any adjustments.Shape) [move _15] -> [return: bb4];
+        _9 = move _11;
+        _12 = ref(exclusive, (*_2));
+        call adjustments.Square.grow() (owner adjustments.Square) [move _12] -> [return: bb4];
     }
 
     bb4: {
-        _12 = move _16;
-        _18 = adjustments.Square { side: const 3: Int };
-        _17 = move _18;
-        _20 = ref(shared, _17);
-        _21 = call adjustments.Square.area() (owner adjustments.Square) [move _20] -> [return: bb5];
+        _13 = copy (*_2).side;
+        _15 = adjustments.Square { side: const 2: Int };
+        _16 = ref(shared, _15);
+        _17 = erase(move _16 as &any adjustments.Shape);
+        _18 = call adjustments.measure(shape: &any adjustments.Shape) [move _17] -> [return: bb5];
     }
 
     bb5: {
-        _19 = move _21;
-        _22 = Add(copy _3, copy _7);
-        _23 = Add(move _22, copy _11);
-        _24 = Add(move _23, copy _19);
-        _25 = Add(move _24, copy _12);
-        _0 = move _25;
+        _14 = move _18;
+        _20 = adjustments.Square { side: const 3: Int };
+        _19 = move _20;
+        _22 = ref(shared, _19);
+        _23 = call adjustments.Square.area() (owner adjustments.Square) [move _22] -> [return: bb6];
+    }
+
+    bb6: {
+        _21 = move _23;
+        _24 = Add(copy _3, copy _9);
+        _25 = Add(move _24, copy _13);
+        _26 = Add(move _25, copy _21);
+        _27 = Add(move _26, copy _14);
+        _0 = move _27;
         return;
     }
 }

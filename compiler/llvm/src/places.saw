@@ -34,6 +34,17 @@ public func ll_tag_type(l: &TargetLayout) -> String {
     out.build()
 }
 
+// A slice is two words (`Target.word_pair`): the address of its first
+// element, then its length, an `Int`, at this offset. Every slice the
+// backend reads or writes goes through its two methods.
+//
+// ENTRY POINTS:
+//   LlEmitter.slice_start_length
+//   LlEmitter.store_slice
+public func ll_slice_length_at(target: &Target) -> Int {
+    target.word
+}
+
 // The address of MIR local `l`'s slot.
 public func ll_local_slot(l: Int) -> String {
     var name = StringBuilder()
@@ -59,6 +70,23 @@ extension LlEmitter {
             return -1
         }
         self.field_slots.get(field) ?? -1
+    }
+
+    // The start and length of the slice at `addr` (`ll_slice_length_at`).
+    public func slice_start_length(&var self, target: &Target, addr: String) -> (String, String) {
+        let word = self.word
+        let start = self.load("ptr", addr)
+        let at = self.offset_addr(addr, ll_slice_length_at(&target))
+        let length = self.load(word, at)
+        (start, length)
+    }
+
+    // A slice of `start` and `length` written at `dest`.
+    public func store_slice(&var self, target: &Target, dest: String, start: String, length: String) {
+        let word = self.word
+        self.store("ptr", start, dest)
+        let at = self.offset_addr(dest, ll_slice_length_at(&target))
+        self.store(word, length, at)
     }
 
     // The address place `p` names.
@@ -105,20 +133,30 @@ extension LlEmitter {
                     try! index.append("%l")
                     try! index.append(step.index)
                     let array = base_layout.shape == TargetShape.Array
-                    if not array && base_layout.kind != TargetKind.Pointer {
-                        self.refuse_here(&var mono, node, "indexing a slice is not in the backend slice yet")
+                    let slice = mono.dp.bc.mir.tc.kind_of(current) == TcKind.Slice
+                    if not array && not slice && base_layout.kind != TargetKind.Pointer {
+                        self.refuse_here(&var mono, node, "indexing a value that is no array, slice or pointer")
                         return addr
                     }
                     var base = addr
-                    if not array {
-                        base = self.load("ptr", addr)
+                    if slice {
+                        let (start, length) = self.slice_start_length(&target, addr)
+                        base = start
+                        let word = self.word
+                        let i = self.load(word, index.build())
+                        self.check_slice_index(&var mono, i, length, node)
+                        addr = self.element_addr(base, i, element.size)
+                    } else {
+                        if not array {
+                            base = self.load("ptr", addr)
+                        }
+                        let word = self.word
+                        let i = self.load(word, index.build())
+                        if array {
+                            self.check_index(&var mono, i, base_layout.length, node)
+                        }
+                        addr = self.element_addr(base, i, element.size)
                     }
-                    let word = self.word
-                    let i = self.load(word, index.build())
-                    if array {
-                        self.check_index(&var mono, i, base_layout.length, node)
-                    }
-                    addr = self.element_addr(base, i, element.size)
                 },
                 case Payload -> {
                     let off = target.payload_offset(&var mono.dp.bc.mir.tc, current, step.decl, step.index)
@@ -212,6 +250,39 @@ extension LlEmitter {
         try! len.append(bytes.len())
         ll_parts_push(&var parts, LL_PART_RUN, g, len.build())
         self.fail_parts(&var mono, node, "array: index out of range: ", &parts)
+        self.put_label(pass)
+    }
+
+    // A slice's bounds check: index `i`, a word, is in `0 ..< length`, the
+    // slice's run-time length, or the program panics naming both in the
+    // array check's words (DF-249a).
+    public func check_slice_index(&var self, mono: &var MonoProgram, i: String, length: String, node: Int) {
+        var test = StringBuilder()
+        try! test.append("icmp ult ")
+        try! test.append(self.word)
+        try! test.append(" ")
+        try! test.append(i)
+        try! test.append(", ")
+        try! test.append(length)
+        let within = self.assign(test.build())
+        let pass = self.new_label("inbounds")
+        let fail = self.new_label("outofbounds")
+        self.branch(within, pass, fail)
+        self.put_label(fail)
+        var parts = LlParts()
+        ll_parts_push(&var parts, LL_PART_SIGNED, i, "")
+        let open = self.text_bytes(" (len ")
+        let g = self.pooled(&open, false, 0)
+        var open_len = StringBuilder()
+        try! open_len.append(open.len())
+        ll_parts_push(&var parts, LL_PART_RUN, g, open_len.build())
+        ll_parts_push(&var parts, LL_PART_SIGNED, length, "")
+        let close = self.text_bytes(")")
+        let h = self.pooled(&close, false, 0)
+        var close_len = StringBuilder()
+        try! close_len.append(close.len())
+        ll_parts_push(&var parts, LL_PART_RUN, h, close_len.build())
+        self.fail_parts(&var mono, node, "slice: index out of range: ", &parts)
         self.put_label(pass)
     }
 

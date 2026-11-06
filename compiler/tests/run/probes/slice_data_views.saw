@@ -1,0 +1,41 @@
+// probe: stated
+// about: a `Data`'s views: an empty one, a sort and a fill in place, and a narrower window whose writable view separates the shared bytes first (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: empty 0 0
+// prints: 10 20 30
+// prints: 0 / 20 30 / 50
+// prints: 60
+// leaks: none
+import std.data.{Data}
+
+func total(s: &[UInt8]) -> Int {
+    var t = 0
+    var i = 0
+    while i < s.len() {
+        t = t + (s[i] as Int)
+        i = i + 1
+    }
+    t
+}
+
+func order(s: &var [UInt8]) { s.sort() }
+
+func zero(s: &var [UInt8]) { s.fill(0) }
+
+func main() {
+    var empty = Data()
+    print("empty {} {}", total(&empty), empty.len())
+    zero(&var empty)
+    var d = Data()
+    try! d.push(30)
+    try! d.push(10)
+    try! d.push(20)
+    order(&var d)
+    print("{} {} {}", d[0], d[1], d[2])
+    let window = d.slice(1, 3)!
+    var w = window
+    zero(&var w)
+    print("{} / {} {} / {}", total(&w), d[1], d[2], total(&window))
+    print("{}", total(&d))
+}

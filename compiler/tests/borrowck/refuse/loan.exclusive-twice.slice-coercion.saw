@@ -1,0 +1,10 @@
+// refuses: loan.exclusive-twice at 9:18
+// A `&var [T]` view of `v` beside a `&var Vector<Int>` of it, which could
+// grow it under the view, is two exclusive borrows of one place (SL-988).
+
+func keep(s: &var [Int], v: &var Vector<Int>) { try! v.push(1) }
+
+func main() {
+    var v = Vector<Int>()
+    keep(&var v, &var v)
+}

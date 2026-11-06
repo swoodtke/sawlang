@@ -1724,7 +1724,7 @@ extension MirProgram {
             },
             case Slice -> {
                 let o = self.transfer(v, u, e, false)
-                self.rebuilt(MirRvalueKind.Slice, adj.to, o)
+                self.whole_slice(o, adj.to, e)
             },
             // A `sendable` function value and the same type without the word
             // share one representation, so the value is retyped as an alias's
@@ -1763,6 +1763,75 @@ extension MirProgram {
 
     // A new value built from operand `o` by an rvalue of kind `kind`, held in
     // a temporary.
+    // THE WHOLE-CONTAINER COERCION (SL:borrowing §6): reference operand `o`,
+    // a `&c` or `&var c`, as slice `t` of all of `c`'s elements. An array's
+    // elements are its referent, so its slice is the reference and the
+    // array's length. Any other container answers the start and length of
+    // its elements through its view funnel (`view_funnel`), which the
+    // `slice` takes beside the reference: the reference stays an operand so
+    // the slice holds its loan.
+    //
+    // ENTRY POINTS:
+    //   adjust
+    func whole_slice(&var self, o: Int, t: Int, e: Int) -> MirVal {
+        let container = self.tc.referent(self.operands[o].ty)
+        if self.tc.kind_of(container) == TcKind.Array {
+            return self.rebuilt(MirRvalueKind.Slice, t, o)
+        }
+        let exclusive = self.tc.is_exclusive_ref(t)
+        let funnel = self.view_funnel(container, exclusive)
+        if funnel < 0 {
+            self.missing(e, "a slice of a container with no view funnel")
+            return MirVal(operand: self.dead_operand(t))
+        }
+        let q = self.as_place(MirVal(operand: o), e)
+        let elements = self.project(q, MirProjKind.Deref, -1, -1, container)
+        let r = self.temp_operand(self.rv_ref(exclusive, elements))
+        var args = Vector<Int>()
+        try! args.push(r)
+        // A node holding a call answers that call's summary, which is not
+        // the funnel's, so the funnel's call takes no node there
+        // (`verify_suspension`).
+        let site = if self.tc.call_at[e] < 0 { e } else { -1 }
+        var call = self.blank_call(MirCallKind.Function, site)
+        call.target = funnel
+        call.owner = container
+        call.arg_first = self.push_args(&args)
+        call.arg_count = 1
+        let parts = self.finish_call(call, self.tc.sigs[funnel].result)
+        var ops = Vector<Int>()
+        try! ops.push(self.op_move(q))
+        try! ops.push(self.op_move(parts.place))
+        let rv = self.rv_over(MirRvalueKind.Slice, t, "", &ops)
+        MirVal(operand: self.temp_operand(rv))
+    }
+
+    // Container `t`'s view funnel, its member `view_parts` for a shared
+    // slice or `writable_view_parts` for an exclusive one, taking no
+    // argument and answering `(UnsafePointer<UInt8>, Int)`; -1 when it has
+    // none. Each container that coerces declares both (std's `Vector` and
+    // `Data`), so a writable view never falls back to a shared one.
+    func view_funnel(&var self, t: Int, exclusive: Bool) -> Int {
+        let d = self.tc.nominal_decl(t)
+        if d < 0 || d >= self.tc.member_first.len() || self.tc.member_first[d] < 0 {
+            return -1
+        }
+        let name = if exclusive { "writable_view_parts" } else { "view_parts" }
+        let id = self.tc.res.intern(name)
+        let first = self.tc.member_first[d]
+        let count = self.tc.member_count[d]
+        var j = first
+        while j < first + count {
+            let member = self.tc.members[j]
+            j = j + 1
+            if member.name == id && self.tc.extension_applies(member.ext, t) &&
+                self.tc.sigs[member.decl].param_count == 0 {
+                return member.decl
+            }
+        }
+        return -1
+    }
+
     func rebuilt(&var self, kind: MirRvalueKind, t: Int, o: Int) -> MirVal {
         let rv = self.rv_one(kind, t, "", o)
         let l = self.temp_of(rv)
@@ -4244,6 +4313,10 @@ extension MirProgram {
             if lent_optional && which != 0 {
                 return MirVal(operand: self.receiver_presence(base, which))
             }
+            let receiver_type = self.tc.expr_types[base]
+            if receiver_type >= 0 && self.tc.kind_of(receiver_type) == TcKind.Slice {
+                return self.slice_call(e, &c, base, &name, t)
+            }
             if self.borrows_receiver(base) {
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
@@ -4298,6 +4371,54 @@ extension MirProgram {
         let v = self.finish_call(call, t)
         self.close_argument_windows(mark)
         v
+    }
+
+    // Slice method `e` (SL:borrowing §6): the arguments first, then the
+    // slice, reborrowed shared for `len()` and `get(i)` and exclusive for
+    // `swap(i, j)`, `sort()` and `fill(value)`, so an argument may read the
+    // slice, as one may read a vector whose method it feeds. `len` and
+    // `swap` stay builtins the backend lowers; `get`, `sort` and `fill` are
+    // calls of their std functions (`TcKnown.slice_get` and its siblings)
+    // at the element type, the slice first.
+    func slice_call(&var self, e: Int, c: &TcCall, base: Int, name: &String, t: Int) -> MirVal {
+        var steps = Vector<MirStep>()
+        self.prepare_base(base, &var steps)
+        let mark = self.scope.len()
+        let args = self.builtin_operands(e)
+        let exclusive = self.borrows_exclusively(base)
+        let v = self.realize_read(&steps, exclusive)
+        if v.fresh {
+            self.own_temp(v.place)
+        }
+        let slice_type = self.place_type(v.place)
+        var all = Vector<Int>()
+        try! all.push(self.temp_operand(self.rv_reborrow(exclusive, v.place)))
+        self.append_all(&var all, &args)
+        var funnel = -1
+        if name.equals("get") {
+            funnel = self.tc.known.slice_get
+        } else if name.equals("sort") {
+            funnel = self.tc.known.slice_sort
+        } else if name.equals("fill") {
+            funnel = self.tc.known.slice_fill
+        }
+        var call = self.blank_call(MirCallKind.Builtin, e)
+        call.spelling = c.spelling
+        call.owner = c.owner
+        if funnel >= 0 {
+            call = self.blank_call(MirCallKind.Function, e)
+            call.target = funnel
+            var inst = Vector<Int>()
+            try! inst.push(self.tc.types.ty(slice_type).b)
+            call.inst_first = self.push_types(&inst)
+            call.inst_count = 1
+        }
+        call.arg_first = self.push_args(&all)
+        call.arg_count = all.len()
+        self.suspension(e, &var call)
+        let r = self.finish_call(call, t)
+        self.close_argument_windows(mark)
+        r
     }
 
     // `__saw_deinit_in_place(at)`: a drop of `(*at)`, so the pointee's glue

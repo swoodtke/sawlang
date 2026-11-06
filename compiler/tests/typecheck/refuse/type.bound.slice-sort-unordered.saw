@@ -1,0 +1,11 @@
+// refuses: type.bound at 8:31
+// message: `sort` on a slice needs its element to be `Comparable`
+// A slice sorts by its element's `>`, so a type with no order is refused
+// (SL-988).
+
+struct Plain { n: Int }
+
+func order(s: &var [Plain]) { s.sort() }
+
+func main() {
+}

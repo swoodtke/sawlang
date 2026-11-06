@@ -14,31 +14,37 @@ fn slices.run(f: () -> Void) {
 }
 
 fn slices.total(s: &[Int]) {
+    loan L0: shared (*_1);  // argument at 9:32
 
     bb0: {
-        [] _2 = call builtin len [copy _1] -> [return: bb1];
+        [] {} _2 = ref(shared, (*_1));
+        [] {L0} _3 = call builtin len [move _2] -> [return: bb1];
     }
 
     bb1: {
-        [] _0 = move _2;
-        [] return;
+        [] {} _0 = move _3;
+        [] {} return;
     }
 }
 
 fn slices.both(a: &[Int], b: &[Int]) {
+    loan L0: shared (*_1);  // argument at 11:42
+    loan L1: shared (*_2);  // argument at 11:52
 
     bb0: {
-        [] _3 = call builtin len [copy _1] -> [return: bb1];
+        [] {} _3 = ref(shared, (*_1));
+        [] {L0} _4 = call builtin len [move _3] -> [return: bb1];
     }
 
     bb1: {
-        [] _4 = call builtin len [copy _2] -> [return: bb2];
+        [] {} _5 = ref(shared, (*_2));
+        [] {L1} _6 = call builtin len [move _5] -> [return: bb2];
     }
 
     bb2: {
-        [] _5 = Add(move _3, move _4);
-        [] _0 = move _5;
-        [] return;
+        [] {} _7 = Add(move _4, move _6);
+        [] {} _0 = move _7;
+        [] {} return;
     }
 }
 
@@ -140,31 +146,43 @@ fn slices.main() {
     place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
     place _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _2
     loan L0: exclusive _1;  // ref at 28:19
-    loan L1: exclusive _1;  // ref at 29:20
+    loan L1: exclusive (*_3);  // argument at 28:19
+    loan L2: exclusive _1;  // ref at 29:20
+    loan L3: exclusive (*_8);  // argument at 29:20
 
     bb0: {
         [U U] {} _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
         [U W] {} _1 = move _2;
         [W M] {} _3 = ref(exclusive, _1);
-        [W M] {L0} _4 = slice(move _3 as &var [Int]);
-        [W M] {L0} _5 = call slices.forward(s: &var [Int]) [move _4] -> [return: bb1];
+        [W M] {L0} _4 = ref(exclusive, (*_3));
+        [W M] {L0 L1} _5 = call std.vector.Vector.writable_view_parts() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4] -> [return: bb1];
     }
 
     bb1: {
-        [W M] {} call builtin print [copy _5] -> [return: bb2];
+        [W M] {L0} _6 = slice(move _3, move _5 as &var [Int]);
+        [W M] {L0} _7 = call slices.forward(s: &var [Int]) [move _6] -> [return: bb2];
     }
 
     bb2: {
-        [W M] {} _6 = ref(exclusive, _1);
-        [W M] {L1} _7 = slice(move _6 as &var [Int]);
-        [W M] {L1} _8 = call slices.captured(s: &var [Int]) [move _7] -> [return: bb3];
+        [W M] {} call builtin print [copy _7] -> [return: bb3];
     }
 
     bb3: {
-        [W M] {} call builtin print [copy _8] -> [return: bb4];
+        [W M] {} _8 = ref(exclusive, _1);
+        [W M] {L2} _9 = ref(exclusive, (*_8));
+        [W M] {L2 L3} _10 = call std.vector.Vector.writable_view_parts() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9] -> [return: bb4];
     }
 
     bb4: {
+        [W M] {L2} _11 = slice(move _8, move _10 as &var [Int]);
+        [W M] {L2} _12 = call slices.captured(s: &var [Int]) [move _11] -> [return: bb5];
+    }
+
+    bb5: {
+        [W M] {} call builtin print [copy _12] -> [return: bb6];
+    }
+
+    bb6: {
         [W M] {} drop(_1);  // static
         [D M] {} return;
     }

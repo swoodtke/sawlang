@@ -1,0 +1,61 @@
+// probe: stated
+// about: a slice passed to a closure, captured by one, and forwarded onward shared and exclusive, its elements' places reachable through each (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 5
+// prints: 4
+// prints: 3 309
+// prints: 202 4
+// leaks: none
+func apply(v: &Vector<Int>, f: (&[Int]) sync -> Int) -> Int {
+    f(&v)
+}
+
+func run(body: () sync -> Int) -> Int { body() }
+
+func last(s: &[Int]) -> Int {
+    run({ s[s.len() - 1] })
+}
+
+func sum(s: &[Int]) -> Int {
+    var t = 0
+    var i = 0
+    while i < s.len() {
+        t = t + s[i]
+        i = i + 1
+    }
+    t
+}
+
+func relay(s: &[Int]) -> Int { sum(&s) }
+
+func bump(x: &var Int) { x += 100 }
+
+func double(s: &var [Int]) {
+    var i = 0
+    while i < s.len() {
+        s[i] = s[i] * 2
+        i = i + 1
+    }
+}
+
+func both(s: &var [Int]) -> Int {
+    bump(&var s[0])
+    let first = sum(&s)
+    double(&var s)
+    first + sum(&s)
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(3)
+    try! v.push(4)
+    print("{}", apply(&v, { s in s.len() + s[0] }))
+    print("{}", last(&v))
+    var w = Vector<Int>()
+    try! w.push(1)
+    try! w.push(2)
+    let shared = relay(&w)
+    print("{} {}", shared, both(&var w))
+    print("{} {}", w[0], w[1])
+}

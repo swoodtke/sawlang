@@ -1,0 +1,8 @@
+// refuses: mutability.immutable at 5:24
+// message: `s` is a shared reference, through which nothing is written
+// `swap` exchanges two of the slice's elements, so it needs a `&var [T]` (SL-988).
+
+func flip(s: &[Int]) { s.swap(0, 1) }
+
+func main() {
+}

@@ -1,0 +1,86 @@
+// probe: stated
+// about: a whole Vector, fixed array or Data coerces to `&[T]` and `&var [T]`, with `len()` and `s[i]` reads and writes through it (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: vector 45 10
+// prints: empty 0
+// prints: array 10 4
+// prints: data 253 3
+// prints: 11 21 31
+// prints: 11 21 31
+// prints: 2 3 / 1 2
+// leaks: none
+// The writable view of a `Data` whose bytes another `Data` shares
+// separates them first, so `keep` still reads the old bytes.
+import std.data.{Data}
+
+func total(s: &[Int]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < s.len() {
+        sum = sum + s[i]
+        i = i + 1
+    }
+    sum
+}
+
+func bytes(s: &[UInt8]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < s.len() {
+        sum = sum + (s[i] as Int)
+        i = i + 1
+    }
+    sum
+}
+
+func bump(s: &var [Int]) {
+    var i = 0
+    while i < s.len() {
+        s[i] = s[i] * 10
+        s[i] += 1
+        i = i + 1
+    }
+}
+
+func bump_bytes(s: &var [UInt8]) {
+    var i = 0
+    while i < s.len() {
+        s[i] = s[i] + 1
+        i = i + 1
+    }
+}
+
+func main() {
+    var v = Vector<Int>()
+    var i = 0
+    while i < 10 {
+        try! v.push(i)
+        i = i + 1
+    }
+    print("vector {} {}", total(&v), v.len())
+    let e = Vector<Int>()
+    print("empty {}", total(&e))
+    let a: [Int; 4] = [1, 2, 3, 4]
+    print("array {} {}", total(&a), a.len())
+    var d = Data()
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(250)
+    print("data {} {}", bytes(&d), d.len())
+    var w = Vector<Int>()
+    try! w.push(1)
+    try! w.push(2)
+    try! w.push(3)
+    bump(&var w)
+    print("{} {} {}", w[0], w[1], w[2])
+    var b: [Int; 3] = [1, 2, 3]
+    bump(&var b)
+    print("{} {} {}", b[0], b[1], b[2])
+    var shared = Data()
+    try! shared.push(1)
+    try! shared.push(2)
+    let keep = shared
+    bump_bytes(&var shared)
+    print("{} {} / {} {}", shared[0], shared[1], keep[0], keep[1])
+}

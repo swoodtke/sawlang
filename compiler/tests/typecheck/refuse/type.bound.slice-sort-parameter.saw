@@ -1,0 +1,8 @@
+// refuses: type.bound at 5:34
+// message: `sort` on a slice needs its element to be `Comparable`, and `T` is not
+// An unbounded type parameter promises no order (SL-988).
+
+func order_any<T>(s: &var [T]) { s.sort() }
+
+func main() {
+}

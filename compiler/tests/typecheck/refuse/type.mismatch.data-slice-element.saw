@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:23
+// message: expected `&[Int]`
+// A `Data` coerces to a slice of its bytes, `&[UInt8]`, and to no other
+// element type (SL-988).
+
+import std.data.{Data}
+
+func total(s: &[Int]) -> Int { s.len() }
+
+func main() {
+    let d = Data()
+    print("{}", total(&d))
+}

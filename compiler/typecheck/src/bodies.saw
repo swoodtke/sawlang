@@ -7846,6 +7846,16 @@ extension TcProgram {
         if (tk == TcKind.Array || tk == TcKind.Slice) && (text.equals("len") || text.equals("swap")) {
             return self.sequence_method(e, base, inner, t, &text, &args)
         }
+        if tk == TcKind.Slice && tc_slice_operation(&text) {
+            return self.slice_operation(e, base, t, &text, &args)
+        }
+        if tk == TcKind.Slice && tc_slice_growth(&text) {
+            self.refuse_slice_growth(e, t, &text)
+            self.set_use(base, TcUse.Borrow)
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         if self.is_memory_view(t) && tc_memory_accessor(&text) {
             return self.memory_access(e, base, inner, t, &text, &args)
         }
@@ -8414,6 +8424,102 @@ extension TcProgram {
         self.set_use(base, TcUse.Borrow)
         self.record_builtin(e, -1, TcRole.Builtin, "len")
         self.set_type(e, i, false)
+    }
+
+    // A slice's `get(i)`, `sort()` and `fill(value)` (SL:borrowing §6): each
+    // a call of its std function (`TcKnown.slice_get` and its siblings),
+    // which MIR makes with the slice as the first argument, so the element
+    // meets that function's bound here. `get` copies an element out, so it
+    // needs `Copy`; `sort` and `fill` write through a `&var [T]`, and need
+    // `Comparable` and `ExplicitCopy`.
+    func slice_operation(&var self, e: Int, base: Int, t: Int, text: &String, args: &TcArgs) -> Int {
+        let element = self.types.ty(t).b
+        let get = text.equals("get")
+        let sort = text.equals("sort")
+        let wanted = if sort { 0 } else { 1 }
+        var k = 0
+        while k < args.values.len() {
+            if args.labels[k] >= 0 {
+                self.refuse(args.values[k], "call.label", "a slice method's argument takes no label")
+            }
+            if k == 0 && get {
+                let i = self.int_type()
+                self.check_argument(args.values[k], i)
+            } else if k == 0 && not sort {
+                self.check_argument(args.values[k], element)
+            } else {
+                let v = args.values[k]
+                let poisoned = self.error_type
+                let _ = self.expr(v, poisoned)
+                self.consume(v)
+            }
+            k = k + 1
+        }
+        if args.values.len() != wanted {
+            self.refuse(e, "call.arity", "a slice's `get(i)` takes an index, `fill(value)` a value and `sort()` nothing")
+        }
+        var bound = self.known.explicit_copy
+        var callee = self.known.slice_fill
+        if get {
+            bound = self.known.copy
+            callee = self.known.slice_get
+        } else if sort {
+            bound = self.known.comparable
+            callee = self.known.slice_sort
+        }
+        if callee < 0 {
+            var none = StringBuilder()
+            try! none.append("this std root has no slice `")
+            try! none.append(text)
+            try! none.append("`")
+            self.refuse(e, "member.unknown", none.build())
+        }
+        let env = self.current_decl
+        let ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
+        if bound >= 0 && not self.has_error(element) && not self.satisfies(element, bound, env, ext, viewer, in_test) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(text)
+            try! msg.append("` on a slice needs its element to be `")
+            try! msg.append(self.name_text(self.res.decls[bound].name))
+            try! msg.append("`, and `")
+            try! msg.append(self.type_text(element))
+            if get {
+                try! msg.append("` is not: `get` copies the element out; `s[i]` reaches it in place")
+            } else if sort {
+                try! msg.append("` is not: `sort` orders the elements by `>`")
+            } else {
+                try! msg.append("` is not: `fill` writes a copy of the value into every slot")
+            }
+            self.refuse(e, "type.bound", msg.build())
+        }
+        if get {
+            self.set_use(base, TcUse.Borrow)
+        } else {
+            self.set_use(base, TcUse.BorrowVar)
+        }
+        self.record_builtin(e, -1, TcRole.Builtin, text)
+        if get {
+            let r = self.mk_optional(element)
+            return self.set_type(e, r, false)
+        }
+        let v = self.void_type()
+        self.set_type(e, v, false)
+    }
+
+    // A slice cannot grow or shrink: it views a range of a container's
+    // elements, and the container's length is not its to change
+    // (SL:borrowing §6).
+    func refuse_slice_growth(&var self, e: Int, t: Int, text: &String) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is a slice, a view of elements it cannot add or remove, so it has no `")
+        try! msg.append(text)
+        try! msg.append("`; pass the container itself, as `&var Vector<T>`, to change its length")
+        self.refuse(e, "member.unknown", msg.build())
     }
 
     // The instance (or, with `statics`, static) methods named `name` that
@@ -12377,6 +12483,18 @@ extension TcProgram {
 // Whether `name` is one of a view's builtin accessors.
 public func tc_memory_accessor(name: &String) -> Bool {
     name.equals("read") || name.equals("write") || name.equals("ptr") || name.equals("len") || name.equals("end")
+}
+
+// Whether `name` is a slice method a std function answers (`slice_operation`).
+public func tc_slice_operation(name: &String) -> Bool {
+    name.equals("get") || name.equals("sort") || name.equals("fill")
+}
+
+// Whether `name` is a method that changes a container's length, which a slice
+// is refused (`refuse_slice_growth`).
+public func tc_slice_growth(name: &String) -> Bool {
+    name.equals("push") || name.equals("pop") || name.equals("insert") || name.equals("remove") ||
+        name.equals("append") || name.equals("clear") || name.equals("reserve")
 }
 
 // Whether row `a` of `scores` beats row `b`: no worse at any argument, and

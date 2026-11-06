@@ -1556,17 +1556,28 @@ extension LlEmitter {
     }
 
     // `a.len()` on a fixed array: the length its type carries, folded before
-    // mono (design 148), so the receiver is never read.
+    // mono (design 148), so the receiver is never read. On a slice, the
+    // receiver is the slice and its length is its second word.
     func array_length(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
         let o = mono.dp.bc.mir.lists[info.arg_first]
         var t = mono.dp.bc.mir.operands[o].ty
+        if mono.dp.bc.mir.tc.kind_of(t) == TcKind.Slice {
+            let at = self.operand_addr(&var mono, &var target, o, t, info.node)
+            let (_, length) = self.slice_start_length(&target, at)
+            if info.dest >= 0 {
+                let dest = self.place_addr(&var mono, &var target, info.dest, info.node)
+                let word = self.word
+                self.store(word, length, dest)
+            }
+            return
+        }
         let referent = mono.dp.bc.mir.tc.referent(t)
         if referent >= 0 {
             t = referent
         }
         let l = self.lay_at(&var mono, &var target, t, info.node)
         if l.shape != TargetShape.Array {
-            self.refuse_here(&var mono, info.node, "the builtin `len` of a slice is not in the backend slice yet")
+            self.refuse_here(&var mono, info.node, "the builtin `len` of a value that is no array or slice")
             return
         }
         if info.dest >= 0 {
@@ -1586,20 +1597,40 @@ extension LlEmitter {
         let node = info.node
         let o = mono.dp.bc.mir.lists[info.arg_first]
         let receiver = mono.dp.bc.mir.operands[o].ty
+        let first = mono.dp.bc.mir.lists[info.arg_first + 1]
+        let second = mono.dp.bc.mir.lists[info.arg_first + 2]
+        if mono.dp.bc.mir.tc.kind_of(receiver) == TcKind.Slice {
+            // The receiver is the slice itself, its length known only at run
+            // time.
+            let at = self.operand_addr(&var mono, &var target, o, receiver, node)
+            let (start, length) = self.slice_start_length(&target, at)
+            let i = self.operand_value(&var mono, &var target, first, node)
+            let j = self.operand_value(&var mono, &var target, second, node)
+            self.check_slice_index(&var mono, i, length, node)
+            self.check_slice_index(&var mono, j, length, node)
+            let element = mono.dp.bc.mir.tc.types.ty(receiver).b
+            let el = self.lay_at(&var mono, &var target, element, node)
+            self.swap_elements(&el, start, i, j)
+            return
+        }
         let t = mono.dp.bc.mir.tc.referent(receiver)
         let l = self.lay_at(&var mono, &var target, t, node)
         if l.shape != TargetShape.Array {
-            self.refuse_here(&var mono, node, "the builtin `swap` of a slice is not in the backend slice yet")
+            self.refuse_here(&var mono, node, "the builtin `swap` of a value that is no array or slice")
             return
         }
         let base = self.operand_value(&var mono, &var target, o, node)
-        let first = mono.dp.bc.mir.lists[info.arg_first + 1]
-        let second = mono.dp.bc.mir.lists[info.arg_first + 2]
         let i = self.operand_value(&var mono, &var target, first, node)
         let j = self.operand_value(&var mono, &var target, second, node)
         self.check_index(&var mono, i, l.length, node)
         self.check_index(&var mono, j, l.length, node)
         let el = self.lay_at(&var mono, &var target, l.element, node)
+        self.swap_elements(&el, base, i, j)
+    }
+
+    // Elements `i` and `j` of the elements of layout `el` at `base`
+    // exchanged bit for bit through a slot, so no value is copied or dropped.
+    func swap_elements(&var self, el: &TargetLayout, base: String, i: String, j: String) {
         let a = self.element_addr(base, i, el.size)
         let b = self.element_addr(base, j, el.size)
         let tmp = self.slot(el.size, el.align)

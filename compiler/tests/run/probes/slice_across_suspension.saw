@@ -1,0 +1,32 @@
+// probe: stated
+// about: a slice held across a suspension, in a driven body and in a spawned task's frame, is an ordinary borrow (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 7
+// prints: 200
+// prints: 200
+// leaks: none
+import std.task.*
+
+func later(s: &[Int]) -> Int {
+    let before = s[0]
+    yield_now()
+    before + s[s.len() - 1]
+}
+
+func scale(s: &var [Int]) -> Int {
+    yield_now()
+    s[0] = s[0] * 100
+    s[0]
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(2)
+    try! v.push(5)
+    print("{}", later(&v))
+    var group = TaskGroup()
+    let h = group.spawn(scale(&var v))
+    print("{}", h.join())
+    print("{}", v[0])
+}

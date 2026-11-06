@@ -1,0 +1,118 @@
+// probe: stated
+// about: `swap`, `sort` and `fill` through `&var [T]`: a stable sort past the run length, NoCopy and refcounted elements moved, replaced and destroyed once (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 3 2 1
+// prints: 6 5
+// prints: sorted true stable true first 0 last 97
+// prints: 0 25 49
+// prints: n4 n0
+// prints: v3 v3 v3
+// prints: 1 2 3
+// prints: 7 1
+// prints: v9 v9
+// prints: 0 0 0
+// leaks: none
+struct Pair { key: Int, tag: Int }
+
+extension Pair: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.key == other.key }
+}
+
+extension Pair: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.key < other.key { return Ordering.Less }
+        if self.key > other.key { return Ordering.Greater }
+        Ordering.Equal
+    }
+}
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+extension Token: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Token: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { return Ordering.Less }
+        if self.id > other.id { return Ordering.Greater }
+        Ordering.Equal
+    }
+}
+
+func flip<T>(s: &var [T]) { s.swap(0, s.len() - 1) }
+
+func order<T: Comparable>(s: &var [T]) { s.sort() }
+
+func paint(s: &var [String], n: Int) { s.fill("v{n}") }
+
+func refill(s: &var [Vector<Int>]) {
+    var w = Vector<Int>()
+    try! w.push(7)
+    s.fill(move w)
+}
+
+func zero(s: &var [Int]) { s.fill(0) }
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.push(2)
+    try! v.push(3)
+    flip(&var v)
+    print("{} {} {}", v[0], v[1], v[2])
+    var a: [Int; 2] = [5, 6]
+    flip(&var a)
+    print("{} {}", a[0], a[1])
+    var pairs = Vector<Pair>()
+    var i = 0
+    while i < 100 {
+        try! pairs.push(Pair(key: (i * 37) % 10, tag: i))
+        i = i + 1
+    }
+    order(&var pairs)
+    var sorted = true
+    var stable = true
+    i = 1
+    while i < pairs.len() {
+        if pairs[i - 1].key > pairs[i].key { sorted = false }
+        if pairs[i - 1].key == pairs[i].key && pairs[i - 1].tag > pairs[i].tag { stable = false }
+        i = i + 1
+    }
+    print("sorted {} stable {} first {} last {}", sorted, stable, pairs[0].tag, pairs[99].tag)
+    var b: [Int; 50] = [0; 50]
+    i = 0
+    while i < 50 {
+        b[i] = (i * 13) % 50
+        i = i + 1
+    }
+    order(&var b)
+    print("{} {} {}", b[0], b[25], b[49])
+    var names = Vector<String>()
+    i = 0
+    while i < 5 {
+        try! names.push("n{i}")
+        i = i + 1
+    }
+    flip(&var names)
+    print("{} {}", names[0], names[4])
+    paint(&var names, 3)
+    print("{} {} {}", names[0], names[2], names[4])
+    var tokens = Vector<Token>()
+    try! tokens.push(Token(id: 3))
+    try! tokens.push(Token(id: 1))
+    try! tokens.push(Token(id: 2))
+    order(&var tokens)
+    print("{} {} {}", tokens[0].id, tokens[1].id, tokens[2].id)
+    var nested = Vector<Vector<Int>>()
+    try! nested.push(Vector<Int>())
+    try! nested.push(Vector<Int>())
+    refill(&var nested)
+    print("{} {}", nested[0][0], nested[1].len())
+    var words: [String; 3] = ["a", "b", "c"]
+    paint(&var words, 9)
+    print("{} {}", words[0], words[2])
+    var c: [Int; 3] = [3, 1, 2]
+    zero(&var c)
+    print("{} {} {}", c[0], c[1], c[2])
+}

@@ -212,6 +212,24 @@ extension Data {
         lend bytes[index]
     }
 
+    // The start and length of the bytes a `&[UInt8]` of the whole value
+    // views, for the compiler's whole-container coercion (SL-988): null and 0
+    // for an empty value, whose view reaches no byte.
+    func view_parts(&self) unsafe -> (UnsafePointer<UInt8>, Int) {
+        (self.byte_ptr() as UnsafePointer<UInt8>, self.length)
+    }
+
+    // The same for a `&var [UInt8]`, whose writes must land on this value
+    // alone, so shared bytes separate first, as a write through `d[i]` does,
+    // and a refused copy panics as that write does.
+    func writable_view_parts(&var self) unsafe -> (UnsafePointer<UInt8>, Int) {
+        let live = self.length
+        if not self.ready(live) {
+            panic("Data: allocation failed")
+        }
+        (self.byte_ptr() as UnsafePointer<UInt8>, self.length)
+    }
+
     /// The byte at `index`, or `None` when it is out of range.
     ///
     /// The `None`-returning twin of `[]`, which panics.

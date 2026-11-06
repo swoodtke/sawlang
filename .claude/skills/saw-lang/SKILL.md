@@ -1344,6 +1344,26 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   comparands — see the visitor entry above. Both are STABLE, make O(n log n)
   comparisons (an in-place merge sort, O(n log² n) swaps) and allocate
   nothing, so neither returns a `Result` (SL-974).
+- **SLICES: `&[T]` / `&var [T]` (SL-988)** are references to a run of
+  elements (address + count), parameter-only like every reference. A WHOLE
+  `Vector<T>`, `[T; N]` or `Data` passes as one: `total(&v)`, `sort_all(&var a)`;
+  a `Data` is a `&[UInt8]` and nothing else, and its `&var [UInt8]` separates
+  shared bytes first, as `d[i] = x` does.
+  ```saw-fragment
+  func checksum(bytes: &[UInt8]) -> Int { ... bytes.len() ... bytes[i] ... }
+  func rank(scores: &var [Int]) { scores.sort(); scores[0] = 0 }
+  ```
+  `s.len()`, `s[i]` (a place; panics `slice: index out of range: 5 (len 3)`),
+  `s.get(i)` (`T?`, needs `T: Copy`), and through `&var [T]`: element writes,
+  `swap(i, j)`, `sort()` (`T: Comparable`, stable, allocates nothing) and
+  `fill(value)` (`T: ExplicitCopy`). `push`/`pop`/`insert`/`remove`/`append`/
+  `clear`/`reserve` are refused: a view cannot change its container's length.
+  An extern takes `(&s[0]) as UnsafePointer<T>` and `s.len()`. A slice may be
+  held across a suspension, captured by a non-escaping closure, forwarded with
+  `&s`/`&var s`, and crosses threads on the reference rule (`&[T]` needs
+  `T: Sync`). NOT YET: views of PART of a container (`v[a..b]`), SL-988 unit 2.
+  Older builds refused every slice in the backend (`a slice is not in the
+  backend slice yet`).
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works

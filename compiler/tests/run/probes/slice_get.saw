@@ -1,0 +1,35 @@
+// probe: stated
+// about: `s.get(i)` on a slice is an optional copy, `None` outside `0..<s.len()`, and a refcounted element is retained (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: some 8
+// prints: none
+// prints: none
+// prints: n2 n2
+// prints: none
+// leaks: none
+func show(s: &[Int], i: Int) {
+    if let x = s.get(i) {
+        print("some {}", x)
+    } else {
+        print("none")
+    }
+}
+
+func pick(s: &[String], i: Int) -> String { s.get(i) ?? "none" }
+
+func main() {
+    let a: [Int; 3] = [7, 8, 9]
+    show(&a, 1)
+    show(&a, 3)
+    show(&a, -1)
+    var names = Vector<String>()
+    var i = 0
+    while i < 3 {
+        try! names.push("n{i}")
+        i = i + 1
+    }
+    let got = pick(&names, 2)
+    print("{} {}", got, names[2])
+    print("{}", pick(&names, 9))
+}

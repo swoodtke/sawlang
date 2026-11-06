@@ -1,0 +1,33 @@
+// probe: stated
+// about: an element's address through a slice, `(&s[0]) as UnsafePointer<T>`, hands an extern a pointer and a length (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: hi
+// prints: wrote 3
+// prints: second 5
+// leaks: none
+import std.data.{Data}
+
+extern "C" {
+    func write(fd: Int32, buf: UnsafePointer<UInt8>, n: Int) -> Int
+}
+
+func emit(s: &[UInt8]) unsafe -> Int {
+    write(1, (&s[0]) as UnsafePointer<UInt8>, s.len())
+}
+
+func second(s: &[Int]) unsafe -> Int {
+    let p = (&s[0]) as UnsafePointer<Int>
+    p[1]
+}
+
+func main() {
+    var d = Data()
+    try! d.push(104)
+    try! d.push(105)
+    try! d.push(10)
+    let n = emit(&d)
+    print("wrote {}", n)
+    let a: [Int; 3] = [4, 5, 6]
+    print("second {}", second(&a))
+}

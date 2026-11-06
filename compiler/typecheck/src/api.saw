@@ -168,6 +168,7 @@ extension TcProgram {
         let std_vector = self.module_named("std.vector")
         let std_map = self.module_named("std.map")
         let std_set = self.module_named("std.set")
+        let std_data = self.module_named("std.data")
         let std_arc = self.module_named("std.arc")
         let std_task_group = self.module_named("std.taskgroup")
         let std_system_error = self.module_named("std.systemerror")
@@ -208,6 +209,10 @@ extension TcProgram {
                         box: self.top_decl(std_box, "Box"),
                         vector: self.top_decl(std_vector, "Vector"),
                         map: self.top_decl(std_map, "Map"), set: self.top_decl(std_set, "Set"),
+                        data: self.top_decl(std_data, "Data"),
+                        slice_get: self.top_decl(std_vector, "slice_get"),
+                        slice_sort: self.top_decl(std_vector, "slice_sort"),
+                        slice_fill: self.top_decl(std_vector, "slice_fill"),
                         arc: self.top_decl(std_arc, "Arc"),
                         task_group: self.top_decl(std_task_group, "TaskGroup"),
                         task: self.top_decl(std_task_group, "Task"),

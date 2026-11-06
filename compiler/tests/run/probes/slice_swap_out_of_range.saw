@@ -1,0 +1,14 @@
+// probe: panics
+// about: `swap(i, j)` through a slice panics on an index outside `0..<s.len()` (SL-988)
+// stage 0: not run; v0.18.0's spec calls slices planned, so the probe states the spec's answers (SL:borrowing §6)
+// speeds: -O0 -O2
+// prints: 3
+// panics: slice: index out of range: 3 (len 3)
+func flip(s: &var [Int], j: Int) { s.swap(0, j) }
+
+func main() {
+    var a: [Int; 3] = [1, 2, 3]
+    flip(&var a, 2)
+    print("{}", a[0])
+    flip(&var a, 3)
+}

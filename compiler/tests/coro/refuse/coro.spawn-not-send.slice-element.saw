@@ -1,0 +1,20 @@
+// refuses: coro.spawn-not-send at 12:1
+// message: parameter `s` of type `&[coro.spawn-not-send.slice-element.Counter]` is not `Send`
+// A shared slice is `Send` only when its element is `Sync`, and a
+// cell-carrying element is not (spec, Send and Sync; SL-988).
+
+struct Counter { cell: UnsafeMutableInterior<Int> }
+extension Counter: NoCopy {}
+extension Counter {
+    init(start: Int) unsafe -> Counter { Counter(cell: UnsafeMutableInterior(start)) }
+}
+
+func read(s: &[Counter]) -> Int { s.len() }
+
+func main() {
+    var v = Vector<Counter>()
+    try! v.push(Counter(start: 1))
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(read(&v))
+    print("{}", h.join())
+}
