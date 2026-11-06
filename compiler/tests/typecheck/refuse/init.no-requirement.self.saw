@@ -1,0 +1,20 @@
+// refuses: init.no-requirement at 7:9
+// `Self()` in a trait's default body, which declares no init requirement for it to construct through (SL-966)
+// message: constructing `Self` with `()` in a default body needs an init requirement of `Fresh` that takes those labels and types, and none is declared: add `init() -> Self` to the trait
+trait Fresh {
+    func tag(&self) -> Int
+    func fresh(&self) -> Self {
+        Self()
+    }
+}
+
+struct Unit {}
+
+extension Unit: Fresh {
+    func tag(&self) -> Int { 7 }
+}
+
+func main() {
+    let u = Unit()
+    print(u.fresh().tag())
+}

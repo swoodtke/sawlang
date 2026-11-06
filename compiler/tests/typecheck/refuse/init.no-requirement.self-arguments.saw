@@ -1,0 +1,17 @@
+// refuses: init.no-requirement at 6:9
+// `Self(x: 4)` in a default body, with no init requirement of the trait taking those labels (SL-966)
+// message: add `init(x: Int) -> Self` to the trait
+trait Fresh {
+    func fresh(&self) -> Self {
+        Self(x: 4)
+    }
+}
+
+struct Point { x: Int }
+
+extension Point: Fresh {}
+
+func main() {
+    let p = Point(x: 1)
+    print(p.fresh().x)
+}

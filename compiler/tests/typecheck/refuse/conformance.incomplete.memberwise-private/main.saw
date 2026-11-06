@@ -1,0 +1,9 @@
+// refuses: conformance.incomplete at makers.saw:7:18
+// a conformance in the trait's module, of another module's struct with a `private` field: the memberwise construction is not legal there, so it meets no init requirement and `T(...)` never sets the field from outside (SL-966)
+// message: and its field `y` is not visible in `makers`, where the conformance is declared
+import makers.{Make}
+import points.{Point}
+
+func main() {
+    print(Point.origin().x)
+}

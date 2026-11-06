@@ -478,6 +478,8 @@ syntax.decl.trait-member.assoc-type	U4g
 syntax.decl.trait-member.requirement	U4g
 syntax.decl.assoc-type	U4g
 syntax.decl.requirement	U4g
+syntax.decl.trait-member.init-requirement	SL-966
+syntax.decl.init-requirement	SL-966
 syntax.decl.default-body	U4g
 syntax.decl.extension	U4g
 syntax.decl.conformances	U4g

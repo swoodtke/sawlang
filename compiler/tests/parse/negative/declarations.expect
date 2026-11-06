@@ -73,6 +73,12 @@ refuses syntax.rule.effect-slot at 2:19
 // case: syntax.rule.effect-slot/borrows-on-an-init
 refuses syntax.rule.effect-slot at 2:18
 
+// case: syntax.rule.effect-slot/borrows-on-an-init-requirement
+refuses syntax.rule.effect-slot at 2:18
+
+// case: syntax.rule.effect-slot/consumes-on-an-init-requirement
+refuses syntax.rule.effect-slot at 2:18
+
 // case: syntax.rule.effect-slot/declaration-word-written-twice
 refuses syntax.rule.effect-slot at 1:15
 
@@ -129,6 +135,9 @@ refuses syntax.rule.receiver-and-static at 2:10
 
 // case: syntax.rule.receiver-and-static/requirement-without-a-receiver
 refuses syntax.rule.receiver-and-static at 2:5
+
+// case: syntax.rule.receiver-and-static/receiver-on-an-init-requirement
+refuses syntax.rule.receiver-and-static at 2:10
 
 // case: syntax.rule.receiver-and-static/by-value-receiver
 refuses syntax.decl.refused-receiver

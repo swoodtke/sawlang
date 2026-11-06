@@ -70,6 +70,7 @@ extension TcProgram {
             case Method -> self.build_function(d),
             case Init -> self.build_function(d),
             case Requirement -> self.build_function(d),
+            case InitRequirement -> self.build_function(d),
             case Extern -> self.build_extern(d),
             case Extension -> self.build_extension(d),
             case TypeAssign -> self.build_type_assign(d),
@@ -229,8 +230,9 @@ extension TcProgram {
         let _ = self.alias_type(d, -1)
     }
 
-    // A function, method, init or requirement: its receiver, parameters,
-    // effects and result, and what a `borrows` result lends.
+    // A function, method, init, requirement or init requirement: its
+    // receiver, parameters, effects and result, and what a `borrows` result
+    // lends. An `init` or init requirement with no result produces `Self`.
     func build_function(&var self, d: Int) {
         let info = self.res.decls[d]
         let node = info.node
@@ -278,7 +280,7 @@ extension TcProgram {
             k = k + 1
         }
         if result < 0 {
-            if info.kind == ResDeclKind.Init {
+            if info.kind == ResDeclKind.Init || info.kind == ResDeclKind.InitRequirement {
                 result = self.current_self
             } else {
                 result = self.void_type()
@@ -325,7 +327,7 @@ extension TcProgram {
     // -1 for an `init`, which has none. Effect words are leaves after it.
     func name_end(&self, d: Int) -> Int {
         let info = self.res.decls[d]
-        if info.leaf < 0 || info.kind == ResDeclKind.Init {
+        if info.leaf < 0 || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.InitRequirement {
             return -1
         }
         let n = self.child_count(info.node)

@@ -1,0 +1,13 @@
+import points.{Open, Sealed}
+
+public trait Make {
+    init(x: Int) -> Self
+}
+
+public func made<T: Make>(n: Int) -> T {
+    T(x: n)
+}
+
+extension Open: Make {}
+
+extension Sealed: Make {}

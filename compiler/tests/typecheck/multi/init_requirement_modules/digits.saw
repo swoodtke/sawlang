@@ -1,0 +1,5 @@
+extension Int {
+    public init(digit: UInt8) -> Int {
+        (digit as Int) - 48
+    }
+}

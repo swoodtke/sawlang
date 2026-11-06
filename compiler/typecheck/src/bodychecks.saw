@@ -117,7 +117,7 @@ extension TcProgram {
                     }
                     k = k + 1
                 }
-            } else if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement {
+            } else if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.InitRequirement {
                 self.check_function_containment(decl)
             } else if info.kind == ResDeclKind.Enum {
                 self.check_raw_backing(decl)

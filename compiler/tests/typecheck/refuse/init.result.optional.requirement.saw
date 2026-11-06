@@ -1,0 +1,10 @@
+// refuses: init.result at 5:5
+// an init requirement returning an optional, refused at the trait: a `None` names no cause (SL-966, DF-245a)
+// message: an init requirement may not return an optional
+trait Make {
+    init(seed: Int) -> Self?
+}
+
+func main() {
+    print(1)
+}

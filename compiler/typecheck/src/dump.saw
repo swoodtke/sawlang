@@ -64,7 +64,8 @@ public func tc_status_text(kind: TcStatusKind) -> String {
         case Default -> "default",
         case Synthesized -> "synthesized",
         case Implicit -> "implicit",
-        case Missing -> "missing"
+        case Missing -> "missing",
+        case Memberwise -> "memberwise"
     }
 }
 
@@ -145,7 +146,8 @@ extension TcProgram {
             case Requirement -> "requirement",
             case Field -> "field",
             case Primitive -> "type",
-            case BuiltinFunc -> "builtin-func"
+            case BuiltinFunc -> "builtin-func",
+            case InitRequirement -> "init-requirement"
         }
     }
 
@@ -161,7 +163,7 @@ extension TcProgram {
         try! out.append(" ")
         let site = self.decl_site(d)
         try! out.append(self.position(info.module, site))
-        let has_vis = info.kind != ResDeclKind.Extension && info.kind != ResDeclKind.Case && info.kind != ResDeclKind.AssocType && info.kind != ResDeclKind.TypeAssign && info.kind != ResDeclKind.Requirement
+        let has_vis = info.kind != ResDeclKind.Extension && info.kind != ResDeclKind.Case && info.kind != ResDeclKind.AssocType && info.kind != ResDeclKind.TypeAssign && info.kind != ResDeclKind.Requirement && info.kind != ResDeclKind.InitRequirement
         if has_vis {
             try! out.append(" ")
             try! out.append(tc_vis_text(info.vis))
@@ -225,6 +227,7 @@ extension TcProgram {
             case Method -> self.append_signature(&var out, d),
             case Init -> self.append_signature(&var out, d),
             case Requirement -> self.append_signature(&var out, d),
+            case InitRequirement -> self.append_signature(&var out, d),
             case Extern -> self.append_signature(&var out, d),
             case _ -> {}
         }

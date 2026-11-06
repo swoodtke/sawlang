@@ -1,0 +1,14 @@
+// refuses: conformance.incomplete at 10:17
+// an init requirement nothing meets: the type writes no `init`, and its fields are not the requirement's labels and types (SL-966)
+// message: nothing meets its init requirement `Make.init(seed: Int) -> Self`
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Grid { cells: Int, rows: Int }
+
+extension Grid: Make {}
+
+func main() {
+    print(Grid(cells: 1, rows: 2).cells)
+}

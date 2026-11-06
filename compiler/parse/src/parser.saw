@@ -2722,8 +2722,8 @@ extension Parser {
         }
     }
 
-    // `trait-member ::= assoc-type-decl | requirement`, or a head section 10
-    // refuses.
+    // `trait-member ::= assoc-type-decl | requirement | init-requirement`, or
+    // a head section 10 refuses.
     func parse_trait_member(&var self) -> Bool {
         let attrs = self.after_attributes(0)
         let prefix = self.effect_prefix_at(attrs)
@@ -2748,11 +2748,34 @@ extension Parser {
             self.see(Alt.Decl_TraitMember_Requirement)
             return self.parse_requirement()
         }
+        if self.kind() == TokenKind.Init {
+            self.see(Alt.Decl_TraitMember_InitRequirement)
+            return self.parse_init_requirement()
+        }
         if self.kind() == TokenKind.Static {
             self.advance()
             return self.refuse_static_head()
         }
-        self.error("expected a requirement or an associated type")
+        self.error("expected a requirement, an init requirement or an associated type")
+    }
+
+    // `init-requirement ::= "init" "(" param-list? ")" effect-slot return-clause?`,
+    // with its doc comment. Its effect slot is an `init`'s, so `borrows` and
+    // `consumes` are refused as they are on one (syntax.rule.effect-slot).
+    func parse_init_requirement(&var self) -> Bool {
+        self.see(Alt.Decl_InitRequirement)
+        let head = self.pos
+        let mark = self.builder.mark()
+        let start = self.attach_docs(head)
+        self.advance()
+        if self.kind() != TokenKind.LParen {
+            return self.error("expected `(` to open the parameters")
+        }
+        if not self.parse_signature(false, head, EffectHost.Initializer) {
+            return false
+        }
+        self.close(mark, Alt.Decl_InitRequirement, start)
+        true
     }
 
     // In a trait or an extension body, `static` followed by anything but

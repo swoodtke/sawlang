@@ -1,0 +1,7 @@
+import points.{Point}
+
+public trait Make {
+    init(x: Int, y: Int) -> Self
+}
+
+extension Point: Make {}

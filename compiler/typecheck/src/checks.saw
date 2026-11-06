@@ -1091,20 +1091,22 @@ extension TcProgram {
 extension TcProgram {
     // An `init` returns its receiver, or `Result<Receiver, E>`; an optional
     // is refused on its own terms, since a `None` names no cause (spec,
-    // "What an init may return").
+    // "What an init may return"). An init requirement's receiver is its
+    // trait's `Self` (spec, Init requirements).
     public func check_inits(&var self, layer: &FrontLayer) {
         var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
-            if info.kind != ResDeclKind.Init || info.node < 0 {
+            let requirement = info.kind == ResDeclKind.InitRequirement
+            if (info.kind != ResDeclKind.Init && not requirement) || info.node < 0 {
                 continue
             }
             let s = self.sigs[d - 1]
             if (s.flags & TC_FLAG_WRITTEN_RETURN) == 0 || self.has_error_type(s.result) {
                 continue
             }
-            let receiver = self.init_receiver(d - 1)
+            let receiver = if requirement { self.mk_self(info.parent) } else { self.init_receiver(d - 1) }
             if receiver < 0 || s.result == receiver {
                 continue
             }
@@ -1113,12 +1115,15 @@ extension TcProgram {
                 continue
             }
             var msg = StringBuilder()
+            let what = if requirement { "an init requirement" } else { "an `init`" }
             if r.kind == TcKind.Nominal && r.decl == self.known.optional {
-                try! msg.append("an `init` may not return an optional: an optional creation is `Result<")
+                try! msg.append(what)
+                try! msg.append(" may not return an optional: an optional creation is `Result<")
                 try! msg.append(self.type_text(receiver))
                 try! msg.append(", E>`, because a `None` names no cause")
             } else {
-                try! msg.append("an `init` returns its receiver, `")
+                try! msg.append(what)
+                try! msg.append(" returns its receiver, `")
                 try! msg.append(self.type_text(receiver))
                 try! msg.append("`, or `Result<")
                 try! msg.append(self.type_text(receiver))
@@ -1427,7 +1432,7 @@ extension TcProgram {
         var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
-            let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement
+            let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.InitRequirement
             if callable && info.node >= 0 {
                 self.check_declared_unsafe(d)
             } else if info.kind == ResDeclKind.Struct && info.node >= 0 {
@@ -1505,7 +1510,10 @@ extension TcProgram {
             found = self.unsafe_named(s.result)
         }
         let info = self.res.decls[d]
-        if found < 0 && s.receiver != TcReceiver.Absent && info.parent >= 0 {
+        // A trait requirement's receiver is the abstract `Self`, which names
+        // no unsafe type; only an extension's head names the receiver.
+        let in_extension = info.parent >= 0 && self.res.decls[info.parent].kind == ResDeclKind.Extension
+        if found < 0 && s.receiver != TcReceiver.Absent && in_extension {
             let target = self.ext_target(info.parent)
             if target >= 0 && self.is_unsafe_decl(target) {
                 found = self.self_type_of(target)

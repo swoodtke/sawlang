@@ -198,7 +198,7 @@ extension TcProgram {
         let d = decl_of_node[p]
         if d >= 0 {
             let kind = self.res.decls[d].kind
-            if kind == ResDeclKind.Func || kind == ResDeclKind.Method || kind == ResDeclKind.Init || kind == ResDeclKind.Requirement || kind == ResDeclKind.Extern {
+            if kind == ResDeclKind.Func || kind == ResDeclKind.Method || kind == ResDeclKind.Init || kind == ResDeclKind.Requirement || kind == ResDeclKind.InitRequirement || kind == ResDeclKind.Extern {
                 if (self.sigs[d].effects & TC_EFFECT_BORROWS) != 0 {
                     return TcRefPosition.Lend
                 }

@@ -345,7 +345,8 @@ extension TcProgram {
                 var k = 0
                 while k < listed.len() {
                     let m = listed[k]
-                    if self.res.decls[m].kind == ResDeclKind.Requirement {
+                    let kind = self.res.decls[m].kind
+                    if kind == ResDeclKind.Requirement || kind == ResDeclKind.InitRequirement {
                         try! reqs.push(m)
                     }
                     k = k + 1
@@ -438,7 +439,10 @@ extension TcProgram {
             return false
         }
         let req = ResDeclKind.Requirement
-        if self.res.decls[a].kind == req || self.res.decls[b].kind == req {
+        let init_req = ResDeclKind.InitRequirement
+        let kind_a = self.res.decls[a].kind
+        let kind_b = self.res.decls[b].kind
+        if kind_a == req || kind_b == req || kind_a == init_req || kind_b == init_req {
             return false
         }
         let free = self.blocking_twins[a] < 0 && self.pair_defaults[a] < 0
@@ -710,7 +714,8 @@ extension TcProgram {
         if lends_a != lends_b || (lends_a && sa.receiver != sb.receiver) {
             return false
         }
-        let by_name = self.res.decls[a].kind == ResDeclKind.Init
+        let kind_a = self.res.decls[a].kind
+        let by_name = kind_a == ResDeclKind.Init || kind_a == ResDeclKind.InitRequirement
         var arity = tc_max(self.required_count(&sa), self.required_count(&sb))
         while arity <= sa.param_count && arity <= sb.param_count {
             if by_name && self.same_shape_set(&sa, &sb, arity) {

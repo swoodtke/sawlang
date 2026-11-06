@@ -1,0 +1,14 @@
+// refuses: init.result at 7:5
+// an enum `init` returning neither the enum nor a Result of it, refused as a struct's is (SL-966)
+// message: an `init` returns its receiver, `init.result.enum.Color`
+enum Color { case Red, case Gray }
+
+extension Color {
+    init(bright: Bool) -> Int {
+        if bright { 1 } else { 0 }
+    }
+}
+
+func main() {
+    print(Color.Red == Color.Gray)
+}

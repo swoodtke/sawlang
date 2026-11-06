@@ -154,7 +154,8 @@ extension ResProgram {
                 self.problem(&var problems, m, decl.outer,
                              "a declaration records a TestOnly item as the node holding its attributes")
             }
-            if decl.name >= 0 && decl.leaf >= 0 && decl.kind != ResDeclKind.Init {
+            let nameless = decl.kind == ResDeclKind.Init || decl.kind == ResDeclKind.InitRequirement
+            if decl.name >= 0 && decl.leaf >= 0 && not nameless {
                 let text = self.name_text(decl.name)
                 let written = self.text_of(m, decl.leaf)
                 var agrees = text.equals(written)

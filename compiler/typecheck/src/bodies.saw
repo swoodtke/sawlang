@@ -7659,14 +7659,13 @@ extension TcProgram {
             case ImplicitCase -> self.implicit_case_call(e, callee, rc.binding.name, &args, want),
             case Local -> self.value_call(e, callee, &args),
             case Value -> self.value_call(e, callee, &args),
-            case TypeParam -> self.type_param_call(e, rc.binding, &args)
+            case TypeParam -> self.type_param_call(e, rc.binding, &args, want)
         }
     }
 
-    // `A()` for a type parameter: a value of whatever type instantiates it,
-    // the zero-sized allocator a std body builds (a construction that takes
-    // arguments is outside the slice).
-    func type_param_call(&var self, e: Int, b: ResBinding, args: &TcArgs) -> Int {
+    // `T(args)` for a type parameter `T`, through its bounds'
+    // init requirements (`bound_construction`).
+    func type_param_call(&var self, e: Int, b: ResBinding, args: &TcArgs, want: Int) -> Int {
         let t = self.param_type(b.node)
         if t >= 0 && self.kind_of(t) != TcKind.Param {
             // A specialized extension's head names the type, which its own
@@ -7676,19 +7675,190 @@ extension TcProgram {
             let callee = self.res.first_node_child(e)
             return self.init_call(e, callee, named, &args, TC_WANT_NONE)
         }
-        if t < 0 || args.values.len() > 0 {
-            if t >= 0 {
-                self.not_in_slice(e, Alt.Expr_Call_Paren)
-            }
+        if t < 0 {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        self.record_builtin(e, -1, TcRole.Builtin, "init")
+        self.bound_construction(e, t, &args, want)
+    }
+
+    // THE BOUND-CONSTRUCTION FUNNEL: `T(args)` for a type parameter `T`, or
+    // `Self(args)` in a trait's default body, through the init requirements
+    // `owner`'s bounds declare (spec, Init requirements). Those whose labels
+    // and arity the call binds are the candidates, the overload filter picks
+    // one, and the call has its result at `owner`, `T` or `Result<T, E>`. A
+    // construction no requirement matches is refused naming the one to add.
+    // The call is recorded as the builtin `init` on `owner`, which mono
+    // lowers for each instantiation.
+    //
+    // ENTRY POINTS:
+    //     type_param_call
+    //     init_call
+    func bound_construction(&var self, e: Int, owner: Int, args: &TcArgs, want: Int) -> Int {
+        let reqs = self.init_requirements_of(owner)
+        var cands = Vector<TcCand>()
+        var k = 0
+        while k < reqs.len() {
+            let req = reqs[k]
+            k = k + 1
+            self.build_decl(req)
+            let c = TcCand(decl: req, kind: TcCandKind.Function, member: -1, owner: owner)
+            let bind = self.bind_args(c, &args)
+            if bind.status == TC_BIND_OK {
+                try! cands.push(c)
+            }
+        }
+        if cands.len() == 0 {
+            let param = self.kind_of(owner) == TcKind.Param
+            if param && reqs.len() == 0 && args.values.len() == 0 {
+                // Transitional: std's `A()` builds its allocator through an
+                // `Allocator` that declares no init requirement until the seed
+                // reads one, so a bare `T()` through bounds declaring none
+                // keeps its old meaning (SL-966 unit 2b).
+                self.record_bound_construction(e, owner)
+                return self.set_type(e, owner, false)
+            }
+            self.type_args_alone(&args)
+            self.refuse_no_init_requirement(e, owner, &reqs, &args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let none = Vector<Int>()
+        let t = self.resolve_call(e, &cands, &args, &none, -1, want)
+        if not self.has_error(t) {
+            self.record_bound_construction(e, owner)
+        }
+        t
+    }
+
+    // The init requirements type `owner`, a type parameter or a trait's
+    // `Self`, may be constructed through: its bounds', with the conditions of
+    // the extension being checked, or the trait's and its ancestors'.
+    func init_requirements_of(&var self, owner: Int) -> Vector<Int> {
+        let info = self.types.ty(owner)
+        if info.kind == TcKind.Param {
+            let ext = self.current_ext
+            return self.bound_init_requirements(info.decl, info.a, ext)
+        }
+        var out = Vector<Int>()
+        if info.kind != TcKind.SelfType {
+            return move out
+        }
+        let all = self.carried_traits(info.decl)
+        var j = 0
+        while j < all.len() {
+            let members = self.members_of(all[j])
+            var r = 0
+            while r < members.len() {
+                let req = members[r]
+                if self.res.decls[req].kind == ResDeclKind.InitRequirement && not tc_contains(&out, req) {
+                    try! out.push(req)
+                }
+                r = r + 1
+            }
+            j = j + 1
+        }
+        move out
+    }
+
+    // Records construction `e` through a bound as the builtin `init` on
+    // `owner`. The record the overload filter made is replaced in place, so
+    // the node keeps one record.
+    func record_bound_construction(&var self, e: Int, owner: Int) {
+        let in_test = self.current_test
+        let first = self.insts.len()
+        let record = TcCall(node: e, target: -1, role: TcRole.Builtin, derived: false, owner: owner,
+                            inst_first: first, inst_count: 0, spelling: self.res.intern("init"), twin: -1,
+                            pair: -1, bind_first: -1, bind_count: 0, variadic_from: -1, test: in_test)
         let at = self.call_at[e]
-        var c = self.calls[at]
-        c.owner = t
-        self.calls[at] = c
-        self.set_type(e, t, false)
+        if at >= 0 {
+            self.calls[at] = record
+        } else {
+            self.call_at[e] = self.calls.len()
+            try! self.calls.push(record)
+        }
+    }
+
+    // `T(args)` or `Self(args)` that no init requirement `owner`'s bounds
+    // declare matches, `reqs` those they do declare: refused naming the
+    // requirement that would (spec, Init requirements).
+    func refuse_no_init_requirement(&var self, e: Int, owner: Int, reqs: &Vector<Int>, args: &TcArgs) {
+        let shown = self.type_text(owner)
+        let is_self = self.kind_of(owner) == TcKind.SelfType
+        var msg = StringBuilder()
+        try! msg.append("constructing `")
+        try! msg.append(shown)
+        try! msg.append("` with `")
+        try! msg.append(self.call_shape_text(&args, false))
+        if is_self {
+            try! msg.append("` in a default body needs an init requirement of `")
+            try! msg.append(self.res.decl_path(self.types.ty(owner).decl))
+            try! msg.append("` that takes those labels and types")
+        } else {
+            try! msg.append("` needs an init requirement in `")
+            try! msg.append(shown)
+            try! msg.append("`'s bounds that takes those labels and types")
+        }
+        if reqs.len() == 0 {
+            try! msg.append(", and none is declared")
+        } else {
+            try! msg.append(", and the ones declared are ")
+            var k = 0
+            while k < reqs.len() {
+                if k > 0 {
+                    try! msg.append(", ")
+                }
+                try! msg.append("`")
+                try! msg.append(self.init_text(reqs[k]))
+                try! msg.append("`")
+                k = k + 1
+            }
+        }
+        try! msg.append(": add `init")
+        try! msg.append(self.call_shape_text(&args, true))
+        try! msg.append(" -> Self` to ")
+        if is_self {
+            try! msg.append("the trait")
+        } else {
+            try! msg.append("a trait that bounds `")
+            try! msg.append(shown)
+            try! msg.append("`")
+        }
+        self.refuse(e, "init.no-requirement", msg.build())
+    }
+
+    // Call `args`' shape, `(x: Int, String)`, its arguments typed alone; as
+    // parameters, an unlabeled one is named `valueN`.
+    func call_shape_text(&self, args: &TcArgs, as_params: Bool) -> String {
+        var out = StringBuilder()
+        try! out.append("(")
+        var k = 0
+        while k < args.values.len() {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            let label = args.labels[k]
+            if label >= 0 {
+                try! out.append(self.name_text(label))
+                try! out.append(": ")
+            } else if as_params {
+                try! out.append("value")
+                if args.values.len() > 1 {
+                    try! out.append(k + 1)
+                }
+                try! out.append(": ")
+            }
+            let v = args.values[k]
+            let t = if self.is_typed(v) { self.expr_types[v] } else { -1 }
+            if t >= 0 && not self.has_error(t) {
+                try! out.append(self.type_text(t))
+            } else {
+                try! out.append("_")
+            }
+            k = k + 1
+        }
+        try! out.append(")")
+        out.build()
     }
 
     // A call's arguments, positional, labeled and trailing.
@@ -10037,15 +10207,9 @@ extension TcProgram {
     // from the head, from the expected type (a construction peels it), or
     // from inference.
     func init_call(&var self, e: Int, callee: Int, b: ResBinding, args: &TcArgs, want: Int) -> Int {
-        if self.trait_self_head(b) >= 0 {
-            // Constructing a conformer has no settled meaning yet, so the
-            // static requirement is the spelling (SL-966).
-            self.type_args_alone(&args)
-            self.refuse(e, "slice.not-yet",
-                        "constructing `Self` in a trait's default body is not in the bootstrap slice yet; declare a static requirement, `static func make() -> Self`, and call `Self.make()`")
-            try! self.skipped.push(e)
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+        let trait_self = self.trait_self_head(b)
+        if trait_self >= 0 {
+            return self.bound_construction(e, trait_self, &args, want)
         }
         var d = -1
         if b.kind == ResBindKind.Decl && b.decl >= 0 {
@@ -10066,11 +10230,8 @@ extension TcProgram {
             d = b.decl
         }
         let leaf = self.res.first_leaf(callee)
-        if d < 0 || self.is_enum_decl(d) {
+        if d < 0 {
             self.type_args_alone(&args)
-            if d >= 0 {
-                self.refuse_not_a_value(callee, leaf)
-            }
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
@@ -10108,6 +10269,30 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
+        if cands.len() == 0 && self.is_enum_decl(d) {
+            // An enum's cases are named on the type, so with no `init` of its
+            // own the name is no construction (spec, Methods on enums).
+            self.type_args_alone(&args)
+            if self.declares_init(d) {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(d))
+                try! msg.append("` has no `init` this module can call; a case is built on the type, as `")
+                try! msg.append(self.res.decl_path(d))
+                try! msg.append(".Case`")
+                self.refuse(e, "call.no-match", msg.build())
+            } else {
+                self.refuse_not_a_value(callee, leaf)
+            }
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        if cands.len() == 0 && self.is_primitive_decl(d) {
+            self.type_args_alone(&args)
+            self.refuse_no_implicit_init(e, d, &args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         let builtin_module = self.res.builtin
         if cands.len() == 0 && self.res.decls[d].module == builtin_module {
             // `Atomic(v)`, `UnsafeMutableInterior(v)`, `UnsafeMemory<T, U>(a)`:
@@ -10131,6 +10316,43 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         self.resolve_call(e, &cands, &args, &pinned, -1, want)
+    }
+
+    // Whether any extension anywhere in the program declares an `init` of
+    // nominal `d`, seen here or not.
+    func declares_init(&self, d: Int) -> Bool {
+        if d < 0 || d >= self.member_first.len() || self.member_first[d] < 0 {
+            return false
+        }
+        let first = self.member_first[d]
+        var k = first
+        while k < first + self.member_count[d] {
+            if self.res.decls[self.members[k].decl].kind == ResDeclKind.Init {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // `Int(5)`: a primitive's construction that no `init` this module sees
+    // takes. A primitive has no implicit `init` and no inferred zero; an
+    // extension declares the `init`s it has (spec, Where an `init` may live).
+    func refuse_no_implicit_init(&var self, e: Int, d: Int, args: &TcArgs) {
+        let name = self.res.decl_path(d)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(name)
+        try! msg.append("` has no implicit `init`, and no extension `init` this module sees takes `")
+        try! msg.append(self.call_shape_text(&args, false))
+        try! msg.append("`: a primitive is constructed only by an `init` an extension declares, so write the value itself, or declare `extension ")
+        try! msg.append(name)
+        try! msg.append(" \{ init")
+        try! msg.append(self.call_shape_text(&args, true))
+        try! msg.append(" -> ")
+        try! msg.append(name)
+        try! msg.append(" \{ ... \} \}` and import its module where it is called")
+        self.refuse(e, "init.no-implicit", msg.build())
     }
 
     // THE CONSTRUCTION FUNNEL: how the body being checked may construct
@@ -10988,7 +11210,7 @@ extension TcProgram {
             return false
         }
         let info = self.res.decls[c.decl]
-        info.kind != ResDeclKind.Init
+        info.kind != ResDeclKind.Init && info.kind != ResDeclKind.InitRequirement
     }
 
     // The type declaration a construction candidate builds, or -1.

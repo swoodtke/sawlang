@@ -45,7 +45,8 @@ public func res_decl_kind_text(k: ResDeclKind) -> String {
         case Requirement -> "requirement",
         case Field -> "field",
         case Primitive -> "type",
-        case BuiltinFunc -> "func"
+        case BuiltinFunc -> "func",
+        case InitRequirement -> "init-requirement"
     }
 }
 
@@ -381,7 +382,7 @@ extension ResProgram {
             if decl.flag && decl.kind == ResDeclKind.Case {
                 try! out.append(" payload")
             }
-            if decl.kind == ResDeclKind.Func || decl.kind == ResDeclKind.Extern || decl.kind == ResDeclKind.Method || decl.kind == ResDeclKind.Init {
+            if decl.kind == ResDeclKind.Func || decl.kind == ResDeclKind.Extern || decl.kind == ResDeclKind.Method || decl.kind == ResDeclKind.Init || decl.kind == ResDeclKind.InitRequirement {
                 try! out.append(" (signature ")
                 try! out.append(self.signature_text(m, decl.node))
                 try! out.append(")")

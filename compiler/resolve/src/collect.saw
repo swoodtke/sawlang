@@ -348,7 +348,8 @@ extension ResProgram {
         false
     }
 
-    // A trait's associated types and requirements, each of the trait's tier.
+    // A trait's associated types, requirements and init requirements, each of
+    // the trait's tier. An init requirement, like an `init`, has no name leaf.
     func collect_trait_members(&var self, t: Int, parent: Int, vis: ResVis, test_only: Bool) {
         let n = self.child_count(t)
         var k = 0
@@ -365,6 +366,10 @@ extension ResProgram {
                 let is_static = self.has_leading_word(c, "static")
                 let _ = self.add_member(ResDeclKind.Requirement, leaf, c, c, vis, parent,
                                         test_only, is_static, name)
+            } else if self.is_alt(c, Alt.Decl_InitRequirement) {
+                let name = self.intern("init")
+                let _ = self.add_member(ResDeclKind.InitRequirement, c, c, c, vis, parent,
+                                        test_only, false, name)
             }
             k = k + 1
         }

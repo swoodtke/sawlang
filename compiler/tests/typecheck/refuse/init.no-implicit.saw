@@ -1,0 +1,7 @@
+// refuses: init.no-implicit at 5:13
+// a primitive has no implicit `init` and no inferred zero: `Int(5)` with no extension `init` is refused (SL-966)
+// message: `Int` has no implicit `init`
+func main() {
+    let n = Int(5)
+    print(n)
+}

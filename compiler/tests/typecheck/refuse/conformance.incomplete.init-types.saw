@@ -1,0 +1,16 @@
+// refuses: conformance.incomplete at 10:17
+// an `init` with the init requirement's labels and other parameter types meets nothing (SL-966)
+// message: has no `init` with those labels and types
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Grid { cells: Int, rows: Int }
+
+extension Grid: Make {
+    init(seed: String) -> Grid { Grid(cells: seed.len(), rows: 1) }
+}
+
+func main() {
+    print(Grid(seed: "ab").cells)
+}

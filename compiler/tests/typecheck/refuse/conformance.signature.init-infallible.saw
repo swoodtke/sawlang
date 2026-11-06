@@ -1,0 +1,21 @@
+// refuses: conformance.signature at 13:5
+// a fallible `init` does not meet an infallible init requirement: fallibility matches exactly (SL-966)
+// message: a fallible `init` does not meet an infallible requirement
+enum LoadError { case Missing }
+
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Page { number: Int }
+
+extension Page: Make {
+    init(seed: Int) -> Result<Page, LoadError> {
+        if seed < 0 { return LoadError.Missing }
+        return Page(number: seed)
+    }
+}
+
+func main() {
+    let _ = Page(seed: 1)
+}

@@ -1,0 +1,10 @@
+// refuses: init.no-requirement at 5:5
+// an unbounded `T(seed: 1)` in a generic nothing instantiates: the body is checked against its bounds, so it is refused anyway (SL-966)
+// message: needs an init requirement in `T`'s bounds that takes those labels and types, and none is declared
+func fresh<T>() -> T {
+    T(seed: 1)
+}
+
+func main() {
+    print(1)
+}

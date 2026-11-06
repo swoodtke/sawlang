@@ -137,7 +137,10 @@ public enum TcStatusKind: UInt8 {
     // Synthesized with no marker: a `deinit`, and an associated type's
     // absence never is.
     case Implicit = 3,
-    case Missing = 4
+    case Missing = 4,
+    // An init requirement a struct's memberwise construction meets: its
+    // fields are the requirement's labels and types (spec, Init requirements).
+    case Memberwise = 5
 }
 
 // How one requirement of a conformance is met.

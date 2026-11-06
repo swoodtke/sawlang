@@ -187,7 +187,7 @@ extension TcProgram {
             type_decl = info.parent
         } else if info.kind == ResDeclKind.Trait {
             self.current_trait = d
-        } else if info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.AssocType {
+        } else if info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.AssocType || info.kind == ResDeclKind.InitRequirement {
             self.current_trait = info.parent
         } else if info.kind == ResDeclKind.Extension {
             self.current_ext = d

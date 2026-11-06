@@ -94,7 +94,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
   - `trait`: `(parents TRAIT...)`; `assoc-type`: nothing more;
   - `extension`: `(target TYPE)`, its conditions `(where (PARAM TRAIT...)...)`,
     `(conforms TRAIT...)` and `synthesize` for `@synthesize`;
-  - `func`, `method`, `init`, `requirement`, `extern`: a signature, below.
+  - `func`, `method`, `init`, `requirement`, `init-requirement`, `extern`: a
+    signature, below. An `init-requirement` is a trait's `init` with no body
+    (spec, Init requirements); with no written result it produces `Self`.
 - A **signature** is `(signature [GENERICS] [(receiver shared|exclusive)]
   (params (NAME TYPE PASSING [default])...) [(effects WORD...)] [(lend
   CLASS shared|exclusive)] -> RESULT [static] [default-body] [variadic]
@@ -147,8 +149,13 @@ A module's dump is one S-expression, one entry per line, in this layout:
   module sees, or a type assignment: the conformance's own, or for a parent
   trait's associated type the one the type's conformance to that trait
   writes), `default`, `synthesized` (under
-  `@synthesize`), `implicit` (a `deinit`, synthesized for every type), or
-  `missing`, which a refusal names.
+  `@synthesize`), `implicit` (a `deinit`, synthesized for every type),
+  `memberwise` (an init requirement the struct's memberwise construction
+  meets: its fields are the requirement's labels and types, the result is
+  `Self`, and the conformance's module sees every field), or `missing`, which
+  a refusal names. An init requirement is `written` by the `init` that takes
+  its labels and types in any order and returns its form exactly, an override
+  of the memberwise construction included (`meet_init_requirement`).
 - **copy-tier** gives each struct and enum the module declares its tier:
   `Copy`, `ExplicitCopy` or `NoCopy`, with `declared` when a conformance
   declares it. An undeclared generic type's tier is a rule over its
@@ -1647,11 +1654,11 @@ its fixit.
 | `type.raw-value` | a case of a raw-backed enum that states no value (`.missing`), and two cases sharing one, compared by their folded values, so `0x01` is `1` and `1 << 0` is too (`.folded`) (spec, Raw-backed enums, rule 2; SL-609) |
 | `type.infinite-size` | a struct or enum on a cycle of the by-value containment graph: its storage contains an instance of itself inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, the same instance, a fixed other one (`.fixed-argument`) or an ever larger one (`.growing`); golden `containment_cycles` holds every declaration of a component and the finite controls (SL-627) |
 | `type.instantiation-depth` | deriving `Send` or `Sync` from the members of a type nested past the instantiation depth limit (64), which a type holding itself at ever larger arguments behind a pointer reaches (spec, "Instantiation depth is bounded"; SL-627) |
-| `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments); for a production conformance, what a test-only extension writes or a test-only parent conformance assigns meets nothing (SL-640: `-test-only-member`, `-test-only-group`, `-test-only-static`, `-test-only-parent-member`, `-test-only-parent-assignment`) |
+| `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments); for a production conformance, what a test-only extension writes or a test-only parent conformance assigns meets nothing (SL-640: `-test-only-member`, `-test-only-group`, `-test-only-static`, `-test-only-parent-member`, `-test-only-parent-assignment`); an init requirement no `init` and no memberwise construction meets (SL-966: `.init-requirement`, `.init-labels`, `.init-types`, `.init-memberwise`), and one only a memberwise construction would meet from a module that does not see every field, so a requirement never sets a `private` field from outside (`.memberwise-private`) |
 | `conformance.test-only-overlap` | a test-only conformance to a trait a production type already meets in production code, through a production conformance to a trait refining it, or automatically as a trivially copyable type (`Equatable`, `Hashable`); the same pair twice is resolve's `conformance.duplicate` (SL:testing; SL-629) |
 | `conformance.test-only-shadow` | a test-only method, static or `init` of a production type whose signature meets a requirement a production conformance of the type meets with the trait's default or with `@synthesize`, directly or through a refinement (`.refinement`, `.static`, `.test-only-conformance`, `.synthesize`); one met by a written member is `overload.indistinguishable`'s (`.test-only-requirement`), a copy policy's `copy()` `copy.test-only-policy`'s and a `deinit` `deinit.outside-policy`'s (SL:testing; SL-640) |
 | `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns; a test-only conformance assigning it as another type than a production conformance reaching the parent through a sibling refinement does (`.test-only-sibling`, SL-640) |
-| `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5); a parameter that says `escaping` where the requirement's does not, though the narrowing is met (SL-504: `conformance.signature.escaping`, `-escaping-default`; a function-typed parameter's own parameters are compared exactly, `-escaping-nested`; golden `escaping_values`) |
+| `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5); a parameter that says `escaping` where the requirement's does not, though the narrowing is met (SL-504: `conformance.signature.escaping`, `-escaping-default`; a function-typed parameter's own parameters are compared exactly, `-escaping-nested`; golden `escaping_values`); an `init` taking an init requirement's labels and types whose fallibility differs, since it matches exactly (SL-966: `.init-fallible`, `.init-infallible`), and a memberwise construction, which cannot fail, against a fallible one (`.init-memberwise-fallible`) |
 | `trait.generic-requirement` | a trait requirement declaring generic parameters of its own, which the grammar parses and type checking refuses for now (GRAMMAR §3.4), once, at the requirement: with a default body (`.default-body`), met by a generic method in a conformance (`.conformance`), called through a bound (`.bound`), and its trait erased (bare), none adds a second refusal; golden `generic_methods` holds the accepted control, a generic method in an ordinary extension |
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128); a copy policy's `copy()` counts as written only inside the conformance (`-copy-outside-policy`) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
@@ -1667,7 +1674,9 @@ its fixit.
 | `unsafe.undeclared` | a function whose parameters, result or receiver name an unsafe type, or whose body (its closures included) names, binds, receives or returns a value of one or names an `unsafe static var`, and which is not declared `unsafe` (designs 130, 136 and 149) |
 | `unsafe.function-type` | a function type that names an unsafe type without saying `unsafe`, or says it without naming one |
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
-| `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
+| `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`, an enum's included (`.enum`); an optional on its own terms, and on an init requirement, whose receiver is `Self` (`.requirement`, DF-245a) |
+| `init.no-requirement` | THE BOUND-CONSTRUCTION FUNNEL (`bound_construction`): `T(args)` through a type parameter, or `Self(args)` in a trait's default body, that no init requirement of the bounds, or of the trait, takes, refused in the generic body whether or not anything instantiates it, naming the requirement to add (spec, Init requirements; SL-966: bare, `.labels`, `.uninstantiated`, `.self`, `.self-arguments`, `.self-generic-trait`, `.self-unconformed`). A zero-argument `T()` through bounds that declare no init requirement stays accepted until SL-966 unit 2b; golden `init_requirements` holds the accepted calls |
+| `init.no-implicit` | a primitive's construction no `init` the module sees takes, `Int(5)`: a primitive has no implicit `init` and no inferred zero, and an extension `init` is import-scoped (spec, Where an `init` may live; SL-966: bare, `.not-imported`); `Atomic`, `UnsafeMutableInterior` and `UnsafeMemory` keep their `slice.not-yet`, and multi `init_requirement_modules` holds the reached one |
 | `init.override-outside-module` | an `init` matching a struct's fields exactly, the shape that overrides its memberwise construction, declared outside the struct's module (SL-648; the override matrix below) |
 | `init.override-test-only` | an override that is test-only on a production struct, with `conformance.policy-placement`'s reasoning (SL:testing; SL-648) |
 | `init.override-bounded` | an override in an extension whose type parameters carry bounds, naming the bound and the unbounded head (SL-648) |

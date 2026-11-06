@@ -436,7 +436,7 @@ extension ResProgram {
         k = 0
         while k < n {
             let c = self.child(t, k)
-            if self.is_alt(c, Alt.Decl_Requirement) {
+            if self.is_alt(c, Alt.Decl_Requirement) || self.is_alt(c, Alt.Decl_InitRequirement) {
                 self.walk_function(c, interface)
             }
             k = k + 1

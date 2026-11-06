@@ -1,0 +1,14 @@
+// refuses: conformance.incomplete at 10:18
+// a memberwise construction meets an init requirement only when the fields are exactly its labels and types: here a field's type differs (SL-966)
+// message: and its fields are not those labels and types either
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Tally { seed: UInt8 }
+
+extension Tally: Make {}
+
+func main() {
+    print(Tally(seed: 1).seed)
+}

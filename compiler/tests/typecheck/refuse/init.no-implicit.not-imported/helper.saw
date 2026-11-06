@@ -1,0 +1,5 @@
+import digits
+
+public func shifted(b: UInt8) -> Int {
+    Int(digit: b) + 1
+}

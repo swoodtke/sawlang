@@ -115,7 +115,7 @@ extension TcProgram {
             var r = 0
             while r < requirements.len() {
                 let info = self.res.decls[requirements[r]]
-                if info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.AssocType {
+                if info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.AssocType || info.kind == ResDeclKind.InitRequirement {
                     wanted = wanted + 1
                 }
                 r = r + 1

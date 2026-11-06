@@ -1,0 +1,11 @@
+// refuses: init.no-requirement at 5:9
+// `Self()` in the default body of a trait nothing conforms to, refused in the body itself, before any conformer (SL-966)
+trait Fresh {
+    func fresh(&self) -> Self {
+        Self()
+    }
+}
+
+func main() {
+    print(1)
+}

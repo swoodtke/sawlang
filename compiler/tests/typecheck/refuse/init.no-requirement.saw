@@ -1,0 +1,17 @@
+// refuses: init.no-requirement at 11:5
+// `T(...)` through a bound that declares no init requirement, refused in the generic body with the requirement to add (SL-966)
+// message: add `init(seed: Int) -> Self` to a trait that bounds `T`
+trait Marker {}
+
+struct Tally { seed: Int }
+
+extension Tally: Marker {}
+
+func build<T: Marker>(n: Int) -> T {
+    T(seed: n)
+}
+
+func main() {
+    let t = build<Tally>(3)
+    print(t.seed)
+}

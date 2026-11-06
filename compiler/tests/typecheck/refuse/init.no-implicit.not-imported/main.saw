@@ -1,0 +1,9 @@
+// refuses: init.no-implicit at 8:11
+// a primitive's extension `init` is import-scoped like a method: `digits` declares `Int(digit:)`, and this module imports only `helper`, which imports `digits` (SL-966)
+// message: no extension `init` this module sees takes `(digit: Int)`
+import helper.{shifted}
+
+func main() {
+    print(shifted(55))
+    print(Int(digit: 55))
+}

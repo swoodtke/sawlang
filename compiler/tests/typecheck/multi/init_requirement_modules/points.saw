@@ -1,0 +1,13 @@
+public struct Open {
+    x: Int
+}
+
+public struct Sealed {
+    private x: Int,
+    private y: Int
+}
+
+extension Sealed {
+    public init(x: Int) -> Sealed { Sealed(x: x, y: 0) }
+    public func reveal(&self) -> Int { self.x + self.y }
+}

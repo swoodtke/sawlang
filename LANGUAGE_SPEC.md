@@ -2141,7 +2141,7 @@ yet, SL-966**). It returns one of the enum's cases, or a `Result` of one: the
 two forms of [What an `init` may return](#what-an-init-may-return), with the
 enum as the receiver.
 
-```saw-pending SL-966
+```saw
 enum Color { case Red, case Gray }
 
 extension Color {
@@ -2765,7 +2765,7 @@ An init requirement does not have this restriction (below).
 conformers can be constructed. An init requirement is spelled as an `init` is,
 with no body:
 
-```saw-pending SL-966
+```saw
 enum LoadError { case Missing }
 
 trait Make {
@@ -2860,7 +2860,7 @@ init requirements: a default body may construct `Self` with the labels and
 types an init requirement of that trait declares. Until this is built, `sawc`
 refuses `Self(...)` in a default body.
 
-```saw-pending SL-966
+```saw
 trait Make {
     init(seed: Int) -> Self
     func reset(&self) -> Self { Self(seed: 0) }
@@ -3564,7 +3564,8 @@ a construction outside what it builds). A trait that wants a primitive conformer
 requirement, and the primitive's conformance supplies the `init`. The
 construction of a distinct alias, such as `Byte(65)`, is unchanged.
 
-```saw-pending SL-966
+```saw-error
+// error-rule: init.no-implicit
 // error-contains: implicit `init`
 func main() {
     let n = Int(5)                       // refused: no implicit `init`, and no

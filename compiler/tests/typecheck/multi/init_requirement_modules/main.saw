@@ -1,0 +1,22 @@
+// Init requirements across modules (SL-966). A memberwise construction meets
+// a requirement where it is legal at the conformance: `secrets` conforms its
+// own `Secret`, whose field is `private`, and `makers` conforms `Open`, whose
+// fields it sees; `Sealed` keeps its fields `private` and meets it from
+// `makers` through the `init` its author wrote
+// (refuse/conformance.incomplete.memberwise-private is the refusal). A
+// primitive's extension `init` is import-scoped: this module imports
+// `digits`, so `Int(digit:)` reaches it (refuse/init.no-implicit.not-imported
+// is the module that does not).
+
+import digits
+import makers.{made}
+import points.{Open, Sealed}
+import secrets.{Secret}
+
+func main() {
+    let o = made<Open>(3)
+    let s = made<Sealed>(4)
+    let t = made<Secret>(5)
+    print(o.x + s.reveal() + t.reveal())
+    print(Int(digit: 55))
+}

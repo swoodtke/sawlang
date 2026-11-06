@@ -1,0 +1,14 @@
+// refuses: init.no-requirement at 9:5
+// `T(x: 1)` against a bound whose init requirement takes other labels, refused the same way (SL-966)
+// message: and the ones declared are `Make.init(seed: Int) -> Self`
+trait Make {
+    init(seed: Int) -> Self
+}
+
+func build<T: Make>() -> T {
+    T(x: 1)
+}
+
+func main() {
+    print(1)
+}

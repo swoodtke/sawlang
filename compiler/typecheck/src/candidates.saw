@@ -415,15 +415,26 @@ extension TcProgram {
     // The requirements named `name` that the bounds of type parameter
     // `index` of `owner` grant, and the conditions of extension `ext` add.
     public func bound_requirements(&var self, owner: Int, index: Int, name: Int, ext: Int) -> Vector<Int> {
+        self.bound_members(owner, index, name, ext, ResDeclKind.Requirement)
+    }
+
+    // The init requirements that the bounds of type parameter `index` of
+    // `owner` declare, and the conditions of extension `ext` add.
+    public func bound_init_requirements(&var self, owner: Int, index: Int, ext: Int) -> Vector<Int> {
+        let name = self.res.intern("init")
+        self.bound_members(owner, index, name, ext, ResDeclKind.InitRequirement)
+    }
+
+    func bound_members(&var self, owner: Int, index: Int, name: Int, ext: Int, kind: ResDeclKind) -> Vector<Int> {
         var out = Vector<Int>()
-        self.push_bound_requirements(&var out, owner, index, name)
+        self.push_bound_requirements(&var out, owner, index, name, kind)
         if ext >= 0 && self.ext_target(ext) == owner {
-            self.push_bound_requirements(&var out, ext, index, name)
+            self.push_bound_requirements(&var out, ext, index, name, kind)
         }
         move out
     }
 
-    func push_bound_requirements(&var self, out: &var Vector<Int>, d: Int, index: Int, name: Int) {
+    func push_bound_requirements(&var self, out: &var Vector<Int>, d: Int, index: Int, name: Int, kind: ResDeclKind) {
         self.ensure_generics(d)
         let s = self.sigs[d]
         if index >= s.generic_count {
@@ -441,7 +452,7 @@ extension TcProgram {
                 while r < reqs.len() {
                     let req = reqs[r]
                     let info = self.res.decls[req]
-                    if info.kind == ResDeclKind.Requirement && info.name == name && not tc_contains(&out, req) {
+                    if info.kind == kind && info.name == name && not tc_contains(&out, req) {
                         try! out.push(req)
                     }
                     r = r + 1

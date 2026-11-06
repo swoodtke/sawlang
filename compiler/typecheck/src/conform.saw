@@ -228,7 +228,7 @@ extension TcProgram {
     // the traits it refines as `T.Item`: the signature's `Item` is `T`'s.
     public func bound_projections(&var self, req: Int, recv: Int, s: &var TcSubst) {
         let info = self.res.decls[req]
-        if info.kind != ResDeclKind.Requirement {
+        if info.kind != ResDeclKind.Requirement && info.kind != ResDeclKind.InitRequirement {
             return
         }
         var r = recv
@@ -845,6 +845,13 @@ extension TcProgram {
                         self.refuse_missing(at, req)
                         refused = true
                     }
+                } else if info.kind == ResDeclKind.InitRequirement {
+                    let inherited = self.production_status(at, req)
+                    let met = if inherited >= 0 { self.statuses[inherited] } else { self.meet_init_requirement(at, req, &s, &visible) }
+                    try! self.statuses.push(met)
+                    if met.kind == TcStatusKind.Missing {
+                        refused = true
+                    }
                 }
                 r = r + 1
             }
@@ -1400,6 +1407,218 @@ extension TcProgram {
         }
         ""
     }
+
+    // THE INIT-REQUIREMENT FUNNEL: how conformance `at` meets init
+    // requirement `req`, refused here when nothing does (spec, Init
+    // requirements). An `init` meets it with the requirement's labels and
+    // types in any order, an `init`'s call shape, and exactly its result form;
+    // an override of the memberwise construction is such an `init`, so it is
+    // found first. Else the memberwise construction meets it when the fields
+    // are those labels and types, the result is `Self`, and the conformance's
+    // module sees every field, so no `private` field is set from outside.
+    //
+    // ENTRY POINTS:
+    //     settle_conformance
+    public func meet_init_requirement(&var self, at: Int, req: Int, s: &TcSubst, visible: &Vector<Bool>) -> TcStatus {
+        let c = self.conformances[at]
+        self.build_decl(req)
+        let owner_module = self.res.decls[c.type_decl].module
+        var chain = self.extensions_of.first(c.type_decl, 0)
+        var exts = Vector<Int>()
+        while chain >= 0 {
+            try! exts.push(self.extensions_of.value(chain))
+            chain = self.extensions_of.following(chain)
+        }
+        var disagreeing = -1
+        var e = exts.len() - 1
+        while e >= 0 {
+            let ext = exts[e]
+            e = e - 1
+            let ext_module = self.res.decls[ext].module
+            if not self.meets_from(at, ext) || not self.sees_extensions_of(c.module, ext_module, owner_module, &visible) {
+                continue
+            }
+            let members = self.members_of(ext)
+            var k = 0
+            while k < members.len() {
+                let d = members[k]
+                k = k + 1
+                if self.res.decls[d].kind != ResDeclKind.Init {
+                    continue
+                }
+                self.build_decl(d)
+                if not self.init_shape_meets(req, d, &s) {
+                    continue
+                }
+                let why = self.init_disagreement(req, d, &s)
+                if why.len() == 0 {
+                    return TcStatus(requirement: req, kind: TcStatusKind.Written, member: d)
+                }
+                if disagreeing < 0 {
+                    disagreeing = d
+                }
+            }
+        }
+        let missing = TcStatus(requirement: req, kind: TcStatusKind.Missing, member: -1)
+        if disagreeing >= 0 {
+            let why = self.init_disagreement(req, disagreeing, &s)
+            self.refuse_init_disagreement(at, req, disagreeing, why)
+            return missing
+        }
+        let d = c.type_decl
+        if self.res.decls[d].kind == ResDeclKind.Struct && self.fields_meet(req, d, &s) {
+            let want = self.subst(self.sigs[req].result, &s)
+            if want != s.self_type {
+                self.refuse_fallible_memberwise(at, req)
+                return missing
+            }
+            let hidden = self.field_hidden_from(d, c.module)
+            if hidden >= 0 {
+                self.refuse_hidden_memberwise(at, req, hidden)
+                return missing
+            }
+            return TcStatus(requirement: req, kind: TcStatusKind.Memberwise, member: -1)
+        }
+        self.refuse_missing_init(at, req)
+        missing
+    }
+
+    // Whether `init` `d` takes init requirement `req`'s parameters, the same
+    // labels and types in any order, `Self` and the associated types `s`'s.
+    func init_shape_meets(&var self, req: Int, d: Int, s: &TcSubst) -> Bool {
+        let r = self.sigs[req]
+        let m = self.sigs[d]
+        if r.param_count != m.param_count {
+            return false
+        }
+        var k = 0
+        while k < r.param_count {
+            let rp = self.params[r.param_first + k]
+            let want = self.subst(rp.ty, &s)
+            var found = false
+            var j = 0
+            while j < m.param_count && not found {
+                let mp = self.params[m.param_first + j]
+                found = mp.name == rp.name && mp.ty == want
+                j = j + 1
+            }
+            if not found {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // What makes `init` `d`, which takes init requirement `req`'s parameters,
+    // disagree with it, or "" when it agrees: its result, which matches the
+    // requirement's form exactly, and an `unsafe` the requirement declares.
+    func init_disagreement(&var self, req: Int, d: Int, s: &TcSubst) -> String {
+        let r = self.sigs[req]
+        let m = self.sigs[d]
+        let want = self.subst(r.result, &s)
+        if want != m.result {
+            let fallible = self.is_result_type(want)
+            let made = self.is_result_type(m.result)
+            if fallible && not made {
+                return "the requirement is fallible and this `init` is not: an infallible `init` does not meet a fallible requirement"
+            }
+            if made && not fallible {
+                return "this `init` is fallible and the requirement is not: a fallible `init` does not meet an infallible requirement"
+            }
+            if fallible && made {
+                return "its error type differs"
+            }
+            return "its result type differs"
+        }
+        tc_unsafe_disagreement(r.effects, m.effects)
+    }
+
+    // Whether type `t` is a `Result`.
+    func is_result_type(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        info.kind == TcKind.Nominal && info.decl == self.known.result
+    }
+
+    // Whether struct `d`'s fields are init requirement `req`'s labels and
+    // types, in any order, `Self` and the associated types `s`'s.
+    func fields_meet(&var self, req: Int, d: Int, s: &TcSubst) -> Bool {
+        let r = self.sigs[req]
+        let members = self.members_of(d)
+        var fields = 0
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            k = k + 1
+            if self.res.decls[f].kind != ResDeclKind.Field {
+                continue
+            }
+            fields = fields + 1
+            self.build_decl(f)
+            let ty = self.sigs[f].result
+            let name = self.res.decls[f].name
+            var found = false
+            var j = 0
+            while j < r.param_count && not found {
+                let rp = self.params[r.param_first + j]
+                found = rp.name == name && self.subst(rp.ty, &s) == ty
+                j = j + 1
+            }
+            if not found {
+                return false
+            }
+        }
+        fields == r.param_count
+    }
+
+    // The first field of struct `d` that code in module `viewer` cannot see,
+    // or -1.
+    func field_hidden_from(&self, d: Int, viewer: Int) -> Int {
+        let owner = self.res.decls[d].module
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            k = k + 1
+            let info = self.res.decls[f]
+            if info.kind == ResDeclKind.Field && not self.res.visible_to(info.vis, owner, viewer) {
+                return f
+            }
+        }
+        return -1
+    }
+
+    // Init requirement or `init` `d` as written: its path, labeled parameter
+    // types and written result, `Make.init(seed: Int) -> Self`.
+    public func init_text(&self, d: Int) -> String {
+        let s = self.sigs[d]
+        var out = StringBuilder()
+        try! out.append(self.res.decl_path(d))
+        try! out.append("(")
+        var k = 0
+        while k < s.param_count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            let p = self.params[s.param_first + k]
+            try! out.append(self.name_text(p.name))
+            try! out.append(": ")
+            try! out.append(self.type_text(p.ty))
+            k = k + 1
+        }
+        try! out.append(") -> ")
+        try! out.append(self.type_text(s.result))
+        out.build()
+    }
+}
+
+// The effect half of `init_disagreement`: "" unless the requirement's effects
+// `wanted` declare `unsafe` and the implementation's `given` do not.
+func tc_unsafe_disagreement(wanted: Int, given: Int) -> String {
+    if (wanted & TC_EFFECT_UNSAFE) != 0 && (given & TC_EFFECT_UNSAFE) == 0 {
+        return "the requirement declares `unsafe`, so the implementation must too"
+    }
+    ""
 }
 
 // The conformance refusals.
@@ -1459,5 +1678,73 @@ extension TcProgram {
         try! msg.append(" needs: ")
         try! msg.append(why)
         self.refuse_in(m, site, "conformance.signature", msg.build())
+    }
+
+    // Nothing meets init requirement `req` in conformance `at`.
+    func refuse_missing_init(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", but nothing meets its init requirement `")
+        try! msg.append(self.init_text(req))
+        try! msg.append("`: `")
+        try! msg.append(self.res.decl_path(c.type_decl))
+        try! msg.append("` has no `init` with those labels and types")
+        if self.res.decls[c.type_decl].kind == ResDeclKind.Struct {
+            try! msg.append(", and its fields are not those labels and types either")
+        }
+        self.refuse_in(c.module, c.node, "conformance.incomplete", msg.build())
+    }
+
+    // `init` `d` takes init requirement `req`'s parameters and disagrees with
+    // it as `why` says, which the fallibility rule makes a mismatch.
+    func refuse_init_disagreement(&var self, at: Int, req: Int, d: Int, why: String) {
+        let site = self.decl_site(d)
+        let m = self.res.decls[d].module
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.init_text(d))
+        try! msg.append("` does not meet `")
+        try! msg.append(self.init_text(req))
+        try! msg.append("`, as ")
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(" needs: ")
+        try! msg.append(why)
+        self.refuse_in(m, site, "conformance.signature", msg.build())
+    }
+
+    // A struct's memberwise construction takes fallible init requirement
+    // `req`'s parameters, and cannot fail.
+    func refuse_fallible_memberwise(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", whose init requirement `")
+        try! msg.append(self.init_text(req))
+        try! msg.append("` is fallible, and the memberwise construction that takes its labels and types cannot fail: an infallible construction does not meet a fallible requirement")
+        self.refuse_in(c.module, c.node, "conformance.signature", msg.build())
+    }
+
+    // A struct's memberwise construction would meet init requirement `req`,
+    // and conformance `at`'s module does not see field `f`.
+    func refuse_hidden_memberwise(&var self, at: Int, req: Int, f: Int) {
+        let c = self.conformances[at]
+        let owner = self.res.decls[c.type_decl].module
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", but nothing meets its init requirement `")
+        try! msg.append(self.init_text(req))
+        try! msg.append("`: the memberwise construction takes those labels and types, and its field `")
+        try! msg.append(self.name_text(self.res.decls[f].name))
+        try! msg.append("` is not visible in `")
+        try! msg.append(self.res.module_name(c.module))
+        try! msg.append("`, where the conformance is declared, so no requirement may set it from outside `")
+        try! msg.append(self.res.module_name(owner))
+        try! msg.append("`; declare the conformance in `")
+        try! msg.append(self.res.module_name(owner))
+        try! msg.append("`, or have `")
+        try! msg.append(self.res.module_name(owner))
+        try! msg.append("` write the `init`")
+        self.refuse_in(c.module, c.node, "conformance.incomplete", msg.build())
     }
 }

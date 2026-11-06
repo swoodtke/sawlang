@@ -1,0 +1,133 @@
+(Module main
+  (declarations
+    (func main 16:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views
+    (points.Open x)
+    (points.Sealed init reveal)
+    (secrets.Secret reveal))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 16:6
+      (17:9-17:10 BindingName points.Open place temp)
+      (17:13-17:26 Call.paren points.Open value temp (call makers.made(n: Int) (inst points.Open)))
+      (17:24-17:25 IntLit Int value temp)
+      (18:9-18:10 BindingName points.Sealed place temp)
+      (18:13-18:28 Call.paren points.Sealed value temp (call makers.made(n: Int) (inst points.Sealed)))
+      (18:26-18:27 IntLit Int value temp)
+      (19:9-19:10 BindingName secrets.Secret place temp)
+      (19:13-19:28 Call.paren secrets.Secret value temp (call makers.made(n: Int) (inst secrets.Secret)))
+      (19:26-19:27 IntLit Int value temp)
+      (20:5-20:41 Call.paren Void value temp (builtin print))
+      (20:11-20:40 Binary Int value borrow (op + +))
+      (20:11-20:14 Member Int place copy)
+      (20:11-20:12 Name points.Open place project)
+      (20:17-20:27 Call.paren Int value temp (call points.Sealed.reveal() (owner points.Sealed)))
+      (20:17-20:18 Name points.Sealed (borrow &points.Sealed) place borrow)
+      (20:30-20:40 Call.paren Int value temp (call secrets.Secret.reveal() (owner secrets.Secret)))
+      (20:30-20:31 Name secrets.Secret (borrow &secrets.Secret) place borrow)
+      (21:5-21:26 Call.paren Void value temp (builtin print))
+      (21:11-21:25 Call.paren Int value borrow (call digits.Int.init(digit: UInt8) (owner Int)))
+      (21:22-21:24 IntLit Int (adopt UInt8) value temp))))
+
+(Module digits
+  (declarations
+    (extension 1:1 (target Int))
+    (init Int.init 2:12 public (signature (params (digit UInt8 owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views
+    (points.Open x)
+    (points.Sealed init reveal)
+    (secrets.Secret reveal))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (Int.init 2:12
+      (3:10-3:28 Binary Int value temp (op -))
+      (3:10-3:22 Cast Int value temp)
+      (3:10-3:15 Name UInt8 place copy)
+      (3:26-3:28 IntLit Int value temp))))
+
+(Module makers
+  (declarations
+    (trait Make 3:14 public)
+    (init-requirement Make.init 4:5 (signature (params (x Int owned)) -> Self))
+    (func made 7:13 public (signature (generics (T (bounds makers.Make))) (params (n Int owned)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (extension 11:1 (target points.Open) (conforms makers.Make))
+    (extension 13:1 (target points.Sealed) (conforms makers.Make)))
+  (members)
+  (views
+    (points.Open x)
+    (points.Sealed init reveal)
+    (secrets.Secret reveal))
+  (conformances
+    (points.Open makers.Make 11:17 (init memberwise))
+    (points.Sealed makers.Make 13:19 (init written)))
+  (copy-tier)
+  (bodies
+    (made 7:13
+      (8:5-8:12 Call.paren T value temp (builtin init (owner T)))
+      (8:10-8:11 Name Int place copy))))
+
+(Module points
+  (declarations
+    (struct Open 1:15 public)
+    (field Open.x 2:5 public Int)
+    (struct Sealed 5:15 public)
+    (field Sealed.x 6:13 private Int)
+    (field Sealed.y 7:13 private Int)
+    (extension 10:1 (target points.Sealed))
+    (init Sealed.init 11:12 public (signature (params (x Int owned)) -> points.Sealed) (summary body (suspends no) (sync-callable yes)))
+    (method Sealed.reveal 12:17 public (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (points.Open
+      (field x Int public declared))
+    (points.Sealed
+      (field x Int private declared)
+      (field y Int private declared)
+      (init init public (extension points))
+      (method reveal public (extension points))))
+  (views
+    (points.Open x)
+    (points.Sealed x y init reveal)
+    (secrets.Secret reveal))
+  (conformances)
+  (copy-tier
+    (points.Open Copy)
+    (points.Sealed Copy))
+  (bodies
+    (Sealed.init 11:12
+      (11:37-11:55 Call.paren points.Sealed value temp (memberwise points.Sealed (owner points.Sealed)))
+      (11:47-11:48 Name Int place copy)
+      (11:53-11:54 IntLit Int value temp))
+    (Sealed.reveal 12:17
+      (12:40-12:55 Binary Int value temp (op +))
+      (12:40-12:46 Member Int place copy)
+      (12:40-12:44 SelfExpr points.Sealed place project)
+      (12:49-12:55 Member Int place copy)
+      (12:49-12:53 SelfExpr points.Sealed place project))))
+
+(Module secrets
+  (declarations
+    (struct Secret 3:15 public)
+    (field Secret.x 4:13 private Int)
+    (extension 7:1 (target secrets.Secret))
+    (method Secret.reveal 8:17 public (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 11:1 (target secrets.Secret) (conforms makers.Make)))
+  (members
+    (secrets.Secret
+      (field x Int private declared)
+      (method reveal public (extension secrets))))
+  (views
+    (points.Open x)
+    (points.Sealed init reveal)
+    (secrets.Secret x reveal))
+  (conformances
+    (secrets.Secret makers.Make 11:19 (init memberwise)))
+  (copy-tier
+    (secrets.Secret Copy))
+  (bodies
+    (Secret.reveal 8:17
+      (8:40-8:46 Member Int place copy)
+      (8:40-8:44 SelfExpr secrets.Secret place project))))

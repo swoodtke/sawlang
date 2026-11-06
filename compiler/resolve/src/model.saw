@@ -78,7 +78,10 @@ public enum ResDeclKind: UInt8 {
     // pointer types (SL:open-questions D12).
     case Primitive = 15,
     // A function nothing declares: `print`, `panic`, `assert`, `sizeof`, `alignof`.
-    case BuiltinFunc = 16
+    case BuiltinFunc = 16,
+    // A trait's `init(...)` with no body, which a conformance meets with an
+    // `init` or a struct's memberwise construction (spec, Init requirements).
+    case InitRequirement = 17
 }
 
 public struct ResDecl {

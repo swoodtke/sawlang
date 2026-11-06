@@ -1,0 +1,93 @@
+// Init requirements (SL-966): each way a conformance meets one, the
+// construction through a bound and through a default body's `Self`, enum and
+// primitive `init`s, and a trait with one used as an existential.
+
+enum LoadError { case Missing }
+
+trait Make {
+    init(seed: Int) -> Self
+}
+
+trait Load {
+    init(path: String) -> Result<Self, LoadError>
+}
+
+trait Shape {
+    init()
+    func area(&self) -> Int
+}
+
+trait Reset {
+    init(seed: Int) -> Self
+    func start(&self) -> Int
+    func reset(&self) -> Self { Self(seed: 0) }
+}
+
+// The memberwise construction: the fields are the requirement's labels and types.
+struct Tally { seed: Int }
+extension Tally: Make {}
+
+// An `init` the conformer writes.
+struct Grid { cells: Int }
+extension Grid: Make {
+    init(seed: Int) -> Grid { Grid(cells: seed * seed) }
+}
+
+// An `init` that overrides the memberwise construction meets it too.
+struct Guarded { seed: Int }
+extension Guarded {
+    init(seed: Int) -> Guarded { Guarded(seed: seed + 1) }
+}
+extension Guarded: Reset {
+    func start(&self) -> Int { self.seed }
+}
+
+// Fallibility matches exactly.
+struct Page { path: String }
+extension Page: Load {
+    init(path: String) -> Result<Page, LoadError> {
+        if path.len() == 0 { return LoadError.Missing }
+        return Page(path: path)
+    }
+}
+
+struct Unit {}
+extension Unit: Shape {
+    func area(&self) -> Int { 0 }
+}
+
+// An enum `init`, and a primitive's.
+enum Color { case Red, case Gray }
+extension Color {
+    init(bright: Bool) -> Color {
+        if bright { Color.Red } else { Color.Gray }
+    }
+}
+
+extension Int {
+    init(digit: UInt8) -> Int { (digit as Int) - 48 }
+}
+
+func build<T: Make>(n: Int) -> T {
+    T(seed: n)
+}
+
+func load<T: Load>(p: String) -> Result<T, LoadError> {
+    T(path: p)
+}
+
+func fresh<T: Shape>() -> T {
+    T()
+}
+
+func describe(s: &any Shape) -> Int {
+    s.area()
+}
+
+func main() {
+    let c = Color(bright: true)
+    print(c == Color.Gray)
+    print(Int(digit: 55))
+    let u = Unit()
+    print(describe(&u))
+}

@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 12:17
+// a memberwise construction cannot fail, so it does not meet a fallible init requirement whose labels and types are its fields (SL-966)
+// message: an infallible construction does not meet a fallible requirement
+enum LoadError { case Missing }
+
+trait Load {
+    init(path: String) -> Result<Self, LoadError>
+}
+
+struct Page { path: String }
+
+extension Page: Load {}
+
+func main() {
+    print(Page(path: "a").path)
+}

@@ -1,0 +1,18 @@
+// refuses: conformance.signature at 13:5
+// an infallible `init` does not meet a fallible init requirement: fallibility matches exactly (SL-966)
+// message: an infallible `init` does not meet a fallible requirement
+enum LoadError { case Missing }
+
+trait Load {
+    init(path: String) -> Result<Self, LoadError>
+}
+
+struct Page { path: String }
+
+extension Page: Load {
+    init(path: String) -> Page { Page(path: path) }
+}
+
+func main() {
+    print(Page(path: "a").path)
+}

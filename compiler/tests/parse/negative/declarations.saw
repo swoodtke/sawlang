@@ -123,6 +123,16 @@ extension S {
     }
 }
 
+// case: syntax.rule.effect-slot/borrows-on-an-init-requirement
+trait T {
+    init(x: Int) borrows
+}
+
+// case: syntax.rule.effect-slot/consumes-on-an-init-requirement
+trait T {
+    init(x: Int) consumes
+}
+
 // case: syntax.rule.effect-slot/declaration-word-written-twice
 func f() sync sync {
 }
@@ -217,6 +227,11 @@ extension P {
 // case: syntax.rule.receiver-and-static/requirement-without-a-receiver
 trait T {
     func m(x: Int)
+}
+
+// case: syntax.rule.receiver-and-static/receiver-on-an-init-requirement
+trait T {
+    init(&self, v: Int) -> Self
 }
 
 // case: syntax.rule.receiver-and-static/by-value-receiver
