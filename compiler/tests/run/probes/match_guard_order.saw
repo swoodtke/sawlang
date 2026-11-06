@@ -1,0 +1,163 @@
+// probe: stated
+// about: a mixed `match` runs each guard only after its arm's pattern matched, in arm order and at most once; an owned payload behind failing guards drops once, after the winning arm; a guard that suspends in a task keeps both (SL-979)
+// stage 0: not run; the probe holds sawc to the guard order and drops sawc printed before SL-979's lowering, which the lowering must keep
+// speeds: -O0 -O2
+// prints: pick -1
+// prints:   guard 3
+// prints:   guard 7
+// prints:   -> 70
+// prints: pick 0
+// prints:   guard 3
+// prints:   -> 30
+// prints: pick 1
+// prints:   -> 10
+// prints: pick 2
+// prints:   guard 2
+// prints:   guard 3
+// prints:   -> 30
+// prints: pick 3
+// prints:   guard 2
+// prints:   guard 3
+// prints:   -> 40
+// prints: pick 4
+// prints:   guard 2
+// prints:   -> 20
+// prints: pick 5
+// prints:   guard 2
+// prints:   guard 3
+// prints:   guard 7
+// prints:   -> 80
+// prints: pick 6
+// prints:   guard 3
+// prints:   -> 30
+// prints: pick 7
+// prints:   guard 3
+// prints:   guard 5
+// prints:   -> 60
+// prints: pick 8
+// prints:   guard 3
+// prints:   -> 30
+// prints: pick 9
+// prints:   guard 3
+// prints:   guard 5
+// prints:   -> 50
+// prints: pick 10
+// prints:   guard 3
+// prints:   -> 30
+// prints: inspect want 0
+// prints:   guard 1
+// prints:   guard 2
+// prints:   drop 2
+// prints:   -> 102
+// prints: inspect want 1
+// prints:   guard 1
+// prints:   guard 2
+// prints:   drop 2
+// prints:   -> 102
+// prints: inspect want 2
+// prints:   guard 1
+// prints:   drop 2
+// prints:   -> 2
+// prints: inspect want 3
+// prints:   guard 1
+// prints:   guard 2
+// prints:   drop 2
+// prints:   -> 202
+// prints: inspect empty -> -1
+// prints: task 0
+// prints:   slow 1
+// prints:   -> 3
+// prints: task 1
+// prints:   slow 1
+// prints:   slow 2
+// prints:   -> 2
+// prints: task 2
+// prints:   slow 2
+// prints:   -> 1
+// prints: task 3
+// prints:   slow 3
+// prints:   slow 4
+// prints:   -> 2
+// prints: task 4
+// prints:   slow 5
+// prints:   -> 3
+// The lowering compiles the rows after an arm it cannot decide once, as
+// where the earlier rows fail; what a program sees of that is the order of
+// its guard calls and payload drops, which these lines hold.
+import std.task.*
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("  drop {}", self.id) }
+}
+
+enum Slot { case Full(r: Res), case Empty }
+extension Slot: NoCopy {}
+
+func g(arm: Int, ok: Bool) -> Bool {
+    print("  guard {}", arm)
+    ok
+}
+
+// Literals, ranges and guarded wildcards interleaved.
+func pick(x: Int) -> Int {
+    match x {
+        case 1 -> 10,
+        case 2..=5 if g(2, x == 4) -> 20,
+        case _ if g(3, x % 2 == 0) -> 30,
+        case 3 -> 40,
+        case 6..=9 if g(5, x > 7) -> 50,
+        case 7 -> 60,
+        case _ if g(7, x < 0) -> 70,
+        case _ -> 80
+    }
+}
+
+// A consuming match whose guards read the owned payload before one succeeds.
+func inspect(s: Slot, want: Int) -> Int {
+    match s {
+        case Full(r) if g(1, r.id == want) -> r.id,
+        case Full(r) if g(2, r.id > want) -> r.id + 100,
+        case Full(r) -> r.id + 200,
+        case Empty -> -1
+    }
+}
+
+func slow_check(n: Int) -> Bool {
+    yield_now()
+    print("  slow {}", n)
+    n % 2 == 0
+}
+
+// A guard that suspends, in a task.
+func task_pick(x: Int) -> Int {
+    match x {
+        case 1..=3 if slow_check(x) -> 1,
+        case _ if slow_check(x + 1) -> 2,
+        case _ -> 3
+    }
+}
+
+func main() {
+    var x = -1
+    while x < 11 {
+        print("pick {}", x)
+        print("  -> {}", pick(x))
+        x = x + 1
+    }
+    var w = 0
+    while w < 4 {
+        print("inspect want {}", w)
+        print("  -> {}", inspect(Slot.Full(r: Res(id: 2)), w))
+        w = w + 1
+    }
+    print("inspect empty -> {}", inspect(Slot.Empty, 0))
+    var group = TaskGroup()
+    var y = 0
+    while y < 5 {
+        print("task {}", y)
+        let h = group.spawn(task_pick(y))
+        print("  -> {}", h.join())
+        y = y + 1
+    }
+}

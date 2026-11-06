@@ -6609,9 +6609,17 @@ public struct MirMatch {
     taken: Vector<Int>
     taken_first: Vector<Int>
     taken_count: Vector<Int>
+    // Where the rows being compiled go when none of them matches: the block
+    // of the rows a cut left for later, `MIR_FAIL_PENDING` until a path
+    // first needs it, or `MIR_FAIL_NONE` outside every cut, where
+    // exhaustiveness makes the end unreachable.
+    fail: Int
 }
 
 extension MirMatch: NoCopy {}
+
+static MIR_FAIL_NONE: Int = -1
+static MIR_FAIL_PENDING: Int = -2
 
 // Whether a literal pattern's value is a key a test compares by alone: an
 // integer or a string its type holds, never a `Bool`, whose false edge also
@@ -6670,7 +6678,7 @@ extension MirProgram {
                              cache_parent: Vector<Int>(), cache_decl: Vector<Int>(), cache_index: Vector<Int>(),
                              cache_place: Vector<Int>(), bind_leaves: Vector<Int>(), bind_locals: Vector<Int>(),
                              bind_arms: Vector<Int>(), consuming: false, held: false, taken: Vector<Int>(),
-                             taken_first: Vector<Int>(), taken_count: Vector<Int>())
+                             taken_first: Vector<Int>(), taken_count: Vector<Int>(), fail: MIR_FAIL_NONE)
         var rows = Vector<MirRow>()
         let n = self.tc.child_count(e)
         var consuming = false
@@ -6766,16 +6774,16 @@ extension MirProgram {
 
     // The tree for `rows`, in order of priority: the first row's first
     // refutable test splits them, and a row left with nothing to test is a
-    // leaf, its guard tested there. A test's false edge goes on in this loop
-    // rather than in a call, so a chain of N tests takes no stack per test;
-    // every row the false edge keeps is simplified already, being a row of
-    // `simple` or one with a cell taken out.
+    // leaf. A later row the test cannot decide, one that is guarded or tests
+    // the place with no settled answer (a range), cuts the rows: those before
+    // it compile with the rest as where they fail, and the rest compile once,
+    // after. Sending such a row down both edges instead compiles it and the
+    // rows after it again under each guard's false edge, doubling the tree
+    // per guarded range (SL-979). A test's or a guard's false edge goes on in
+    // this loop rather than in a call, so a chain of N of them takes no stack
+    // and copies no rows per step.
     func compile_rows(&var self, state: &var MirMatch, rows: &Vector<MirRow>, root: Int) {
         if not self.live() {
-            return
-        }
-        if rows.len() == 0 {
-            self.unreachable()
             return
         }
         var simple = Vector<MirRow>()
@@ -6785,37 +6793,132 @@ extension MirProgram {
             try! simple.push(self.simplify(&var state, r))
             k = k + 1
         }
+        // `simple`'s rows from `start` on are the ones left, each simplified
+        // already: a false edge keeps rows of `simple` or ones with a cell
+        // taken out.
+        var start = 0
         while {
-            let top = simple[0]
-            if top.count == 0 {
-                var rest = Vector<MirRow>()
-                k = 1
-                while k < simple.len() {
-                    try! rest.push(simple[k])
-                    k = k + 1
-                }
-                self.leaf(&var state, top.arm, &rest, root)
+            if start == simple.len() {
+                self.fall(&var state)
                 return
             }
+            let top = simple[start]
+            if top.count == 0 {
+                if not self.leaf(&var state, top.arm, root) {
+                    return
+                }
+                start = start + 1
+                continue
+            }
             let cell = state.cells[top.first]
+            let cut = self.cut_at(&state, &simple, start, cell)
+            var tested = Vector<MirRow>()
+            k = start
+            while k < cut {
+                try! tested.push(simple[k])
+                k = k + 1
+            }
+            if cut < simple.len() {
+                let outer = state.fail
+                state.fail = MIR_FAIL_PENDING
+                self.compile_rows(&var state, &tested, root)
+                let later = state.fail
+                state.fail = outer
+                if later < 0 {
+                    return
+                }
+                self.enter(later)
+                start = cut
+                continue
+            }
             if self.is_constructor(cell.pattern) {
-                self.split_constructors(&var state, &simple, cell.place, root)
+                self.split_constructors(&var state, &tested, cell.place, root)
                 return
             }
             let mine = self.tc.pattern_value(cell.pattern)
             if mir_keyed_value(&mine) {
-                simple = self.split_literal_chain(&var state, &simple, cell.place, mine.kind, root)
+                simple = self.split_literal_chain(&var state, &tested, cell.place, mine.kind, root)
             } else {
-                simple = self.split_test(&var state, &simple, cell, root)
+                simple = self.split_test(&var state, &tested, cell, root)
             }
+            start = 0
             if not self.live() {
                 return
             }
-            if simple.len() == 0 {
-                self.unreachable()
+        }
+    }
+
+    // The end of the rows being compiled, reached when none of them matched:
+    // the rows a cut left for later, or, outside every cut, a point
+    // exhaustiveness makes unreachable.
+    func fall(&var self, state: &var MirMatch) {
+        if state.fail == MIR_FAIL_NONE {
+            self.unreachable()
+            return
+        }
+        if state.fail == MIR_FAIL_PENDING {
+            // A block nothing is written in yet becomes the later rows' own,
+            // so the first path to fail needs no jump.
+            let b = self.current
+            if self.block(b).first < 0 {
+                state.fail = b
+                self.enter(-1)
                 return
             }
+            state.fail = self.new_block()
         }
+        self.goto(state.fail)
+    }
+
+    // The first row after `rows[start]` that its test of `cell` cannot
+    // decide and that would cost a copy per edge: a guarded row, or one
+    // testing `cell.place` with no settled answer; `rows.len()` when none
+    // does. An unguarded row with no cell at the place still goes down both
+    // edges, so on each path a decided place is tested once.
+    func cut_at(&var self, state: &MirMatch, rows: &Vector<MirRow>, start: Int, cell: MirCell) -> Int {
+        let constructor = self.is_constructor(cell.pattern)
+        let mine = self.tc.pattern_value(cell.pattern)
+        let keyed = not constructor && mir_keyed_value(&mine)
+        var k = start + 1
+        while k < rows.len() {
+            let r = rows[k]
+            let at = self.cell_at(&state, r, cell.place)
+            var decided = false
+            if at >= 0 {
+                let other = state.cells[at].pattern
+                if constructor {
+                    decided = self.is_constructor(other)
+                } else if keyed {
+                    let v = self.tc.pattern_value(other)
+                    decided = v.kind == mine.kind && mir_keyed_value(&v)
+                } else {
+                    decided = self.tc.same_test(other, cell.pattern) != TcSameTest.Unknown
+                }
+            }
+            if not decided && (at >= 0 || self.arm_guard(&state, r.arm) >= 0) {
+                return k
+            }
+            k = k + 1
+        }
+        rows.len()
+    }
+
+    // Arm `arm`'s guard expression, or -1.
+    func arm_guard(&self, state: &MirMatch, arm: Int) -> Int {
+        let node = state.arms[arm]
+        let pattern = self.tc.res.first_node_child(node)
+        let body = self.tc.res.last_node_child(node)
+        let n = self.tc.child_count(node)
+        var found = -1
+        var k = 0
+        while k < n {
+            let c = self.tc.child(node, k)
+            if c != pattern && c != body && not self.tc.is_leaf(c) {
+                found = c
+            }
+            k = k + 1
+        }
+        found
     }
 
     // Row `r` with its irrefutable cells taken out and its tuple patterns
@@ -7289,33 +7392,21 @@ extension MirProgram {
         self.temp_operand(rv)
     }
 
-    // A leaf: arm `arm`'s pattern matched. Without a guard its bindings are
-    // made and its body entered; with one, the guard reads the bindings
-    // through references first, taking nothing, and the rest of the rows
-    // take its false edge, so the arm finally taken decides what is left
-    // over.
-    func leaf(&var self, state: &var MirMatch, arm: Int, rest: &Vector<MirRow>, root: Int) {
-        let node = state.arms[arm]
-        let pattern = self.tc.res.first_node_child(node)
-        let body = self.tc.res.last_node_child(node)
-        var guard_node = -1
-        let n = self.tc.child_count(node)
-        var k = 0
-        while k < n {
-            let c = self.tc.child(node, k)
-            k = k + 1
-            if c != pattern && c != body && not self.tc.is_leaf(c) {
-                guard_node = c
-            }
-        }
+    // A leaf: arm `arm`'s pattern matched. Its bindings are made and its body
+    // entered, after its guard when it has one: the guard reads the bindings
+    // through references, taking nothing, so the arm finally taken decides
+    // what is left over. Returns whether the guard's false edge is left
+    // current, for the rows after the arm.
+    func leaf(&var self, state: &var MirMatch, arm: Int, root: Int) -> Bool {
+        let pattern = self.tc.res.first_node_child(state.arms[arm])
+        let guard_node = self.arm_guard(&state, arm)
+        var no = -1
         if guard_node >= 0 {
             self.bind_arm(&var state, arm, pattern, root, true)
             let o = self.condition_operand(guard_node)
             let yes = self.new_block()
-            let no = self.new_block()
+            no = self.new_block()
             self.switch_bool(o, yes, no)
-            self.enter(no)
-            self.compile_rows(&var state, &rest, root)
             self.enter(yes)
         }
         self.begin_taking()
@@ -7328,6 +7419,11 @@ extension MirProgram {
             state.entries[arm] = self.new_block()
         }
         self.goto(state.entries[arm])
+        if no < 0 {
+            return false
+        }
+        self.enter(no)
+        true
     }
 
     // Records the owned parts arm `arm`'s bindings moved out at one of its
