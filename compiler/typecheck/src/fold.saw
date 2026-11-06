@@ -615,7 +615,8 @@ extension TcProgram {
     // ENTRY POINTS (pattern_value):
     //     same_test
     //     check_pattern_range
-    //     check_duplicate_arms
+    //     arm_key
+    //     structure_key
     //     duplicate_text
     //     compile_rows
     //     split_literal_chain
@@ -733,8 +734,8 @@ extension TcProgram {
 }
 
 // Whether two pattern values, of patterns matched against one place, test the
-// same values: the one rule `same_test` and the duplicate-arm check compare
-// by.
+// same values: the one rule `same_test` compares by, and the duplicate-arm
+// check keys by through `tc_same_values_key`.
 public func tc_same_values(va: &TcPatternValue, vb: &TcPatternValue) -> TcSameTest {
     if va.kind == TcPatternKind.Other || va.kind != vb.kind || va.misfit >= 0 || vb.misfit >= 0 {
         return TcSameTest.Unknown
@@ -755,4 +756,32 @@ public func tc_same_values(va: &TcPatternValue, vb: &TcPatternValue) -> TcSameTe
         return TcSameTest.Same
     }
     TcSameTest.Different
+}
+
+// Writes into `out` a key two pattern values share exactly when
+// `tc_same_values` calls them Same, so the two must change together. A value
+// that is Same as nothing, one of kind Other or one its type cannot hold,
+// writes nothing and returns false.
+public func tc_same_values_key(v: &TcPatternValue, out: &var StringBuilder) -> Bool {
+    if v.kind == TcPatternKind.Other || v.misfit >= 0 {
+        return false
+    }
+    if v.kind == TcPatternKind.Text {
+        try! out.append("t")
+        try! out.append(v.text.len())
+        try! out.append(":")
+        try! out.append(v.text)
+        return true
+    }
+    if v.kind == TcPatternKind.Range {
+        try! out.append(if v.inclusive { "r=" } else { "r<" })
+        try! out.append(v.low)
+        try! out.append(":")
+    } else if v.kind == TcPatternKind.Boolean {
+        try! out.append("b")
+    } else {
+        try! out.append("i")
+    }
+    try! out.append(if v.kind == TcPatternKind.Range { v.high } else { v.low })
+    true
 }

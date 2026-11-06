@@ -10,15 +10,25 @@ shape, each beside the same small `main` so that only the construct grows.
     match_mixed          one `match` over an Int with N arms mixing literals,
                          guarded ranges, guarded wildcards, plain ranges and a
                          guarded literal a later plain one repeats
+    match_tuple_guarded  one `match` over an (Int, Int) with N arms, wildcards
+                         in either element, and guarded wildcards among them
 """
 
-SHAPES = ("ctor", "lets", "calls", "match", "params", "yields", "match_mixed")
+SHAPES = ("ctor", "lets", "calls", "match", "params", "yields", "match_mixed", "match_tuple_guarded")
 
 # Arm k of `match_mixed`, by k % 6. A guarded range sends every later row down
 # both edges of its test, and its guard's false edge compiles them again: the
 # shape that doubled the tree per guarded range (SL-979).
 _MIXED = ("case {v} -> {k}", "case {v}..={hi} if x % 7 == {r7} -> {k}", "case _ if x % {m} == {r11} -> {k}",
           "case {v} if x % 3 == 0 -> {k}", "case {lo}..{top} -> {k}", "case {dup} -> {k}")
+
+# Arm k of `match_tuple_guarded`, by k % 5. Its unguarded arms are tuples, so
+# the duplicate-arm check finds each one's earlier twin by key, never against
+# every earlier arm. Its guarded wildcards are what keep MIR lowering
+# near-linear: without them every plain wildcard row goes down both edges of
+# each element's test, the shape `match_tuple_wild` gets its row with (SL-979).
+_TUPLE = ("case ({v}, _) -> {k}", "case (_, {v}) -> {k}", "case ({v}, {w}) -> {k}",
+          "case (_, _) if a % {m} == 1 -> {k}", "case ({v}, _) if b % 3 == 0 -> {k}")
 
 _HEAD = ["struct S {", "    v: Vector<Int>", "    w: Vector<String>", "}", "", "extension S: NoCopy {}", ""]
 _MAIN = ["", "func main() {", "    let s = S(v: Vector<Int>(), w: Vector<String>())", "    let _ = f(&s)", "}", ""]
@@ -59,6 +69,11 @@ def program(shape, n):
             arm = _MIXED[k % 6].format(k=k, v=10 * k, hi=10 * k + 3, r7=k % 7, m=11 + k % 40, r11=k % 11,
                                        lo=10 * k + 5, top=10 * k + 9, dup=10 * (k - 2))
             lines.append("        %s," % arm)
+        lines += ["        case _ -> 0", "    }", "}"]
+    elif shape == "match_tuple_guarded":
+        lines += ["func f(s: &S) -> Int {", "    let a = s.v.len()", "    let b = s.w.len()", "    match (a, b) {"]
+        for k in range(n):
+            lines.append("        %s," % _TUPLE[k % 5].format(k=k, v=10 * k + 1, w=10 * k + 2, m=11 + k % 40))
         lines += ["        case _ -> 0", "    }", "}"]
     elif shape == "params":
         lines += ["func g(" + ", ".join("p%d: Int" % k for k in range(n)) + ") -> Int {",

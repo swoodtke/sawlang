@@ -20,7 +20,7 @@ import sawtypecheck.arith.{tc_arith_text}
 import sawtypecheck.bodies.{TcCand, TcCandKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
-import sawtypecheck.fold.{TcPatternKind, TcPatternValue, TcSameTest, tc_same_values}
+import sawtypecheck.fold.{TcPatternKind, tc_same_values_key}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -654,101 +654,74 @@ extension TcProgram {
     // `_`, and a pattern holding a range is never a duplicate, since
     // overlapping ranges are how first-match-wins is written.
     func check_duplicate_arms(&var self, arms: &Vector<Int>) {
-        // Each arm's literal value is read once, so a long match of literal
-        // arms compares values, never re-reading them per pair.
-        var values = Vector<TcPatternValue>()
+        // Arms share a key exactly when one repeats the other, so the arm a
+        // later one repeats first is the first to hold its key, and a long
+        // match costs one key per arm rather than a comparison per pair.
+        var first = Map<String, Int>()
         var k = 0
         while k < arms.len() {
             let pattern = self.res.first_node_child(arms[k])
-            try! values.push(self.pattern_value(pattern))
-            k = k + 1
-        }
-        // A literal arm can repeat only an earlier literal of its own kind and
-        // value (`tc_same_values`), so each kind keeps the first arm of each
-        // value; a structural arm can repeat only an earlier structural one,
-        // still compared pair by pair; a range repeats nothing.
-        var first_integer = Map<Int, Int>()
-        var first_boolean = Map<Int, Int>()
-        var first_text = Map<String, Int>()
-        var structural = Vector<Int>()
-        k = 0
-        while k < arms.len() {
-            let lv = values[k]
-            var found = -1
-            if lv.kind == TcPatternKind.Other {
-                let later = self.res.first_node_child(arms[k])
-                var j = 0
-                while j < structural.len() && found < 0 {
-                    let earlier = self.res.first_node_child(arms[structural[j]])
-                    if self.repeats_pattern(earlier, later) {
-                        found = arms[structural[j]]
-                    }
-                    j = j + 1
-                }
-                try! structural.push(k)
-            } else if lv.misfit < 0 && lv.kind != TcPatternKind.Range {
-                var at = -1
-                if lv.kind == TcPatternKind.Integer {
-                    at = first_integer.get(lv.low) ?? -1
-                    if at < 0 {
-                        let _ = try! first_integer.insert(lv.low, k)
-                    }
-                } else if lv.kind == TcPatternKind.Boolean {
-                    at = first_boolean.get(lv.low) ?? -1
-                    if at < 0 {
-                        let _ = try! first_boolean.insert(lv.low, k)
-                    }
+            var key = StringBuilder()
+            if self.arm_key(pattern, &var key) {
+                let text = key.build()
+                if let earlier = first.get(text) {
+                    self.refuse_duplicate_arm(arms[k], earlier)
                 } else {
-                    at = first_text.get(lv.text) ?? -1
-                    if at < 0 {
-                        let _ = try! first_text.insert(lv.text, k)
-                    }
+                    let _ = try! first.insert(text, arms[k])
                 }
-                if at >= 0 {
-                    let ev = values[at]
-                    if tc_same_values(&ev, &lv) == TcSameTest.Same {
-                        found = arms[at]
-                    }
-                }
-            }
-            if found >= 0 {
-                self.refuse_duplicate_arm(arms[k], found)
             }
             k = k + 1
         }
     }
 
-    // Whether pattern `b` matches exactly the values pattern `a` does, by
-    // their structure: holes, the same case or tuple with repeating parts,
-    // and literals testing the same value.
-    func repeats_pattern(&self, a: Int, b: Int) -> Bool {
-        let ta = self.expr_types[a]
-        let ca = self.cell_ctor(a, ta)
-        // Stage 0 workaround (SL:hazards S4): canonical: let cb = self.cell_ctor(b, self.expr_types[b])
-        let tb = self.expr_types[b]
-        let cb = self.cell_ctor(b, tb)
-        if ca == TC_WILD || cb == TC_WILD {
-            return ca == cb
+    // Writes arm pattern `p`'s key into `out`: a literal's value, which only
+    // an equal literal repeats, or else its structure. False, for a range or
+    // anything else no arm repeats.
+    func arm_key(&self, p: Int, out: &var StringBuilder) -> Bool {
+        let v = self.pattern_value(p)
+        if v.kind == TcPatternKind.Other {
+            try! out.append("s")
+            return self.structure_key(p, &var out)
         }
-        if ca == TC_CTOR_OPAQUE || cb == TC_CTOR_OPAQUE {
-            let ranged = self.has_alt(a, Alt.Pat_Range_Exclusive) || self.has_alt(a, Alt.Pat_Range_Inclusive)
-            return ca == cb && not ranged && self.same_test(a, b) == TcSameTest.Same
-        }
-        if ca != cb {
+        if v.kind == TcPatternKind.Range {
             return false
         }
-        let pa = self.sub_patterns(a)
-        let pb = self.sub_patterns(b)
-        if pa.len() != pb.len() {
-            return false
+        try! out.append("v")
+        tc_same_values_key(&v, &var out)
+    }
+
+    // Writes pattern `p`'s structure into `out`, so that two patterns share it
+    // exactly when they match the same values by structure: holes, the same
+    // case or tuple with parts that share theirs, and literals testing the
+    // same value. False when a part of `p` is a range or a literal with no
+    // value to compare, since such a pattern repeats no other.
+    func structure_key(&self, p: Int, out: &var StringBuilder) -> Bool {
+        let c = self.cell_ctor(p, self.expr_types[p])
+        if c == TC_WILD {
+            try! out.append("_")
+            return true
         }
+        if c == TC_CTOR_OPAQUE {
+            if self.has_alt(p, Alt.Pat_Range_Exclusive) || self.has_alt(p, Alt.Pat_Range_Inclusive) {
+                return false
+            }
+            let v = self.pattern_value(p)
+            return tc_same_values_key(&v, &var out)
+        }
+        let parts = self.sub_patterns(p)
+        try! out.append("c")
+        try! out.append(c)
+        try! out.append("(")
+        try! out.append(parts.len())
         var k = 0
-        while k < pa.len() {
-            if not self.repeats_pattern(pa[k], pb[k]) {
+        while k < parts.len() {
+            try! out.append(",")
+            if not self.structure_key(parts[k], &var out) {
                 return false
             }
             k = k + 1
         }
+        try! out.append(")")
         true
     }
 

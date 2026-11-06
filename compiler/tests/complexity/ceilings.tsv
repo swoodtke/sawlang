@@ -13,3 +13,4 @@ params	1600	2.07	0.10
 yields	1600	2.11	0.10
 match_mixed	1600	2.08	0.10
 ctor	1600	2.05	0.10
+match_tuple_guarded	1600	2.07	0.10
