@@ -8,9 +8,10 @@
 //! `import std.thread.{Thread}`.
 //!
 //! A thread needs no task executor. A program that runs tasks beside its
-//! threads installs one observer here, which the thread's exit and a
-//! thread-context join report to, so a program that starts threads and runs
-//! no task links none of the executor.
+//! threads installs one observer here, which the thread's exit, a
+//! thread-context join and a channel's thread-context wait and wake report
+//! to, so a program that starts threads and runs no task links none of the
+//! executor.
 
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
@@ -279,39 +280,55 @@ func thread_finished() unsafe {
 // exit: `ExitBegins`, `ExitPublished`, `Finished`. A refused spawn reports
 // `Finished` alone, and a join in thread context `AwaitExit` with the
 // thread's handshake word, ahead of its reap.
+//
+// A channel reports the two word events with its readiness word's address:
+// `AwaitWord` from a thread-context receive, ahead of blocking the thread
+// until the word is nonzero, and `WordSet` from a send or a close, after it
+// writes the word, which a parked task or another thread's wait may watch.
 public(package) enum ThreadEvent {
     case ExitBegins,
     case ExitPublished,
     case Finished,
-    case AwaitExit
+    case AwaitExit,
+    case AwaitWord,
+    case WordSet
 }
 
-// The address of a `FuncPointer<(ThreadEvent, Int) sync -> Void>`'s code, the
+// The address of a `FuncPointer<(ThreadEvent, Int) sync -> Bool>`'s code, the
 // observer, or 0 while none is installed. An event with none installed does
 // nothing, which is what the executor's half of it does for a thread with no
 // executor record: a thread's record is claimed on that thread after the
-// install, so a thread that reads 0 here has none.
+// install, so a thread that reads 0 here has none. A writer that reads 0
+// after its write to a word needs no wake either: every thread that waits
+// inside the executor installed the observer, or saw it installed, before its
+// last look at the word, all sequentially consistent, so that look sees the
+// write.
 static THREAD_OBSERVER: Atomic<Int> = Atomic(0)
 
 // Installs `observer`, once per process: the executor's call as it makes its
 // first executor record. A losing racer installed the same address.
-public(package) func install_thread_observer(observer: FuncPointer<(ThreadEvent, Int) sync -> Void>) {
+public(package) func install_thread_observer(observer: FuncPointer<(ThreadEvent, Int) sync -> Bool>) {
     let _ = THREAD_OBSERVER.compare_exchange(0, Int.from(truncating: observer.address()))
 }
 
-// Reports `event`, with the handshake word `word` for `AwaitExit` and 0
-// otherwise, to the installed observer, when there is one.
+// Reports `event` to the installed observer, when there is one, with a word's
+// address for `AwaitExit`, `AwaitWord` and `WordSet` and 0 otherwise. The
+// answer means something for `AwaitWord` alone: true once the observer waited
+// the word out itself, running the calling thread's tasks until it was set,
+// and false when the caller must block the thread on it.
 //
 // ENTRY POINTS:
 //   Thread.join
 //   Thread.__saw_exit
 //   thread_finished
-func notify_observer(event: ThreadEvent, word: Int) unsafe {
+//   Channel.wait_ready
+//   Channel.wake_receivers
+public(package) func notify_observer(event: ThreadEvent, word: Int) unsafe -> Bool {
     let at = THREAD_OBSERVER.load()
     if at == 0 {
-        return
+        return false
     }
-    let observer = FuncPointer<(ThreadEvent, Int) sync -> Void>.from_raw(at as UnsafePointer<UInt8>)
+    let observer = FuncPointer<(ThreadEvent, Int) sync -> Bool>.from_raw(at as UnsafePointer<UInt8>)
     observer(event, word)
 }
 

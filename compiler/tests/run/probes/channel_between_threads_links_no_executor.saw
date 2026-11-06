@@ -1,0 +1,172 @@
+// probe: stated
+// about: channels used only between `Thread.spawn` threads and a `blocking` `main`, with no task anywhere, send, receive, close and report the drain in thread context, and the program links none of the task executor: the thread-context wait and the send and close wakes reach it only through std.thread's observer, which only an executor installs (SL-967)
+// stage 0: not run; the probe states what it prints, so it needs no Stage 0 oracle
+// speeds: -O0 -O2
+// ll omits: __saw_exec_await_word
+// ll omits: __saw_exec_chan_wake
+// ll omits: __saw_rt_thread_executor
+// ll omits: __saw_rt_set_thread_executor
+// ll omits: __saw_rt_reactor_create
+// ll omits: __saw_rt_reactor_poll
+// ll omits: __saw_rt_reactor_wake
+// ll omits: __saw_rt_reactor_destroy
+// ll omits: saw std.taskgroup.sweep
+// ll omits: saw std.taskgroup.this_executor
+// prints: relay forwarded 100
+// prints: sink total 5050
+// prints: two channels total 1090
+// prints: a send after the close: channel is closed
+// prints: a second close: channel is closed
+// prints: drained after the close: true
+// Every receive under test blocks a spawned thread on a channel's gate. `main`
+// is `blocking`, so it runs in thread context too, and it collects what the
+// threads report by polling under a deadline (TESTING.md, rule 3), so a lost
+// wake panics naming the report that never arrived rather than hanging.
+import std.channel.{Channel, ChannelError}
+import std.time
+
+// Seconds a report may take before the probe gives up on it: far above the
+// microseconds a working wake takes, and inside the runner's kill.
+static REPORT_DEADLINE_SECS: UInt64 = 10
+
+// Receives every value from `inbox` until its close has been drained,
+// forwarding each to `outbox`, then closes `outbox`: one receive that blocks on
+// a send's wake, and one woken by a close.
+func relay(inbox: Channel<Int>, outbox: Channel<Int>) -> Int {
+    var forwarded = 0
+    var going = true
+    while going {
+        match inbox.receive() {
+            case Ok(v) -> {
+                try! outbox.send(v)
+                forwarded = forwarded + 1
+            },
+            case Err(_) -> {
+                going = false
+            }
+        }
+    }
+    try! outbox.close()
+    forwarded
+}
+
+// Sums what arrives on `inbox` until its close, then reports the sum.
+func sink(inbox: Channel<Int>, report: Channel<Int>) -> Int {
+    var total = 0
+    var going = true
+    while going {
+        match inbox.receive() {
+            case Ok(v) -> {
+                total = total + v
+            },
+            case Err(_) -> {
+                going = false
+            }
+        }
+    }
+    try! report.send(total)
+    0
+}
+
+// One consumer over two channels, receiving from each in turn, blocking on
+// whichever it reads, until both are closed and drained.
+func consume_two(a: Channel<Int>, b: Channel<Int>, report: Channel<Int>) -> Int {
+    var total = 0
+    var a_open = true
+    var b_open = true
+    while a_open || b_open {
+        if a_open {
+            match a.receive() {
+                case Ok(v) -> {
+                    total = total + v
+                },
+                case Err(_) -> {
+                    a_open = false
+                }
+            }
+        }
+        if b_open {
+            match b.receive() {
+                case Ok(v) -> {
+                    total = total + v
+                },
+                case Err(_) -> {
+                    b_open = false
+                }
+            }
+        }
+    }
+    try! report.send(total)
+    0
+}
+
+// Sends `count` values from `base` up into `ch`, then closes it.
+func produce(ch: Channel<Int>, base: Int, count: Int) {
+    var i = 0
+    while i < count {
+        try! ch.send(base + i)
+        i = i + 1
+    }
+    try! ch.close()
+}
+
+// The one value `report` carries, polled until it arrives; panics naming
+// `what` once the deadline passes without it.
+func await_report(report: Channel<Int>, what: String) -> Int {
+    let start = time.Instant.now()
+    while {
+        match report.try_receive() {
+            case Ok(Some(v)) -> {
+                return v
+            },
+            case Ok(None) -> {},
+            case Err(e) -> {
+                panic("the {} report's channel failed: {}", what, e)
+            }
+        }
+        if start.elapsed().as_secs() >= REPORT_DEADLINE_SECS {
+            panic("the {} report never arrived", what)
+        }
+    }
+}
+
+func describe(r: Result<Void, ChannelError>) -> String {
+    match r {
+        case Ok(_) -> "accepted",
+        case Err(e) -> e.describe()
+    }
+}
+
+func main() blocking {
+    let first = try! Channel<Int>()
+    let second = try! Channel<Int>()
+    let sums = try! Channel<Int>()
+    let a = try! Channel<Int>()
+    let b = try! Channel<Int>()
+    let pairs = try! Channel<Int>()
+    var relayer = try! Thread.spawn { [first, second] in relay(first, second) }
+    var summer = try! Thread.spawn { [second, sums] in sink(second, sums) }
+    var pair_reader = try! Thread.spawn { [a, b, pairs] in consume_two(a, b, pairs) }
+    produce(first, 1, 100)
+    produce(a, 0, 10)
+    produce(b, 100, 10)
+    let total = await_report(sums, "sink")
+    let both = await_report(pairs, "two-channel")
+    print("relay forwarded {}", relayer.join())
+    print("sink total {}", total)
+    print("two channels total {}", both)
+    let _ = summer.join()
+    let _ = pair_reader.join()
+    print("a send after the close: {}", describe(first.send(1)))
+    print("a second close: {}", describe(first.close()))
+    var drained = false
+    match second.try_receive() {
+        case Err(_) -> {
+            drained = true
+        },
+        case Ok(_) -> {
+            drained = false
+        }
+    }
+    print("drained after the close: {}", drained)
+}

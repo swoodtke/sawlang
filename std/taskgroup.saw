@@ -2818,7 +2818,6 @@ func host_reactor() unsafe -> Int {
 // Release and acquire alone would allow both to miss.
 //
 // ENTRY POINTS:
-//   __saw_exec_chan_wake
 //   thread_event
 //   enqueue_pooled
 //   worker_resume
@@ -2842,31 +2841,48 @@ func poke_reactor() {
 // thread that found no observer dropped the count before `idle` read it
 // (`poke_reactor`; the run probes `thread_send_wakes_idle` and
 // `thread_join_exit_while_parked`).
-func thread_event(event: ThreadEvent, word: Int) unsafe {
+//
+// `WordSet` follows a channel's write of its readiness word, so a receiver's
+// executor blocked in the reactor's poll on another thread sees the word at
+// once rather than at its next timeout; the same handshake covers a sender
+// that found no observer. The answer is `AwaitWord`'s, false for every other
+// event.
+func thread_event(event: ThreadEvent, word: Int) unsafe -> Bool {
     match event {
-        case ExitBegins -> __saw_exec_close_background(),
-        case ExitPublished -> __saw_exec_thread_exiting(),
-        case Finished -> poke_reactor(),
-        case AwaitExit -> __saw_exec_await_exit(word as UnsafePointer<Int>)
+        case ExitBegins -> {
+            __saw_exec_close_background()
+            false
+        },
+        case ExitPublished -> {
+            __saw_exec_thread_exiting()
+            false
+        },
+        case Finished -> {
+            poke_reactor()
+            false
+        },
+        case AwaitExit -> {
+            __saw_exec_await_exit(word as UnsafePointer<Int>)
+            false
+        },
+        case AwaitWord -> __saw_exec_await_word(word as UnsafePointer<Int>),
+        case WordSet -> {
+            poke_reactor()
+            false
+        }
     }
 }
 
 // Installs `thread_event` as std.thread's observer, once per process: as the
 // first executor record is made, beside the panic report. So every program
 // that makes an executor links the observer's thread half, its background
-// close and thread-context join among it, whether or not it starts a thread:
-// the install cannot know whether one will start, and a thread that starts
-// later must find its executor's half already there.
+// close and thread-context joins and receives among it, whether or not it
+// starts a thread or uses a channel: the install cannot know whether one
+// will, and a thread that waits later must find its executor's half already
+// there.
 func observe_threads() unsafe {
-    let observer: FuncPointer<(ThreadEvent, Int) sync -> Void> = { event, word in thread_event(event, word) }
+    let observer: FuncPointer<(ThreadEvent, Int) sync -> Bool> = { event, word in thread_event(event, word) }
     install_thread_observer(observer)
-}
-
-// A channel's readiness word changed: `send` and `close` call this after they
-// publish it, so a receiver's executor blocked in the reactor's poll on
-// another thread sees the word at once rather than at its next timeout.
-public(package) func __saw_exec_chan_wake() {
-    poke_reactor()
 }
 
 // The pool (SL:coroutines A17a). One mutex-protected run queue, the group's
@@ -3092,13 +3108,13 @@ func __saw_exec_await_exit(word: UnsafePointer<Int>) unsafe {
     }
 }
 
-// `Channel.receive`'s wait in thread context: when the wait drives
-// (`waits_drive`), runs the calling thread's tasks until the channel's
-// readiness word at `word` is set, and answers true; otherwise answers false
-// at once, and the caller blocks the thread on the channel's gate. A send
-// and a close poke the reactor once they publish the word
-// (`__saw_exec_chan_wake`).
-public(package) func __saw_exec_await_word(word: UnsafePointer<Int>) unsafe -> Bool {
+// `Channel.receive`'s wait in thread context (its `AwaitWord` event): when the
+// wait drives (`waits_drive`), runs the calling thread's tasks until the
+// channel's readiness word at `word` is set, and answers true; otherwise
+// answers false at once, and the caller blocks the thread on the channel's
+// gate. A send and a close poke the reactor once they publish the word (their
+// `WordSet` event, `thread_event`).
+func __saw_exec_await_word(word: UnsafePointer<Int>) unsafe -> Bool {
     let current = __saw_rt_thread_executor()
     if current == 0 {
         return false

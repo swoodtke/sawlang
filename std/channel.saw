@@ -38,7 +38,8 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.task.{__saw_park_channel}
-import std.taskgroup.{__saw_exec_await_word, __saw_exec_chan_wake, __saw_exec_channel_park}
+import std.taskgroup.{__saw_exec_channel_park}
+import std.thread.{ThreadEvent, notify_observer}
 
 extern "C" {
     // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
@@ -215,8 +216,7 @@ extension Channel<T: Send> {
         block[0].closed = true
         self.publish_ready()
         self.unlock_queue()
-        __saw_exec_chan_wake()
-        self.wake_threads()
+        self.wake_receivers()
         return
     }
 
@@ -291,18 +291,24 @@ extension Channel<T: Send> {
 
     // Blocks this thread until the readiness word is set. The waiter counts
     // itself and then reads the word, and a writer publishes the word and
-    // then reads the count (`wake_threads`), all sequentially consistent, so
+    // then reads the count (`wake_receivers`), all sequentially consistent, so
     // a writer that counts no waiter wrote a word the waiter's read sees. A
     // writer that counts one broadcasts under the gate's mutex, which the
     // waiter holds from its read until the wait releases it, so the
     // broadcast cannot fall between the two.
     //
     // A thread with tasks of its own runs them instead, until the word is
-    // set, since one of them may be the sender (`__saw_exec_await_word`).
+    // set, since one of them may be the sender: std.thread's observer answers
+    // that for a program with an executor, and with none installed the thread
+    // has no tasks (`notify_observer`). A task's receive parks at its call
+    // instead (`__saw_park_channel`), which the coroutine lowering replaces.
+    //
+    // ENTRY POINTS:
+    //   Channel.receive
     func wait_ready(&self) unsafe -> Result<Void, ChannelError> {
         let block = self.block
         let word = (&block[0].ready) as UnsafePointer<Int>
-        if __saw_exec_await_word(word) {
+        if notify_observer(ThreadEvent.AwaitWord, word as Int) {
             return
         }
         let gate = try self.open_gate()
@@ -357,14 +363,20 @@ extension Channel<T: Send> {
         made
     }
 
-    // Wakes every thread blocked in `receive` on this channel, after a change
-    // to the readiness word: nothing to do unless one waits (`wait_ready`).
+    // Wakes every receiver waiting on this channel, after a change to the
+    // readiness word, with the queue's lock released. The observer hears of
+    // it first, since a receiver's executor may be blocked in the reactor's
+    // poll on another thread and sees the word only once that wait ends; with
+    // none installed no thread waits inside an executor (`notify_observer`).
+    // Then every thread blocked on the gate, when one waits there
+    // (`wait_ready`).
     //
     // ENTRY POINTS:
     //   close
     //   enqueue
-    func wake_threads(&self) unsafe {
+    func wake_receivers(&self) unsafe {
         let block = self.block
+        let _ = notify_observer(ThreadEvent.WordSet, (&block[0].ready) as UnsafePointer<Int> as Int)
         let waiters = (&block[0].waiters) as UnsafePointer<Int>
         if __saw_atomic_load_i64_seq_cst(waiters) == 0 {
             return
@@ -434,10 +446,7 @@ extension Channel<T: Send> {
         block[0].count += 1
         self.publish_ready()
         self.unlock_queue()
-        // A receiver's executor may be blocked in the reactor's poll on
-        // another thread, and sees the word only once that wait ends.
-        __saw_exec_chan_wake()
-        self.wake_threads()
+        self.wake_receivers()
         return
     }
 
@@ -500,7 +509,7 @@ func install_gate_engine() unsafe {
 // here, and reaches the gate seams only through the record it returns.
 //
 // ENTRY POINTS:
-//   Channel.wake_threads
+//   Channel.wake_receivers
 //   Channel.deinit
 func gate_engine(gate: UnsafePointer<UInt8>) unsafe -> Int {
     if (gate as Int) == 0 {
