@@ -1,0 +1,391 @@
+// probe: stated
+// about: joining N finished tasks of one group one by one, in spawn, reverse or shuffled order, cancelling N sleepers and joining them, joining N sleepers whose deadlines have passed, joining N `Task.spawn` handles, and a teardown that runs N tasks each cost near-linear work in N: the phase's work at 2N is under three times its work at N, where a walk over every slot the group has held makes it four (SL-985)
+// stage 0: runs it on its own std, whose joins and teardown walk every slot the group has held, so each phase does about four times the work at 2N (SL-985)
+// speeds: -O0 -O2
+// prints: joins in spawn order: near-linear
+// prints: joins in reverse order: near-linear
+// prints: joins in shuffled order: near-linear
+// prints: cancel then join: near-linear
+// prints: joins of expired sleepers: near-linear
+// prints: Task.spawn joins: near-linear
+// prints: teardown running every task: near-linear
+// Each phase is measured by a work counter, instructions retired where the
+// system exposes them (macOS's `proc_pid_rusage`; Linux's `perf_event_open`,
+// counting this thread in user mode) and the thread's CPU time otherwise, as
+// the least of RUNS runs at N and at 2N, and every task's result is checked.
+// Linear work reads about 2 at 2N, quadratic about 4.
+import std.task.*
+import std.time.{Instant}
+
+extern "C" {
+    func access(path: UnsafePointer<UInt8>, mode: Int32) -> Int32
+    func getpid() -> Int32
+    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>?
+    func uname(names: UnsafePointer<UInt8>) -> Int32
+    func syscall(number: Int, ...) -> Int
+    func read(fd: Int32, buf: UnsafePointer<UInt64>, count: Int) -> Int
+    // `clockid_t` is an `int` on Linux and a 32-bit enum on macOS.
+    func clock_gettime(clock: Int32, time: UnsafePointer<Timespec>) -> Int32
+}
+
+struct Timespec {
+    seconds: Int
+    nanos: Int
+}
+
+// The counter a process reads, chosen at its first reading.
+enum Counter: UInt8 {
+    case Unchosen = 0,
+    case Rusage = 1,
+    case Perf = 2,
+    case CpuTime = 3
+}
+
+static COUNTER: Atomic<Int> = Atomic(0)
+// The address of `proc_pid_rusage`, under `Counter.Rusage`.
+static RUSAGE_AT: Atomic<Int> = Atomic(0)
+// The perf event's descriptor, under `Counter.Perf`.
+static PERF_FD: Atomic<Int> = Atomic(0)
+
+// macOS's `RTLD_DEFAULT` and `RUSAGE_INFO_V4`, the word of
+// `struct rusage_info_v4` holding `ri_instructions`, and its size in words.
+static MACOS_RTLD_DEFAULT: Int = -2
+static MACOS_RUSAGE_INFO_V4: Int32 = 4
+static RI_INSTRUCTIONS_WORD: Int = 31
+static RUSAGE_INFO_V4_WORDS: Int = 37
+// `CLOCK_THREAD_CPUTIME_ID` on each host.
+static LINUX_CLOCK_THREAD_CPUTIME_ID: Int32 = 3
+static MACOS_CLOCK_THREAD_CPUTIME_ID: Int32 = 16
+// `SYS_perf_event_open` by Linux architecture, and the `struct
+// perf_event_attr` this probe passes: `PERF_TYPE_HARDWARE` (0) counting
+// `PERF_COUNT_HW_INSTRUCTIONS` (1), at `PERF_ATTR_SIZE_VER0`, enabled, with
+// `exclude_kernel` and `exclude_hv` (bits 5 and 6 of its flags word).
+static AARCH64_SYS_PERF_EVENT_OPEN: Int = 241
+static X86_64_SYS_PERF_EVENT_OPEN: Int = 298
+static PERF_ATTR_SIZE_VER0: UInt64 = 64
+static PERF_COUNT_HW_INSTRUCTIONS: UInt64 = 1
+static PERF_ATTR_FLAGS_WORD: Int = 5
+static PERF_EXCLUDE_KERNEL_AND_HV: UInt64 = (1 << 5) | (1 << 6)
+// Linux's `struct utsname`: six fields of 65 bytes, `machine` the fifth.
+static UTSNAME_FIELD: Int = 65
+static UTSNAME_MACHINE: Int = 4
+
+// `text` as a NUL-terminated C string in `buf`, which holds 32 bytes.
+func c_text(text: String, buf: UnsafePointer<UInt8>) unsafe {
+    var i = 0
+    while i < text.len() {
+        buf[i] = text.byte_at(i)
+        i += 1
+    }
+    buf[i] = 0
+}
+
+func on_linux() unsafe -> Bool {
+    var path: [UInt8; 32] = [0; 32]
+    let p = (&path) as UnsafePointer<UInt8>
+    c_text("/proc/self/exe", p)
+    access(p, 0) == 0
+}
+
+// Linux's `SYS_perf_event_open` for this machine, or 0 on an architecture
+// this probe does not know.
+func perf_event_open_number() unsafe -> Int {
+    var names: [UInt8; 512] = [0; 512]
+    let p = (&names) as UnsafePointer<UInt8>
+    if uname(p) != 0 {
+        return 0
+    }
+    var machine = StringBuilder()
+    var i = UTSNAME_MACHINE * UTSNAME_FIELD
+    while i < (UTSNAME_MACHINE + 1) * UTSNAME_FIELD && p[i] != 0 {
+        try! machine.append(Byte(p[i]))
+        i += 1
+    }
+    let name = machine.build()
+    if name == "aarch64" {
+        return AARCH64_SYS_PERF_EVENT_OPEN
+    }
+    if name == "x86_64" {
+        return X86_64_SYS_PERF_EVENT_OPEN
+    }
+    0
+}
+
+// Opens a counter of this thread's user-mode instructions, or answers -1.
+func open_perf() unsafe -> Int {
+    let number = perf_event_open_number()
+    if number == 0 {
+        return -1
+    }
+    var attr: [UInt64; 8] = [0; 8]
+    attr[0] = PERF_ATTR_SIZE_VER0 << 32
+    attr[1] = PERF_COUNT_HW_INSTRUCTIONS
+    attr[PERF_ATTR_FLAGS_WORD] = PERF_EXCLUDE_KERNEL_AND_HV
+    syscall(number, (&attr) as UnsafePointer<UInt64>, 0, -1, -1, 0)
+}
+
+func choose_counter() unsafe -> Counter {
+    if on_linux() {
+        let fd = open_perf()
+        if fd >= 0 {
+            PERF_FD.store(fd)
+            return Counter.Perf
+        }
+        return Counter.CpuTime
+    }
+    var name: [UInt8; 32] = [0; 32]
+    let p = (&name) as UnsafePointer<UInt8>
+    c_text("proc_pid_rusage", p)
+    if let at = dlsym(MACOS_RTLD_DEFAULT as UnsafePointer<UInt8>, p) {
+        RUSAGE_AT.store(at as Int)
+        return Counter.Rusage
+    }
+    Counter.CpuTime
+}
+
+func rusage_instructions() unsafe -> Int {
+    let rusage = FuncPointer<(Int32, Int32, UnsafePointer<UInt64>) unsafe sync -> Int32>.from_raw(
+        RUSAGE_AT.load() as UnsafePointer<UInt8>)
+    var info: [UInt64; RUSAGE_INFO_V4_WORDS] = [0; RUSAGE_INFO_V4_WORDS]
+    let p = (&info) as UnsafePointer<UInt64>
+    if rusage(getpid(), MACOS_RUSAGE_INFO_V4, p) != 0 {
+        panic("proc_pid_rusage failed")
+    }
+    p[RI_INSTRUCTIONS_WORD] as Int
+}
+
+func perf_instructions() unsafe -> Int {
+    var value: UInt64 = 0
+    if read(PERF_FD.load() as Int32, (&value) as UnsafePointer<UInt64>, 8) != 8 {
+        panic("reading the perf counter failed")
+    }
+    value as Int
+}
+
+func cpu_nanos() unsafe -> Int {
+    var clock = MACOS_CLOCK_THREAD_CPUTIME_ID
+    if on_linux() {
+        clock = LINUX_CLOCK_THREAD_CPUTIME_ID
+    }
+    var now = Timespec(seconds: 0, nanos: 0)
+    if clock_gettime(clock, (&now) as UnsafePointer<Timespec>) != 0 {
+        panic("clock_gettime failed")
+    }
+    now.seconds * 1_000_000_000 + now.nanos
+}
+
+// The work this process has done so far, in the unit its first reading chose.
+func work() unsafe -> Int {
+    if COUNTER.load() == (Counter.Unchosen as Int) {
+        COUNTER.store(choose_counter() as Int)
+    }
+    match Counter.from(raw: COUNTER.load() as UInt8) {
+        case Some(Rusage) -> rusage_instructions(),
+        case Some(Perf) -> perf_instructions(),
+        case _ -> cpu_nanos()
+    }
+}
+
+static N: Int = 2000
+static RUNS: Int = 7
+// The bound on the phase's work at 2N over its work at N, in tenths.
+static CEILING_TENTHS: Int = 30
+// The expired sleepers' nap, and the hold past it after which every one of
+// them has expired.
+static NAP_MS: UInt64 = 20
+static HOLD_MS: UInt64 = 60
+// Set by `teardown_of` just before its group's teardown begins.
+static TEARDOWN_START: Atomic<Int> = Atomic(0)
+// 1 once every expired-sleeper row's task is spawned (`napper`).
+static NAPS_BEGIN: Atomic<Int> = Atomic(0)
+
+func quick(id: Int) -> Int {
+    id
+}
+
+// The op budget runs the sleepers while they are spawned, so each waits for
+// `NAPS_BEGIN` and then naps: every nap begins in the one pass after the
+// spawns, and the hold that follows outlasts them all, so every join of the
+// phase is a join of an expired sleeper however slowly the spawns ran.
+func napper(id: Int) -> Int {
+    while NAPS_BEGIN.load() == 0 {
+        yield_now()
+    }
+    sleep(Duration.ms(NAP_MS))
+    id
+}
+
+func long_napper(id: Int) -> Int {
+    sleep(Duration.secs(60))
+    id
+}
+
+func hold(millis: UInt64) sync {
+    let start = Instant.now()
+    while start.elapsed().as_millis() < millis {}
+}
+
+// Puts `v` in the order its handles are joined from the back: 0 joins them
+// in spawn order, 1 in reverse, 2 shuffled.
+func arrange(v: &var Vector<Task<Int>>, order: Int) {
+    if order == 0 {
+        var i = 0
+        var j = v.len() - 1
+        while i < j {
+            v.swap(i, j)
+            i += 1
+            j -= 1
+        }
+    } else if order == 2 {
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        var i = v.len() - 1
+        while i > 0 {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let j = Int.from(truncating: seed >> 33) % (i + 1)
+            v.swap(i, j)
+            i -= 1
+        }
+    }
+}
+
+// Joins every handle of `v` from the back and answers the work it took.
+func joined(v: &var Vector<Task<Int>>, n: Int) -> Int {
+    let before = work()
+    var total = 0
+    while v.len() > 0 {
+        let h = v.pop()!
+        total += h.join()
+    }
+    let spent = work() - before
+    if total != n * (n - 1) / 2 {
+        panic("the joins summed {}, not {}", total, n * (n - 1) / 2)
+    }
+    spent
+}
+
+func finished_joins(n: Int, order: Int) -> Int {
+    var g = TaskGroup()
+    var handles = Vector<Task<Int>>()
+    for i in 0..n {
+        try! handles.push(g.spawn(quick(i)))
+    }
+    yield_now()
+    arrange(&var handles, order)
+    joined(&var handles, n)
+}
+
+// A sync loop, which the op budget does not reach, so no cancelled task has
+// run when the joins begin.
+func cancel_all(v: &Vector<Task<Int>>) {
+    var i = 0
+    while i < v.len() {
+        v[i].cancel()
+        i += 1
+    }
+}
+
+func cancelled_joins(n: Int) -> Int {
+    var g = TaskGroup()
+    var handles = Vector<Task<Int>>()
+    for i in 0..n {
+        try! handles.push(g.spawn(long_napper(i)))
+    }
+    yield_now()
+    cancel_all(&handles)
+    arrange(&var handles, 0)
+    joined(&var handles, n)
+}
+
+func expired_joins(n: Int) -> Int {
+    var g = TaskGroup()
+    var handles = Vector<Task<Int>>()
+    NAPS_BEGIN.store(0)
+    for i in 0..n {
+        try! handles.push(g.spawn(napper(i)))
+    }
+    NAPS_BEGIN.store(1)
+    yield_now()
+    hold(HOLD_MS)
+    arrange(&var handles, 0)
+    joined(&var handles, n)
+}
+
+func background_joins(n: Int) -> Int {
+    var handles = Vector<Task<Int>>()
+    for i in 0..n {
+        try! handles.push(Task.spawn(quick(i)))
+    }
+    yield_now()
+    arrange(&var handles, 0)
+    joined(&var handles, n)
+}
+
+// A sync spawner, which the op budget does not reach, so no task has run
+// when the teardown begins.
+func spawn_dropped(g: &var TaskGroup, n: Int) {
+    var i = 0
+    while i < n {
+        let _ = g.spawn(quick(i))
+        i += 1
+    }
+}
+
+func teardown_of(n: Int) {
+    var g = TaskGroup()
+    spawn_dropped(&var g, n)
+    TEARDOWN_START.store(work())
+}
+
+func teardown(n: Int) -> Int {
+    teardown_of(n)
+    work() - TEARDOWN_START.load()
+}
+
+// The work of one run of shape `shape` at `n` tasks.
+func once(shape: Int, n: Int) -> Int {
+    if shape <= 2 {
+        return finished_joins(n, shape)
+    }
+    if shape == 3 {
+        return cancelled_joins(n)
+    }
+    if shape == 4 {
+        return expired_joins(n)
+    }
+    if shape == 5 {
+        return background_joins(n)
+    }
+    teardown(n)
+}
+
+// The runs at N and at 2N alternate, so a stretch of interference with the
+// counter, such as a busy host stealing a VM's CPU time, reaches both sizes.
+func check(name: String, shape: Int) {
+    var at_n = Int.max
+    var at_2n = Int.max
+    for _ in 0..RUNS {
+        let small = once(shape, N)
+        if small < at_n {
+            at_n = small
+        }
+        let large = once(shape, 2 * N)
+        if large < at_2n {
+            at_2n = large
+        }
+    }
+    if at_2n * 10 < CEILING_TENTHS * at_n {
+        print("{}: near-linear", name)
+    } else {
+        print("{}: superlinear, {} hundredths at 2N", name, at_2n * 100 / at_n)
+    }
+}
+
+func main() {
+    check("joins in spawn order", 0)
+    check("joins in reverse order", 1)
+    check("joins in shuffled order", 2)
+    check("cancel then join", 3)
+    check("joins of expired sleepers", 4)
+    check("Task.spawn joins", 5)
+    check("teardown running every task", 6)
+}

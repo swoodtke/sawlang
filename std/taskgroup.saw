@@ -414,6 +414,159 @@ struct TaskTicket {
     generation: Int
 }
 
+// THE LIVE SLOTS: which of a group's slots hold a task that is not done, and
+// how many, kept beside `slots`, whose finished and freed entries stay. Each
+// walk that runs once per join, resume or worker turn steps through `next`,
+// in ascending slot order as a walk over every slot would, so it costs what
+// is live rather than every slot the group has held. Bit `i` of `low` is slot
+// `i`; bit `w` of `mid` says `low[w]` is nonzero, and bit `m` of `high` that
+// `mid[m]` is. It lives in a heap block its group's first spawn allocates and
+// its teardown frees, so a group holds one word of it. Written with the run
+// queue's lock held, as `slots` is (SL-985).
+//
+// ENTRY POINTS:
+//   TaskGroup.place (allocates it, and inserts)
+//   TaskGroup.complete (removes)
+//   TaskGroup.deinit (frees it)
+//   TaskGroup.live_count (has_live, live_besides)
+//   TaskGroup.next_live (group_on_this_stack, sweep_passes, idle, SleepQueue.rebuild, worker_turn)
+struct LiveSlots {
+    low: Vector<UInt64>
+    mid: Vector<UInt64>
+    high: Vector<UInt64>
+    count: Int
+}
+
+extension LiveSlots: NoCopy {}
+
+extension LiveSlots {
+    init() -> LiveSlots {
+        LiveSlots(low: Vector<UInt64>(), mid: Vector<UInt64>(), high: Vector<UInt64>(), count: 0)
+    }
+
+    // Slot `slot`, which was done, holds a live task. Growing the words is the
+    // one allocation, made at a spawn.
+    func insert(&var self, slot: Int) {
+        let w = slot / 64
+        let m = w / 64
+        grow_words(&var self.low, w + 1)
+        grow_words(&var self.mid, m + 1)
+        grow_words(&var self.high, m / 64 + 1)
+        let was = self.low[w]
+        self.low[w] = was | bit_at(slot % 64)
+        if was == 0 {
+            let mid_was = self.mid[m]
+            self.mid[m] = mid_was | bit_at(w % 64)
+            if mid_was == 0 {
+                let high_was = self.high[m / 64]
+                self.high[m / 64] = high_was | bit_at(m % 64)
+            }
+        }
+        self.count += 1
+    }
+
+    // Slot `slot`, which was live, is done. Allocates nothing.
+    func remove(&var self, slot: Int) {
+        let w = slot / 64
+        let m = w / 64
+        let now = self.low[w] & ~bit_at(slot % 64)
+        self.low[w] = now
+        if now == 0 {
+            let mid_now = self.mid[m] & ~bit_at(w % 64)
+            self.mid[m] = mid_now
+            if mid_now == 0 {
+                let high_now = self.high[m / 64] & ~bit_at(m % 64)
+                self.high[m / 64] = high_now
+            }
+        }
+        self.count -= 1
+    }
+
+    // The lowest live slot at or above `from`, or -1.
+    func next(&self, from: Int) -> Int {
+        let here = first_bit_from(&self.low, from)
+        if here >= 0 {
+            return here
+        }
+        // The first nonzero word of `low` past the one `from` is in.
+        let after = from / 64 + 1
+        var w = first_bit_from(&self.mid, after)
+        if w < 0 {
+            let m_after = after / 64 + 1
+            var m = first_bit_from(&self.high, m_after)
+            if m < 0 {
+                // One `high` word covers 64 * 64 * 64 slots, so this scan is
+                // short at any size a group reaches.
+                var h = m_after / 64 + 1
+                while h < self.high.len() && self.high[h] == 0 {
+                    h += 1
+                }
+                if h >= self.high.len() {
+                    return -1
+                }
+                m = h * 64 + lowest_bit(self.high[h])
+            }
+            w = m * 64 + lowest_bit(self.mid[m])
+        }
+        w * 64 + lowest_bit(self.low[w])
+    }
+}
+
+// Grows `words` with zero words to at least `len`.
+func grow_words(words: &var Vector<UInt64>, len: Int) {
+    while words.len() < len {
+        alloc_or_fault(words.push(0), "Task.spawn")
+    }
+}
+
+func bit_at(index: Int) -> UInt64 {
+    (1 as UInt64) << index
+}
+
+// The index of the lowest set bit at or above bit `from` of the bit string
+// `words`, reading only the word bit `from` is in, or -1.
+func first_bit_from(words: &Vector<UInt64>, from: Int) -> Int {
+    let w = from / 64
+    if w >= words.len() {
+        return -1
+    }
+    let bits = words[w] & (UInt64.max << (from % 64))
+    if bits == 0 {
+        return -1
+    }
+    w * 64 + lowest_bit(bits)
+}
+
+// The index of the lowest set bit of `word`, which is nonzero.
+func lowest_bit(word: UInt64) -> Int {
+    var w = word
+    var n = 0
+    if (w & 0xFFFF_FFFF) == 0 {
+        n += 32
+        w = w >> 32
+    }
+    if (w & 0xFFFF) == 0 {
+        n += 16
+        w = w >> 16
+    }
+    if (w & 0xFF) == 0 {
+        n += 8
+        w = w >> 8
+    }
+    if (w & 0xF) == 0 {
+        n += 4
+        w = w >> 4
+    }
+    if (w & 0x3) == 0 {
+        n += 2
+        w = w >> 2
+    }
+    if (w & 0x1) == 0 {
+        n += 1
+    }
+    n
+}
+
 /// A scope for spawned tasks: every task spawned into a group finishes before
 /// the group is destroyed.
 ///
@@ -431,6 +584,9 @@ struct TaskTicket {
 public struct TaskGroup {
     private slots: Vector<TaskSlot>
     private free: Vector<Int>
+    // The address of the group's `LiveSlots`, allocated at its first spawn so
+    // the group itself grows by one word, or 0 before it.
+    private live: Int
     // The link in its owner thread's list of groups (`ExecutorRecord.groups`):
     // the next registered group's address, 0 at the end, and whether this
     // group is in the list.
@@ -480,7 +636,7 @@ extension TaskGroup {
     public init() -> TaskGroup {
         TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false, owner: 0,
                   outstanding: 0, threads: 1, lock: 0, holder: 0, started: false, stopping: false,
-                  pollers: 0, drained: 0, crew: Vector<PoolThread>())
+                  pollers: 0, drained: 0, live: 0, crew: Vector<PoolThread>())
     }
 
     /// Creates an empty group whose tasks run on a pool of `threads` worker
@@ -517,7 +673,7 @@ extension TaskGroup {
         timers[0] = PoolTimers(sleeps: 0, wake: SleepQueue())
         return TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
                          owner: 0, outstanding: 0, threads: threads, lock: raw as Int, holder: 0,
-                         started: false, stopping: false, pollers: 0, drained: 0,
+                         started: false, stopping: false, pollers: 0, drained: 0, live: 0,
                          crew: Vector<PoolThread>())
     }
 
@@ -756,6 +912,12 @@ extension TaskGroup: NoCopy {
         check_no_outstanding(&self)
         self.unregister()
         self.release_slots()
+        if self.live != 0 {
+            let live = self.live_slots()
+            drop_in_place(live)
+            GlobalAllocator().dealloc(live as UnsafePointer<Int8>, sizeof<LiveSlots>(), alignof<LiveSlots>())
+            self.live = 0
+        }
         if pool != 0 {
             let destroy = pool_engine(pool)[0].destroy_gate
             destroy(self.lock as UnsafePointer<UInt8>)
@@ -883,7 +1045,15 @@ struct ExecutorRecord {
     // latch, by whichever thread tears each down: a cooperative sleep queue
     // built before the count moved may name a freed group (`next_sleeper`).
     regroups: Int
+    // The timer parks of this thread's cooperative groups in the sleep order,
+    // shared by every sweep on its stack and kept from one sweep to the next,
+    // so a join's sweep does not rebuild it (`next_sleeper`). Only the
+    // record's own thread reads or writes it, through its address, since a
+    // nested sweep reaches it while an outer one is mid-call.
+    wake: SleepQueue
 }
+
+extension ExecutorRecord: NoCopy {}
 
 // A walk's mark in a latch, which is no record's address.
 static WALK_HOLDER: Int = -1
@@ -1067,7 +1237,7 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     let raw = exec_alloc(size, align, "executor")
     let fresh = raw as UnsafePointer<ExecutorRecord>
     fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1, latch: 0,
-                              turns: 0, current: 0, sleeps: 0, regroups: 0)
+                              turns: 0, current: 0, sleeps: 0, regroups: 0, wake: SleepQueue())
     var linked = false
     while not linked {
         let head = EXEC_RECORDS.load()
@@ -1266,26 +1436,36 @@ extension TaskGroup {
     }
 
     func has_live(&self) -> Bool {
-        var i = 0
-        while i < self.slots.len() {
-            if not self.slots[i].done {
-                return true
-            }
-            i = i + 1
-        }
-        false
+        self.live_count() > 0
     }
 
     // Whether a task other than the one in `slot` is live.
     func live_besides(&self, slot: Int) -> Bool {
-        var i = 0
-        while i < self.slots.len() {
-            if i != slot && not self.slots[i].done {
-                return true
-            }
-            i = i + 1
+        if self.slots[slot].done {
+            return self.live_count() > 0
         }
-        false
+        self.live_count() > 1
+    }
+
+    // The group's live slots (`LiveSlots`), which its first spawn made.
+    func live_slots(&self) unsafe -> UnsafePointer<LiveSlots> {
+        self.live as UnsafePointer<LiveSlots>
+    }
+
+    // How many slots hold a live task.
+    func live_count(&self) unsafe -> Int {
+        if self.live == 0 {
+            return 0
+        }
+        self.live_slots()[0].count
+    }
+
+    // The lowest slot at or above `from` that holds a live task, or -1.
+    func next_live(&self, from: Int) unsafe -> Int {
+        if self.live == 0 {
+            return -1
+        }
+        self.live_slots()[0].next(from)
     }
 }
 
@@ -1310,13 +1490,14 @@ func group_on_this_stack(at: UnsafePointer<TaskGroup>, slot: Int) unsafe -> Bool
     let me = __saw_rt_thread_executor()
     lock_queue(at)
     var found = false
-    var i = 0
-    while i < at[0].slots.len() {
-        let s = at[0].slots[i]
-        if (slot < 0 || i == slot) && on_this_stack(s, me) {
-            found = true
+    if slot >= 0 {
+        found = slot < at[0].slots.len() && on_this_stack(at[0].slots[slot], me)
+    } else {
+        var i = at[0].next_live(0)
+        while i >= 0 && not found {
+            found = on_this_stack(at[0].slots[i], me)
+            i = at[0].next_live(i + 1)
         }
-        i = i + 1
     }
     unlock_queue(at)
     found
@@ -1404,6 +1585,14 @@ extension TaskGroup {
         let generation = self.slots[slot].generation
         let entry = TaskSlot(frame: frame, cell: cell, generation: generation, done: false,
                              active: false, runner: 0, owned: owned, pinned: false)
+        if self.live == 0 {
+            let raw = exec_alloc(sizeof<LiveSlots>(), alignof<LiveSlots>(), "Task.spawn")
+            let fresh = raw as UnsafePointer<LiveSlots>
+            fresh[0] = LiveSlots()
+            self.live = raw as Int
+        }
+        var live = self.live_slots()
+        live[0].insert(slot)
         self.slots[slot] = entry
         TaskTicket(slot: slot, generation: generation)
     }
@@ -1457,6 +1646,8 @@ extension TaskGroup {
         // again (`quiescent_now`).
         let _ = __saw_atomic_add_i64_seq_cst((&cell[0].finished) as UnsafePointer<Int>, 1)
         borrow var self.slots[slot].done = true
+        var live = self.live_slots()
+        live[0].remove(slot)
         if cell[0].unclaimed || not cell[0].holding {
             return self.recycle(slot)
         }
@@ -1808,48 +1999,50 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
 //
 // `waiter_order` is the drive point's own sleep's place in the sleep order
 // when its park at `waiter` is a timer (`next_sleeper`), and is read only
-// then. The sweep keeps its own queue of this thread's timer parks in that
-// order (`SleepQueue`).
+// then. The sweep reads this thread's timer parks in that order from the
+// queue its record keeps (`ExecutorRecord.wake`).
 func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64) unsafe {
     let record = this_executor()
     enter_executor(record)
     record[0].sweeps += 1
-    var queue = SleepQueue()
-    sweep_passes(term_group, term_slot, term_gen, waiter, waiter_order, &var queue, record)
+    let queue = (&record[0].wake) as UnsafePointer<SleepQueue>
+    sweep_passes(term_group, term_slot, term_gen, waiter, waiter_order, queue, record)
     record[0].sweeps -= 1
     leave_executor(record)
 }
 
 func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64,
-                  queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe {
-    while not sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, &var queue, record) {
+                  queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>) unsafe {
+    while not sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record) {
         var resumed = false
         var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
         while cur != 0 {
             let g = cur as UnsafePointer<TaskGroup>
-            var i = 0
-            while g[0].engine() == 0 && i < g[0].slots.len() {
+            var i = -1
+            if g[0].engine() == 0 {
+                i = g[0].next_live(0)
+            }
+            while i >= 0 {
                 if g[0].runnable(i) {
-                    let turn = walk_turn(g, i, waiter, waiter_order, &var queue, record)
+                    let turn = walk_turn(g, i, waiter, waiter_order, queue, record)
                     if turn.slot < 0 {
                         // The drive point's own sleep wakes next, which ends
                         // the sweep.
-                        let _ = sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, &var queue,
-                                               record)
+                        let _ = sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record)
                         return
                     }
-                    resume_queued(turn.group, turn.slot, &var queue, record)
+                    resume_queued(turn.group, turn.slot, queue, record)
                     resumed = true
-                    if sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, &var queue, record) {
+                    if sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record) {
                         return
                     }
                     // A turn given to another sleeper keeps the walk here,
                     // where this slot's own sleep is still due.
                     if turn.group == cur && turn.slot == i {
-                        i = i + 1
+                        i = g[0].next_live(i + 1)
                     }
                 } else {
-                    i = i + 1
+                    i = g[0].next_live(i + 1)
                 }
             }
             cur = g[0].next
@@ -1865,15 +2058,15 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, w
 // sleeper that wakes ahead of it (`next_sleeper`) has its turn first, so the
 // drive resumes in its place in the sleep order.
 func sweep_finished(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64,
-                    queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
+                    queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     if waiter != 0 {
         let w = waiter as UnsafePointer<TaskContext>
         if expired_sleep(w, monotonic_now()) {
             let own = SleepKey(deadline: w[0].deadline, order: waiter_order)
-            var ahead = cooperative_sleeper(&var queue, own, monotonic_now(), record)
+            var ahead = cooperative_sleeper(queue, own, monotonic_now(), record)
             while ahead.slot >= 0 {
-                resume_queued(ahead.group, ahead.slot, &var queue, record)
-                ahead = cooperative_sleeper(&var queue, own, monotonic_now(), record)
+                resume_queued(ahead.group, ahead.slot, queue, record)
+                ahead = cooperative_sleeper(queue, own, monotonic_now(), record)
             }
         }
     }
@@ -1881,12 +2074,14 @@ func sweep_finished(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
 }
 
 // Resumes `slot` of the cooperative group at `group` once (`resume_slot`),
-// and gives `queue` the timer park it made, if it made one.
-func resume_queued(group: Int, slot: Int, queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe {
+// and gives the queue at `queue` the timer park it made, if it made one.
+func resume_queued(group: Int, slot: Int, queue: UnsafePointer<SleepQueue>,
+                   record: UnsafePointer<ExecutorRecord>) unsafe {
     let g = group as UnsafePointer<TaskGroup>
     resume_slot(g, slot, record)
     if let entry = timer_parked(g, slot) {
-        queue.note(entry)
+        var q = queue
+        q[0].note(entry)
     }
 }
 
@@ -1909,11 +2104,12 @@ func timer_parked(g: UnsafePointer<TaskGroup>, slot: Int) unsafe -> SleepEntry? 
 
 // The expired sleeper ahead of `bound` at clock reading `now` among the
 // cooperative groups of `record`'s thread (`next_sleeper`).
-func cooperative_sleeper(queue: &var SleepQueue, bound: SleepKey, now: UInt64,
+func cooperative_sleeper(queue: UnsafePointer<SleepQueue>, bound: SleepKey, now: UInt64,
                          record: UnsafePointer<ExecutorRecord>) unsafe -> SleeperPick {
     let first = load_word((&record[0].groups) as UnsafePointer<Int>)
     let epoch = load_word((&record[0].regroups) as UnsafePointer<Int>)
-    next_sleeper(&var queue, first, true, bound, now, record[0].sleeps, epoch)
+    var q = queue
+    next_sleeper(&var q[0], first, true, bound, now, record[0].sleeps, epoch)
 }
 
 // The turn the cooperative walk gives at runnable slot `slot` of the group
@@ -1922,7 +2118,7 @@ func cooperative_sleeper(queue: &var SleepQueue, bound: SleepKey, now: UInt64,
 // drive point's own park at `waiter`, whose turn is the pick with a negative
 // slot.
 func walk_turn(g: UnsafePointer<TaskGroup>, slot: Int, waiter: Int, waiter_order: UInt64,
-               queue: &var SleepQueue, record: UnsafePointer<ExecutorRecord>) unsafe -> SleeperPick {
+               queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>) unsafe -> SleeperPick {
     let cell = g[0].cell_at(slot)
     let cx = (&cell[0].context) as UnsafePointer<TaskContext>
     let own = SleepKey(deadline: cell[0].context.deadline, order: cell[0].slept)
@@ -1931,7 +2127,7 @@ func walk_turn(g: UnsafePointer<TaskGroup>, slot: Int, waiter: Int, waiter_order
     if not expired_sleep(cx, now) {
         return here
     }
-    var pick = cooperative_sleeper(&var queue, own, now, record)
+    var pick = cooperative_sleeper(queue, own, now, record)
     if pick.slot < 0 {
         pick = here
     }
@@ -2077,8 +2273,9 @@ extension SleepEntry {
 
 // Timer parks in the sleep order: a binary heap whose top is the first to
 // wake (`next_sleeper`). An entry is checked only when it reaches the top,
-// where one whose task has moved on is dropped. A cooperative sweep keeps one
-// over its thread's groups, a pool one over its own slots, under its lock.
+// where one whose task has moved on is dropped. A thread's executor record
+// keeps one over its cooperative groups (`ExecutorRecord.wake`), a pool one
+// over its own slots, under its lock.
 struct SleepQueue {
     entries: Vector<SleepEntry>
     // Whether the entries hold every timer park of the run queues: false until
@@ -2117,8 +2314,8 @@ extension SleepQueue {
         while cur != 0 {
             let g = cur as UnsafePointer<TaskGroup>
             if not walk || g[0].engine() == 0 {
-                var i = 0
-                while i < g[0].slots.len() {
+                var i = g[0].next_live(0)
+                while i >= 0 {
                     let s = g[0].slots[i]
                     if not s.active {
                         if let entry = timer_parked(g, i) {
@@ -2127,7 +2324,7 @@ extension SleepQueue {
                             }
                         }
                     }
-                    i = i + 1
+                    i = g[0].next_live(i + 1)
                 }
             }
             if not walk {
@@ -2225,8 +2422,11 @@ func idle(waiter: Int, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        var i = 0
-        while g[0].engine() == 0 && i < g[0].slots.len() {
+        var i = -1
+        if g[0].engine() == 0 {
+            i = g[0].next_live(0)
+        }
+        while i >= 0 {
             let s = g[0].slots[i]
             if not s.done && not s.active {
                 let cell = g[0].cell_at(i)
@@ -2250,7 +2450,7 @@ func idle(waiter: Int, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
                     channel = true
                 }
             }
-            i = i + 1
+            i = g[0].next_live(i + 1)
         }
         cur = g[0].next
     }
@@ -2965,8 +3165,8 @@ func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRec
     var channel = false
     var busy = false
     var earliest = UInt64.max
-    var i = 0
-    while i < g[0].slots.len() {
+    var i = g[0].next_live(0)
+    while i >= 0 {
         let s = g[0].slots[i]
         if not s.done {
             live = true
@@ -2994,7 +3194,7 @@ func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRec
                 }
             }
         }
-        i = i + 1
+        i = g[0].next_live(i + 1)
     }
     if not live && g[0].stopping {
         return false

@@ -1,6 +1,6 @@
-resume #0: sendable_closure_spawn.main()  (frame size 440 align 8, pointer _20)
+resume #0: sendable_closure_spawn.main()  (frame size 456 align 8, pointer _20)
     state 0: bb0
-    state 1: bb2 drive #16 std.task.yield_now() at (*frame).[432]
+    state 1: bb2 drive #16 std.task.yield_now() at (*frame).[448]
     spawn bb1 task root #11 sendable_closure_spawn.run(f: () -> Int) task root, descriptor _16, box _17
 fn sendable_closure_spawn.main() -> Void {
     let _0: Void;  // return
@@ -26,31 +26,31 @@ fn sendable_closure_spawn.main() -> Void {
     let _20: &var Int;
 
     bb0: {
-        (*_20).[416: Int] = const 7: Int;
-        (*_20).[424: Int] = const 100: Int;
+        (*_20).[432: Int] = const 7: Int;
+        (*_20).[440: Int] = const 100: Int;
         (*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] = call std.taskgroup.TaskGroup.init(threads: Int) (owner std.taskgroup.TaskGroup) [const 2: Int] -> [return: bb1];
     }
 
     bb1: {
         _5 = move ((*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] as Ok!).0;
-        (*_20).[192: std.taskgroup.TaskGroup] = move _5;
-        _7 = ref(shared, (*_20).[416: Int]);
-        _8 = ref(shared, (*_20).[424: Int]);
-        (*_20).[400: (&Int, &Int)] = (move _7, move _8);
-        _10 = ref(shared, (*_20).[400: (&Int, &Int)]);
+        (*_20).[200: std.taskgroup.TaskGroup] = move _5;
+        _7 = ref(shared, (*_20).[432: Int]);
+        _8 = ref(shared, (*_20).[440: Int]);
+        (*_20).[416: (&Int, &Int)] = (move _7, move _8);
+        _10 = ref(shared, (*_20).[416: (&Int, &Int)]);
         _11 = closure#0 of sendable_closure_spawn.main() [move _10];
-        _12 = ref(shared, (*_20).[192: std.taskgroup.TaskGroup]);
+        _12 = ref(shared, (*_20).[200: std.taskgroup.TaskGroup]);
         _16 = spawn group sendable_closure_spawn.run(f: () -> Int) [] -> [return: bb6];
     }
 
     bb2: {
-        (*_20).[368: std.taskgroup.Task<Int>] = move _13;
+        (*_20).[384: std.taskgroup.Task<Int>] = move _13;
         (*_20).[0: Int] = const 1: Int;
         call std.task.yield_now() [] -> [return: bb8] suspends;
     }
 
     bb3: {
-        _14 = ref(shared, (*_20).[368: std.taskgroup.Task<Int>]);
+        _14 = ref(shared, (*_20).[384: std.taskgroup.Task<Int>]);
         _15 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _14] -> [return: bb4];
     }
 
@@ -59,8 +59,8 @@ fn sendable_closure_spawn.main() -> Void {
     }
 
     bb5: {
-        drop((*_20).[368: std.taskgroup.Task<Int>]);
-        drop((*_20).[192: std.taskgroup.TaskGroup]);
+        drop((*_20).[384: std.taskgroup.Task<Int>]);
+        drop((*_20).[200: std.taskgroup.TaskGroup]);
         return;
     }
 
