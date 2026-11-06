@@ -13,8 +13,7 @@
 // len 2
 // drop element 2
 // has 2 true
-// visit 1
-// visit 2
+// visited 1 2
 // drop element 2
 // drop element 2
 // removed true
@@ -37,7 +36,12 @@ func main() {
     print("new {}", try! s.insert(Counted(id: 1)))
     print("len {}", s.len())
     print("has 2 {}", s.contains(Counted(id: 2)))
-    s.each({ e in print("visit {}", e.id) })
+    // The visit order is the table's, which is unspecified, so the ids are
+    // sorted before they print.
+    var seen = Vector<Int>()
+    s.each({ [&var seen] e in try! seen.push(e.id) })
+    seen.sort()
+    print("visited {} {}", seen[0], seen[1])
     let gone = s.remove(Counted(id: 2))
     print("removed {}", gone)
     print("len {}", s.len())

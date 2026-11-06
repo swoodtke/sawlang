@@ -71,8 +71,10 @@ case Number(value: Int), case Float(value: Float), case Text(value: String),
 case Array(items: Vector<JsonValue>),
 case Object(fields: Map<String, JsonValue>) }`, `ExplicitCopy` (design 251 —
 `Map`/`Vector` gained a copy conformance for `Object`/`Array`'s payload to
-lean on; `@synthesize`d, so `copy()` recurses through both). `Object` key
-order is not preserved, matching `Map` everywhere else in std.
+lean on; `@synthesize`d, so `copy()` recurses through both). An `Object` is
+written with its keys in byte order, so `to_json_string()` gives the same text
+however the map was filled and whatever order it iterates in. The order a
+parsed document gave its keys is not preserved.
 
 **Numbers take the pinned rule, both halves of it** (design 253 landed the
 `Float` surface it was waiting on). A number token that is lexically integral

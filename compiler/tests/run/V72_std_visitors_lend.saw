@@ -28,9 +28,10 @@
 // Law-of-Exclusivity error — checked in `examples/map_each_mutate_error.saw`,
 // which this row also points at.
 //
-// The two owning values come apart in table order (the map's own teardown),
-// then the `Arc` when its last handle goes — each exactly once, which is the
-// second half of the row.
+// The two owning values come apart in the map's own teardown, whose order is
+// the table's and unspecified, so each `Owned` counts its drop and adds its id:
+// two drops whose ids sum to 3 is each value released exactly once. The `Arc`'s
+// payload drops once, when its last handle goes — the second half of the row.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: built 5
@@ -40,15 +41,36 @@
 // EXPECT-OUTPUT: each_value 5
 // EXPECT-OUTPUT: each_key 5
 // EXPECT-OUTPUT: owning total 3
+// EXPECT-OUTPUT: owning dropped 2 (id sum 3)
 // EXPECT-OUTPUT: set saw 4
 // EXPECT-OUTPUT: sorted 1 2 3
-// EXPECT-OUTPUT: drop 2
-// EXPECT-OUTPUT: drop 1
 // EXPECT-OUTPUT: drop 7
+
+static OWNING_DROPS: Atomic<Int> = Atomic(0)
+static OWNING_ID_SUM: Atomic<Int> = Atomic(0)
+
+struct Owned { id: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) {
+        OWNING_DROPS.fetch_add(1)
+        OWNING_ID_SUM.fetch_add(self.id)
+    }
+}
 
 struct Res { id: Int }
 extension Res: NoCopy {
     func deinit(&var self) { print("drop {}", self.id) }
+}
+
+// The map's scope ends at the return, so its values have dropped by the time
+// the caller reads the counters.
+func walk_owning() {
+    var owning = Map<String, Owned>()
+    let _ = try! owning.insert("x", Owned(id: 1))
+    let _ = try! owning.insert("y", Owned(id: 2))
+    var total = 0
+    owning.each({ [&var total] k, v in total = total + v.id })
+    print("owning total {}", total)
 }
 
 func main() {
@@ -72,12 +94,8 @@ func main() {
     print("each_key {}", shared.strong_count())
 
     // ---- an owning value is observed in place, released exactly once -----
-    var owning = Map<String, Res>()
-    let _ = try! owning.insert("x", Res(id: 1))
-    let _ = try! owning.insert("y", Res(id: 2))
-    var total = 0
-    owning.each({ [&var total] k, v in total = total + v.id })
-    print("owning total {}", total)
+    walk_owning()
+    print("owning dropped {} (id sum {})", OWNING_DROPS.load(), OWNING_ID_SUM.load())
 
     // ---- Set.each follows through the each_key delegation ----------------
     var marks = Set<Int>()

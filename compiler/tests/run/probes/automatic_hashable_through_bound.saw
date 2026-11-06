@@ -2,12 +2,13 @@
 // about: a trivial struct's and a payload-free enum's automatic `Hashable` meets a `T: Hashable` bound, digesting as a call on the concrete type does (SL-598)
 // stage 0: refuses the bound ("type `Point` does not implement trait `Hashable`") though it hashes the same values called on the concrete type and as Map keys
 // speeds: -O0 -O2
-// Each digest is the one the run program `aggregate_hash` prints for the
-// same value hashed on its concrete type, which Stage 0 records.
-// prints: point 591599961139567920 591638444046525367
-// prints: color 5808590956661967507 5808592056173595232 5808588757638710281
-// prints: level 5808391945057638690 5808594255196850314
-// prints: tuple 591599961139567920
+// Each digest is compared with a hasher fed by hand the words the run program
+// `aggregate_hash` pins for the same value hashed on its concrete type, which
+// Stage 0 records.
+// prints: point true true
+// prints: color true true true
+// prints: level true true
+// prints: tuple true
 struct Point { x: Int, y: Int8 }
 
 enum Color { case Red, case Green, case Blue }
@@ -20,9 +21,18 @@ func digest<T: Hashable>(v: T) -> Int {
     h.finish()
 }
 
+// The digest of a hasher fed exactly `words`, in order.
+func fed(words: Vector<Int>) -> Int {
+    var h = Hasher()
+    for w in words.iter() {
+        h.write_int(w)
+    }
+    h.finish()
+}
+
 func main() {
-    print("point {} {}", digest(Point(x: 3, y: -1i8)), digest(Point(x: 3, y: 2i8)))
-    print("color {} {} {}", digest(Color.Red), digest(Color.Green), digest(Color.Blue))
-    print("level {} {}", digest(Level.Low), digest(Level.High))
-    print("tuple {}", digest((3, -1i8)))
+    print("point {} {}", digest(Point(x: 3, y: -1i8)) == fed([3, 255]), digest(Point(x: 3, y: 2i8)) == fed([3, 2]))
+    print("color {} {} {}", digest(Color.Red) == fed([0]), digest(Color.Green) == fed([1]), digest(Color.Blue) == fed([2]))
+    print("level {} {}", digest(Level.Low) == fed([255]), digest(Level.High) == fed([7]))
+    print("tuple {}", digest((3, -1i8)) == fed([3, 255]))
 }

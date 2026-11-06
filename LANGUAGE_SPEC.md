@@ -8317,14 +8317,15 @@ than through a written conformance, and those methods are its own API.
 ### Hashing (`Hashable`) and `Hasher`
 
 **Status: implemented** (`designs/48-ord-hash.md`). The `Hashable` trait gates
-use as a hash-map key. It streams a value into a **streaming `Hasher`** (FNV-1a):
+use as a hash-map key. It streams a value into a **streaming `Hasher`** (an
+FNV-1a feed, a SplitMix64 finalizer):
 
 ```saw-fragment
-struct Hasher { /* opaque FNV-1a state */ }
+struct Hasher { /* opaque 64-bit state */ }
 extension Hasher {
     init() -> Hasher
-    func write_int(&var self, n: Int)   // FNV-1a step
-    func finish(&self) -> Int           // the digest (with a final avalanche)
+    func write_int(&var self, n: Int)   // FNV-1a feed step, high half folded down
+    func finish(&self) -> Int           // the digest (SplitMix64 finalizer: a full avalanche)
 }
 
 trait Hashable {            // requires Equatable

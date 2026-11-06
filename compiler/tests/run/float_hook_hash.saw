@@ -2,12 +2,26 @@
 // reached through a bound, and as a `Set` element and a `Map` key: the word is
 // 0 for either zero, so `0.0` and `-0.0` hash alike and are one element, and
 // otherwise the value's bits, a NaN's unnormalized, so two NaNs are two
-// elements since neither equals the other. Each digest is Stage 0's (SL-722).
+// elements since neither equals the other. Each digest is compared with a
+// hasher fed that word by hand, so the feed is pinned whatever `finish`
+// computes (SL-722).
 
 func digest<T: Hashable>(v: T) -> Int {
     var h = Hasher()
     v.hash(&var h)
     h.finish()
+}
+
+// The digest of a hasher fed the one word `w`.
+func fed(w: Int) -> Int {
+    var h = Hasher()
+    h.write_int(w)
+    h.finish()
+}
+
+// The word a nonzero Float feeds: its bits, unnormalized.
+func bits(f: Float) -> Int {
+    Int.from(truncating: f.to_bits())
 }
 
 func flag(b: Bool) -> Int {
@@ -26,12 +40,12 @@ func main() {
     print("hasher zeros {}", flag(hp.finish() == hn.finish()))
     var ho = Hasher()
     (1.5).hash(&var ho)
-    print("hasher ordinary {}", ho.finish())
+    print("hasher ordinary {}", ho.finish() == fed(bits(1.5)))
 
-    print("ordinary {} {}", digest(1.5), digest(-2.25))
-    print("zeros {} {}", digest(0.0), digest(-0.0))
-    print("nan {}", digest(nan))
-    print("infinities {} {}", digest(inf), digest(-inf))
+    print("ordinary {} {}", digest(1.5) == fed(bits(1.5)), digest(-2.25) == fed(bits(-2.25)))
+    print("zeros {} {}", digest(0.0) == fed(0), digest(-0.0) == fed(0))
+    print("nan {}", digest(nan) == fed(bits(nan)))
+    print("infinities {} {}", digest(inf) == fed(bits(inf)), digest(-inf) == fed(bits(-inf)))
 
     var zeros = Set<Float>()
     let _ = try! zeros.insert(0.0)

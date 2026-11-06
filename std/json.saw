@@ -555,7 +555,8 @@ func json_decoded(r: Result<Void, AllocError>, at: Int) -> Result<Void, DecodeEr
 /// A number token that is integral and fits `Int` is a `Number`; any other
 /// (a fraction, an exponent, an integer past `Int`) is a `Float`, correctly
 /// rounded. So `1` is `Number(1)` and `1.0` is `Float(1.0)`, and a round trip
-/// keeps the two apart. Object key order is not kept.
+/// keeps the two apart. An `Object` is written with its keys in byte order;
+/// the order a document gave them is not kept.
 ///
 /// `copy()` is deep, through every array and object.
 public enum JsonValue {
@@ -740,7 +741,9 @@ extension JsonValue {
 
     static func write_object(fields: &Map<String, JsonValue>, writer: &var JsonWriter) -> Result<Void, EncodeError> {
         try writer.open(BYTE_LEFT_BRACE)
-        let keys = try json_encoded_keys(fields.keys())
+        // Byte order, so the text is the same whatever order the map iterates.
+        var keys = try json_encoded_keys(fields.keys())
+        keys.sort()
         let n = keys.len()
         var i = 0
         while i < n {

@@ -1,0 +1,50 @@
+// `JsonValue.to_json_string()` writes an object's keys in byte order (SL-976),
+// so one object written from maps filled in different insertion orders, or
+// parsed from a document that gives its keys in another order, is the same
+// text every time. The keys cover the cases byte order decides: a digit and an
+// uppercase letter before lowercase, a proper prefix before its extension, and
+// a multi-byte scalar after every ASCII key.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// forward: {"10":1,"B":2,"a":3,"ab":4,"z":5,"é":6}
+// reverse: same=true
+// interleaved: same=true
+// rotated: same=true
+// parsed: same=true
+// nested: {"j":[{"x":1,"y":0},{"a":1,"b":0}],"k":{"10":1,"B":2,"a":3,"ab":4,"z":5,"é":6}}
+
+import std.json.{JsonValue}
+
+// The six keys with their values, in `order` (indices into the table).
+func object_in(order: [Int; 6]) -> JsonValue {
+    let keys: [String; 6] = ["10", "B", "a", "ab", "z", "é"]
+    var fields = Map<String, JsonValue>()
+    var i = 0
+    while i < 6 {
+        let at = order[i]
+        let _ = try! fields.insert(keys[at], JsonValue.Number(value: at + 1))
+        i = i + 1
+    }
+    JsonValue.Object(fields: move fields)
+}
+
+func text_of(v: &JsonValue) -> String {
+    try! v.to_json_string()
+}
+
+func main() {
+    let forward = text_of(&object_in([0, 1, 2, 3, 4, 5]))
+    print("forward: {}", forward)
+    print("reverse: same={}", text_of(&object_in([5, 4, 3, 2, 1, 0])).equals(forward))
+    print("interleaved: same={}", text_of(&object_in([3, 0, 5, 1, 4, 2])).equals(forward))
+    print("rotated: same={}", text_of(&object_in([2, 3, 4, 5, 0, 1])).equals(forward))
+
+    let doc = "\{\"é\":6,\"ab\":4,\"10\":1,\"z\":5,\"a\":3,\"B\":2}"
+    let parsed = try! JsonValue.parse(text: doc)
+    print("parsed: same={}", text_of(&parsed).equals(forward))
+
+    // Every object level sorts its own keys; an array keeps its element order.
+    let nested_doc = "\{\"k\":\{\"z\":5,\"é\":6,\"B\":2,\"ab\":4,\"10\":1,\"a\":3},\"j\":[\{\"y\":0,\"x\":1},\{\"b\":0,\"a\":1}]}"
+    let nested = try! JsonValue.parse(text: nested_doc)
+    print("nested: {}", text_of(&nested))
+}

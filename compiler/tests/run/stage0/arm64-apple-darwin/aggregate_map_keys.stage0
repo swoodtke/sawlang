@@ -1,6 +1,6 @@
 program	compiler/tests/run/aggregate_map_keys.saw
 triple	arm64-apple-darwin
-source	fde913e0e23e9e3f
+source	31ab7b065b08295d
 build	ok
 exit	0
 stdout	"points 6 true false"
@@ -12,17 +12,17 @@ stdout	"  (4, 6) -> 16"
 stdout	"  (5, 5) -> 25"
 stdout	"colors 2 true false"
 stdout	"names 3"
-stdout	"  bob 2 -> two"
-stdout	"  ada 3 -> three"
 stdout	"  ada 1 -> uno"
+stdout	"  ada 3 -> three"
+stdout	"  bob 2 -> two"
 stdout	"shapes 4 true false"
 stdout	"pairs 3"
-stdout	"  2 true -> 3"
-stdout	"  1 true -> 4"
 stdout	"  1 false -> 2"
+stdout	"  1 true -> 4"
+stdout	"  2 true -> 3"
 stdout	"maybes 3 true"
 stdout	"nests 3"
 stdout	"  1 false"
-stdout	"  1 true"
 stdout	"  1 false"
+stdout	"  1 true"
 stdout	""

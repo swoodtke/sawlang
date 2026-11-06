@@ -25,10 +25,13 @@ extension Bag: NoCopy {}
 extension Bag: Serialize {
     func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
         try to.begin_map(self.m.len())
-        let keys = match self.m.keys() {
+        // A map iterates in an unspecified order, so the keys are sorted to
+        // make the text deterministic.
+        var keys = match self.m.keys() {
             case Ok(k) -> move k,
             case Err(_) -> { return EncodeError(fault: EncodeFault.Alloc) }
         }
+        keys.sort()
         var i = 0
         while i < keys.len() {
             let k = keys[i]

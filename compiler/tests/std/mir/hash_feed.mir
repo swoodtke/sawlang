@@ -2,10 +2,10 @@
 // under Stage 0 alone, so this pin holds the new std's side until a backend
 // runs the pair on both. `String.hash` must match Stage 0's
 // (sawc/std/string.saw): a byte loop calling `h.write_int(byte as Int)` once
-// per byte, unsigned, with no length prefix. `Hasher.write_int` and
-// `Hasher.finish` must match Stage 0's (sawc/builtin.saw): an xor, then a
-// wrapping multiply by the FNV prime; and the high half folded into the low
-// bits.
+// per byte, unsigned, with no length prefix. `Hasher.write_int` is an xor, a
+// wrapping multiply by the FNV prime, then the product's high half xored into
+// its low half; `Hasher.finish` is SplitMix64's finalizer, not Stage 0's
+// fold, so digests differ from Stage 0's while the feed does not.
 // function: fn std.string.String.hash(h: &var Hasher)
 // function: fn Hasher.write_int(n: Int)
 // function: fn Hasher.finish()
@@ -73,17 +73,29 @@ fn Hasher.write_int(n: Int) -> Void {
     let _0: Void;  // return
     let _1: &var Hasher;  // self
     let _2: Int;  // param n
-    let _3: Int64;
+    let _3: UInt64;  // m
     let _4: Int64;
     let _5: Int64;
     let _6: Int64;
+    let _7: UInt64;
+    let _8: UInt64;
+    let _9: UInt64;
+    let _10: UInt64;
+    let _11: UInt64;
+    let _12: Int64;
 
     bb0: {
-        _3 = copy (*_1).state;
-        _4 = cast(copy _2 as Int64);
-        _5 = BitXor(move _3, move _4);
-        _6 = MulWrapping(move _5, const 1099511628211i64: Int64);
-        (*_1).state = move _6;
+        _4 = copy (*_1).state;
+        _5 = cast(copy _2 as Int64);
+        _6 = BitXor(move _4, move _5);
+        _7 = from(truncating:)(move _6 as UInt64);
+        _8 = MulWrapping(move _7, const 0x0000_0100_0000_01B3: UInt64);
+        _3 = move _8;
+        _9 = copy _3;
+        _10 = Shr(copy _3, const 32: Int);
+        _11 = BitXor(move _9, move _10);
+        _12 = from(truncating:)(move _11 as Int64);
+        (*_1).state = move _12;
         return;
     }
 }
@@ -91,19 +103,39 @@ fn Hasher.write_int(n: Int) -> Void {
 fn Hasher.finish() -> Int {
     let _0: Int;  // return
     let _1: &Hasher;  // self
-    let _2: Int64;  // h
-    let _3: Int64;
-    let _4: Int64;
-    let _5: Int64;
-    let _6: Int;
+    let _2: UInt64;  // z
+    let _3: UInt64;
+    let _4: UInt64;
+    let _5: UInt64;
+    let _6: UInt64;
+    let _7: UInt64;
+    let _8: UInt64;
+    let _9: UInt64;
+    let _10: UInt64;
+    let _11: UInt64;
+    let _12: UInt64;
+    let _13: UInt64;
+    let _14: UInt64;
+    let _15: Int;
 
     bb0: {
-        _2 = copy (*_1).state;
-        _3 = copy _2;
-        _4 = Shr(copy _2, const 32i64: Int64);
-        _5 = BitXor(move _3, move _4);
-        _6 = from(truncating:)(move _5 as Int);
-        _0 = move _6;
+        _3 = from(truncating:)(copy (*_1).state as UInt64);
+        _2 = move _3;
+        _4 = copy _2;
+        _5 = Shr(copy _2, const 30: Int);
+        _6 = BitXor(move _4, move _5);
+        _7 = MulWrapping(move _6, const 0xBF58_476D_1CE4_E5B9: UInt64);
+        _2 = move _7;
+        _8 = copy _2;
+        _9 = Shr(copy _2, const 27: Int);
+        _10 = BitXor(move _8, move _9);
+        _11 = MulWrapping(move _10, const 0x94D0_49BB_1331_11EB: UInt64);
+        _2 = move _11;
+        _12 = copy _2;
+        _13 = Shr(copy _2, const 31: Int);
+        _14 = BitXor(move _12, move _13);
+        _15 = from(truncating:)(move _14 as Int);
+        _0 = move _15;
         return;
     }
 }

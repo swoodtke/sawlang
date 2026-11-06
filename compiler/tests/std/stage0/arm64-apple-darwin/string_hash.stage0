@@ -1,5 +1,5 @@
 program	compiler/tests/std/pairs/string_hash.saw
 triple	arm64-apple-darwin
-source	ae0d78971bec9c9c
+source	292e10d5565fbd5a
 build	ok
 exit	0

@@ -1,14 +1,14 @@
 program	compiler/tests/run/float_hook_hash.saw
 triple	aarch64-unknown-linux-gnu
-source	b519069c9c1040ca
+source	8743238fb560979b
 build	ok
 exit	0
 stdout	"hasher zeros 1"
-stdout	"hasher ordinary 3446452952857447059"
-stdout	"ordinary 3446452952857447059 7781583869273967251"
-stdout	"zeros 5808590956661967507 5808590956661967507"
-stdout	"nan 1165233065239906963"
-stdout	"infinities 185700145991649939 9037671888869001875"
+stdout	"hasher ordinary true"
+stdout	"ordinary true true"
+stdout	"zeros true true"
+stdout	"nan true"
+stdout	"infinities true true"
 stdout	"set zeros 1 1"
 stdout	"set nans 2 0"
 stdout	"set infinities 2 1"

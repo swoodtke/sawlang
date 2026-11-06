@@ -109,10 +109,13 @@ public trait Comparable {
     func compare(&self, other: &Self) -> Ordering
 }
 
-/// The streaming hash accumulator, 64-bit FNV-1a.
+/// The streaming hash accumulator: an FNV-1a feed, a SplitMix64 finish.
 ///
-/// The state is `Int64` on every target, so a digest does not depend on the
-/// platform word.
+/// The state is 64 bits on every target, so a digest does not depend on the
+/// platform word. A multiply carries a difference only upward, so the feed
+/// folds each product's high half down and `finish` mixes every bit into
+/// every other: keys differing only in their high bits still spread across
+/// a table indexed by the digest's low bits.
 public struct Hasher {
     private state: Int64
 }
@@ -123,16 +126,20 @@ extension Hasher {
         Hasher(state: -3750763034362895579i64)
     }
 
-    /// Feeds `n` into the state: an xor, then a wrapping multiply by the FNV
-    /// prime.
+    /// Feeds `n` into the state: an xor, a wrapping multiply by the FNV prime,
+    /// then the product's high half xored into its low half.
     public func write_int(&var self, n: Int) {
-        self.state = (self.state ^ (n as Int64)) &* 1099511628211i64
+        let m = UInt64.from(truncating: self.state ^ (n as Int64)) &* 0x0000_0100_0000_01B3
+        self.state = Int64.from(truncating: m ^ (m >> 32))
     }
 
-    /// Returns the digest, its high half folded into the low bits, as an `Int`.
+    /// Returns the digest, the state through SplitMix64's finalizer, as an
+    /// `Int`.
     public func finish(&self) -> Int {
-        let h = self.state
-        Int.from(truncating: h ^ (h >> 32i64))
+        var z = UInt64.from(truncating: self.state)
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        Int.from(truncating: z ^ (z >> 31))
     }
 }
 

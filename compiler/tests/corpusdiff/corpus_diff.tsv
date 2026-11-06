@@ -548,7 +548,7 @@ conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	judged by its o
 conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
 conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	pass	judged by its own directives (edited since its oracle)	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	pass	-	-
-conformance/V72_std_visitors_lend.saw	pass	-	-
+conformance/V72_std_visitors_lend.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V73_closure_by_value_parameter_is_owned.saw	pass	-	-
 conformance/V74_closure_parameter_moved_into_a_new_owner.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V75_escaping_and_non_escaping_release_identically.saw	pass	-	-
@@ -1753,6 +1753,7 @@ json_value_deinit.saw	pass	judged by its own directives (edited since its oracle
 json_value_escape_grid.saw	pass	-	-
 json_value_number_edges.saw	pass	-	-
 json_value_object_deinit_no_copy.saw	pass	judged by its own directives (edited since its oracle)	-
+json_value_object_key_order.saw	pass	judged by its own directives (no oracle)	-
 json_value_object_serialize.saw	pass	judged by its own directives (edited since its oracle)	-
 json_value_roundtrip.saw	pass	judged by its own directives (edited since its oracle)	-
 json_value_structural_reject.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -2292,7 +2293,7 @@ set_literal_comparison_elements.saw	pass	-	-
 set_literal_element_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 set_literal_not_hashable_error.saw	pass	-	type.bound: `set_literal_not_hashable_error.NoHash` does not satisfy `Hashable`, the bound on `T` of `Set`
 set_nocopy_element_copy_bound_error.saw	pass	-	conformance.signature: `Tag.hash` does not meet `Hashable.hash`, as `Tag` conforms to `Hashable` needs: a parameter's name differs
-set_nocopy_key_error.saw	stage0-wrong	annotated SL-598	sawc meets its directives
+set_nocopy_key_error.saw	pass	judged by its own directives (edited since its oracle)	-
 set_owning_key_refcount.saw	pass	-	-
 set_try_copy.saw	pass	-	-
 shadow255_glob_import.saw	pass	-	-

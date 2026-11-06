@@ -17,10 +17,10 @@
 // the decoder's `max_depth` was ever exercised).
 // EXPECT: success
 // EXPECT-OUTPUT:
-// basic: stable=true text={"ok":true,"tag":null,"port":8080,"name":"srv"}
+// basic: stable=true text={"name":"srv","ok":true,"port":8080,"tag":null}
 // empty_object: text={}
 // empty_object: reparsed_len=0
-// nested_obj: text={"outer":{"inner":5,"flag":false}}
+// nested_obj: text={"outer":{"flag":false,"inner":5}}
 // nested_obj: inner=5
 // obj_in_arr_in_obj: text={"list":[{"n":1},{"n":2}]}
 // obj_in_arr_in_obj: n0=1 n1=2
@@ -47,10 +47,9 @@ func check_basic_object_roundtrip() {
                         case Ok(t) -> t,
                         case Err(e) -> { print("basic: serialize2 failed: {}", e); return }
                     }
-                    // Re-parsing the SAME key set walks the SAME hash
-                    // buckets, so the second serialize reproduces the
-                    // first byte-for-byte even though Map order is
-                    // otherwise unspecified.
+                    // An object is written with its keys in byte order, so
+                    // the second serialize reproduces the first byte for
+                    // byte whatever order either map iterates in.
                     print("basic: stable={} text={}", text1.equals(text2), text1)
                 },
                 case Err(e) -> print("basic: reparse failed: {}", e)

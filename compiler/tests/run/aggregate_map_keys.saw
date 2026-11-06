@@ -1,6 +1,7 @@
 // Aggregates as `Map` keys and `Set` elements (SL-598): the table hashes and
-// compares each through its synthesized or automatic hooks, so its iteration
-// order, printed here, is Stage 0's only when every digest is. A trivial
+// compares each through its synthesized or automatic hooks. Each walked
+// table's entries print sorted, one line per stored key with the value it
+// last took, because the table's iteration order is unspecified. A trivial
 // struct and a payload-free enum meet `Hashable` automatically; a struct
 // holding a String, a payload-carrying enum and a nested aggregate through a
 // written `@synthesize`; a tuple and an Optional through their parts. A
@@ -41,6 +42,13 @@ extension Nest: Equatable {}
 @synthesize
 extension Nest: Hashable {}
 
+func print_sorted(lines: &var Vector<String>) {
+    lines.sort()
+    for line in lines.iter() {
+        print(line)
+    }
+}
+
 func main() {
     var points: Map<Point, Int> = {:}
     var k = 0
@@ -49,7 +57,9 @@ func main() {
         k = k + 1
     }
     print("points {} {} {}", points.len(), points.contains_key(Point(x: 2, y: 8)), points.contains_key(Point(x: 2, y: 9)))
-    points.each({ p, v in print("  ({}, {}) -> {}", p.x, p.y, v) })
+    var point_lines = Vector<String>()
+    points.each({ [&var point_lines] p, v in try! point_lines.push("  ({p.x}, {p.y}) -> {v}") })
+    print_sorted(&var point_lines)
 
     var colors = Set<Color>()
     let _ = try! colors.insert(Color.Blue)
@@ -63,7 +73,9 @@ func main() {
     try! names.insert(Named(name: "ada", n: 3), "three")
     try! names.insert(Named(name: "ada", n: 1), "uno")
     print("names {}", names.len())
-    names.each({ key, v in print("  {} {} -> {}", key.name, key.n, v) })
+    var name_lines = Vector<String>()
+    names.each({ [&var name_lines] key, v in try! name_lines.push("  {key.name} {key.n} -> {v}") })
+    print_sorted(&var name_lines)
 
     var shapes = Set<Shape>()
     let _ = try! shapes.insert(Shape.Circle(r: 1))
@@ -79,7 +91,12 @@ func main() {
     try! pairs.insert((2, Color.Red), 3)
     try! pairs.insert((1, Color.Red), 4)
     print("pairs {}", pairs.len())
-    pairs.each({ key, v in print("  {} {} -> {}", key.0, key.1 == Color.Red, v) })
+    var pair_lines = Vector<String>()
+    pairs.each({ [&var pair_lines] key, v in
+        let red = key.1 == Color.Red
+        try! pair_lines.push("  {key.0} {red} -> {v}")
+    })
+    print_sorted(&var pair_lines)
 
     var maybes: Map<Color?, Int> = {:}
     let none: Color? = None
@@ -94,5 +111,10 @@ func main() {
     let _ = try! nests.insert(Nest(at: Point(x: 1, y: 2), shape: Shape.Label(text: "n"), tag: None))
     let _ = try! nests.insert(Nest(at: Point(x: 1, y: 2), shape: Shape.Empty, tag: None))
     print("nests {}", nests.len())
-    nests.each({ e in print("  {} {}", e.at.x, e.tag.is_some()) })
+    var nest_lines = Vector<String>()
+    nests.each({ [&var nest_lines] e in
+        let tagged = e.tag.is_some()
+        try! nest_lines.push("  {e.at.x} {tagged}")
+    })
+    print_sorted(&var nest_lines)
 }
