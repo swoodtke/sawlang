@@ -1,0 +1,9 @@
+// The load-equals-run pin (`front_image_load.saw`) over a program whose layer
+// extends std's types and conforms them to its own traits.
+
+import front_image_load.{pin_load_equals_run}
+
+func main() {
+    let none = Vector<String>()
+    pin_load_equals_run("compiler/tests/std/layers/ext_probe.saw", &none, &none, false)
+}

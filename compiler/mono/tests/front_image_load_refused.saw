@@ -1,0 +1,9 @@
+// The load-equals-run pin (`front_image_load.saw`) over a program the front end
+// refuses: its report is the same once std's image is read.
+
+import front_image_load.{pin_load_equals_run}
+
+func main() {
+    let none = Vector<String>()
+    pin_load_equals_run("tests/corpus/closure_captures_self_escaping_error.saw", &none, &none, true)
+}

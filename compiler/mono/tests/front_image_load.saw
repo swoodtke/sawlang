@@ -1,8 +1,10 @@
 // The front-end image's load-equals-run pin (SL-955 unit 4): a build that
 // reads std's image and runs the program's layer from it equals one that
-// computes both layers, a refused program and a `--module-path` one among
-// them. `front_image.saw` holds the codec's other pins. Paths are the
-// repository root's, where the runner runs.
+// computes both layers. This file holds the pin and runs it over a plain
+// program; each `front_image_load_*.saw` beside it runs it over one other kind
+// of program, so each case has the unit timeout to itself. `front_image.saw`
+// holds the codec's other pins. Paths are the repository root's, where the
+// runner runs.
 
 import sawasserts.layout.{asserts_inputs}
 import sawmono.api.{mono_append_findings, mono_from_front, mono_front_program, mono_front_std}
@@ -15,28 +17,8 @@ import std.data.{Data}
 func host() -> String { "arm64-apple-darwin" }
 
 func main() {
-    let target = target_front_end(host(), "")
     let none = Vector<String>()
-    // Std's image as a build of nothing makes it: the programs below read it
-    // whatever their own inputs are.
-    let inputs = asserts_inputs("", &none, &none, target, false)
-    let image = image_of(&mono_front_std("std", target, &inputs))
-    pin_load_equals_run("compiler/tests/run/hello.saw", &none, &none, false, &image)
-    pin_load_equals_run("compiler/tests/std/layers/ext_probe.saw", &none, &none, false, &image)
-    pin_load_equals_run("tests/corpus/coro_generic_spawn_root_nested_suspending_call.saw", &none, &none, false,
-                        &image)
-    pin_load_equals_run("tests/corpus/closure_captures_self_escaping_error.saw", &none, &none, true, &image)
-    var names = Vector<String>()
-    var dirs = Vector<String>()
-    try! names.push("blade")
-    try! dirs.push("blade/src")
-    try! names.push("toml")
-    try! dirs.push("libs/toml/src")
-    try! names.push("semver")
-    try! dirs.push("libs/semver/src")
-    try! names.push("imgformat")
-    try! dirs.push("libs/imgformat/src")
-    pin_load_equals_run("blade/src/main.saw", &names, &dirs, false, &image)
+    pin_load_equals_run("compiler/tests/run/hello.saw", &none, &none, false)
 }
 
 func image_of(cut: &FrontCut) -> Data {
@@ -67,18 +49,22 @@ func same(a: &Data, b: &Data) -> Bool {
     true
 }
 
-// The program's layer run from std's `image` equals both layers computed, as
-// `mono_lower_file` computes them: the whole front end's state after the
-// program's layer encodes to the same bytes, and mono's record and its items
-// are the same text, so every stage after the front end sees one input.
+// The program at `path`, with the `--module-path` mappings `names` to `dirs`,
+// run from std's image equals both layers computed, as `mono_lower_file`
+// computes them: the whole front end's state after the program's layer encodes
+// to the same bytes, and mono's record and its items are the same text, so
+// every stage after the front end sees one input. Std's image is the one a
+// build of nothing makes, so the program reads it whatever its own inputs are.
 // THE IMAGE CODEC's load-equals-run pin.
-func pin_load_equals_run(path: String, names: &Vector<String>, dirs: &Vector<String>, refused: Bool,
-                         image: &Data) {
+public func pin_load_equals_run(path: String, names: &Vector<String>, dirs: &Vector<String>, refused: Bool) {
     let target = target_front_end(host(), "")
+    let none = Vector<String>()
+    let nothing = asserts_inputs("", &none, &none, target, false)
+    let image = image_of(&mono_front_std("std", target, &nothing))
     let inputs = asserts_inputs(path, &names, &dirs, target, false)
     var run = mono_front_std("std", target, &inputs)
     mono_front_program(&var run, &inputs, false)
-    var loaded = cut_of(image.copy())
+    var loaded = cut_of(move image)
     mono_front_program(&var loaded, &inputs, false)
     assert(same(&image_of(&run), &image_of(&loaded)),
            "{}: the front end's state after the program's layer differs once std's image is read", path)

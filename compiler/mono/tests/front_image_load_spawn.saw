@@ -1,0 +1,9 @@
+// The load-equals-run pin (`front_image_load.saw`) over a program that spawns a
+// generic suspending call nested in its root.
+
+import front_image_load.{pin_load_equals_run}
+
+func main() {
+    let none = Vector<String>()
+    pin_load_equals_run("tests/corpus/coro_generic_spawn_root_nested_suspending_call.saw", &none, &none, false)
+}

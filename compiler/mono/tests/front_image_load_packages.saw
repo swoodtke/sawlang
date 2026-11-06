@@ -1,0 +1,15 @@
+// The load-equals-run pin (`front_image_load.saw`) over a program of several
+// `--module-path` packages: the layered fixture's two, the second importing
+// the first, extending its type and instantiating its generic.
+
+import front_image_load.{pin_load_equals_run}
+
+func main() {
+    var names = Vector<String>()
+    var dirs = Vector<String>()
+    try! names.push("geometry")
+    try! dirs.push("compiler/tests/run/layers/geometry")
+    try! names.push("shapes")
+    try! dirs.push("compiler/tests/run/layers/shapes")
+    pin_load_equals_run("compiler/tests/run/layers/main.saw", &names, &dirs, false)
+}
