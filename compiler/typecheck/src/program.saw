@@ -112,6 +112,9 @@ public struct TcKnown {
     normal: Int
     read_only: Int
     write_only: Int
+    // The trait whose conformers are zero-sized (`conformance.allocator-unit`),
+    // found by module; -1 under a std root that declares none.
+    allocator: Int
 }
 
 // Who defines the `__saw_rt_*` seams a program calls.
@@ -674,7 +677,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                         slice_fill: -1, slice_copy: -1, arc: -1, task_group: -1, task: -1,
                         thread: -1, system_error: -1, func_pointer: -1,
                         ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1, unsafe_memory: -1,
-                        device: -1, normal: -1, read_only: -1, write_only: -1)
+                        device: -1, normal: -1, read_only: -1, write_only: -1, allocator: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: Vector<TcSig>(),
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
                       params: Vector<TcParam>(), node_types: Vector<Int>(),

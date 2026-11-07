@@ -1,0 +1,13 @@
+// refuses: conformance.allocator-unit at 6:17
+// an `Allocator` conformer that is an enum: only a struct is a unit allocator (SL-966)
+// message: `Pool` is an enum: an allocator
+enum Pool { case Only }
+
+extension Pool: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe { }
+}
+
+func main() {
+    let _ = Pool.Only
+}

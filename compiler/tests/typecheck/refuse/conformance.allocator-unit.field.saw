@@ -1,0 +1,13 @@
+// refuses: conformance.allocator-unit at 6:18
+// an `Allocator` conformer with a field and no `init`, refused once, by the unit rule rather than as an unmet init requirement (SL-966)
+// message: `Arena` has the field `base`: an allocator
+struct Arena { base: Int }
+
+extension Arena: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe { }
+}
+
+func main() {
+    print(Arena(base: 0).base)
+}

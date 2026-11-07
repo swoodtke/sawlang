@@ -1,0 +1,18 @@
+// refuses: conformance.allocator-unit at 10:17
+// a conformance to a trait that refines `Allocator` conforms to `Allocator` too, so the unit rule holds there (SL-966)
+// message: `Slab` has the field `next`: an allocator
+trait Tagged: Allocator {
+    func tag(&self) -> Int
+}
+
+struct Slab { next: Int }
+
+extension Slab: Tagged {
+    func tag(&self) -> Int { 1 }
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe { }
+}
+
+func main() {
+    print(Slab(next: 0).tag())
+}

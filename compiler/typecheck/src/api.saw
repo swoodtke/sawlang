@@ -172,6 +172,7 @@ extension TcProgram {
         let std_arc = self.module_named("std.arc")
         let std_task_group = self.module_named("std.taskgroup")
         let std_system_error = self.module_named("std.systemerror")
+        let std_alloc = self.module_named("std.alloc")
         let k = TcKnown(optional: self.res.lang_item(ResLang.OptionalEnum),
                         result: self.res.lang_item(ResLang.ResultEnum),
                         string: self.res.lang_item(ResLang.StringStruct),
@@ -232,7 +233,8 @@ extension TcProgram {
                         device: self.res.lang_item(ResLang.DeviceStruct),
                         normal: self.res.lang_item(ResLang.NormalStruct),
                         read_only: self.res.lang_item(ResLang.ReadOnlyStruct),
-                        write_only: self.res.lang_item(ResLang.WriteOnlyStruct))
+                        write_only: self.res.lang_item(ResLang.WriteOnlyStruct),
+                        allocator: self.top_decl(std_alloc, "Allocator"))
         self.known = k
     }
 }

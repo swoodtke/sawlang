@@ -1,0 +1,11 @@
+// refuses: init.no-requirement at 6:5
+// a zero-argument `T()` through a bound that declares no init requirement, refused in the generic body like any other construction through a bound (SL-966)
+// message: constructing `T` with `()` needs an init requirement in `T`'s bounds
+// message: add `init() -> Self` to a trait that bounds `T`
+func fresh<T: Printable>() -> T {
+    T()
+}
+
+func main() {
+    print("unreached")
+}

@@ -1,0 +1,17 @@
+// refuses: conformance.allocator-unit at 10:20
+// a fieldless `Allocator` conformer that writes an `init` of its own, which would meet the init requirement but is not the memberwise no-op `A()` must be (SL-966)
+// message: `Counter` writes `Counter.init() ->
+struct Counter {}
+
+extension Counter {
+    init() -> Counter { Counter() }
+}
+
+extension Counter: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe { }
+}
+
+func main() {
+    let _ = Counter()
+}

@@ -3,7 +3,9 @@
 // `A()` — a zero-argument construction of an in-scope type parameter — is the
 // one position where a type parameter is spelled outside a type annotation.
 // Design 37's allocator model is written around it: `Vector._reserve` and
-// `Box.make` both say `A().alloc(...)`.
+// `Box.make` both say `A().alloc(...)`. The construction goes through the
+// bound's init requirement (`Maker`'s `init()`), which a fieldless conformer
+// meets by its memberwise construction.
 //
 // `substitute_ast_types` rewrites SawTypes, and a call's name is a `str`, so
 // the spelling used to survive into a spliced instance verbatim — where it
@@ -26,6 +28,7 @@
 import std.task.*
 
 trait Maker {
+    init()
     func value(&self) -> Int
 }
 

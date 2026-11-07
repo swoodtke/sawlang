@@ -1,10 +1,7 @@
-// refuses: mono.not-yet at 25:10
-// message: (inside
-// message: std/vector.saw:
-// A refusal met inside std is reported at the program's own call that
-// reached it, the std position named in its message: `Vector.push` builds
-// its allocator as `A()`, which the slice lowers only for a fieldless struct
-// with no `init` (SL-966).
+// refuses: conformance.allocator-unit at 11:20
+// an `Allocator` conformer with a field and an `init` of its own, refused at the conformance: an allocator is zero-sized, so `A()` has nothing to build (SL-966)
+// message: `Counted` has the field `start` and writes `Counted.init() ->
+// message: an allocator is zero-sized and static-backed (design 19)
 struct Counted { start: Int }
 
 extension Counted {

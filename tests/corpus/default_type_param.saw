@@ -2,8 +2,10 @@
 // declared default (`A: Marker = Def`) may be omitted at every reference site;
 // resolution fills it BEFORE mangling, so `Crate<Int>` and `Crate<Int, Def>` are
 // ONE type with one monomorphization. A custom argument (`Crate<Int, Loud>`)
-// selects a different type. Dispatch through `A()` is a zero-sized construction
-// that monomorphizes to a direct call on the concrete marker.
+// selects a different type. `A()` constructs the marker through `Marker`'s init
+// requirement, which each fieldless marker meets by its memberwise construction;
+// it is a zero-sized construction that monomorphizes to a direct call on the
+// concrete marker.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1
@@ -14,6 +16,7 @@
 // 10
 
 trait Marker {
+    init()
     func tag(&self) -> Int
 }
 

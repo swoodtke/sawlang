@@ -2841,7 +2841,8 @@ requirement in the bounds matches is refused at type checking, in the generic
 body, whether or not any instantiation reaches it. The fix-it names the
 requirement to add:
 
-```saw-pending SL-966
+```saw-error
+// error-rule: init.no-requirement
 // error-contains: init requirement
 func fresh<T>() -> T {
     T()                                  // refused: no init requirement in
@@ -16365,7 +16366,7 @@ var v = Vector<Int, MySlab>()   // grow/deinit route through MySlab; A().alloc i
                                 // allocator, no vtable
 ```
 
-**The unit rule** (**status: specified, not built yet, SL-966**). `Allocator`
+**The unit rule** (**status: implemented**, SL-966). `Allocator`
 declares the init requirement `init() -> Self` beside `alloc` and `dealloc`
 (see [Init requirements](#init-requirements)), which is what licenses `A()` in a
 generic body bounded `A: Allocator`. An `Allocator` conformance must be a
@@ -16377,7 +16378,8 @@ an allocator with storage has nowhere to keep it; a conformance on a struct
 with a field, or with an `init`, is refused at the conformance with a reason
 naming that model:
 
-```saw-pending SL-966
+```saw-error
+// error-rule: conformance.allocator-unit
 // error-contains: zero-sized
 struct Arena { base: Int }
 

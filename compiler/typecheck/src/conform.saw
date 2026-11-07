@@ -780,6 +780,12 @@ extension TcProgram {
         var derived = false
         var refused = false
         let traits = self.trait_and_ancestors(c.trait_decl)
+        // A conformance the unit rule refuses meets no `Allocator` init
+        // requirement either, and says so once.
+        let not_unit = self.refuses_allocator_unit(at, &traits)
+        if not_unit {
+            refused = true
+        }
         var s = self.conformance_subst(at)
         var t = 0
         while t < traits.len() {
@@ -847,7 +853,14 @@ extension TcProgram {
                     }
                 } else if info.kind == ResDeclKind.InitRequirement {
                     let inherited = self.production_status(at, req)
-                    let met = if inherited >= 0 { self.statuses[inherited] } else { self.meet_init_requirement(at, req, &s, &visible) }
+                    let unmet = TcStatus(requirement: req, kind: TcStatusKind.Missing, member: -1)
+                    let met = if not_unit && info.parent == self.known.allocator {
+                        unmet
+                    } else if inherited >= 0 {
+                        self.statuses[inherited]
+                    } else {
+                        self.meet_init_requirement(at, req, &s, &visible)
+                    }
                     try! self.statuses.push(met)
                     if met.kind == TcStatusKind.Missing {
                         refused = true
@@ -1408,6 +1421,70 @@ extension TcProgram {
         ""
     }
 
+    // Whether conformance `at`, whose trait and its ancestors are `traits`,
+    // conforms to `Allocator` on a type that is not a unit struct, refused
+    // here when it does: an allocator is zero-sized and static-backed, so its
+    // conformer has no fields and no `init` of its own, and `A()` is a
+    // memberwise construction that builds nothing (spec, Allocators).
+    func refuses_allocator_unit(&var self, at: Int, traits: &Vector<Int>) -> Bool {
+        let allocator = self.known.allocator
+        var names = false
+        var k = 0
+        while k < traits.len() && not names {
+            names = traits[k] == allocator
+            k = k + 1
+        }
+        let c = self.conformances[at]
+        let d = c.type_decl
+        if allocator < 0 || not names || d < 0 {
+            return false
+        }
+        let kind = self.res.decls[d].kind
+        if kind != ResDeclKind.Struct {
+            self.refuse_allocator_unit(at, if kind == ResDeclKind.Enum { "is an enum" } else { "is not a struct" })
+            return true
+        }
+        var field = -1
+        let members = self.members_of(d)
+        var m = 0
+        while m < members.len() && field < 0 {
+            if self.res.decls[members[m]].kind == ResDeclKind.Field {
+                field = members[m]
+            }
+            m = m + 1
+        }
+        var own_init = -1
+        var chain = self.extensions_of.first(d, 0)
+        while chain >= 0 && own_init < 0 {
+            let ext_members = self.members_of(self.extensions_of.value(chain))
+            var j = 0
+            while j < ext_members.len() && own_init < 0 {
+                if self.res.decls[ext_members[j]].kind == ResDeclKind.Init {
+                    own_init = ext_members[j]
+                }
+                j = j + 1
+            }
+            chain = self.extensions_of.following(chain)
+        }
+        if field < 0 && own_init < 0 {
+            return false
+        }
+        var why = StringBuilder()
+        if field >= 0 {
+            try! why.append("has the field `")
+            try! why.append(self.name_text(self.res.decls[field].name))
+            try! why.append("`")
+        }
+        if own_init >= 0 {
+            self.build_decl(own_init)
+            try! why.append(if field >= 0 { " and writes `" } else { "writes `" })
+            try! why.append(self.init_text(own_init))
+            try! why.append("`")
+        }
+        self.refuse_allocator_unit(at, why.build())
+        true
+    }
+
     // THE INIT-REQUIREMENT FUNNEL: how conformance `at` meets init
     // requirement `req`, refused here when nothing does (spec, Init
     // requirements). An `init` meets it with the requirement's labels and
@@ -1711,6 +1788,23 @@ extension TcProgram {
         try! msg.append(" needs: ")
         try! msg.append(why)
         self.refuse_in(m, site, "conformance.signature", msg.build())
+    }
+
+    // Conformance `at` is to `Allocator` on a type that, as `why` says, is
+    // not a unit struct.
+    func refuse_allocator_unit(&var self, at: Int, why: String) {
+        let c = self.conformances[at]
+        let shown = self.res.decl_path(c.type_decl)
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", but `")
+        try! msg.append(shown)
+        try! msg.append("` ")
+        try! msg.append(why)
+        try! msg.append(": an allocator is zero-sized and static-backed (design 19), so an `Allocator` conformer is a struct with no fields and no `init` of its own, and `A()` builds nothing; keep the state `")
+        try! msg.append(shown)
+        try! msg.append("` needs in a `static`")
+        self.refuse_in(c.module, c.node, "conformance.allocator-unit", msg.build())
     }
 
     // A struct's memberwise construction takes fallible init requirement

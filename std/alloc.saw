@@ -15,7 +15,11 @@ extern "C" {
 /// `alloc` reports exhaustion as `None`, which the caller turns into an
 /// `AllocError`. `dealloc` takes the `size` and `align` the block was
 /// allocated with, since the seams keep no per-block layout.
+///
+/// A conformer is a struct with no fields and no `init` of its own, so a
+/// container builds its allocator as `A()` at each call, at no cost.
 public trait Allocator {
+    init() -> Self
     func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>?
     func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe
 }

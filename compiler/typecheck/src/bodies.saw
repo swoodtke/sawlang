@@ -7789,15 +7789,6 @@ extension TcProgram {
             }
         }
         if cands.len() == 0 {
-            let param = self.kind_of(owner) == TcKind.Param
-            if param && reqs.len() == 0 && args.values.len() == 0 {
-                // Transitional: std's `A()` builds its allocator through an
-                // `Allocator` that declares no init requirement until the seed
-                // reads one, so a bare `T()` through bounds declaring none
-                // keeps its old meaning (SL-966 unit 2b).
-                self.record_bound_construction(e, owner)
-                return self.set_type(e, owner, false)
-            }
             self.type_args_alone(&args)
             self.refuse_no_init_requirement(e, owner, &reqs, &args)
             let poisoned = self.error_type

@@ -1,0 +1,10 @@
+// refuses: init.no-requirement at 5:5
+// a zero-argument `T()` through a type parameter with no bounds at all: nothing promises `T` can be built (SL-966)
+// message: and none is declared: add `init() -> Self` to a trait that bounds `T`
+func fresh<T>() -> T {
+    T()
+}
+
+func main() {
+    print("unreached")
+}

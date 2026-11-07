@@ -640,7 +640,7 @@ bb1:
   br i1 %t6, label %forced.0, label %unforced.1
 unforced.1:
   %t7 = getelementptr i8, ptr %l4, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 53, ptr %t7)
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 57, ptr %t7)
   unreachable
 forced.0:
   %t8 = getelementptr i8, ptr %l4, i64 8
@@ -661,7 +661,7 @@ bb2:
   br i1 %t16, label %forced.2, label %unforced.3
 unforced.3:
   %t17 = getelementptr i8, ptr %l8, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 54, ptr %t17)
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 58, ptr %t17)
   unreachable
 forced.2:
   %t18 = getelementptr i8, ptr %l8, i64 8
@@ -680,7 +680,7 @@ bb3:
   br i1 %t25, label %forced.4, label %unforced.5
 unforced.5:
   %t26 = getelementptr i8, ptr %l11, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 55, ptr %t26)
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 59, ptr %t26)
   unreachable
 forced.4:
   %t27 = getelementptr i8, ptr %l11, i64 8
@@ -702,7 +702,7 @@ bb4:
   br i1 %t36, label %forced.6, label %unforced.7
 unforced.7:
   %t37 = getelementptr i8, ptr %l15, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 56, ptr %t37)
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 60, ptr %t37)
   unreachable
 forced.6:
   %t38 = getelementptr i8, ptr %l15, i64 8
@@ -721,7 +721,7 @@ bb5:
   br i1 %t45, label %forced.8, label %unforced.9
 unforced.9:
   %t46 = getelementptr i8, ptr %l18, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 57, ptr %t46)
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.8, i64 9, i64 61, ptr %t46)
   unreachable
 forced.8:
   %t47 = getelementptr i8, ptr %l18, i64 8

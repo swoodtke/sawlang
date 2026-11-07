@@ -861,7 +861,7 @@ default_param_overload_coexist.saw	pass	-	-
 default_param_per_call.saw	pass	-	-
 default_param_shape_collision_error.saw	pass	-	overload.indistinguishable: `g(x: Int)` is already declared at 7:6 as `g(x: Int, y: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how many ar
 default_param_suspend_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `useDefault` leaving out `x`, whose default value may suspend
-default_type_param.saw	pass	-	-
+default_type_param.saw	pass	judged by its own directives (edited since its oracle)	-
 deinit_automatic.saw	pass	-	-
 deinit_early_return.saw	pass	-	-
 deinit_in_place_misuse_error.saw	refused	resolve slice.not-yet	the compiler intrinsic `__saw_deinit_in_place` is not in the bootstrap slice yet
@@ -1637,7 +1637,7 @@ generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	saw
 generic_instance_associated_type_binding.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_const_parameter_value.saw	pass	-	-
-generic_instance_constructs_type_param.saw	pass	-	-
+generic_instance_constructs_type_param.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_instantiation_unsafe_signature.saw	wrong	accepts a refusal test	`idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)
 generic_local_at_void.saw	pass	-	-
 generic_local_move_at_void.saw	pass	-	-
