@@ -2136,8 +2136,8 @@ method lookup, the orphan rule for conformances, `@synthesize` for a derived
 policy, and the required `static` keyword on a method with no receiver.
 Methods on a generic enum monomorphize per instantiation.
 
-An enum extension may also declare an `init` (**status: specified, not built
-yet, SL-966**). It returns one of the enum's cases, or a `Result` of one: the
+An enum extension may also declare an `init` (**status: implemented**,
+SL-966). It returns one of the enum's cases, or a `Result` of one: the
 two forms of [What an `init` may return](#what-an-init-may-return), with the
 enum as the receiver.
 
@@ -2761,7 +2761,7 @@ An init requirement does not have this restriction (below).
 
 #### Init requirements
 
-**Status: specified, not built yet (SL-966).** A trait may require that its
+**Status: implemented (SL-966).** A trait may require that its
 conformers can be constructed. An init requirement is spelled as an `init` is,
 with no body:
 
@@ -2787,11 +2787,11 @@ build.
 **Satisfying one.** Each of these satisfies an init requirement, and the
 conformance checks for one:
 
-- an `init` the conformer declares with the requirement's labels, parameter
-  types and return form;
-- a struct's memberwise construction, when its fields match the requirement's
-  labels and types exactly, but only where that construction is legal at the
-  conformance's declaration. In the type's own module it always is. A
+- an `init` the conformer declares with the requirement's labels and parameter
+  types, in any order, and its return form;
+- a struct's memberwise construction, when its fields have the requirement's
+  labels and types exactly, in any order, but only where that construction is
+  legal at the conformance's declaration. In the type's own module it always is. A
   conformance declared elsewhere, such as in the trait's module, needs every
   field visible there (see [Member visibility](#member-visibility)), so a
   `private` field is never set through a requirement from outside its type's
@@ -2799,6 +2799,11 @@ conformance checks for one:
 - an `init` that overrides the memberwise construction (see
   [An `init` that overrides the construction](#an-init-that-overrides-the-construction)),
   since every construction of the type calls it, a generic body's included.
+
+A construction through the requirement passes each argument to the
+conformer's parameter or field of the same label, so the order the conformer
+declares them in does not matter. A `func` requirement, by contrast, matches
+its parameters in order.
 
 Fallibility matches exactly: the conformer returns the requirement's form,
 `Self` or `Result<Self, E>`. An infallible `init` does not satisfy a fallible
@@ -2858,13 +2863,21 @@ generic is written never changes what the generic builds (see
 
 **`Self(args)` in a default body** follows the same rule over the trait's own
 init requirements: a default body may construct `Self` with the labels and
-types an init requirement of that trait declares. Until this is built, `sawc`
-refuses `Self(...)` in a default body.
+types an init requirement of that trait declares. The construction runs the
+conformer's satisfying `init`, or its memberwise construction:
 
 ```saw
 trait Make {
     init(seed: Int) -> Self
     func reset(&self) -> Self { Self(seed: 0) }
+}
+
+struct Tally { seed: Int }
+extension Tally: Make {}
+
+func main() {
+    let t = Tally(seed: 7)
+    print(t.reset().seed)                // prints: 0
 }
 ```
 
@@ -3376,8 +3389,7 @@ overloaded methods and static methods, see [Functions](#functions) — overloade
 custom `init`, and — see Traits — conformance via `extension Type: Trait`).
 An extension on an enum is an extension on a struct, an `init` included, though
 an enum has no memberwise construction (see
-[Methods on enums](#methods-on-enums); an enum `init` is specified, not built
-yet, SL-966).
+[Methods on enums](#methods-on-enums)).
 Extending built-in primitive types (`extension Int`, `extension Float`) is also
 implemented (design 57 registers them as extendable — the stdlib numeric methods
 are built this way), and a primitive may declare an `init` too (see
@@ -3559,9 +3571,8 @@ func main() {
 ```
 
 No primitive has an implicit `init()`, and no zero default is inferred for
-one. `Int(5)` with no matching extension `init` is refused, naming this rule
-(**status: specified, not built yet, SL-966**; until then `sawc` refuses it as
-a construction outside what it builds). A trait that wants a primitive conformer to be constructible declares an init
+one. `Int(5)` with no matching extension `init` is refused, naming this rule.
+A trait that wants a primitive conformer to be constructible declares an init
 requirement, and the primitive's conformance supplies the `init`. The
 construction of a distinct alias, such as `Byte(65)`, is unchanged.
 

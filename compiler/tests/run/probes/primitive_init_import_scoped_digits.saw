@@ -1,0 +1,29 @@
+// probe: module
+// about: the module `primitive_init_import_scoped` imports, which declares `Int`'s extension `init`s and calls one in its own body (SL-966)
+
+extension Int {
+    public init(digit: UInt8) -> Int {
+        (digit as Int) - 48
+    }
+
+    public init(digits: String) -> Result<Int, DigitError> {
+        var total = 0
+        for b in digits.bytes() {
+            if b < 48 || b > 57 { return DigitError.NotADigit }
+            total = total * 10 + Int(digit: b)
+        }
+        return total
+    }
+}
+
+public enum DigitError { case NotADigit }
+
+extension DigitError: Printable {
+    public func format(&self, into: &var StringBuilder) { try! into.append("not a digit") }
+}
+
+extension DigitError: Error {}
+
+public func seven() -> Int {
+    Int(digit: 55)
+}

@@ -1,0 +1,50 @@
+// probe: stated
+// about: a trait declaring an init requirement is still usable as `&any Trait` and `Box<any Trait>`, and its other members, a default body among them, are callable through the existential, while a generic builds its conformers through the requirement, conformance row I07 (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// leaks: none
+// prints: Rect.init ran
+// prints: square 9
+// prints: square area 9
+// prints: rect 8
+// prints: rect area 8
+// prints: boxed 5
+// The requirement takes no vtable slot, so the existential dispatches `area`
+// and the default `describe` exactly as it would for a trait without one.
+
+trait Shape {
+    init(side: Int) -> Self
+    func area(&self) -> Int
+    func describe(&self) -> String { "area {self.area()}" }
+}
+
+struct Square { side: Int }
+extension Square: Shape {
+    func area(&self) -> Int { self.side * self.side }
+}
+
+struct Rect { w: Int, h: Int }
+extension Rect: Shape {
+    init(side: Int) -> Rect {
+        print("Rect.init ran")
+        Rect(w: side, h: side * 2)
+    }
+
+    func area(&self) -> Int { self.w * self.h }
+}
+
+func build<T: Shape>(n: Int) -> T { T(side: n) }
+
+func show(name: String, s: &any Shape) {
+    print("{name} {s.area()}")
+    print("{name} {s.describe()}")
+}
+
+func main() {
+    let sq = build<Square>(3)
+    let r = build<Rect>(2)
+    show("square", &sq)
+    show("rect", &r)
+    let b = Box<any Shape>.make(Rect(w: 1, h: 5))
+    print("boxed {b.area()}")
+}

@@ -373,6 +373,21 @@ let p = Pair(a: 1, b: "port")     // Pair<Int, String>
 let v: Vector<Int> = Vector()     // the element type, written once
 ```
 
+A trait can require a constructor. A generic then builds `T(...)` through
+that requirement, and nothing else: a construction no bound declares is a
+compile error in the generic body.
+
+```saw
+trait Make { init(seed: Int) -> Self }
+
+struct Tally { seed: Int }        // its memberwise Tally(seed:) satisfies Make
+extension Tally: Make {}
+
+func build<T: Make>(n: Int) -> T { T(seed: n) }
+
+func main() { print(build<Tally>(3).seed) }   // prints: 3
+```
+
 `Equatable`, `Comparable`, `Hashable`, and the copy policies can have their
 bodies derived from the type's fields. Ask for it with `@synthesize`:
 

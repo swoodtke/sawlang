@@ -1,0 +1,26 @@
+// probe: stated
+// about: a primitive's extension `init` is reached directly in its declaring module and in a module importing it, an infallible one and a fallible one on both paths, conformance row I09 (SL-966)
+// stage 0: cannot build a primitive's `init`
+// speeds: -O0 -O2
+// prints: declaring 7
+// prints: importing 4
+// prints: fallible 305
+// prints: fallible refused: not a digit
+// `Int(digit:)` is import-scoped like a method: this module reaches it
+// because it imports the declaring module (typecheck's
+// `init.no-implicit.not-imported` is the module that does not).
+
+import primitive_init_import_scoped_digits
+
+func main() {
+    print("declaring {primitive_init_import_scoped_digits.seven()}")
+    print("importing {Int(digit: 52)}")
+    match Int(digits: "305") {
+        case Ok(n) -> print("fallible {n}"),
+        case Err(e) -> print("fallible refused: {e}")
+    }
+    match Int(digits: "3x") {
+        case Ok(n) -> print("fallible {n}"),
+        case Err(e) -> print("fallible refused: {e}")
+    }
+}

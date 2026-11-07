@@ -1,0 +1,20 @@
+// probe: module
+// about: the types `init_requirement_memberwise_visibility` constructs through a bound: `Open`, whose field every module sees, and `Sealed`, whose fields are `private` and whose author writes the `init` its requirement takes (SL-966)
+
+public struct Open {
+    x: Int
+}
+
+public struct Sealed {
+    private x: Int,
+    private y: Int
+}
+
+extension Sealed {
+    public init(x: Int) -> Sealed {
+        print("Sealed.init ran")
+        Sealed(x: x, y: 100)
+    }
+
+    public func reveal(&self) -> Int { self.x + self.y }
+}

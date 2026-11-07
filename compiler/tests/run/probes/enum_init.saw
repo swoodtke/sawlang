@@ -1,0 +1,89 @@
+// probe: stated
+// about: an enum `init` returning one of its cases and one returning a `Result` of one run when called directly as `Color(...)`, while qualified case construction and a raw-backed enum's `from(raw:)` are unchanged, conformance row I08 (SL-966)
+// stage 0: refuses an `init` on an enum
+// speeds: -O0 -O2
+// prints: Color.init ran
+// prints: bright red
+// prints: Color.init ran
+// prints: dim gray
+// prints: named gray
+// prints: named refused: unknown color
+// prints: case red
+// prints: raw gray
+// prints: raw none
+// prints: shade solid 7
+// prints: shade clear
+// `Color(...)` names an `init` and collides with no case, since a case is
+// always named on its type.
+
+enum Color: UInt8 {
+    case Red = 1,
+    case Gray = 2
+}
+
+enum ColorError { case Unknown }
+extension ColorError: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("unknown color") }
+}
+extension ColorError: Error {}
+
+extension Color {
+    init(bright: Bool) -> Color {
+        print("Color.init ran")
+        if bright { Color.Red } else { Color.Gray }
+    }
+
+    init(name: String) -> Result<Color, ColorError> {
+        if name == "red" { return Color.Red }
+        if name == "gray" { return Color.Gray }
+        return ColorError.Unknown
+    }
+
+    func label(&self) -> String {
+        match self {
+            case Red -> "red",
+            case Gray -> "gray"
+        }
+    }
+}
+
+enum Shade {
+    case Solid(level: Int),
+    case Clear
+}
+
+extension Shade {
+    init(level: Int) -> Shade {
+        if level == 0 { return Shade.Clear }
+        Shade.Solid(level: level)
+    }
+
+    func label(&self) -> String {
+        match self {
+            case Solid(level) -> "solid {level}",
+            case Clear -> "clear"
+        }
+    }
+}
+
+func named(text: String) -> String {
+    match Color(name: text) {
+        case Ok(c) -> "named {c.label()}",
+        case Err(e) -> "named refused: {e}"
+    }
+}
+
+func main() {
+    let b = Color(bright: true)
+    print("bright {b.label()}")
+    let d = Color(bright: false)
+    print("dim {d.label()}")
+    print(named("gray"))
+    print(named("teal"))
+    let c = Color.Red
+    print("case {c.label()}")
+    if let r = Color.from(raw: 2) { print("raw {r.label()}") }
+    if Color.from(raw: 9).is_none() { print("raw none") }
+    print("shade {Shade(level: 7).label()}")
+    print("shade {Shade(level: 0).label()}")
+}

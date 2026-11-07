@@ -1,0 +1,32 @@
+// probe: stated
+// about: a memberwise construction meets an init requirement where it is legal at the conformance: in the trait's module over another module's type whose field is visible there, and in the type's own module over a `private` field; a type whose fields are `private` meets it from the trait's module through the `init` its author wrote, conformance row I04 (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// prints: open 3
+// prints: Sealed.init ran
+// prints: sealed 104
+// prints: secret 5
+// The generic `made` lives in the trait's module, so every `T(x:)` below is
+// built there, through whichever construction each conformance names.
+
+import init_requirement_memberwise_visibility_make.{Make, made}
+import init_requirement_memberwise_visibility_points.{Open, Sealed}
+
+struct Secret {
+    private x: Int
+}
+
+extension Secret {
+    func reveal(&self) -> Int { self.x }
+}
+
+extension Secret: Make {}
+
+func main() {
+    let o = made<Open>(3)
+    print("open {o.x}")
+    let s = made<Sealed>(4)
+    print("sealed {s.reveal()}")
+    let t = made<Secret>(5)
+    print("secret {t.reveal()}")
+}

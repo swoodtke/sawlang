@@ -1,0 +1,16 @@
+// probe: module
+// about: the trait's module `init_requirement_memberwise_visibility` imports: it declares `Make` and the generic that builds `T(x:)`, and conforms another module's `Open` by its memberwise construction and `Sealed` by the `init` its author wrote (SL-966)
+
+import init_requirement_memberwise_visibility_points.{Open, Sealed}
+
+public trait Make {
+    init(x: Int) -> Self
+}
+
+public func made<T: Make>(n: Int) -> T {
+    T(x: n)
+}
+
+extension Open: Make {}
+
+extension Sealed: Make {}

@@ -2005,6 +2005,85 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
                                         // (map allocates the new Vector, so it reports)
 ```
 - `any` only behind `&`, `&var`, or `Box` (unsized otherwise).
+- **INIT REQUIREMENTS: A TRAIT MAY REQUIRE A CONSTRUCTOR (SL-966).** Spelled
+  as an `init` with no body, returning `Self` (or no clause) or
+  `Result<Self, E>`; never `Self?`, and never a default body. `T(args)`
+  through a type parameter is legal EXACTLY when `T`'s bounds declare a
+  requirement with those labels and types, and `T()` is the zero-argument
+  case. A default body builds `Self(args)` on the same terms:
+  ```saw
+  trait Make {
+      init(seed: Int) -> Self
+      func reset(&self) -> Self { Self(seed: 0) }
+  }
+
+  struct Tally { seed: Int }               // the memberwise Tally(seed:) meets it
+  extension Tally: Make {}
+
+  struct Grid { cells: Int }
+  extension Grid: Make {
+      init(seed: Int) -> Grid { Grid(cells: seed * seed) }   // a written `init`
+  }
+
+  func build<T: Make>(n: Int) -> T { T(seed: n) }
+
+  func main() {
+      print(build<Tally>(3).seed)          // prints: 3
+      print(build<Grid>(3).cells)          // prints: 9
+      print(build<Grid>(3).reset().cells)  // prints: 0
+  }
+  ```
+  Three conformer forms meet a requirement, each matched BY LABEL in any
+  order (unlike a `func` requirement, matched in order): a written `init` with
+  its labels, types and return form; an `init` that OVERRIDES the memberwise construction,
+  which then runs for every `T(...)`, so a validating override is never
+  bypassed; and the memberwise construction itself, when the fields match
+  exactly and that construction is legal AT THE CONFORMANCE. In the type's own
+  module it always is; a conformance in the trait's module (the orphan rule's
+  other half) needs every field visible there, so `T(...)` never sets a
+  `private` field from outside. Fallibility matches exactly, both directions.
+  A conformance supplying none of the three is refused AT THE CONFORMANCE,
+  naming the requirement. A `T(...)` no requirement matches is refused IN THE
+  GENERIC BODY, instantiated or not, and the fix-it names the requirement to
+  add:
+  ```saw-error
+  // error-rule: init.no-requirement
+  // error-contains: add `init() -> Self` to a trait that bounds `T`
+  func fresh<T: Printable>() -> T {
+      T()          // error: constructing `T` with `()` needs an init
+  }                //   requirement in `T`'s bounds
+  ```
+  The construction resolves only through the bounds, so an `init` declared in
+  some other module never changes what a generic builds. A trait with an init
+  requirement still erases: `&any Make` dispatches its other members, and
+  nothing constructs through an existential. ENUMS AND PRIMITIVES TAKE `init`s
+  TOO. An enum's returns one of its cases or a `Result` of one, and runs as
+  `Color(...)` while a case is still named on the type; a primitive's lives in
+  an extension and is import-scoped like a method:
+  ```saw
+  enum Color { case Red, case Gray }
+  extension Color {
+      init(bright: Bool) -> Color { if bright { Color.Red } else { Color.Gray } }
+  }
+
+  extension Int {
+      init(digit: UInt8) -> Int { (digit as Int) - 48 }
+  }
+
+  func main() {
+      let c = Color(bright: false)         // runs the init
+      print(c == Color.Gray)               // prints: true
+      print(Int(digit: 55))                // prints: 7
+  }
+  ```
+  NO PRIMITIVE HAS AN IMPLICIT `init()`, and no zero default is inferred:
+  `Int(5)` with no matching extension `init` is `init.no-implicit`. A trait
+  that wants a constructible primitive declares the requirement, and the
+  primitive's conformance supplies the `init`. `Allocator` declares
+  `init() -> Self`, and its conformer must be a zero-field struct with no
+  `init` (`conformance.allocator-unit`), so `A()` in std's `A().alloc(...)` is
+  the memberwise no-op and emits nothing. A build that refuses `T()` as
+  `slice.not-yet`, or refuses an enum `init`, predates SL-966.
 - **WHAT A GENERIC BODY REQUIRES IS INFERRED, and refused at the CALL (design
   219 wave C).** One question per type parameter: does the body ever duplicate a
   `T` with nothing written? If not — every use is a move — the body works at
@@ -2258,8 +2337,10 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   requirement IS callable through a bound — `T.deserialize(from: &var dec)`
   under `<T: Deserialize>`, as std's own `Optional` and `Vector` conformances
   do — and on `Self` in a trait's default body (`Self.make()`, SL-987), where
-  it reaches the conformer's implementation. `Self()` there is refused
-  (`slice.not-yet`) until SL-966 rules on constructing a conformer.
+  it reaches the conformer's implementation. `Self(args)` there constructs
+  the conformer through one of the trait's init requirements (INIT
+  REQUIREMENTS under Traits & generics); with no matching requirement it is
+  `init.no-requirement`.
   `v[i].serialize(to: &var enc)` over a LOCAL encoder works — the element is
   reached through a place window and the encoder is borrowed where it stands.
   It was refused until Aug 22 (DF-169h: the window's body captured the local by
@@ -4715,10 +4796,12 @@ construct in the owner and lend `&driver` down.
   whole-value replacement), `static func` methods, hand-written trait
   bodies (Printable/Error/your own), `@synthesize` derivations, a hand-written
   `deinit` inside the copy policy, and per-instantiation methods on a generic
-  enum. Import-scoped lookup and the orphan rule apply unchanged. The ONE
-  difference: no `init` — the cases are the constructors, and writing one is a
-  clean error naming a static method as the way to compute which case to build.
-  OVERLOADS work here too (`note(n:)` beside `note(base:, step:)`, `of(seed:)`
+  enum, and an `init` returning one of its cases or a `Result` of one
+  (SL-966; see INIT REQUIREMENTS under Traits & generics). Import-scoped
+  lookup and the orphan rule apply unchanged. The ONE difference: an enum has
+  no memberwise construction, so its `init` overrides nothing, and a case is
+  still built on the type (`Color.Red`), never as `Color(...)`. A build that
+  refuses an enum `init` predates SL-966. OVERLOADS work here too (`note(n:)` beside `note(base:, step:)`, `of(seed:)`
   beside `of(a:, b:)`, instance and static alike) — but only since DF-283a
   (Aug 31), and in an older build two members of one name are an INTERNAL
   COMPILER ERROR at the declaration, in a single file with nothing imported.
