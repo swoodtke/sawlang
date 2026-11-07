@@ -53,7 +53,7 @@
   (declarations
     (trait Make 3:14 public)
     (init-requirement Make.init 4:5 (signature (params (x Int owned)) -> Self))
-    (func made 7:13 public (signature (generics (T (bounds makers.Make))) (params (n Int owned)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func made 7:13 public (signature (generics (T (bounds makers.Make))) (params (n Int owned)) -> T) (summary body (suspends when T.Make.init) (sync-callable unless T.Make.init)))
     (extension 11:1 (target points.Open) (conforms makers.Make))
     (extension 13:1 (target points.Sealed) (conforms makers.Make)))
   (members)
@@ -67,7 +67,7 @@
   (copy-tier)
   (bodies
     (made 7:13
-      (8:5-8:12 Call.paren T value temp (builtin init (owner T)))
+      (8:5-8:12 Call.paren T value temp (builtin makers.Make.init (owner T)))
       (8:10-8:11 Name Int place copy))))
 
 (Module points

@@ -1,0 +1,51 @@
+// probe: stated
+// about: `A()` for an `Allocator` is the unit no-op: std's `A().alloc` and `A().dealloc` sites in `Vector`, `Box`, `Map` and `Set`, and an erased box's glue, run over a user allocator and `GlobalAllocator` with no construction emitted, conformance row I11 (SL-966)
+// stage 0: its `Allocator` declares no init requirement
+// speeds: -O0 -O2
+// leaks: none
+// ll defines: saw allocator_unit_construction.Bump.alloc(size: Int, align: Int)
+// ll defines: saw allocator_unit_construction.Bump.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+// ll omits: Allocator.init
+// ll omits: Bump.init
+// prints: 2
+// prints: 7
+// prints: 1
+// prints: 1
+// prints: boxed
+// prints: 1
+// An `Allocator` conformance is a fieldless struct with no `init`, so its
+// `A()` is the memberwise construction of nothing: no function is called
+// and nothing is stored, and the member it calls runs on that empty value.
+trait Shape { func area(&self) -> Int }
+struct Square { s: Int }
+extension Square: Shape { func area(&self) -> Int { self.s * self.s } }
+
+struct Bump {}
+extension Bump: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var v = Vector<Int, Bump>()
+    try! v.push(1)
+    try! v.push(2)
+    print(v.len())
+    let b = try! Box<Int, Bump>.make(7)
+    print(b.value())
+    var m = Map<Int, Int, Bump>()
+    let _ = try! m.insert(1, 10)
+    print(m.len())
+    var s = Set<Int, Bump>()
+    let _ = try! s.insert(3)
+    print(s.len())
+    let e = Box<any Shape, Bump>.make(Square(s: 3))   // its drop glue deallocates through `Bump`
+    print("boxed")
+    var g = Vector<Int>()
+    try! g.push(4)
+    print(g.len())
+}

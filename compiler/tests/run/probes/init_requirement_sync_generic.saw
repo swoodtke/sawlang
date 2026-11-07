@@ -1,0 +1,30 @@
+// probe: stated
+// about: a `sync` generic constructing through a bound is accepted at conformers whose construction never suspends, a written `init` and a memberwise one (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// prints: 10
+// prints: 5
+// The construction is judged at each instantiation as a requirement call is,
+// so a `sync` body may make it wherever the conformer's `init` is
+// sync-callable (`effect.sync.bound-construction` is the refused twin).
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Quick { seed: Int }
+extension Quick {
+    init(seed: Int) -> Quick { Quick(seed: seed * 2) }
+}
+extension Quick: Make {}
+
+struct Plain { seed: Int }
+extension Plain: Make {}
+
+func build_sync<T: Make>(n: Int) sync -> T {
+    T(seed: n)
+}
+
+func main() {
+    print(build_sync<Quick>(5).seed)
+    print(build_sync<Plain>(5).seed)
+}

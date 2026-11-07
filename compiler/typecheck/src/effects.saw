@@ -312,7 +312,7 @@ extension TcProgram {
             try! out.append("a call through a non-`sync` function value")
             return -1
         }
-        if c.target < 0 || c.role == TcRole.Builtin {
+        if c.target < 0 || (c.role == TcRole.Builtin && not self.constructs_through_bound(&c)) {
             try! out.append(self.callee_text(at))
             return -1
         }
@@ -382,10 +382,11 @@ extension TcProgram {
 
     // Whether call `c` reaches its requirement's implementation through its
     // receiver, as `eval_made_call` routes it: a requirement with no default
-    // body, or one called through a type parameter, `Self` or `any`.
+    // body, an init requirement among them, or one called through a type
+    // parameter, `Self` or `any`.
     func dispatches(&self, c: &TcCall) -> Bool {
         let info = self.res.decls[c.target]
-        if info.kind != ResDeclKind.Requirement {
+        if info.kind != ResDeclKind.Requirement && info.kind != ResDeclKind.InitRequirement {
             return false
         }
         if (self.sigs[c.target].flags & TC_FLAG_DEFAULT_BODY) == 0 {

@@ -1459,7 +1459,7 @@ extension LlEmitter {
                 self.store(word, v.build(), dest)
             }
         } else if name.equals("init") {
-            return
+            self.memberwise_construction(&var mono, &var target, &info)
         } else if name.equals("len") {
             self.array_length(&var mono, &var target, &info)
         } else if name.equals("swap") {
@@ -1484,6 +1484,36 @@ extension LlEmitter {
             self.refuse_here(&var mono, node, "a test suspension outside a lowered frame")
         } else {
             self.atomic(&var mono, &var target, &info, &name)
+        }
+    }
+
+    // A memberwise construction through a bound, the call's owner a struct
+    // whose fields mono put the arguments in the order of: each argument
+    // stored at its field's offset in the destination. A unit struct, an
+    // allocator's `A()` among them, stores nothing (design rule 7).
+    func memberwise_construction(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        if info.dest < 0 {
+            var j = 0
+            while j < info.arg_count {
+                let o = mono.dp.bc.mir.lists[info.arg_first + j]
+                self.drop_moved(&var mono, &var target, o, node)
+                j = j + 1
+            }
+            return
+        }
+        if info.arg_count == 0 {
+            return
+        }
+        let dest = self.place_addr(&var mono, &var target, info.dest, node)
+        var k = 0
+        while k < info.arg_count {
+            let o = mono.dp.bc.mir.lists[info.arg_first + k]
+            let t = mono.dp.bc.mir.operands[o].ty
+            let off = target.member_offset(&var mono.dp.bc.mir.tc, info.owner, k)
+            let at = self.offset_addr(dest, off)
+            self.operand_into(&var mono, &var target, o, at, t, node)
+            k = k + 1
         }
     }
 

@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 8:34
+// message: expected `Int`, the type of the parameter this default fills, and found `String`
+// an init requirement's default value is checked against its parameter's
+// type, as a func requirement's is: the default fills every `T(...)` that
+// leaves the parameter out (SL-966)
+
+trait MakeDefault {
+    init(seed: Int, scale: Int = "ten") -> Self
+}
+
+struct Scaled { seed: Int, scale: Int }
+extension Scaled: MakeDefault {}
+
+func main() {
+    let s = Scaled(seed: 1, scale: 2)
+    print(s.scale)
+}

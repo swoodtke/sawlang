@@ -1,0 +1,27 @@
+// refuses: effect.sync at 27:21
+// message: this calls `build_sync` with `T` as `effect.sync.bound-construction.Slow`, whose `Make.init` is not sync-callable
+// a `sync` generic body constructing through a bound, `T(seed:)`: the
+// construction is a call of the init requirement, judged at each
+// instantiation as a requirement call through a bound is, and refused at the
+// call whose type argument meets it with an `init` that suspends (SL-966)
+
+import std.task.{yield_now}
+
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Slow { seed: Int }
+extension Slow {
+    init(seed: Int) -> Slow {
+        yield_now()
+        Slow(seed: seed + 1)
+    }
+}
+extension Slow: Make {}
+
+func build_sync<T: Make>(n: Int) sync -> T {
+    T(seed: n)
+}
+
+func main() { print(build_sync<Slow>(5).seed) }

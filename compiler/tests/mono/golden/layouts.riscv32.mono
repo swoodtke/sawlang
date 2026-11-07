@@ -382,7 +382,7 @@ fn -> Result<Void, std.alloc.AllocError> {
         _3 = move _4;
         _5 = copy _3;
         _6 = ref(exclusive, (*_1));
-        _7 = call std.vector.Vector.reserve_slots(wanted: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6, move _5] -> [return: bb2] suspends when A.Allocator.alloc A.Allocator.dealloc; => #24
+        _7 = call std.vector.Vector.reserve_slots(wanted: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6, move _5] -> [return: bb2] suspends when A.Allocator.alloc A.Allocator.dealloc A.Allocator.init; => #24
     }
 
     bb1: {

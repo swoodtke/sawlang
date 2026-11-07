@@ -1119,11 +1119,16 @@ extension TcProgram {
             acc.add_cause(TC_CAUSE_TEST_SUSPEND)
             return
         }
-        if c.target < 0 || c.role == TcRole.Builtin || c.role == TcRole.BuiltinOperator || c.role == TcRole.Conversion || c.role == TcRole.Memberwise || c.role == TcRole.Case {
+        // A construction through a bound is a call of its init requirement on
+        // its owner, as a requirement call is; every other builtin is an
+        // operation of the language's own, which neither suspends nor blocks.
+        let bound = self.constructs_through_bound(&c)
+        if c.target < 0 || (c.role == TcRole.Builtin && not bound) || c.role == TcRole.BuiltinOperator || c.role == TcRole.Conversion || c.role == TcRole.Memberwise || c.role == TcRole.Case {
             return
         }
         let info = self.res.decls[c.target]
-        if info.kind == ResDeclKind.Requirement && (self.sigs[c.target].flags & TC_FLAG_DEFAULT_BODY) == 0 {
+        let requirement = info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.InitRequirement
+        if requirement && (self.sigs[c.target].flags & TC_FLAG_DEFAULT_BODY) == 0 {
             self.eval_requirement(c.target, c.owner, e, &var acc)
             return
         }
@@ -1140,6 +1145,13 @@ extension TcProgram {
         }
         let target = c.target
         self.eval_instance(target, &c, e, &var acc)
+    }
+
+    // Whether call record `c` is a construction through a bound, `T(args)`
+    // or `Self(args)`: the builtin `init` whose target is the init
+    // requirement it matched (`record_bound_construction`).
+    public func constructs_through_bound(&self, c: &TcCall) -> Bool {
+        c.role == TcRole.Builtin && c.target >= 0 && self.res.decls[c.target].kind == ResDeclKind.InitRequirement
     }
 
     // A call of function `d` at call record `c`: its summary, each condition

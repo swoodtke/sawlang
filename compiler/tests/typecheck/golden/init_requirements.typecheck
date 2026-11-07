@@ -12,7 +12,7 @@
     (trait Reset 20:7 private)
     (init-requirement Reset.init 21:5 (signature (params (seed Int owned)) -> Self))
     (requirement Reset.start 22:10 (signature (receiver shared) (params) -> Int))
-    (requirement Reset.reset 23:10 (signature (receiver shared) (params) -> Self default-body) (summary body (suspends no) (sync-callable yes)))
+    (requirement Reset.reset 23:10 (signature (receiver shared) (params) -> Self default-body) (summary body (suspends when Self.Reset.init) (sync-callable unless Self.Reset.init)))
     (struct Tally 27:8 private)
     (field Tally.seed 27:16 private Int)
     (extension 28:1 (target init_requirements.Tally) (conforms init_requirements.Make))
@@ -40,9 +40,9 @@
     (init Color.init 62:5 private (signature (params (bright Bool owned)) -> init_requirements.Color) (summary body (suspends no) (sync-callable yes)))
     (extension 67:1 (target Int))
     (init Int.init 68:5 private (signature (params (digit UInt8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func build 71:6 private (signature (generics (T (bounds init_requirements.Make))) (params (n Int owned)) -> T) (summary body (suspends no) (sync-callable yes)))
-    (func load 75:6 private (signature (generics (T (bounds init_requirements.Load))) (params (p String owned)) -> Result<T, init_requirements.LoadError>) (summary body (suspends no) (sync-callable yes)))
-    (func fresh 79:6 private (signature (generics (T (bounds init_requirements.Shape))) (params) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func build 71:6 private (signature (generics (T (bounds init_requirements.Make))) (params (n Int owned)) -> T) (summary body (suspends when T.Make.init) (sync-callable unless T.Make.init)))
+    (func load 75:6 private (signature (generics (T (bounds init_requirements.Load))) (params (p String owned)) -> Result<T, init_requirements.LoadError>) (summary body (suspends when T.Load.init) (sync-callable unless T.Load.init)))
+    (func fresh 79:6 private (signature (generics (T (bounds init_requirements.Shape))) (params) -> T) (summary body (suspends when T.Shape.init) (sync-callable unless T.Shape.init)))
     (func describe 83:6 private (signature (params (s &any init_requirements.Shape shared)) -> Int) (summary body (suspends no) (sync-callable no)))
     (func main 87:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members
@@ -92,7 +92,7 @@
     (init_requirements.Color Copy))
   (bodies
     (Reset.reset 23:10
-      (23:33-23:46 Call.paren Self value temp (builtin init (owner Self)))
+      (23:33-23:46 Call.paren Self value temp (builtin init_requirements.Reset.init (owner Self)))
       (23:44-23:45 IntLit Int value temp))
     (Grid.init 33:5
       (33:31-33:55 Call.paren init_requirements.Grid value temp (memberwise init_requirements.Grid (owner init_requirements.Grid)))
@@ -129,13 +129,13 @@
       (68:34-68:39 Name UInt8 place copy)
       (68:50-68:52 IntLit Int value temp))
     (build 71:6
-      (72:5-72:15 Call.paren T value temp (builtin init (owner T)))
+      (72:5-72:15 Call.paren T value temp (builtin init_requirements.Make.init (owner T)))
       (72:13-72:14 Name Int place copy))
     (load 75:6
-      (76:5-76:15 Call.paren Result<T, init_requirements.LoadError> value temp (builtin init (owner T)))
+      (76:5-76:15 Call.paren Result<T, init_requirements.LoadError> value temp (builtin init_requirements.Load.init (owner T)))
       (76:13-76:14 Name String place copy))
     (fresh 79:6
-      (80:5-80:8 Call.paren T value temp (builtin init (owner T))))
+      (80:5-80:8 Call.paren T value temp (builtin init_requirements.Shape.init (owner T))))
     (describe 83:6
       (84:5-84:13 Call.paren Int value temp (call init_requirements.Shape.area() (owner any init_requirements.Shape)))
       (84:5-84:6 Name &any init_requirements.Shape (deref any init_requirements.Shape) (borrow &any init_requirements.Shape) place borrow))

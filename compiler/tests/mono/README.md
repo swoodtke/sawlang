@@ -248,16 +248,34 @@ the requirement funnel at the vtable's concrete type, only once something
 dispatches it (`dispatch_of`), in every vtable of its trait whichever comes
 first, so a requirement the program never dispatches is never instantiated
 for an erased type. An erasure into a box also reaches its allocator's
-`alloc`, and an erased box's drop glue its allocator's `dealloc`: the box
-builds its allocator as `A()`, so it is a fieldless struct with no `init`,
-or the erasure is refused as `mono.not-yet`. An erased box's drop glue has
-no MIR body; the backend writes it (`compiler/tests/run/README.md`).
+`alloc`, and an erased box's drop glue its allocator's `dealloc`, called on
+an allocator the glue never constructs: an `Allocator` conformance is a
+fieldless struct with no `init` (typecheck's `conformance.allocator-unit`),
+whose `A()` is the unit no-op (SL-966 rule 7), so any other allocator there
+is an `INVARIANT` line. An erased box's drop glue has no MIR body; the
+backend writes it (`compiler/tests/run/README.md`).
+
+**Construction through a bound.** `T(args)` and `Self(args)` reach mono as
+the builtin `init` on the owner, its target the init requirement typecheck
+matched and its arguments in the requirement's parameter order, defaults
+filled (spec, Init requirements). At the concrete owner, one funnel
+(`resolve_bound_construction`) reads the conformance's status for that
+requirement. A written `init`, an override of the memberwise construction
+included, becomes the call's function, its arguments put in that `init`'s
+parameter order. A memberwise construction stays the builtin, its arguments
+put in field order, which the backend stores member by member, and is
+marked never to suspend, since it runs no code; a unit struct's, an
+allocator's `A()`, stores nothing. A construction that no status meets is an
+`INVARIANT` line: typecheck admits one only through a requirement every
+conformance meets.
 
 **Budget points.** Mono keeps every op-budget point; the backend writes
 nothing for one. Coroutine lowering decides which stay live (SL:architecture
 §3.9).
 
-**Suspension.** Mono decides nothing about suspension: the dump prints each
+**Suspension.** Mono decides nothing about suspension beyond the calls whose
+concrete target cannot suspend (a function value's glue, a thread-context
+copy's plain call, a memberwise construction): the dump prints every other
 call's flag as typecheck gave it, and coroutine lowering, the next stage,
 decides which items suspend at their calls' concrete targets
 (`compiler/tests/coro/README.md`).
@@ -342,7 +360,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a call of a body this program does not lower, a construction `T()` through a type parameter at a type that is not a fieldless struct with no `init` (SL-966), an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, `mono.not-yet.generic-instances`, `mono.not-yet.task-root-instance` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a call of a body this program does not lower, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, `mono.not-yet.generic-instances`, `mono.not-yet.task-root-instance` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `synthesize.unmet-member` | a `@synthesize`d `Equatable`, `Comparable` or `Hashable` whose member glue asks a part that nothing meets: a member type with no conformance, or one the spec gives none (a struct's or an enum's `compare` no conformance writes, a payload-carrying enum's unwritten `equals` or `hash`, a tuple's, an Optional's or a fixed array's `compare`), reached through any Optional, fixed array or tuple glue between the derivation and the member. A derivation nothing reaches is legal (spec, Equality), so it is refused where something first reaches it: at the outermost call the program writes on the chain of instantiations that reached the derived glue, naming the derived type, the member, its type, the trait, any outer derived type it is reached through, and the generic instantiation that call made (SL-941). Any Optional's `== None` reads the tag alone and reaches nothing (SL-945); an Optional's `==` against another Optional reaches the payload's derivation | `.equatable-field`, `-ne`, `-generic`, `-optional-holder`, `-array-holder`, `-tuple-holder`, `.equatable-optional-field`, `-array-field`, `-payload`, `-nested`; the `.comparable-` rows with `-ge`, `-sort`, `-generic`; the `.hashable-` rows with `-set`, `-generic`, `-optional-holder`; the run probe `derived_unmet_member_unreached` builds the derivations nothing reaches, and `none_comparison_presence` compares such Optionals with `None` |
 | `static_assert.failed` | a deferred `static_assert` false at an instantiation of the function holding it: one measuring a type parameter's layout, one naming a const parameter, which folds to the instance's value, or both; one whose condition faults at the instance (a shift by the value out of range) fails too (SL:open-questions D40; SL-548) | `static_assert.failed`, `.const-parameter`, `.const-and-layout`, `.const-fault` |

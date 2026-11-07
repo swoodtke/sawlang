@@ -182,7 +182,7 @@ extension MirProgram {
             return
         }
         let info = self.tc.res.decls[d]
-        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement
+        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.InitRequirement
         if callable && self.tc.has_alt(root, Alt.Stmt_Block) {
             self.lower_function(m, d, root)
             return
@@ -4326,9 +4326,10 @@ extension MirProgram {
         self.call_arguments(e, &c, false)
     }
 
-    // A builtin: `print`, `panic`, `assert`, `sizeof`, `alignof`, a type
-    // parameter's `A()`, and the methods no declaration writes (`take`,
-    // `is_some`, `is_none`, `copy`, `len`, `swap`).
+    // A builtin: `print`, `panic`, `assert`, `sizeof`, `alignof`, a
+    // construction through a bound (`T(args)`, `Self(args)`), and the methods
+    // no declaration writes (`take`, `is_some`, `is_none`, `copy`, `len`,
+    // `swap`).
     func builtin_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
         let name = self.tc.name_text(c.spelling)
@@ -4399,6 +4400,13 @@ extension MirProgram {
             }
             call.inst_first = self.push_types(&types)
             call.inst_count = types.len()
+        } else if name.equals("init") && c.target >= 0 {
+            // A construction through a bound: its arguments in the init
+            // requirement's parameter order, defaults filled, as typecheck
+            // bound them, and the requirement, which mono dispatches from.
+            call.target = c.target
+            let args = self.call_arguments(e, &c, false)
+            self.append_all(&var all, &args)
         } else {
             let format_at = self.format_position(e, &name)
             let args = self.builtin_operands_from(e, format_at)

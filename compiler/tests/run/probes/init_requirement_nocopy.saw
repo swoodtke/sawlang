@@ -1,0 +1,63 @@
+// probe: stated
+// about: a NoCopy conformer that owns heap storage, built through a bound by a written `init` and by its memberwise construction, moved out of the generic and discarded: each value's drop runs exactly once (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// leaks: none
+// prints: 3
+// prints: 2
+// prints: 1
+// prints: Held dropped: written 5
+// prints: end
+// prints: Note dropped: memberwise
+// prints: Held dropped: written 2
+// prints: Held dropped: written 3
+// The construction's arguments move into the value, through the `init`'s
+// parameters or into the fields directly, and the value is the caller's.
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Held { items: Vector<Int>, tag: String }
+extension Held: NoCopy {
+    func deinit(&var self) { print("Held dropped: {self.tag} {self.items.len()}") }
+}
+extension Held {
+    init(seed: Int) -> Held {
+        var v = Vector<Int>()
+        var j = 0
+        while j < seed {
+            try! v.push(j)
+            j = j + 1
+        }
+        Held(items: move v, tag: "written")
+    }
+}
+extension Held: Make {}
+
+struct Note { seed: Int, label: String }
+extension Note: NoCopy {
+    func deinit(&var self) { print("Note dropped: {self.label}") }
+}
+trait MakeNote {
+    init(seed: Int, label: String) -> Self
+}
+extension Note: MakeNote {}
+
+func build<T: Make>(n: Int) -> T { T(seed: n) }
+func note<T: MakeNote>(l: String) -> T { T(label: l, seed: 1) }
+
+func pass_on<T: Make>(n: Int) -> T {
+    let made = build<T>(n)
+    move made
+}
+
+func main() {
+    let a = build<Held>(3)
+    print(a.items.len())
+    let b = pass_on<Held>(2)
+    print(b.items.len())
+    let c = note<Note>("memberwise")
+    print(c.seed)
+    let _ = build<Held>(5)
+    print("end")
+}

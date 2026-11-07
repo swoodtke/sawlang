@@ -41,7 +41,7 @@ fn std.box.Box.make(value: T) -> Result<std.box.Box<T, A>, std.alloc.AllocError>
 
     bb2: {
         _4 = move _5;
-        _6 = call builtin init (owner A) [] -> [return: bb4];
+        _6 = call builtin init (owner A) [] -> [return: bb4] suspends when A.Allocator.init;
     }
 
     bb3: {
@@ -109,7 +109,7 @@ fn std.vector.Vector.push(value: T) -> Result<Void, std.alloc.AllocError> {
         _3 = move _4;
         _5 = copy _3;
         _6 = ref(exclusive, (*_1));
-        _7 = call std.vector.Vector.reserve_slots(wanted: Int) (owner std.vector.Vector<T, A>) [move _6, move _5] -> [return: bb2] suspends when A.Allocator.alloc A.Allocator.dealloc;
+        _7 = call std.vector.Vector.reserve_slots(wanted: Int) (owner std.vector.Vector<T, A>) [move _6, move _5] -> [return: bb2] suspends when A.Allocator.alloc A.Allocator.dealloc A.Allocator.init;
     }
 
     bb1: {

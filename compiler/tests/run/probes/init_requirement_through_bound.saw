@@ -1,0 +1,85 @@
+// probe: stated
+// about: `T(args)` through a bound builds the instantiation's value in every position it is written: a generic function, `Self(args)` in a default body, a method's own `<U>`, a static method, a generic struct's method and a nested instantiation; its arguments bind as a call's do, labels written backward, positional, and an omitted default filled, conformance row I05 (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// prints: function 3 9
+// prints: default body 0 0
+// prints: own parameter 3 9
+// prints: static 16
+// prints: generic struct 25
+// prints: nested 7 49
+// prints: backward 1 2
+// prints: positional 1 2
+// prints: default 3 10
+// prints: default written 3 4
+// Typecheck binds the arguments against the init requirement and records the
+// requirement; MIR lowers them in the requirement's order with each default
+// filled, and mono reorders them to the conformer's construction.
+trait Make {
+    init(seed: Int) -> Self
+    func get(&self) -> Int
+    func reset(&self) -> Self { Self(seed: 0) }
+}
+
+struct Tally { seed: Int }
+extension Tally: Make {
+    func get(&self) -> Int { self.seed }
+}
+
+struct Grid { cells: Int }
+extension Grid: Make {
+    init(seed: Int) -> Grid { Grid(cells: seed * seed) }
+    func get(&self) -> Int { self.cells }
+}
+
+struct Factory { base: Int }
+extension Factory {
+    func make<U: Make>(&self) -> U { U(seed: self.base) }
+    static func fresh<U: Make>(n: Int) -> U { U(seed: n) }
+}
+
+struct Pool<T: Make> { first: T }
+extension Pool<T: Make> {
+    func another(&self, n: Int) -> T { T(seed: n) }
+}
+
+func build<T: Make>(n: Int) -> T { T(seed: n) }
+func outer<U: Make>(n: Int) -> U { inner<U>(n + 1) }
+func inner<T: Make>(n: Int) -> T { T(seed: n) }
+
+trait MakePair {
+    init(a: Int, b: Int) -> Self
+}
+struct Pair { a: Int, b: Int }
+extension Pair: MakePair {}
+
+func backward<T: MakePair>() -> T { T(b: 2, a: 1) }
+func positional<T: MakePair>() -> T { T(1, 2) }
+
+trait MakeDefault {
+    init(seed: Int, scale: Int = 10) -> Self
+}
+struct Scaled { seed: Int, scale: Int }
+extension Scaled: MakeDefault {}
+
+func defaulted<T: MakeDefault>() -> T { T(seed: 3) }
+func written<T: MakeDefault>() -> T { T(seed: 3, scale: 4) }
+
+func main() {
+    print("function {build<Tally>(3).get()} {build<Grid>(3).get()}")
+    print("default body {Tally(seed: 5).reset().get()} {Grid(cells: 7).reset().get()}")
+    let f = Factory(base: 3)
+    print("own parameter {f.make<Tally>().get()} {f.make<Grid>().get()}")
+    print("static {Factory.fresh<Grid>(4).get()}")
+    let p = Pool<Grid>(first: Grid(cells: 1))
+    print("generic struct {p.another(5).get()}")
+    print("nested {outer<Tally>(6).get()} {outer<Grid>(6).get()}")
+    let b = backward<Pair>()
+    print("backward {b.a} {b.b}")
+    let q = positional<Pair>()
+    print("positional {q.a} {q.b}")
+    let d = defaulted<Scaled>()
+    print("default {d.seed} {d.scale}")
+    let w = written<Scaled>()
+    print("default written {w.seed} {w.scale}")
+}

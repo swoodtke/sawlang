@@ -1,0 +1,145 @@
+// probe: stated
+// about: `T(args)` through a bound runs the conformer's own construction, one conformer per form: memberwise, fields in another order, a written `init`, an override whose body runs for every `T(...)`, an enum `init`, a primitive's extension `init`, a fallible `init` on both paths, and a generic conformer, conformance row I01 (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// leaks: none
+// prints: memberwise 3
+// prints: pair 1 2
+// prints: Grid.init ran
+// prints: written 9
+// prints: Port override ran
+// prints: override 1003
+// prints: Light.init ran
+// prints: enum off
+// prints: Light.init ran
+// prints: enum on 4
+// prints: Int.init ran
+// prints: primitive 60
+// prints: fallible a.toml
+// prints: fallible missing
+// prints: Wrap.init ran
+// prints: Light.init ran
+// prints: generic 2
+// prints: generic inner on 3
+// A conformance meets an init requirement by a written `init` with its labels
+// and types in any order, an override of the memberwise construction among
+// them, or by the memberwise construction; the dispatch reaches exactly the
+// one the conformance names, with the arguments in its own order.
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Tally { seed: Int }
+extension Tally: Make {}
+
+trait MakePair {
+    init(a: Int, b: Int) -> Self
+}
+struct Pair { b: Int, a: Int }
+extension Pair: MakePair {}
+
+struct Grid { cells: Int }
+extension Grid: Make {
+    init(seed: Int) -> Grid {
+        print("Grid.init ran")
+        Grid(cells: seed * seed)
+    }
+}
+
+struct Port { seed: Int }
+extension Port {
+    init(seed: Int) -> Port {
+        print("Port override ran")
+        Port(seed: seed + 1000)
+    }
+}
+extension Port: Make {}
+
+enum Light { case Off, case On(level: Int) }
+extension Light {
+    init(seed: Int) -> Light {
+        print("Light.init ran")
+        if seed == 0 { return Light.Off }
+        Light.On(level: seed)
+    }
+}
+extension Light: Make {}
+
+trait Scaled {
+    init(seed: Int) -> Self
+    func doubled(&self) -> Int
+}
+extension Int: Scaled {
+    init(seed: Int) -> Int {
+        print("Int.init ran")
+        seed * 10
+    }
+    func doubled(&self) -> Int { self * 2 }
+}
+
+enum LoadError { case Missing }
+extension LoadError: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("missing") }
+}
+extension LoadError: Error {}
+
+trait Load {
+    init(path: String) -> Result<Self, LoadError>
+}
+struct Config { path: String }
+extension Config {
+    init(path: String) -> Result<Config, LoadError> {
+        if path.len() == 0 { return LoadError.Missing }
+        return Config(path: path)
+    }
+}
+extension Config: Load {}
+
+// A generic conformer whose `init` builds its own `X` through a bound.
+struct Wrap<X> { inner: X, n: Int }
+extension Wrap<X: Make> {
+    init(seed: Int) -> Wrap<X> {
+        print("Wrap.init ran")
+        Wrap<X>(inner: X(seed: seed + 1), n: seed)
+    }
+}
+extension Wrap<X: Make>: Make {}
+
+func build<T: Make>(n: Int) -> T { T(seed: n) }
+func pair<T: MakePair>() -> T { T(a: 1, b: 2) }
+func scaled<T: Scaled>(n: Int) -> Int { T(seed: n).doubled() }
+func load<T: Load>(p: String) -> Result<T, LoadError> { T(path: p) }
+
+func light(l: Light) -> String {
+    match l {
+        case Off -> "off",
+        case On(level) -> "on {level}"
+    }
+}
+
+func main() {
+    print("memberwise {build<Tally>(3).seed}")
+    let p = pair<Pair>()
+    print("pair {p.a} {p.b}")
+    let g = build<Grid>(3)
+    print("written {g.cells}")
+    let o = build<Port>(3)
+    print("override {o.seed}")
+    let off = build<Light>(0)
+    print("enum {light(off)}")
+    let on = build<Light>(4)
+    print("enum {light(on)}")
+    let s = scaled<Int>(3)
+    print("primitive {s}")
+    match load<Config>("a.toml") {
+        case Ok(c) -> print("fallible {c.path}"),
+        case Err(e) -> print("fallible {e}")
+    }
+    match load<Config>("") {
+        case Ok(c) -> print("fallible {c.path}"),
+        case Err(e) -> print("fallible {e}")
+    }
+    let w = build<Wrap<Light>>(2)
+    print("generic {w.n}")
+    print("generic inner {light(w.inner)}")
+}

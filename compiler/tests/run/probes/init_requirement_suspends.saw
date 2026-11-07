@@ -1,0 +1,49 @@
+// probe: stated
+// about: a construction through a bound whose conformer's `init` suspends is a suspension point of the task that makes it: the sibling runs while the `init` is parked (SL-966)
+// stage 0: cannot parse an init requirement
+// speeds: -O0 -O2
+// prints: Slow.init before
+// prints: sibling ran
+// prints: Slow.init resumed
+// prints: 4
+// prints: 0
+// A bound construction is a call of its init requirement, so it suspends when
+// the conformer's `init` does, as a requirement call through a bound does.
+import std.task.{yield_now}
+
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Slow { seed: Int }
+extension Slow {
+    init(seed: Int) -> Slow {
+        print("Slow.init before")
+        yield_now()
+        print("Slow.init resumed")
+        Slow(seed: seed + 1)
+    }
+}
+extension Slow: Make {}
+
+func build<T: Make>(n: Int) -> T {
+    T(seed: n)
+}
+
+func work() -> Int {
+    let s = build<Slow>(3)
+    s.seed
+}
+
+func other() -> Int {
+    print("sibling ran")
+    0
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work())
+    let g = group.spawn(other())
+    print(h.join())
+    print(g.join())
+}

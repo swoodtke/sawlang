@@ -5,7 +5,7 @@
     (struct Buffer 12:8 private (generics (A (bounds std.alloc.Allocator) (default std.alloc.GlobalAllocator))))
     (field Buffer.size 13:5 private Int)
     (extension 16:1 (target lowlevel.Buffer<A>) (where (A std.alloc.Allocator)))
-    (method Buffer.grab 17:10 private (signature (receiver shared) (params) (effects unsafe) -> UnsafePointer<Int8>?) (summary body (suspends when A.Allocator.alloc) (sync-callable unless A.Allocator.alloc)))
+    (method Buffer.grab 17:10 private (signature (receiver shared) (params) (effects unsafe) -> UnsafePointer<Int8>?) (summary body (suspends when A.Allocator.alloc A.Allocator.init) (sync-callable unless A.Allocator.alloc A.Allocator.init)))
     (func raw 22:6 private (signature (params (p UnsafePointer<Int> owned) (n &var Int exclusive)) (effects unsafe) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members
     (lowlevel.Buffer
@@ -21,7 +21,7 @@
       (10:34-10:35 IntLit Int value temp))
     (Buffer.grab 17:10
       (18:9-18:45 Call.paren UnsafePointer<Int8>? value temp (call std.alloc.Allocator.alloc(size: Int, align: Int) (owner A)))
-      (18:9-18:12 Call.paren A (borrow &A) value borrow (builtin init (owner A)))
+      (18:9-18:12 Call.paren A (borrow &A) value borrow (builtin std.alloc.Allocator.init (owner A)))
       (18:19-18:28 Member Int place copy)
       (18:19-18:23 SelfExpr lowlevel.Buffer<A> place project)
       (18:30-18:44 Call.paren Int value temp (builtin alignof)))

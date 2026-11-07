@@ -35,7 +35,7 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatus, TcStatusKind}
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -1220,7 +1220,7 @@ extension MonoProgram {
                     return
                 }
                 if name.equals("init") {
-                    self.check_empty_construction(c)
+                    self.resolve_bound_construction(k, c)
                     return
                 }
                 if name.equals("copy") {
@@ -2019,21 +2019,127 @@ extension MonoProgram {
         k
     }
 
-    // `T()` on a type parameter, at a concrete `T`: in the slice, a fieldless
-    // struct with no `init` of its own, whose value is nothing (an
-    // allocator's).
-    func check_empty_construction(&var self, c: Int) {
+    // THE BOUND-CONSTRUCTION DISPATCH: concrete call `c` of item `k`, a
+    // `T(args)` or `Self(args)` typecheck recorded as the builtin `init` on
+    // its owner with the init requirement it matched as its target, its
+    // arguments in the requirement's parameter order (spec, Init
+    // requirements). At the concrete owner the conformance's status for that
+    // requirement says what runs: a `Written` `init`, an override of the
+    // memberwise construction included, is called with the arguments in its
+    // own parameter order, and the call becomes that function's; a
+    // `Memberwise` construction stays the builtin, its arguments in field
+    // order, which the backend stores member by member, so an allocator's
+    // `A()` stores nothing (design rule 7). Typecheck admits a construction
+    // only through a requirement every conformance meets, so a call this
+    // finds no status for is a broken invariant, never a refusal.
+    // ENTRY POINTS:
+    //     resolve_call
+    func resolve_bound_construction(&var self, k: Int, c: Int) {
         let info = self.dp.bc.mir.calls[c]
-        let d = self.dp.bc.mir.tc.nominal_decl(info.owner)
-        let fieldless = d >= 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Struct && target_struct_fields(&self.dp.bc.mir.tc, d).len() == 0
-        if fieldless && not self.declares_init(d) {
+        let req = info.target
+        if req < 0 {
+            try! self.problems.push("a construction through a bound names no init requirement")
+            return
+        }
+        let status = self.init_status(req, info.owner)
+        if status.kind == TcStatusKind.Written {
+            var call = info
+            call.kind = MirCallKind.Function
+            call.target = status.member
+            let order = self.init_parameter_names(status.member)
+            call.arg_first = self.reordered_arguments(&info, req, &order)
+            self.dp.bc.mir.calls[c] = call
+            self.resolve_call(k, c)
+            return
+        }
+        if status.kind == TcStatusKind.Memberwise {
+            let d = self.dp.bc.mir.tc.nominal_decl(info.owner)
+            let fields = target_struct_fields(&self.dp.bc.mir.tc, d)
+            var order = Vector<Int>()
+            var j = 0
+            while j < fields.len() {
+                try! order.push(self.dp.bc.mir.tc.res.decls[fields[j]].name)
+                j = j + 1
+            }
+            // Its source marks it `When` the bound's init suspends; a
+            // memberwise construction runs no code, so its instance never does.
+            var call = info
+            call.arg_first = self.reordered_arguments(&info, req, &order)
+            call.suspend = MirSuspend.Never
+            self.dp.bc.mir.calls[c] = call
             return
         }
         var msg = StringBuilder()
-        try! msg.append("constructing `")
+        try! msg.append("a construction through a bound reached `")
         try! msg.append(self.dp.bc.mir.tc.type_text(info.owner))
-        try! msg.append("` through a type parameter is not in the backend slice yet: only a fieldless struct with no `init`")
-        self.refuse(info.node, "mono.not-yet", msg.build())
+        try! msg.append("`, which no conformance meets `")
+        try! msg.append(self.dp.bc.mir.tc.target_text(req))
+        try! msg.append("` for by a written `init` or its memberwise construction")
+        try! self.problems.push(msg.build())
+    }
+
+    // How concrete `owner`'s conformances meet init requirement `req`: the
+    // status of the first that does, by a written `init` or the memberwise
+    // construction, or a `Missing` one.
+    func init_status(&self, req: Int, owner: Int) -> TcStatus {
+        let trait_decl = self.dp.bc.mir.tc.res.decls[req].parent
+        let d = self.dp.bc.mir.tc.nominal_decl(owner)
+        var c = 0
+        while d >= 0 && c < self.dp.bc.mir.tc.conformances.len() {
+            let one = self.dp.bc.mir.tc.conformances[c]
+            c = c + 1
+            if one.type_decl != d || not self.dp.bc.mir.tc.trait_refines(one.trait_decl, trait_decl) {
+                continue
+            }
+            var s = 0
+            while s < one.status_count {
+                let status = self.dp.bc.mir.tc.statuses[one.status_first + s]
+                s = s + 1
+                let met = status.kind == TcStatusKind.Written || status.kind == TcStatusKind.Memberwise
+                if status.requirement == req && met {
+                    return status
+                }
+            }
+        }
+        TcStatus(requirement: req, kind: TcStatusKind.Missing, member: -1)
+    }
+
+    // The labels of `init` `d`'s parameters, in order.
+    func init_parameter_names(&self, d: Int) -> Vector<Int> {
+        let s = self.dp.bc.mir.tc.sigs[d]
+        var out = Vector<Int>()
+        var j = 0
+        while j < s.param_count {
+            try! out.push(self.dp.bc.mir.tc.params[s.param_first + j].name)
+            j = j + 1
+        }
+        move out
+    }
+
+    // Call `info`'s arguments, which are in init requirement `req`'s
+    // parameter order, put in the order of the labels `order` names: a run of
+    // the MIR's argument lists. A conformance meets a requirement with the
+    // same labels in any order, so each label names exactly one argument.
+    func reordered_arguments(&var self, info: &MirCall, req: Int, order: &Vector<Int>) -> Int {
+        let s = self.dp.bc.mir.tc.sigs[req]
+        var args = Vector<Int>()
+        var j = 0
+        while j < order.len() {
+            var p = 0
+            while p < s.param_count && self.dp.bc.mir.tc.params[s.param_first + p].name != order[j] {
+                p = p + 1
+            }
+            if p >= s.param_count || p >= info.arg_count {
+                try! self.problems.push("a construction through a bound has no argument for a label its conformer takes")
+                return info.arg_first
+            }
+            try! args.push(self.dp.bc.mir.lists[info.arg_first + p])
+            j = j + 1
+        }
+        if args.len() != info.arg_count {
+            try! self.problems.push("a construction through a bound passes arguments its conformer does not take")
+        }
+        self.dp.bc.mir.push_args(&args)
     }
 
     // Whether type declaration `d` has an `init` among its members.
@@ -2567,20 +2673,22 @@ extension MonoProgram {
     }
 
     // The item of allocator member `name` (`alloc` or `dealloc`) of erased
-    // box type `box`'s allocator, reached from item `k`; -1 when refused.
-    // The box builds its allocator as `A()`, so in the slice it is a
-    // fieldless struct with no `init`, as a construction through a type
-    // parameter is.
+    // box type `box`'s allocator, reached from item `k`; -1 when it has none.
+    // The glue calls the member on an allocator it never constructs: an
+    // `Allocator` conformance is a fieldless struct with no `init`, whose
+    // `A()` is the unit no-op (design rule 7), which the conformance rule
+    // `conformance.allocator-unit` holds, so another allocator here is a
+    // broken invariant.
     func allocator_member(&var self, k: Int, box: Int, name: String, node: Int) -> Int {
         let a = self.dp.bc.mir.tc.arg_of(box, 1)
         let d = self.dp.bc.mir.tc.nominal_decl(a)
         let is_struct = d >= 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Struct
         if not is_struct || target_struct_fields(&self.dp.bc.mir.tc, d).len() != 0 || self.declares_init(d) {
             var msg = StringBuilder()
-            try! msg.append("an erased box over `")
+            try! msg.append("an erased box's allocator `")
             try! msg.append(self.dp.bc.mir.tc.type_text(a))
-            try! msg.append("` is not in the backend slice yet: only an allocator that is a fieldless struct with no `init`")
-            self.refuse(node, "mono.not-yet", msg.build())
+            try! msg.append("` is not a fieldless struct with no `init`, which its `Allocator` conformance requires")
+            try! self.problems.push(msg.build())
             return -1
         }
         var labels = Vector<String>()

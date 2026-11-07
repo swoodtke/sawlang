@@ -309,6 +309,7 @@ extension TcProgram {
             case Method -> self.check_function_body(d),
             case Init -> self.check_function_body(d),
             case Requirement -> self.check_function_body(d),
+            case InitRequirement -> self.check_function_body(d),
             case Static -> self.check_static_body(d),
             case Case -> self.check_raw_value(d),
             case _ -> {}
@@ -7834,14 +7835,25 @@ extension TcProgram {
 
     // Records construction `e` through a bound as the builtin `init` on
     // `owner`. The record the overload filter made is replaced in place, so
-    // the node keeps one record.
+    // the node keeps one record, and keeps the filter's target, the init
+    // requirement, and its binding: MIR lowers the arguments in the
+    // requirement's order with its defaults filled, and mono finds the
+    // conformer's construction from the requirement.
     func record_bound_construction(&var self, e: Int, owner: Int) {
         let in_test = self.current_test
         let first = self.insts.len()
-        let record = TcCall(node: e, target: -1, role: TcRole.Builtin, derived: false, owner: owner,
-                            inst_first: first, inst_count: 0, spelling: self.res.intern("init"), twin: -1,
-                            pair: -1, bind_first: -1, bind_count: 0, variadic_from: -1, test: in_test)
         let at = self.call_at[e]
+        var target = -1
+        var bind_first = -1
+        var bind_count = 0
+        if at >= 0 && self.calls[at].target >= 0 && self.res.decls[self.calls[at].target].kind == ResDeclKind.InitRequirement {
+            target = self.calls[at].target
+            bind_first = self.calls[at].bind_first
+            bind_count = self.calls[at].bind_count
+        }
+        let record = TcCall(node: e, target: target, role: TcRole.Builtin, derived: false, owner: owner,
+                            inst_first: first, inst_count: 0, spelling: self.res.intern("init"), twin: -1,
+                            pair: -1, bind_first: bind_first, bind_count: bind_count, variadic_from: -1, test: in_test)
         if at >= 0 {
             self.calls[at] = record
         } else {

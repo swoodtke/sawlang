@@ -2813,7 +2813,7 @@ conformer's satisfying construction, and its type is the requirement's return,
 `T` or `Result<T, E>`, which is handled like any other `Result`. `T()` is the
 zero-argument case:
 
-```saw-pending SL-966
+```saw
 trait Make {
     init(seed: Int) -> Self
 }

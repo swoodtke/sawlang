@@ -1,0 +1,30 @@
+// refuses: effect.sync at 27:5
+// message: it calls `build`, which may suspend (`build` → `Slow.init` → `yield_now` (parks the task))
+// a `sync` body calling a generic whose `T(seed:)` reaches a suspending
+// `init`: the path goes on from the generic, through the construction at its
+// type argument, to the park (SL-966)
+
+import std.task.{yield_now}
+
+trait Make {
+    init(seed: Int) -> Self
+}
+
+struct Slow { seed: Int }
+extension Slow {
+    init(seed: Int) -> Slow {
+        yield_now()
+        Slow(seed: seed + 1)
+    }
+}
+extension Slow: Make {}
+
+func build<T: Make>(n: Int) -> T {
+    T(seed: n)
+}
+
+func eager() sync -> Int {
+    build<Slow>(3).seed
+}
+
+func main() { print(eager()) }
