@@ -3772,6 +3772,12 @@ ATTRIBUTE_REFUSED = '+a"b'
 # `-forced-atomics` turns it off again (SL-948).
 FORCED_ATOMICS_REFUSED = "+m,+forced-atomics,+c"
 FORCED_ATOMICS_OFF = "+m,+forced-atomics,-forced-atomics"
+# A feature name no target's clang knows, and one known only to the other
+# host architecture: each refused as a usage error by a build that runs
+# clang, naming it; the host's own name builds (SL-995).
+FEATURE_UNKNOWN = "+sawc-not-a-feature"
+FEATURE_OWN = {"aarch64": "+neon", "arm64": "+neon", "x86_64": "+sse2"}
+FEATURE_FOREIGN = {"aarch64": "+sse2", "arm64": "+sse2", "x86_64": "+neon"}
 
 
 def check_attribute_groups(failures, counts):
@@ -3817,6 +3823,24 @@ def check_attribute_groups(failures, counts):
         elif not refused and r.returncode != 0:
             failures.append("%s: exits %d, not 0: the last mention turns it off: %s"
                             % (where, r.returncode, said.strip()[:300]))
+        else:
+            counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
+    triple = TARGET or build.host_triple()
+    arch = triple.split("-")[0]
+    obj = os.path.join(OUT, "attribute_group_levels_features.o")
+    for features, refused in ((FEATURE_UNKNOWN, True), (FEATURE_FOREIGN[arch], True), (FEATURE_OWN[arch], False)):
+        where = "run %s -c --target-features %s" % (rel(probe), features)
+        if os.path.exists(obj):
+            os.remove(obj)
+        r = subprocess.run([build.SAWC, "build", "-c", "-g0", "--std-root", "std"] + target_flags()
+                           + ["--target-features", features, rel(probe), "-o", obj], cwd=REPO,
+                           capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = r.stdout + r.stderr
+        if refused and (r.returncode != 2 or os.path.exists(obj) or ("`%s`" % features) not in said):
+            failures.append("%s: exits %d, not 2 naming `%s` with no object: %s"
+                            % (where, r.returncode, features, said.strip()[:300]))
+        elif not refused and (r.returncode != 0 or not os.path.exists(obj)):
+            failures.append("%s: exits %d, not 0 with an object: %s" % (where, r.returncode, said.strip()[:300]))
         else:
             counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
 

@@ -96,7 +96,11 @@ attribute group, which every define names, since clang reads a function's
 subtarget from its attributes when it compiles IR. `-Os` adds `optsize` to the
 group and `-Oz` adds `optsize minsize`: clang adds neither to IR it is handed,
 and `minsize` is what runs the machine outliner. A feature list holding
-anything but letters, digits and `+-,._` is a usage error.
+anything but letters, digits and `+-,._` is a usage error. So is a name the
+target's clang does not recognize, which LLVM would drop with a warning: a
+build that runs clang compiles a probe module carrying the list first and
+refuses each name it reports, while `--emit-ll`, which runs no clang, writes
+the list as given (SL-995).
 
 The module carries DWARF line tables unless `-g0` is given (`-g` is the
 default spelled; `compiler/llvm/src/debug.saw`). An ELF executable keeps them
@@ -942,7 +946,10 @@ argument accessor, which no header can state about an object.
 flags, `-O2`, `-Os`, `-Oz`, `--target-features +foo,-bar` and the last two
 together, and each must end with its own one `attributes #0` line, every
 define naming it; a feature list holding a quote must be refused with exit
-status 2.
+status 2. Built with `-c` for the host, an unknown feature name and one only
+the other host architecture knows must each be refused with exit status 2,
+naming it and writing no object, and the host's own (`+neon` or `+sse2`) must
+build.
 `leaks_check_sees_a_leak.saw` drops its only pointer to a block it got from
 C's `malloc`, and the leak check must report exactly that one block: a
 checker that sees nothing would pass every `// leaks: none` probe, and the

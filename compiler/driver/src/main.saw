@@ -159,7 +159,8 @@ func driver_speed_level(flag: String) -> String {
 // `OUT` lacks it, and links nothing: the object keeps the executable's
 // linkage, and a program with no `main` owes none (`llvm_emit_program`).
 // `--target-features` names the subtarget features every function is
-// compiled for.
+// compiled for, each one checked against the target's clang first
+// (`driver_check_feature_names`).
 // `--sanitize address` builds it under AddressSanitizer, its frames poisoned
 // outside their values' lifetimes; it is the one value the flag takes. A
 // refusal prints its record and exits 1, and a failing clang's exit status
@@ -337,6 +338,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if freestanding && target_mach_o(triple) {
         return driver_refuse_mach_o(path, triple)
     }
+    let written_features = features
     features = target_effective_features(triple, features, freestanding)
     var front = driver_front(std_root, target_front_end(triple, features), false, freestanding, provider,
                              front_on == 1, timed)
@@ -390,6 +392,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var record = StringBuilder()
     var ir = StringBuilder()
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
+    if written_features.len() > 0 {
+        let named = driver_check_feature_names(compiler, clang_triple, triple, features, out)
+        if named != 0 {
+            return named
+        }
+    }
     let whole = driver_front_chain(&var front, &plan, true, hidden)
     if warn {
         driver_print_warnings(path, &whole.drops.bc.mir.tc)
@@ -2975,6 +2983,89 @@ func driver_features_ok(features: String) -> Bool {
         return false
     }
     true
+}
+
+// THE FEATURE-NAME CHECK: whether the clang at `clang` recognizes each name
+// in `features` for `clang_triple`, which it compiles the build's IR for.
+// LLVM drops a name it does not know with a warning and builds without it,
+// so a misspelled `+strict-align` would cost an alignment guarantee with the
+// build still passing: a probe module carrying the list is compiled first,
+// and every name its output reports is a usage error (SL-995). Returns 0
+// when every name is known, `DRIVER_EXIT_USAGE` once the refusal is
+// printed, and 1 when the probe cannot run.
+// ENTRY POINTS:
+//     driver_build
+func driver_check_feature_names(clang: String, clang_triple: String, triple: String, features: String,
+                                out: String) -> Int {
+    var probe_path = StringBuilder()
+    try! probe_path.append(out)
+    try! probe_path.append(".features.ll")
+    let probe = probe_path.build()
+    var text = StringBuilder()
+    try! text.append("define void @sawc_feature_probe() #0 \{\n  ret void\n\}\n\nattributes #0 = \{ \"target-features\"=\"")
+    try! text.append(features)
+    try! text.append("\" \}\n")
+    if not driver_write_file(probe, text.build()) {
+        return 1
+    }
+    var arguments = Vector<String>()
+    try! arguments.push("-target")
+    try! arguments.push(clang_triple)
+    try! arguments.push("-Wno-override-module")
+    try! arguments.push("-c")
+    try! arguments.push("-x")
+    try! arguments.push("ir")
+    try! arguments.push(probe)
+    try! arguments.push("-o")
+    try! arguments.push("/dev/null")
+    let captured = driver_captured(out, "clang", clang, &arguments)
+    let _ = File.remove(Path(s: probe))
+    guard let said = captured else {
+        return 1
+    }
+    let marker = "' is not a recognized feature for this target"
+    var unknown = Vector<String>()
+    let lines = try! said.split("\n")
+    var k = 0
+    while k < lines.len() {
+        let line = lines[k]
+        k = k + 1
+        if not line.contains(marker) || not line.starts_with("'") {
+            continue
+        }
+        var end = 1
+        while end + marker.len() <= line.len() && not line.substring(end, end + marker.len()).equals(marker) {
+            end = end + 1
+        }
+        let name = line.substring(1, end)
+        var seen = false
+        var j = 0
+        while j < unknown.len() {
+            if unknown[j].equals(name) {
+                seen = true
+            }
+            j = j + 1
+        }
+        if not seen {
+            try! unknown.push(name)
+        }
+    }
+    if unknown.len() == 0 {
+        return 0
+    }
+    var names = StringBuilder()
+    var n = 0
+    while n < unknown.len() {
+        if n > 0 {
+            try! names.append(", ")
+        }
+        try! names.append("`")
+        try! names.append(unknown[n])
+        try! names.append("`")
+        n = n + 1
+    }
+    print("sawc build: --target-features names {}, which {}'s clang ({}) does not recognize as a feature of that target; LLVM would build without it, so check its spelling", names.build(), triple, clang)
+    DRIVER_EXIT_USAGE
 }
 
 // The arguments every clang run of a link starts with: the target, the speed
