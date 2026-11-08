@@ -14,6 +14,7 @@ import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
@@ -32,6 +33,7 @@ import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 // Runs every check of this file over `layer`'s part.
 public func tc_check_body_rules(p: &var TcProgram, layer: &FrontLayer) {
     p.check_containment_signatures(&layer)
+    p.mark_lend_refused_uses(&layer)
     p.check_body_rules(&layer)
     p.check_lend_origins(&layer)
 }
@@ -146,17 +148,55 @@ extension TcProgram {
         }
     }
 
+    // Refuses, with no message of its own, each module whose body calls a
+    // `borrows` accessor `borrows.result` refuses: its uses report nothing
+    // (`lend_refused`), and a later stage would otherwise lower a call this
+    // stage left unsettled (SL-916).
+    func mark_lend_refused_uses(&var self, layer: &FrontLayer) {
+        var k = layer.tc_call_first
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if not self.lend_refused(c.target) {
+                continue
+            }
+            let m = self.node_module(c.node)
+            if m < 0 {
+                continue
+            }
+            var j = 0
+            while j < self.quiet_refused.len() && self.quiet_refused[j] != m {
+                j = j + 1
+            }
+            if j == self.quiet_refused.len() {
+                try! self.quiet_refused.push(m)
+            }
+        }
+    }
+
     func check_function_containment(&var self, d: Int) {
         let info = self.res.decls[d]
         let s = self.sigs[d]
         let site = self.decl_site(d)
-        if (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending == TcLend.Other {
+        if self.lend_refused(d) && not self.has_error(s.result) {
+            let written = self.written_return(d)
             var msg = StringBuilder()
             try! msg.append("`")
             try! msg.append(self.res.decl_path(d))
-            try! msg.append("` is declared `borrows`, and lends `")
-            try! msg.append(self.type_text(s.result))
-            try! msg.append("`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct")
+            if written < 0 {
+                try! msg.append("` is declared `borrows` and writes no result: a `borrows` declaration names the LENT REFERENCE and its mode; write `borrows -> &T` if a use site may only READ through the place, or `borrows -> &var T` if it may also WRITE through it, `T` being the lent place's type")
+            } else {
+                let w = self.text(info.module, written)
+                try! msg.append("` is declared `borrows`, and lends `")
+                try! msg.append(w)
+                try! msg.append("`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &")
+                try! msg.append(w)
+                try! msg.append("` if a use site may only READ through the place, or `borrows -> &var ")
+                try! msg.append(w)
+                try! msg.append("` if it may also WRITE through it; `borrows -> ")
+                try! msg.append(w)
+                try! msg.append("` says neither (a `borrows` function may also lend a slice, an optional of a place or slice, or a borrowing struct)")
+            }
             self.refuse_in(info.module, site, "borrows.result", msg.build())
         }
         var k = 0

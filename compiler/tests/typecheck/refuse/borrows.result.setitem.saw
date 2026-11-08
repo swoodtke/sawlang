@@ -1,0 +1,22 @@
+// refuses: borrows.result at 9:10
+// a write through a subscript whose `[]` is the bare `borrows -> Int` reports the declaration alone, not a `subscript.role` per use
+
+struct Table {
+    cells: [Int; 4]
+}
+
+extension Table {
+    func [](&self, i: Int) borrows -> Int {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var t = Table(cells: [0; 4])
+    t[0] = 1
+    var i = 0
+    while i < 4 {
+        t[i] = i
+        i = i + 1
+    }
+}

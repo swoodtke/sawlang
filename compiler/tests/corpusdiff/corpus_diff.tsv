@@ -1035,14 +1035,15 @@ errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_field_is_read_only.saw	pass	-	mutability.immutable: this assignment writes `self.source.n`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_producer_alias_return.saw	wrong	refused by another rule	call.arity, where the plan names lends.path
-errors/borrowing_producer_composite_return.saw	pass	-	borrows.result: `Owner.opt_sugar` is declared `borrows`, and lends `borrowing_producer_composite_return.It?`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a
+errors/borrowing_producer_composite_return.saw	pass	-	borrows.result: `Owner.opt_sugar` is declared `borrows`, and lends `It?`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &It?` if a use site may
 errors/borrowing_producer_stores_no_borrow.saw	pass	-	borrowing.containment: `other.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in other.iter() { … }`, or name it with `borrow let held = other.iter() {
 errors/borrowing_struct_alias_compositions.saw	pass	-	borrowing.containment: the borrowing struct `borrowing_struct_alias_compositions.It` is stored in a field: it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow`
 errors/borrowing_struct_exclusive_field.saw	pass	judged by its own directives (edited since its oracle)	type.reference-position: a borrowing struct's field holds `&T` or `&var T`, which `lends self` fills, and `&[Int]` is a slice, which no `lends self` makes: hold a reference to the collection and read
 errors/borrowing_struct_origin.saw	pass	-	lends.origin: `lends self.items` lends a projection of the receiver, and `lends self` is the only spelling: the window a `borrows` call opens charges its receiver's root, and a projection (`lends self
 errors/borrowing_struct_type_positions.saw	pass	-	conformance.signature: `CallableChain.next` does not meet `Iterator.next`, as `CallableChain` conforms to `Iterator` needs: its result type differs
 errors/borrowing_struct_value_positions.saw	pass	-	borrowing.containment: `b.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in b.iter() { … }`, or name it with `borrow let it = b.iter() { … }`
-errors/borrows_bare_return_type.saw	pass	judged by its own directives (edited since its oracle)	borrows.result: `Grid.at` is declared `borrows`, and lends `borrows_bare_return_type.Cell`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct
+errors/borrows_bare_cross_module_use.saw	pass	judged by its own directives (no oracle)	borrows.result: `Slab.[]` is declared `borrows`, and lends `Int`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &Int` if a use site may only RE
+errors/borrows_bare_return_type.saw	pass	judged by its own directives (edited since its oracle)	borrows.result: `Grid.at` is declared `borrows`, and lends `Cell`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &Cell` if a use site may only
 errors/borrows_body_never_lends.saw	pass	-	lend.missing: this path through the `borrows` body of `at` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value
 errors/borrows_effect_slot_order.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/borrows_effect_slot_order.saw` (syntax.rule.effect-slot), so its declarations are not available
 errors/borrows_function_type_rejected.saw	wrong	accepts a refusal test	Parse error at 10:21: a function TYPE may not be `borrows` (design 141 v1): a borrows call yields a place for a window, and a place is never a value, so there is nothing to bind, store or erase. Call
@@ -1099,7 +1100,7 @@ errors/coro_group_spawn_suspending_recursion.saw	pass	-	coro.suspending-cycle: s
 errors/coro_guarded_arm_owning_payload.saw	stage0-wrong	annotated SL-283	sawc builds it, and its run exits 0
 errors/coro_imported_closure_body_suspends.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
-errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `TcpStream.read`, which may suspend: call it outside the closure
+errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `TcpStream.read`, which may suspend (`TcpStream.read` → `park` → `io_wait` (parks the task)): call it outside the closure
 errors/coro_let_init_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc meets its directives
 errors/coro_main_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_method_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `Walker.walk -> Walker.walk` has no compile-time frame size, since a callee's frame is embedded in its caller's by
@@ -1179,7 +1180,7 @@ errors/labeled_arg_closure.saw	pass	-	call.label: a function value's parameters 
 errors/labeled_arg_duplicate.saw	pass	-	call.label: the label `a` names a parameter before one an earlier argument binds; arguments bind in order in sub(a: Int, b: Int) [labeled_arg_duplicate]
 errors/labeled_arg_missing_skip.saw	pass	-	call.arity: missing an argument for `b` of three(a: Int, b: Int, c: Int) [labeled_arg_missing_skip]
 errors/labeled_arg_unknown.saw	pass	-	call.label: no parameter is labeled `z` in sub(a: Int, b: Int) [labeled_arg_unknown]
-errors/labeled_overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend
+errors/labeled_overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend (`work` → `__saw_test_suspend`)
 errors/labeled_overload_positional_ambiguous.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: f(a: Int, b: Int) [labeled_overload_positional_ambiguous]; f(kind: In
 errors/labeled_overload_same_name_decl_error.saw	pass	-	overload.indistinguishable: `f(a: Int, b: Int)` is already declared at 6:6 as `f(a: Int, b: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how
 errors/lend_accessor_param.saw	pass	judged by its own directives (edited since its oracle)	type.mismatch: `lend` hands out a place of type `&var Int`, and this accessor lends `Int`
@@ -1348,17 +1349,17 @@ errors/string_unknown_escape.saw	pass	-	resolve.parse-refused: the parser refuse
 errors/subscript_must_be_borrows.saw	wrong	accepts a refusal test	Parse error at 12:35: a `[]` subscript must be `borrows` — `v[i]` names a PLACE in the container, not a value read out of it. Write `func [](&var self, ...) borrows -> &var T`; a value-returning looku
 errors/suspend_in_deinit.saw	pass	-	effect.sync: `Resource.deinit` is a `deinit`, which runs where nothing may suspend, and it calls `__saw_suspend`, which may suspend
 errors/sync_blocking_extern.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `slow_read`, which may suspend
-errors/sync_context_calls_a_closure_taking_helper.saw	pass	-	effect.sync: `doubled` is declared `sync`, and it calls `apply`, which is not sync-callable
-errors/sync_custom_init_call.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `Widget.init`, which may suspend
-errors/sync_direct_suspend.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `suspends`, which may suspend
+errors/sync_context_calls_a_closure_taking_helper.saw	pass	-	effect.sync: `doubled` is declared `sync`, and it calls `apply`, which is not sync-callable (`apply` → a call through a non-`sync` function value)
+errors/sync_custom_init_call.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `Widget.init`, which may suspend (`Widget.init` → `__saw_test_suspend`)
+errors/sync_direct_suspend.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `suspends`, which may suspend (`suspends` → `__saw_test_suspend`)
 errors/sync_effect_polymorphism.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/sync_extension_method_suspend.saw	pass	-	effect.sync: `Sensor.poll` is declared `sync`, and it calls `__saw_test_suspend`, which may suspend
 errors/sync_field_call.saw	pass	-	effect.sync: `invoke` is declared `sync`, and it calls a function value whose type is not `sync`, which is not sync-callable
-errors/sync_generic_instantiation_suspends.saw	pass	-	effect.sync: `caller_slow` is declared `sync`, and it calls `run`, which may suspend
+errors/sync_generic_instantiation_suspends.saw	pass	-	effect.sync: `caller_slow` is declared `sync`, and it calls `run`, which may suspend (`run` → `Slow.step` → `__saw_suspend`)
 errors/sync_module_call.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 errors/sync_nonliteral_function_value.saw	pass	-	type.mismatch: expected `(Int) sync -> Int`, the type of the parameter, and found `(Int) sendable -> Int`
-errors/sync_static_method_call.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `Reader.load`, which may suspend
-errors/sync_transitive_path.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `f`, which may suspend
+errors/sync_static_method_call.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `Reader.load`, which may suspend (`Reader.load` → `__saw_test_suspend`)
+errors/sync_transitive_path.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `f`, which may suspend (`f` → `g` → `__saw_test_suspend`)
 errors/sync_via_function_value.saw	pass	-	effect.sync: `run` is declared `sync`, and it calls a function value whose type is not `sync`, which is not sync-callable
 errors/synthesize_copy_nocopy_field.saw	wrong	accepts a refusal test	cannot derive copy() for `Holder`: field `f` of type `File` implements NoCopy and cannot be copied
 errors/synthesize_derives_nothing.saw	pass	-	synthesize.inert: `@synthesize` derives nothing here: `Point` conforms to `Printable`, whose requirements are all written or have defaults, or which derives none
@@ -1513,7 +1514,7 @@ expr_suspend_optchain_hop.saw	pass	-	-
 expr_suspend_optchain_multihop.saw	pass	-	-
 expr_suspend_return.saw	pass	-	-
 expr_suspend_struct_field.saw	pass	-	-
-expr_suspend_sync_reject.saw	pass	-	effect.sync: `pure` is declared `sync`, and it calls `s`, which may suspend
+expr_suspend_sync_reject.saw	pass	-	effect.sync: `pure` is declared `sync`, and it calls `s`, which may suspend (`s` → `__saw_suspend`)
 expr_suspend_try.saw	pass	judged by its own directives (edited since its oracle)	-
 expr_suspend_tuple.saw	pass	-	-
 expr_suspend_value_if.saw	pass	-	-
@@ -2103,7 +2104,7 @@ overload_closure_arg_ambiguous_error.saw	pass	-	call.ambiguous: ambiguous call: 
 overload_concrete_vs_generic.saw	pass	-	-
 overload_decl_ambiguous_error.saw	pass	-	overload.indistinguishable: `f(x: U)` is already declared at 7:6 as `f(x: T)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how many arguments they
 overload_effects_sync.saw	pass	-	-
-overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend
+overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend (`work` → `__saw_test_suspend`)
 overload_exact_vs_optional.saw	pass	-	-
 overload_int_uint_exact.saw	pass	-	-
 overload_method_and_static.saw	pass	-	-
@@ -2585,7 +2586,7 @@ value_if_optional_destination_context.saw	pass	-	-
 var_struct_field_assign_ok.saw	pass	-	-
 variables.saw	pass	-	-
 vector_capacity_reports_oom.saw	pass	-	-
-vector_closure_suspending_transform.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `slow_double`, which may suspend: call it outside the closure
+vector_closure_suspending_transform.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `slow_double`, which may suspend (`slow_double` → `yield_now` (parks the task)): call it outside the closure
 vector_closures_over_nocopy_elements.saw	pass	-	-
 vector_copy.saw	pass	-	-
 vector_custom_alloc_grow_pairs.saw	pass	-	-

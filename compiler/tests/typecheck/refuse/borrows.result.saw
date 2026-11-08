@@ -1,5 +1,6 @@
-// refuses: borrows.result at 9:10
+// refuses: borrows.result at 10:10
 // a `borrows` function whose result is no place, slice or borrowing struct
+// message: write `borrows -> &Int` if a use site may only READ through the place, or `borrows -> &var Int` if it may also WRITE through it
 
 struct Counter {
     n: Int

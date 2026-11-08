@@ -67,7 +67,7 @@ import sawtypecheck.model.{TcUse as T_TcUse}
 import sawtypecheck.model.{TcWarning as T_TcWarning}
 
 // The number of tables `front_part_lengths` measures.
-public func front_part_tables() -> Int { 310 }
+public func front_part_tables() -> Int { 311 }
 
 // Piece 0 of the slicer, from `drops.bc.mir.tc.res.names` on.
 public struct FrontPart0 {
@@ -798,10 +798,10 @@ public struct FrontPart3 {
     t109: Vector<T_TcObligation>
     t110: Vector<Int>
     t111: Vector<T_TcDiag>
-    t112: Vector<T_TcWarning>
-    t113: Vector<Int>
-    t114: Vector<Bool>
-    t121: Vector<Int>
+    t112: Vector<Int>
+    t113: Vector<T_TcWarning>
+    t114: Vector<Int>
+    t115: Vector<Bool>
     t122: Vector<Int>
     t123: Vector<Int>
     t124: Vector<Int>
@@ -856,13 +856,13 @@ func front_lengths_3(c: &FrontCut, out: &var Vector<Int>) {
     out[109] = c.drops.bc.mir.tc.obligations.len()
     out[110] = c.drops.bc.mir.tc.func_nodes.len()
     out[111] = c.drops.bc.mir.tc.diags.len()
-    out[112] = c.drops.bc.mir.tc.warnings.len()
-    out[113] = c.drops.bc.mir.tc.lend_tops.len()
-    out[114] = c.drops.bc.mir.tc.lend_heads.len()
-    out[121] = c.drops.bc.mir.tc.skipped.len()
-    out[122] = c.drops.bc.mir.tc.string_positions.len()
-    out[123] = c.drops.bc.mir.tc.expr_types.len()
-    out[124] = c.drops.bc.mir.tc.typed_count.len()
+    out[112] = c.drops.bc.mir.tc.quiet_refused.len()
+    out[113] = c.drops.bc.mir.tc.warnings.len()
+    out[114] = c.drops.bc.mir.tc.lend_tops.len()
+    out[115] = c.drops.bc.mir.tc.lend_heads.len()
+    out[122] = c.drops.bc.mir.tc.skipped.len()
+    out[123] = c.drops.bc.mir.tc.string_positions.len()
+    out[124] = c.drops.bc.mir.tc.expr_types.len()
 }
 
 func front_make_3(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
@@ -892,13 +892,13 @@ func front_make_3(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
                t109: front_suffix(&c.drops.bc.mir.tc.obligations, lo[109], hi[109]),
                t110: front_suffix(&c.drops.bc.mir.tc.func_nodes, lo[110], hi[110]),
                t111: front_suffix(&c.drops.bc.mir.tc.diags, lo[111], hi[111]),
-               t112: front_suffix(&c.drops.bc.mir.tc.warnings, lo[112], hi[112]),
-               t113: front_suffix(&c.drops.bc.mir.tc.lend_tops, lo[113], hi[113]),
-               t114: front_suffix(&c.drops.bc.mir.tc.lend_heads, lo[114], hi[114]),
-               t121: front_suffix(&c.drops.bc.mir.tc.skipped, lo[121], hi[121]),
-               t122: front_suffix(&c.drops.bc.mir.tc.string_positions, lo[122], hi[122]),
-               t123: front_suffix(&c.drops.bc.mir.tc.expr_types, lo[123], hi[123]),
-               t124: front_suffix(&c.drops.bc.mir.tc.typed_count, lo[124], hi[124]))
+               t112: front_suffix(&c.drops.bc.mir.tc.quiet_refused, lo[112], hi[112]),
+               t113: front_suffix(&c.drops.bc.mir.tc.warnings, lo[113], hi[113]),
+               t114: front_suffix(&c.drops.bc.mir.tc.lend_tops, lo[114], hi[114]),
+               t115: front_suffix(&c.drops.bc.mir.tc.lend_heads, lo[115], hi[115]),
+               t122: front_suffix(&c.drops.bc.mir.tc.skipped, lo[122], hi[122]),
+               t123: front_suffix(&c.drops.bc.mir.tc.string_positions, lo[123], hi[123]),
+               t124: front_suffix(&c.drops.bc.mir.tc.expr_types, lo[124], hi[124]))
 }
 
 func front_shrunk_3(c: &FrontCut, hi: &Vector<Int>) -> String {
@@ -965,26 +965,26 @@ func front_shrunk_3(c: &FrontCut, hi: &Vector<Int>) -> String {
     if c.drops.bc.mir.tc.diags.len() < hi[111] {
         return "drops.bc.mir.tc.diags"
     }
-    if c.drops.bc.mir.tc.warnings.len() < hi[112] {
+    if c.drops.bc.mir.tc.quiet_refused.len() < hi[112] {
+        return "drops.bc.mir.tc.quiet_refused"
+    }
+    if c.drops.bc.mir.tc.warnings.len() < hi[113] {
         return "drops.bc.mir.tc.warnings"
     }
-    if c.drops.bc.mir.tc.lend_tops.len() < hi[113] {
+    if c.drops.bc.mir.tc.lend_tops.len() < hi[114] {
         return "drops.bc.mir.tc.lend_tops"
     }
-    if c.drops.bc.mir.tc.lend_heads.len() < hi[114] {
+    if c.drops.bc.mir.tc.lend_heads.len() < hi[115] {
         return "drops.bc.mir.tc.lend_heads"
     }
-    if c.drops.bc.mir.tc.skipped.len() < hi[121] {
+    if c.drops.bc.mir.tc.skipped.len() < hi[122] {
         return "drops.bc.mir.tc.skipped"
     }
-    if c.drops.bc.mir.tc.string_positions.len() < hi[122] {
+    if c.drops.bc.mir.tc.string_positions.len() < hi[123] {
         return "drops.bc.mir.tc.string_positions"
     }
-    if c.drops.bc.mir.tc.expr_types.len() < hi[123] {
+    if c.drops.bc.mir.tc.expr_types.len() < hi[124] {
         return "drops.bc.mir.tc.expr_types"
-    }
-    if c.drops.bc.mir.tc.typed_count.len() < hi[124] {
-        return "drops.bc.mir.tc.typed_count"
     }
     ""
 }
@@ -1015,45 +1015,45 @@ func front_apply_3(c: &var FrontCut, part: &FrontPart3) {
     front_append(&var c.drops.bc.mir.tc.obligations, &part.t109)
     front_append(&var c.drops.bc.mir.tc.func_nodes, &part.t110)
     front_append(&var c.drops.bc.mir.tc.diags, &part.t111)
-    front_append(&var c.drops.bc.mir.tc.warnings, &part.t112)
-    front_append(&var c.drops.bc.mir.tc.lend_tops, &part.t113)
-    front_append(&var c.drops.bc.mir.tc.lend_heads, &part.t114)
-    front_append(&var c.drops.bc.mir.tc.skipped, &part.t121)
-    front_append(&var c.drops.bc.mir.tc.string_positions, &part.t122)
-    front_append(&var c.drops.bc.mir.tc.expr_types, &part.t123)
-    front_append(&var c.drops.bc.mir.tc.typed_count, &part.t124)
+    front_append(&var c.drops.bc.mir.tc.quiet_refused, &part.t112)
+    front_append(&var c.drops.bc.mir.tc.warnings, &part.t113)
+    front_append(&var c.drops.bc.mir.tc.lend_tops, &part.t114)
+    front_append(&var c.drops.bc.mir.tc.lend_heads, &part.t115)
+    front_append(&var c.drops.bc.mir.tc.skipped, &part.t122)
+    front_append(&var c.drops.bc.mir.tc.string_positions, &part.t123)
+    front_append(&var c.drops.bc.mir.tc.expr_types, &part.t124)
 }
 
 // Piece 4 of the slicer, from `drops.bc.mir.tc` on.
 public struct FrontPart4 {
-    t125: Vector<Bool>
-    t126: Vector<T_TcUse>
-    t127: Vector<Int>
+    t125: Vector<Int>
+    t126: Vector<Bool>
+    t127: Vector<T_TcUse>
     t128: Vector<Int>
     t129: Vector<Int>
-    t130: Vector<T_TcAdjust>
-    t131: Vector<Int>
-    t132: Vector<T_TcCall>
-    t133: Vector<Int>
-    t134: Vector<Bool>
+    t130: Vector<Int>
+    t131: Vector<T_TcAdjust>
+    t132: Vector<Int>
+    t133: Vector<T_TcCall>
+    t134: Vector<Int>
     t135: Vector<Bool>
-    t136: Vector<Int>
+    t136: Vector<Bool>
     t137: Vector<Int>
-    t138: Vector<Bool>
+    t138: Vector<Int>
     t139: Vector<Bool>
     t140: Vector<Bool>
     t141: Vector<Bool>
-    t142: Vector<Int>
+    t142: Vector<Bool>
     t143: Vector<Int>
     t144: Vector<Int>
-    t145: FrontRewrite<Bool>
-    t146: FrontRewrite<Int>
+    t145: Vector<Int>
+    t146: FrontRewrite<Bool>
     t147: FrontRewrite<Int>
     t148: FrontRewrite<Int>
     t149: FrontRewrite<Int>
-    t150: Vector<Int>
-    t151: FrontRewrite<Int>
-    t152: Vector<Int>
+    t150: FrontRewrite<Int>
+    t151: Vector<Int>
+    t152: FrontRewrite<Int>
     t153: Vector<Int>
     t154: Vector<Int>
     t155: Vector<Int>
@@ -1068,247 +1068,247 @@ extension FrontPart4: Serialize {}
 extension FrontPart4: Deserialize {}
 
 public struct FrontSnap4 {
-    r145: Vector<Bool>
-    r146: Vector<Int>
+    r146: Vector<Bool>
     r147: Vector<Int>
     r148: Vector<Int>
     r149: Vector<Int>
-    r151: Vector<Int>
+    r150: Vector<Int>
+    r152: Vector<Int>
 }
 
 extension FrontSnap4: NoCopy {}
 
 func front_snapshot_4(c: &FrontCut) -> FrontSnap4 {
-    FrontSnap4(r145: front_copy(&c.drops.bc.mir.tc.ext_visible),
-               r146: front_copy(&c.drops.bc.mir.tc.loop_breaks),
-               r147: front_copy(&c.drops.bc.mir.tc.catch_frames),
-               r148: front_copy(&c.drops.bc.mir.tc.catch_errors),
-               r149: front_copy(&c.drops.bc.mir.tc.borrow_captures),
-               r151: front_copy(&c.drops.bc.mir.tc.referenced_params))
+    FrontSnap4(r146: front_copy(&c.drops.bc.mir.tc.ext_visible),
+               r147: front_copy(&c.drops.bc.mir.tc.loop_breaks),
+               r148: front_copy(&c.drops.bc.mir.tc.catch_frames),
+               r149: front_copy(&c.drops.bc.mir.tc.catch_errors),
+               r150: front_copy(&c.drops.bc.mir.tc.borrow_captures),
+               r152: front_copy(&c.drops.bc.mir.tc.referenced_params))
 }
 
 func front_lengths_4(c: &FrontCut, out: &var Vector<Int>) {
-    out[125] = c.drops.bc.mir.tc.expr_place.len()
-    out[126] = c.drops.bc.mir.tc.expr_use.len()
-    out[127] = c.drops.bc.mir.tc.copy_partner.len()
-    out[128] = c.drops.bc.mir.tc.adj_head.len()
-    out[129] = c.drops.bc.mir.tc.adj_tail.len()
-    out[130] = c.drops.bc.mir.tc.adjusts.len()
-    out[131] = c.drops.bc.mir.tc.call_at.len()
-    out[132] = c.drops.bc.mir.tc.calls.len()
-    out[133] = c.drops.bc.mir.tc.insts.len()
-    out[134] = c.drops.bc.mir.tc.spawn_roots.len()
-    out[135] = c.drops.bc.mir.tc.drive_roots.len()
-    out[136] = c.drops.bc.mir.tc.binds.len()
-    out[137] = c.drops.bc.mir.tc.local_types.len()
-    out[138] = c.drops.bc.mir.tc.aliasing_bindings.len()
-    out[139] = c.drops.bc.mir.tc.lent_bindings.len()
-    out[140] = c.drops.bc.mir.tc.lent_optional_bindings.len()
-    out[141] = c.drops.bc.mir.tc.nonescaping_bindings.len()
-    out[142] = c.drops.bc.mir.tc.res_call_at.len()
-    out[143] = c.drops.bc.mir.tc.body_roots.len()
-    out[144] = c.drops.bc.mir.tc.body_decls.len()
-    out[145] = c.drops.bc.mir.tc.ext_visible.len()
-    out[146] = c.drops.bc.mir.tc.loop_breaks.len()
-    out[147] = c.drops.bc.mir.tc.catch_frames.len()
-    out[148] = c.drops.bc.mir.tc.catch_errors.len()
-    out[149] = c.drops.bc.mir.tc.borrow_captures.len()
-    out[150] = c.drops.bc.mir.tc.param_leaves.len()
-    out[151] = c.drops.bc.mir.tc.referenced_params.len()
-    out[152] = c.drops.bc.mir.tc.fresh_placements.len()
-    out[153] = c.drops.bc.mir.tc.relocations.len()
-    out[154] = c.drops.bc.mir.tc.relocation_places.len()
-    out[155] = c.drops.bc.mir.tc.relocation_types.len()
-    out[156] = c.drops.bc.mir.tc.relocation_decls.len()
+    out[125] = c.drops.bc.mir.tc.typed_count.len()
+    out[126] = c.drops.bc.mir.tc.expr_place.len()
+    out[127] = c.drops.bc.mir.tc.expr_use.len()
+    out[128] = c.drops.bc.mir.tc.copy_partner.len()
+    out[129] = c.drops.bc.mir.tc.adj_head.len()
+    out[130] = c.drops.bc.mir.tc.adj_tail.len()
+    out[131] = c.drops.bc.mir.tc.adjusts.len()
+    out[132] = c.drops.bc.mir.tc.call_at.len()
+    out[133] = c.drops.bc.mir.tc.calls.len()
+    out[134] = c.drops.bc.mir.tc.insts.len()
+    out[135] = c.drops.bc.mir.tc.spawn_roots.len()
+    out[136] = c.drops.bc.mir.tc.drive_roots.len()
+    out[137] = c.drops.bc.mir.tc.binds.len()
+    out[138] = c.drops.bc.mir.tc.local_types.len()
+    out[139] = c.drops.bc.mir.tc.aliasing_bindings.len()
+    out[140] = c.drops.bc.mir.tc.lent_bindings.len()
+    out[141] = c.drops.bc.mir.tc.lent_optional_bindings.len()
+    out[142] = c.drops.bc.mir.tc.nonescaping_bindings.len()
+    out[143] = c.drops.bc.mir.tc.res_call_at.len()
+    out[144] = c.drops.bc.mir.tc.body_roots.len()
+    out[145] = c.drops.bc.mir.tc.body_decls.len()
+    out[146] = c.drops.bc.mir.tc.ext_visible.len()
+    out[147] = c.drops.bc.mir.tc.loop_breaks.len()
+    out[148] = c.drops.bc.mir.tc.catch_frames.len()
+    out[149] = c.drops.bc.mir.tc.catch_errors.len()
+    out[150] = c.drops.bc.mir.tc.borrow_captures.len()
+    out[151] = c.drops.bc.mir.tc.param_leaves.len()
+    out[152] = c.drops.bc.mir.tc.referenced_params.len()
+    out[153] = c.drops.bc.mir.tc.fresh_placements.len()
+    out[154] = c.drops.bc.mir.tc.relocations.len()
+    out[155] = c.drops.bc.mir.tc.relocation_places.len()
+    out[156] = c.drops.bc.mir.tc.relocation_types.len()
 }
 
 func front_make_4(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap4, after: &FrontSnap4) -> FrontPart4 {
-    FrontPart4(t125: front_suffix(&c.drops.bc.mir.tc.expr_place, lo[125], hi[125]),
-               t126: front_suffix(&c.drops.bc.mir.tc.expr_use, lo[126], hi[126]),
-               t127: front_suffix(&c.drops.bc.mir.tc.copy_partner, lo[127], hi[127]),
-               t128: front_suffix(&c.drops.bc.mir.tc.adj_head, lo[128], hi[128]),
-               t129: front_suffix(&c.drops.bc.mir.tc.adj_tail, lo[129], hi[129]),
-               t130: front_suffix(&c.drops.bc.mir.tc.adjusts, lo[130], hi[130]),
-               t131: front_suffix(&c.drops.bc.mir.tc.call_at, lo[131], hi[131]),
-               t132: front_suffix(&c.drops.bc.mir.tc.calls, lo[132], hi[132]),
-               t133: front_suffix(&c.drops.bc.mir.tc.insts, lo[133], hi[133]),
-               t134: front_suffix(&c.drops.bc.mir.tc.spawn_roots, lo[134], hi[134]),
-               t135: front_suffix(&c.drops.bc.mir.tc.drive_roots, lo[135], hi[135]),
-               t136: front_suffix(&c.drops.bc.mir.tc.binds, lo[136], hi[136]),
-               t137: front_suffix(&c.drops.bc.mir.tc.local_types, lo[137], hi[137]),
-               t138: front_suffix(&c.drops.bc.mir.tc.aliasing_bindings, lo[138], hi[138]),
-               t139: front_suffix(&c.drops.bc.mir.tc.lent_bindings, lo[139], hi[139]),
-               t140: front_suffix(&c.drops.bc.mir.tc.lent_optional_bindings, lo[140], hi[140]),
-               t141: front_suffix(&c.drops.bc.mir.tc.nonescaping_bindings, lo[141], hi[141]),
-               t142: front_suffix(&c.drops.bc.mir.tc.res_call_at, lo[142], hi[142]),
-               t143: front_suffix(&c.drops.bc.mir.tc.body_roots, lo[143], hi[143]),
-               t144: front_suffix(&c.drops.bc.mir.tc.body_decls, lo[144], hi[144]),
-               t145: front_rewrite_Bool(&before.r145, &after.r145),
-               t146: front_rewrite_Int(&before.r146, &after.r146),
+    FrontPart4(t125: front_suffix(&c.drops.bc.mir.tc.typed_count, lo[125], hi[125]),
+               t126: front_suffix(&c.drops.bc.mir.tc.expr_place, lo[126], hi[126]),
+               t127: front_suffix(&c.drops.bc.mir.tc.expr_use, lo[127], hi[127]),
+               t128: front_suffix(&c.drops.bc.mir.tc.copy_partner, lo[128], hi[128]),
+               t129: front_suffix(&c.drops.bc.mir.tc.adj_head, lo[129], hi[129]),
+               t130: front_suffix(&c.drops.bc.mir.tc.adj_tail, lo[130], hi[130]),
+               t131: front_suffix(&c.drops.bc.mir.tc.adjusts, lo[131], hi[131]),
+               t132: front_suffix(&c.drops.bc.mir.tc.call_at, lo[132], hi[132]),
+               t133: front_suffix(&c.drops.bc.mir.tc.calls, lo[133], hi[133]),
+               t134: front_suffix(&c.drops.bc.mir.tc.insts, lo[134], hi[134]),
+               t135: front_suffix(&c.drops.bc.mir.tc.spawn_roots, lo[135], hi[135]),
+               t136: front_suffix(&c.drops.bc.mir.tc.drive_roots, lo[136], hi[136]),
+               t137: front_suffix(&c.drops.bc.mir.tc.binds, lo[137], hi[137]),
+               t138: front_suffix(&c.drops.bc.mir.tc.local_types, lo[138], hi[138]),
+               t139: front_suffix(&c.drops.bc.mir.tc.aliasing_bindings, lo[139], hi[139]),
+               t140: front_suffix(&c.drops.bc.mir.tc.lent_bindings, lo[140], hi[140]),
+               t141: front_suffix(&c.drops.bc.mir.tc.lent_optional_bindings, lo[141], hi[141]),
+               t142: front_suffix(&c.drops.bc.mir.tc.nonescaping_bindings, lo[142], hi[142]),
+               t143: front_suffix(&c.drops.bc.mir.tc.res_call_at, lo[143], hi[143]),
+               t144: front_suffix(&c.drops.bc.mir.tc.body_roots, lo[144], hi[144]),
+               t145: front_suffix(&c.drops.bc.mir.tc.body_decls, lo[145], hi[145]),
+               t146: front_rewrite_Bool(&before.r146, &after.r146),
                t147: front_rewrite_Int(&before.r147, &after.r147),
                t148: front_rewrite_Int(&before.r148, &after.r148),
                t149: front_rewrite_Int(&before.r149, &after.r149),
-               t150: front_suffix(&c.drops.bc.mir.tc.param_leaves, lo[150], hi[150]),
-               t151: front_rewrite_Int(&before.r151, &after.r151),
-               t152: front_suffix(&c.drops.bc.mir.tc.fresh_placements, lo[152], hi[152]),
-               t153: front_suffix(&c.drops.bc.mir.tc.relocations, lo[153], hi[153]),
-               t154: front_suffix(&c.drops.bc.mir.tc.relocation_places, lo[154], hi[154]),
-               t155: front_suffix(&c.drops.bc.mir.tc.relocation_types, lo[155], hi[155]),
-               t156: front_suffix(&c.drops.bc.mir.tc.relocation_decls, lo[156], hi[156]))
+               t150: front_rewrite_Int(&before.r150, &after.r150),
+               t151: front_suffix(&c.drops.bc.mir.tc.param_leaves, lo[151], hi[151]),
+               t152: front_rewrite_Int(&before.r152, &after.r152),
+               t153: front_suffix(&c.drops.bc.mir.tc.fresh_placements, lo[153], hi[153]),
+               t154: front_suffix(&c.drops.bc.mir.tc.relocations, lo[154], hi[154]),
+               t155: front_suffix(&c.drops.bc.mir.tc.relocation_places, lo[155], hi[155]),
+               t156: front_suffix(&c.drops.bc.mir.tc.relocation_types, lo[156], hi[156]))
 }
 
 func front_shrunk_4(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.drops.bc.mir.tc.expr_place.len() < hi[125] {
+    if c.drops.bc.mir.tc.typed_count.len() < hi[125] {
+        return "drops.bc.mir.tc.typed_count"
+    }
+    if c.drops.bc.mir.tc.expr_place.len() < hi[126] {
         return "drops.bc.mir.tc.expr_place"
     }
-    if c.drops.bc.mir.tc.expr_use.len() < hi[126] {
+    if c.drops.bc.mir.tc.expr_use.len() < hi[127] {
         return "drops.bc.mir.tc.expr_use"
     }
-    if c.drops.bc.mir.tc.copy_partner.len() < hi[127] {
+    if c.drops.bc.mir.tc.copy_partner.len() < hi[128] {
         return "drops.bc.mir.tc.copy_partner"
     }
-    if c.drops.bc.mir.tc.adj_head.len() < hi[128] {
+    if c.drops.bc.mir.tc.adj_head.len() < hi[129] {
         return "drops.bc.mir.tc.adj_head"
     }
-    if c.drops.bc.mir.tc.adj_tail.len() < hi[129] {
+    if c.drops.bc.mir.tc.adj_tail.len() < hi[130] {
         return "drops.bc.mir.tc.adj_tail"
     }
-    if c.drops.bc.mir.tc.adjusts.len() < hi[130] {
+    if c.drops.bc.mir.tc.adjusts.len() < hi[131] {
         return "drops.bc.mir.tc.adjusts"
     }
-    if c.drops.bc.mir.tc.call_at.len() < hi[131] {
+    if c.drops.bc.mir.tc.call_at.len() < hi[132] {
         return "drops.bc.mir.tc.call_at"
     }
-    if c.drops.bc.mir.tc.calls.len() < hi[132] {
+    if c.drops.bc.mir.tc.calls.len() < hi[133] {
         return "drops.bc.mir.tc.calls"
     }
-    if c.drops.bc.mir.tc.insts.len() < hi[133] {
+    if c.drops.bc.mir.tc.insts.len() < hi[134] {
         return "drops.bc.mir.tc.insts"
     }
-    if c.drops.bc.mir.tc.spawn_roots.len() < hi[134] {
+    if c.drops.bc.mir.tc.spawn_roots.len() < hi[135] {
         return "drops.bc.mir.tc.spawn_roots"
     }
-    if c.drops.bc.mir.tc.drive_roots.len() < hi[135] {
+    if c.drops.bc.mir.tc.drive_roots.len() < hi[136] {
         return "drops.bc.mir.tc.drive_roots"
     }
-    if c.drops.bc.mir.tc.binds.len() < hi[136] {
+    if c.drops.bc.mir.tc.binds.len() < hi[137] {
         return "drops.bc.mir.tc.binds"
     }
-    if c.drops.bc.mir.tc.local_types.len() < hi[137] {
+    if c.drops.bc.mir.tc.local_types.len() < hi[138] {
         return "drops.bc.mir.tc.local_types"
     }
-    if c.drops.bc.mir.tc.aliasing_bindings.len() < hi[138] {
+    if c.drops.bc.mir.tc.aliasing_bindings.len() < hi[139] {
         return "drops.bc.mir.tc.aliasing_bindings"
     }
-    if c.drops.bc.mir.tc.lent_bindings.len() < hi[139] {
+    if c.drops.bc.mir.tc.lent_bindings.len() < hi[140] {
         return "drops.bc.mir.tc.lent_bindings"
     }
-    if c.drops.bc.mir.tc.lent_optional_bindings.len() < hi[140] {
+    if c.drops.bc.mir.tc.lent_optional_bindings.len() < hi[141] {
         return "drops.bc.mir.tc.lent_optional_bindings"
     }
-    if c.drops.bc.mir.tc.nonescaping_bindings.len() < hi[141] {
+    if c.drops.bc.mir.tc.nonescaping_bindings.len() < hi[142] {
         return "drops.bc.mir.tc.nonescaping_bindings"
     }
-    if c.drops.bc.mir.tc.res_call_at.len() < hi[142] {
+    if c.drops.bc.mir.tc.res_call_at.len() < hi[143] {
         return "drops.bc.mir.tc.res_call_at"
     }
-    if c.drops.bc.mir.tc.body_roots.len() < hi[143] {
+    if c.drops.bc.mir.tc.body_roots.len() < hi[144] {
         return "drops.bc.mir.tc.body_roots"
     }
-    if c.drops.bc.mir.tc.body_decls.len() < hi[144] {
+    if c.drops.bc.mir.tc.body_decls.len() < hi[145] {
         return "drops.bc.mir.tc.body_decls"
     }
-    if c.drops.bc.mir.tc.param_leaves.len() < hi[150] {
+    if c.drops.bc.mir.tc.param_leaves.len() < hi[151] {
         return "drops.bc.mir.tc.param_leaves"
     }
-    if c.drops.bc.mir.tc.fresh_placements.len() < hi[152] {
+    if c.drops.bc.mir.tc.fresh_placements.len() < hi[153] {
         return "drops.bc.mir.tc.fresh_placements"
     }
-    if c.drops.bc.mir.tc.relocations.len() < hi[153] {
+    if c.drops.bc.mir.tc.relocations.len() < hi[154] {
         return "drops.bc.mir.tc.relocations"
     }
-    if c.drops.bc.mir.tc.relocation_places.len() < hi[154] {
+    if c.drops.bc.mir.tc.relocation_places.len() < hi[155] {
         return "drops.bc.mir.tc.relocation_places"
     }
-    if c.drops.bc.mir.tc.relocation_types.len() < hi[155] {
+    if c.drops.bc.mir.tc.relocation_types.len() < hi[156] {
         return "drops.bc.mir.tc.relocation_types"
-    }
-    if c.drops.bc.mir.tc.relocation_decls.len() < hi[156] {
-        return "drops.bc.mir.tc.relocation_decls"
     }
     ""
 }
 
 func front_apply_4(c: &var FrontCut, part: &FrontPart4) {
-    front_append(&var c.drops.bc.mir.tc.expr_place, &part.t125)
-    front_append(&var c.drops.bc.mir.tc.expr_use, &part.t126)
-    front_append(&var c.drops.bc.mir.tc.copy_partner, &part.t127)
-    front_append(&var c.drops.bc.mir.tc.adj_head, &part.t128)
-    front_append(&var c.drops.bc.mir.tc.adj_tail, &part.t129)
-    front_append(&var c.drops.bc.mir.tc.adjusts, &part.t130)
-    front_append(&var c.drops.bc.mir.tc.call_at, &part.t131)
-    front_append(&var c.drops.bc.mir.tc.calls, &part.t132)
-    front_append(&var c.drops.bc.mir.tc.insts, &part.t133)
-    front_append(&var c.drops.bc.mir.tc.spawn_roots, &part.t134)
-    front_append(&var c.drops.bc.mir.tc.drive_roots, &part.t135)
-    front_append(&var c.drops.bc.mir.tc.binds, &part.t136)
-    front_append(&var c.drops.bc.mir.tc.local_types, &part.t137)
-    front_append(&var c.drops.bc.mir.tc.aliasing_bindings, &part.t138)
-    front_append(&var c.drops.bc.mir.tc.lent_bindings, &part.t139)
-    front_append(&var c.drops.bc.mir.tc.lent_optional_bindings, &part.t140)
-    front_append(&var c.drops.bc.mir.tc.nonescaping_bindings, &part.t141)
-    front_append(&var c.drops.bc.mir.tc.res_call_at, &part.t142)
-    front_append(&var c.drops.bc.mir.tc.body_roots, &part.t143)
-    front_append(&var c.drops.bc.mir.tc.body_decls, &part.t144)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.ext_visible, &part.t145)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.loop_breaks, &part.t146)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.catch_frames, &part.t147)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.catch_errors, &part.t148)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.borrow_captures, &part.t149)
-    front_append(&var c.drops.bc.mir.tc.param_leaves, &part.t150)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.referenced_params, &part.t151)
-    front_append(&var c.drops.bc.mir.tc.fresh_placements, &part.t152)
-    front_append(&var c.drops.bc.mir.tc.relocations, &part.t153)
-    front_append(&var c.drops.bc.mir.tc.relocation_places, &part.t154)
-    front_append(&var c.drops.bc.mir.tc.relocation_types, &part.t155)
-    front_append(&var c.drops.bc.mir.tc.relocation_decls, &part.t156)
+    front_append(&var c.drops.bc.mir.tc.typed_count, &part.t125)
+    front_append(&var c.drops.bc.mir.tc.expr_place, &part.t126)
+    front_append(&var c.drops.bc.mir.tc.expr_use, &part.t127)
+    front_append(&var c.drops.bc.mir.tc.copy_partner, &part.t128)
+    front_append(&var c.drops.bc.mir.tc.adj_head, &part.t129)
+    front_append(&var c.drops.bc.mir.tc.adj_tail, &part.t130)
+    front_append(&var c.drops.bc.mir.tc.adjusts, &part.t131)
+    front_append(&var c.drops.bc.mir.tc.call_at, &part.t132)
+    front_append(&var c.drops.bc.mir.tc.calls, &part.t133)
+    front_append(&var c.drops.bc.mir.tc.insts, &part.t134)
+    front_append(&var c.drops.bc.mir.tc.spawn_roots, &part.t135)
+    front_append(&var c.drops.bc.mir.tc.drive_roots, &part.t136)
+    front_append(&var c.drops.bc.mir.tc.binds, &part.t137)
+    front_append(&var c.drops.bc.mir.tc.local_types, &part.t138)
+    front_append(&var c.drops.bc.mir.tc.aliasing_bindings, &part.t139)
+    front_append(&var c.drops.bc.mir.tc.lent_bindings, &part.t140)
+    front_append(&var c.drops.bc.mir.tc.lent_optional_bindings, &part.t141)
+    front_append(&var c.drops.bc.mir.tc.nonescaping_bindings, &part.t142)
+    front_append(&var c.drops.bc.mir.tc.res_call_at, &part.t143)
+    front_append(&var c.drops.bc.mir.tc.body_roots, &part.t144)
+    front_append(&var c.drops.bc.mir.tc.body_decls, &part.t145)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.ext_visible, &part.t146)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.loop_breaks, &part.t147)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.catch_frames, &part.t148)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.catch_errors, &part.t149)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.borrow_captures, &part.t150)
+    front_append(&var c.drops.bc.mir.tc.param_leaves, &part.t151)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.referenced_params, &part.t152)
+    front_append(&var c.drops.bc.mir.tc.fresh_placements, &part.t153)
+    front_append(&var c.drops.bc.mir.tc.relocations, &part.t154)
+    front_append(&var c.drops.bc.mir.tc.relocation_places, &part.t155)
+    front_append(&var c.drops.bc.mir.tc.relocation_types, &part.t156)
 }
 
 // Piece 5 of the slicer, from `drops.bc.mir.tc` on.
 public struct FrontPart5 {
-    t157: Vector<T_TcRelocation>
-    t158: Vector<Int>
-    t159: Vector<T_TcSummary>
-    t160: Vector<T_TcAtom>
-    t161: Vector<T_TcUnit>
-    t162: Vector<T_TcItem>
-    t163: Vector<Int>
-    t169: Vector<T_TcDefault>
-    t180: Vector<Int>
-    t185: Vector<Int>
-    t186: Vector<String>
-    t187: Vector<Int>
-    t188: FrontRewrite<Int>
+    t157: Vector<Int>
+    t158: Vector<T_TcRelocation>
+    t159: Vector<Int>
+    t160: Vector<T_TcSummary>
+    t161: Vector<T_TcAtom>
+    t162: Vector<T_TcUnit>
+    t163: Vector<T_TcItem>
+    t164: Vector<Int>
+    t170: Vector<T_TcDefault>
+    t181: Vector<Int>
+    t186: Vector<Int>
+    t187: Vector<String>
+    t188: Vector<Int>
     t189: FrontRewrite<Int>
-    t190: Vector<Int>
+    t190: FrontRewrite<Int>
     t191: Vector<Int>
     t192: Vector<Int>
     t193: Vector<Int>
-    t194: Vector<T_TcCapture>
-    t200: Vector<Bool>
-    t201: Vector<Int>
+    t194: Vector<Int>
+    t195: Vector<T_TcCapture>
+    t201: Vector<Bool>
     t202: Vector<Int>
     t203: Vector<Int>
     t204: Vector<Int>
     t205: Vector<Int>
     t206: Vector<Int>
-    t207: FrontRewrite<Bool>
-    t208: Vector<Int>
-    t209: FrontRewrite<Bool>
-    t210: Vector<Int>
-    t211: FrontRewrite<Bool>
-    t212: Vector<Int>
+    t207: Vector<Int>
+    t208: FrontRewrite<Bool>
+    t209: Vector<Int>
+    t210: FrontRewrite<Bool>
+    t211: Vector<Int>
+    t212: FrontRewrite<Bool>
 }
 
 extension FrontPart5: NoCopy {}
@@ -1319,212 +1319,212 @@ extension FrontPart5: Serialize {}
 extension FrontPart5: Deserialize {}
 
 public struct FrontSnap5 {
-    r188: Vector<Int>
     r189: Vector<Int>
-    r207: Vector<Bool>
-    r209: Vector<Bool>
-    r211: Vector<Bool>
+    r190: Vector<Int>
+    r208: Vector<Bool>
+    r210: Vector<Bool>
+    r212: Vector<Bool>
 }
 
 extension FrontSnap5: NoCopy {}
 
 func front_snapshot_5(c: &FrontCut) -> FrontSnap5 {
-    FrontSnap5(r188: front_copy(&c.drops.bc.mir.tc.copy_walk),
-               r189: front_copy(&c.drops.bc.mir.tc.meets_trait),
-               r207: front_copy(&c.drops.bc.mir.tc.narrow_reported),
-               r209: front_copy(&c.drops.bc.mir.tc.memory_reported),
-               r211: front_copy(&c.drops.bc.mir.tc.func_pointer_reported))
+    FrontSnap5(r189: front_copy(&c.drops.bc.mir.tc.copy_walk),
+               r190: front_copy(&c.drops.bc.mir.tc.meets_trait),
+               r208: front_copy(&c.drops.bc.mir.tc.narrow_reported),
+               r210: front_copy(&c.drops.bc.mir.tc.memory_reported),
+               r212: front_copy(&c.drops.bc.mir.tc.func_pointer_reported))
 }
 
 func front_lengths_5(c: &FrontCut, out: &var Vector<Int>) {
-    out[157] = c.drops.bc.mir.tc.relocation_hows.len()
-    out[158] = c.drops.bc.mir.tc.poisoned.len()
-    out[159] = c.drops.bc.mir.tc.summaries.len()
-    out[160] = c.drops.bc.mir.tc.atoms.len()
-    out[161] = c.drops.bc.mir.tc.units.len()
-    out[162] = c.drops.bc.mir.tc.items.len()
-    out[163] = c.drops.bc.mir.tc.decl_unit.len()
-    out[169] = c.drops.bc.mir.tc.defaults.len()
-    out[180] = c.drops.bc.mir.tc.std_keys.len()
-    out[185] = c.drops.bc.mir.tc.untabled.len()
-    out[186] = c.drops.bc.mir.tc.summary_problems.len()
-    out[187] = c.drops.bc.mir.tc.summary_problem_modules.len()
-    out[188] = c.drops.bc.mir.tc.copy_walk.len()
-    out[189] = c.drops.bc.mir.tc.meets_trait.len()
-    out[190] = c.drops.bc.mir.tc.closures.len()
-    out[191] = c.drops.bc.mir.tc.closure_decls.len()
-    out[192] = c.drops.bc.mir.tc.capture_first.len()
-    out[193] = c.drops.bc.mir.tc.capture_count.len()
-    out[194] = c.drops.bc.mir.tc.captures.len()
-    out[200] = c.drops.bc.mir.tc.closure_escaping.len()
-    out[201] = c.drops.bc.mir.tc.closure_blocker.len()
-    out[202] = c.drops.bc.mir.tc.closure_blocker_trait.len()
-    out[203] = c.drops.bc.mir.tc.thread_forms.len()
-    out[204] = c.drops.bc.mir.tc.thread_braces.len()
-    out[205] = c.drops.bc.mir.tc.implied_copies.len()
-    out[206] = c.drops.bc.mir.tc.narrow_atomics.len()
-    out[207] = c.drops.bc.mir.tc.narrow_reported.len()
-    out[208] = c.drops.bc.mir.tc.memory_views.len()
-    out[209] = c.drops.bc.mir.tc.memory_reported.len()
-    out[210] = c.drops.bc.mir.tc.func_pointer_types.len()
-    out[211] = c.drops.bc.mir.tc.func_pointer_reported.len()
-    out[212] = c.drops.bc.mir.tc.func_pointer_literals.len()
+    out[157] = c.drops.bc.mir.tc.relocation_decls.len()
+    out[158] = c.drops.bc.mir.tc.relocation_hows.len()
+    out[159] = c.drops.bc.mir.tc.poisoned.len()
+    out[160] = c.drops.bc.mir.tc.summaries.len()
+    out[161] = c.drops.bc.mir.tc.atoms.len()
+    out[162] = c.drops.bc.mir.tc.units.len()
+    out[163] = c.drops.bc.mir.tc.items.len()
+    out[164] = c.drops.bc.mir.tc.decl_unit.len()
+    out[170] = c.drops.bc.mir.tc.defaults.len()
+    out[181] = c.drops.bc.mir.tc.std_keys.len()
+    out[186] = c.drops.bc.mir.tc.untabled.len()
+    out[187] = c.drops.bc.mir.tc.summary_problems.len()
+    out[188] = c.drops.bc.mir.tc.summary_problem_modules.len()
+    out[189] = c.drops.bc.mir.tc.copy_walk.len()
+    out[190] = c.drops.bc.mir.tc.meets_trait.len()
+    out[191] = c.drops.bc.mir.tc.closures.len()
+    out[192] = c.drops.bc.mir.tc.closure_decls.len()
+    out[193] = c.drops.bc.mir.tc.capture_first.len()
+    out[194] = c.drops.bc.mir.tc.capture_count.len()
+    out[195] = c.drops.bc.mir.tc.captures.len()
+    out[201] = c.drops.bc.mir.tc.closure_escaping.len()
+    out[202] = c.drops.bc.mir.tc.closure_blocker.len()
+    out[203] = c.drops.bc.mir.tc.closure_blocker_trait.len()
+    out[204] = c.drops.bc.mir.tc.thread_forms.len()
+    out[205] = c.drops.bc.mir.tc.thread_braces.len()
+    out[206] = c.drops.bc.mir.tc.implied_copies.len()
+    out[207] = c.drops.bc.mir.tc.narrow_atomics.len()
+    out[208] = c.drops.bc.mir.tc.narrow_reported.len()
+    out[209] = c.drops.bc.mir.tc.memory_views.len()
+    out[210] = c.drops.bc.mir.tc.memory_reported.len()
+    out[211] = c.drops.bc.mir.tc.func_pointer_types.len()
+    out[212] = c.drops.bc.mir.tc.func_pointer_reported.len()
 }
 
 func front_make_5(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap5, after: &FrontSnap5) -> FrontPart5 {
-    FrontPart5(t157: front_suffix(&c.drops.bc.mir.tc.relocation_hows, lo[157], hi[157]),
-               t158: front_suffix(&c.drops.bc.mir.tc.poisoned, lo[158], hi[158]),
-               t159: front_suffix(&c.drops.bc.mir.tc.summaries, lo[159], hi[159]),
-               t160: front_suffix(&c.drops.bc.mir.tc.atoms, lo[160], hi[160]),
-               t161: front_suffix(&c.drops.bc.mir.tc.units, lo[161], hi[161]),
-               t162: front_suffix(&c.drops.bc.mir.tc.items, lo[162], hi[162]),
-               t163: front_suffix(&c.drops.bc.mir.tc.decl_unit, lo[163], hi[163]),
-               t169: front_suffix(&c.drops.bc.mir.tc.defaults, lo[169], hi[169]),
-               t180: front_suffix(&c.drops.bc.mir.tc.std_keys, lo[180], hi[180]),
-               t185: front_suffix(&c.drops.bc.mir.tc.untabled, lo[185], hi[185]),
-               t186: front_suffix(&c.drops.bc.mir.tc.summary_problems, lo[186], hi[186]),
-               t187: front_suffix(&c.drops.bc.mir.tc.summary_problem_modules, lo[187], hi[187]),
-               t188: front_rewrite_Int(&before.r188, &after.r188),
+    FrontPart5(t157: front_suffix(&c.drops.bc.mir.tc.relocation_decls, lo[157], hi[157]),
+               t158: front_suffix(&c.drops.bc.mir.tc.relocation_hows, lo[158], hi[158]),
+               t159: front_suffix(&c.drops.bc.mir.tc.poisoned, lo[159], hi[159]),
+               t160: front_suffix(&c.drops.bc.mir.tc.summaries, lo[160], hi[160]),
+               t161: front_suffix(&c.drops.bc.mir.tc.atoms, lo[161], hi[161]),
+               t162: front_suffix(&c.drops.bc.mir.tc.units, lo[162], hi[162]),
+               t163: front_suffix(&c.drops.bc.mir.tc.items, lo[163], hi[163]),
+               t164: front_suffix(&c.drops.bc.mir.tc.decl_unit, lo[164], hi[164]),
+               t170: front_suffix(&c.drops.bc.mir.tc.defaults, lo[170], hi[170]),
+               t181: front_suffix(&c.drops.bc.mir.tc.std_keys, lo[181], hi[181]),
+               t186: front_suffix(&c.drops.bc.mir.tc.untabled, lo[186], hi[186]),
+               t187: front_suffix(&c.drops.bc.mir.tc.summary_problems, lo[187], hi[187]),
+               t188: front_suffix(&c.drops.bc.mir.tc.summary_problem_modules, lo[188], hi[188]),
                t189: front_rewrite_Int(&before.r189, &after.r189),
-               t190: front_suffix(&c.drops.bc.mir.tc.closures, lo[190], hi[190]),
-               t191: front_suffix(&c.drops.bc.mir.tc.closure_decls, lo[191], hi[191]),
-               t192: front_suffix(&c.drops.bc.mir.tc.capture_first, lo[192], hi[192]),
-               t193: front_suffix(&c.drops.bc.mir.tc.capture_count, lo[193], hi[193]),
-               t194: front_suffix(&c.drops.bc.mir.tc.captures, lo[194], hi[194]),
-               t200: front_suffix(&c.drops.bc.mir.tc.closure_escaping, lo[200], hi[200]),
-               t201: front_suffix(&c.drops.bc.mir.tc.closure_blocker, lo[201], hi[201]),
-               t202: front_suffix(&c.drops.bc.mir.tc.closure_blocker_trait, lo[202], hi[202]),
-               t203: front_suffix(&c.drops.bc.mir.tc.thread_forms, lo[203], hi[203]),
-               t204: front_suffix(&c.drops.bc.mir.tc.thread_braces, lo[204], hi[204]),
-               t205: front_suffix(&c.drops.bc.mir.tc.implied_copies, lo[205], hi[205]),
-               t206: front_suffix(&c.drops.bc.mir.tc.narrow_atomics, lo[206], hi[206]),
-               t207: front_rewrite_Bool(&before.r207, &after.r207),
-               t208: front_suffix(&c.drops.bc.mir.tc.memory_views, lo[208], hi[208]),
-               t209: front_rewrite_Bool(&before.r209, &after.r209),
-               t210: front_suffix(&c.drops.bc.mir.tc.func_pointer_types, lo[210], hi[210]),
-               t211: front_rewrite_Bool(&before.r211, &after.r211),
-               t212: front_suffix(&c.drops.bc.mir.tc.func_pointer_literals, lo[212], hi[212]))
+               t190: front_rewrite_Int(&before.r190, &after.r190),
+               t191: front_suffix(&c.drops.bc.mir.tc.closures, lo[191], hi[191]),
+               t192: front_suffix(&c.drops.bc.mir.tc.closure_decls, lo[192], hi[192]),
+               t193: front_suffix(&c.drops.bc.mir.tc.capture_first, lo[193], hi[193]),
+               t194: front_suffix(&c.drops.bc.mir.tc.capture_count, lo[194], hi[194]),
+               t195: front_suffix(&c.drops.bc.mir.tc.captures, lo[195], hi[195]),
+               t201: front_suffix(&c.drops.bc.mir.tc.closure_escaping, lo[201], hi[201]),
+               t202: front_suffix(&c.drops.bc.mir.tc.closure_blocker, lo[202], hi[202]),
+               t203: front_suffix(&c.drops.bc.mir.tc.closure_blocker_trait, lo[203], hi[203]),
+               t204: front_suffix(&c.drops.bc.mir.tc.thread_forms, lo[204], hi[204]),
+               t205: front_suffix(&c.drops.bc.mir.tc.thread_braces, lo[205], hi[205]),
+               t206: front_suffix(&c.drops.bc.mir.tc.implied_copies, lo[206], hi[206]),
+               t207: front_suffix(&c.drops.bc.mir.tc.narrow_atomics, lo[207], hi[207]),
+               t208: front_rewrite_Bool(&before.r208, &after.r208),
+               t209: front_suffix(&c.drops.bc.mir.tc.memory_views, lo[209], hi[209]),
+               t210: front_rewrite_Bool(&before.r210, &after.r210),
+               t211: front_suffix(&c.drops.bc.mir.tc.func_pointer_types, lo[211], hi[211]),
+               t212: front_rewrite_Bool(&before.r212, &after.r212))
 }
 
 func front_shrunk_5(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.drops.bc.mir.tc.relocation_hows.len() < hi[157] {
+    if c.drops.bc.mir.tc.relocation_decls.len() < hi[157] {
+        return "drops.bc.mir.tc.relocation_decls"
+    }
+    if c.drops.bc.mir.tc.relocation_hows.len() < hi[158] {
         return "drops.bc.mir.tc.relocation_hows"
     }
-    if c.drops.bc.mir.tc.poisoned.len() < hi[158] {
+    if c.drops.bc.mir.tc.poisoned.len() < hi[159] {
         return "drops.bc.mir.tc.poisoned"
     }
-    if c.drops.bc.mir.tc.summaries.len() < hi[159] {
+    if c.drops.bc.mir.tc.summaries.len() < hi[160] {
         return "drops.bc.mir.tc.summaries"
     }
-    if c.drops.bc.mir.tc.atoms.len() < hi[160] {
+    if c.drops.bc.mir.tc.atoms.len() < hi[161] {
         return "drops.bc.mir.tc.atoms"
     }
-    if c.drops.bc.mir.tc.units.len() < hi[161] {
+    if c.drops.bc.mir.tc.units.len() < hi[162] {
         return "drops.bc.mir.tc.units"
     }
-    if c.drops.bc.mir.tc.items.len() < hi[162] {
+    if c.drops.bc.mir.tc.items.len() < hi[163] {
         return "drops.bc.mir.tc.items"
     }
-    if c.drops.bc.mir.tc.decl_unit.len() < hi[163] {
+    if c.drops.bc.mir.tc.decl_unit.len() < hi[164] {
         return "drops.bc.mir.tc.decl_unit"
     }
-    if c.drops.bc.mir.tc.defaults.len() < hi[169] {
+    if c.drops.bc.mir.tc.defaults.len() < hi[170] {
         return "drops.bc.mir.tc.defaults"
     }
-    if c.drops.bc.mir.tc.std_keys.len() < hi[180] {
+    if c.drops.bc.mir.tc.std_keys.len() < hi[181] {
         return "drops.bc.mir.tc.std_keys"
     }
-    if c.drops.bc.mir.tc.untabled.len() < hi[185] {
+    if c.drops.bc.mir.tc.untabled.len() < hi[186] {
         return "drops.bc.mir.tc.untabled"
     }
-    if c.drops.bc.mir.tc.summary_problems.len() < hi[186] {
+    if c.drops.bc.mir.tc.summary_problems.len() < hi[187] {
         return "drops.bc.mir.tc.summary_problems"
     }
-    if c.drops.bc.mir.tc.summary_problem_modules.len() < hi[187] {
+    if c.drops.bc.mir.tc.summary_problem_modules.len() < hi[188] {
         return "drops.bc.mir.tc.summary_problem_modules"
     }
-    if c.drops.bc.mir.tc.closures.len() < hi[190] {
+    if c.drops.bc.mir.tc.closures.len() < hi[191] {
         return "drops.bc.mir.tc.closures"
     }
-    if c.drops.bc.mir.tc.closure_decls.len() < hi[191] {
+    if c.drops.bc.mir.tc.closure_decls.len() < hi[192] {
         return "drops.bc.mir.tc.closure_decls"
     }
-    if c.drops.bc.mir.tc.capture_first.len() < hi[192] {
+    if c.drops.bc.mir.tc.capture_first.len() < hi[193] {
         return "drops.bc.mir.tc.capture_first"
     }
-    if c.drops.bc.mir.tc.capture_count.len() < hi[193] {
+    if c.drops.bc.mir.tc.capture_count.len() < hi[194] {
         return "drops.bc.mir.tc.capture_count"
     }
-    if c.drops.bc.mir.tc.captures.len() < hi[194] {
+    if c.drops.bc.mir.tc.captures.len() < hi[195] {
         return "drops.bc.mir.tc.captures"
     }
-    if c.drops.bc.mir.tc.closure_escaping.len() < hi[200] {
+    if c.drops.bc.mir.tc.closure_escaping.len() < hi[201] {
         return "drops.bc.mir.tc.closure_escaping"
     }
-    if c.drops.bc.mir.tc.closure_blocker.len() < hi[201] {
+    if c.drops.bc.mir.tc.closure_blocker.len() < hi[202] {
         return "drops.bc.mir.tc.closure_blocker"
     }
-    if c.drops.bc.mir.tc.closure_blocker_trait.len() < hi[202] {
+    if c.drops.bc.mir.tc.closure_blocker_trait.len() < hi[203] {
         return "drops.bc.mir.tc.closure_blocker_trait"
     }
-    if c.drops.bc.mir.tc.thread_forms.len() < hi[203] {
+    if c.drops.bc.mir.tc.thread_forms.len() < hi[204] {
         return "drops.bc.mir.tc.thread_forms"
     }
-    if c.drops.bc.mir.tc.thread_braces.len() < hi[204] {
+    if c.drops.bc.mir.tc.thread_braces.len() < hi[205] {
         return "drops.bc.mir.tc.thread_braces"
     }
-    if c.drops.bc.mir.tc.implied_copies.len() < hi[205] {
+    if c.drops.bc.mir.tc.implied_copies.len() < hi[206] {
         return "drops.bc.mir.tc.implied_copies"
     }
-    if c.drops.bc.mir.tc.narrow_atomics.len() < hi[206] {
+    if c.drops.bc.mir.tc.narrow_atomics.len() < hi[207] {
         return "drops.bc.mir.tc.narrow_atomics"
     }
-    if c.drops.bc.mir.tc.memory_views.len() < hi[208] {
+    if c.drops.bc.mir.tc.memory_views.len() < hi[209] {
         return "drops.bc.mir.tc.memory_views"
     }
-    if c.drops.bc.mir.tc.func_pointer_types.len() < hi[210] {
+    if c.drops.bc.mir.tc.func_pointer_types.len() < hi[211] {
         return "drops.bc.mir.tc.func_pointer_types"
-    }
-    if c.drops.bc.mir.tc.func_pointer_literals.len() < hi[212] {
-        return "drops.bc.mir.tc.func_pointer_literals"
     }
     ""
 }
 
 func front_apply_5(c: &var FrontCut, part: &FrontPart5) {
-    front_append(&var c.drops.bc.mir.tc.relocation_hows, &part.t157)
-    front_append(&var c.drops.bc.mir.tc.poisoned, &part.t158)
-    front_append(&var c.drops.bc.mir.tc.summaries, &part.t159)
-    front_append(&var c.drops.bc.mir.tc.atoms, &part.t160)
-    front_append(&var c.drops.bc.mir.tc.units, &part.t161)
-    front_append(&var c.drops.bc.mir.tc.items, &part.t162)
-    front_append(&var c.drops.bc.mir.tc.decl_unit, &part.t163)
-    front_append(&var c.drops.bc.mir.tc.defaults, &part.t169)
-    front_append(&var c.drops.bc.mir.tc.std_keys, &part.t180)
-    front_append(&var c.drops.bc.mir.tc.untabled, &part.t185)
-    front_append(&var c.drops.bc.mir.tc.summary_problems, &part.t186)
-    front_append(&var c.drops.bc.mir.tc.summary_problem_modules, &part.t187)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.copy_walk, &part.t188)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.meets_trait, &part.t189)
-    front_append(&var c.drops.bc.mir.tc.closures, &part.t190)
-    front_append(&var c.drops.bc.mir.tc.closure_decls, &part.t191)
-    front_append(&var c.drops.bc.mir.tc.capture_first, &part.t192)
-    front_append(&var c.drops.bc.mir.tc.capture_count, &part.t193)
-    front_append(&var c.drops.bc.mir.tc.captures, &part.t194)
-    front_append(&var c.drops.bc.mir.tc.closure_escaping, &part.t200)
-    front_append(&var c.drops.bc.mir.tc.closure_blocker, &part.t201)
-    front_append(&var c.drops.bc.mir.tc.closure_blocker_trait, &part.t202)
-    front_append(&var c.drops.bc.mir.tc.thread_forms, &part.t203)
-    front_append(&var c.drops.bc.mir.tc.thread_braces, &part.t204)
-    front_append(&var c.drops.bc.mir.tc.implied_copies, &part.t205)
-    front_append(&var c.drops.bc.mir.tc.narrow_atomics, &part.t206)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.narrow_reported, &part.t207)
-    front_append(&var c.drops.bc.mir.tc.memory_views, &part.t208)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.memory_reported, &part.t209)
-    front_append(&var c.drops.bc.mir.tc.func_pointer_types, &part.t210)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.func_pointer_reported, &part.t211)
-    front_append(&var c.drops.bc.mir.tc.func_pointer_literals, &part.t212)
+    front_append(&var c.drops.bc.mir.tc.relocation_decls, &part.t157)
+    front_append(&var c.drops.bc.mir.tc.relocation_hows, &part.t158)
+    front_append(&var c.drops.bc.mir.tc.poisoned, &part.t159)
+    front_append(&var c.drops.bc.mir.tc.summaries, &part.t160)
+    front_append(&var c.drops.bc.mir.tc.atoms, &part.t161)
+    front_append(&var c.drops.bc.mir.tc.units, &part.t162)
+    front_append(&var c.drops.bc.mir.tc.items, &part.t163)
+    front_append(&var c.drops.bc.mir.tc.decl_unit, &part.t164)
+    front_append(&var c.drops.bc.mir.tc.defaults, &part.t170)
+    front_append(&var c.drops.bc.mir.tc.std_keys, &part.t181)
+    front_append(&var c.drops.bc.mir.tc.untabled, &part.t186)
+    front_append(&var c.drops.bc.mir.tc.summary_problems, &part.t187)
+    front_append(&var c.drops.bc.mir.tc.summary_problem_modules, &part.t188)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.copy_walk, &part.t189)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.meets_trait, &part.t190)
+    front_append(&var c.drops.bc.mir.tc.closures, &part.t191)
+    front_append(&var c.drops.bc.mir.tc.closure_decls, &part.t192)
+    front_append(&var c.drops.bc.mir.tc.capture_first, &part.t193)
+    front_append(&var c.drops.bc.mir.tc.capture_count, &part.t194)
+    front_append(&var c.drops.bc.mir.tc.captures, &part.t195)
+    front_append(&var c.drops.bc.mir.tc.closure_escaping, &part.t201)
+    front_append(&var c.drops.bc.mir.tc.closure_blocker, &part.t202)
+    front_append(&var c.drops.bc.mir.tc.closure_blocker_trait, &part.t203)
+    front_append(&var c.drops.bc.mir.tc.thread_forms, &part.t204)
+    front_append(&var c.drops.bc.mir.tc.thread_braces, &part.t205)
+    front_append(&var c.drops.bc.mir.tc.implied_copies, &part.t206)
+    front_append(&var c.drops.bc.mir.tc.narrow_atomics, &part.t207)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.narrow_reported, &part.t208)
+    front_append(&var c.drops.bc.mir.tc.memory_views, &part.t209)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.memory_reported, &part.t210)
+    front_append(&var c.drops.bc.mir.tc.func_pointer_types, &part.t211)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.func_pointer_reported, &part.t212)
 }
 
 // Piece 6 of the slicer, from `drops.bc.mir.tc` on.
@@ -1535,32 +1535,32 @@ public struct FrontPart6 {
     t216: Vector<Int>
     t217: Vector<Int>
     t218: Vector<Int>
-    t219: Vector<Bool>
-    t220: FrontRewrite<Int>
+    t219: Vector<Int>
+    t220: Vector<Bool>
     t221: FrontRewrite<Int>
-    t222: Vector<Int>
+    t222: FrontRewrite<Int>
     t223: Vector<Int>
     t224: Vector<Int>
-    t225: Vector<T_TcPendingConstant>
-    t226: Vector<String>
-    t227: Vector<Int>
-    t228: FrontRewrite<T_TcStaticTyping>
-    t229: FrontRewrite<T_TcStaticVerdict>
-    t230: FrontRewrite<Int>
-    t231: FrontRewrite<String>
-    t232: Vector<Int>
+    t225: Vector<Int>
+    t226: Vector<T_TcPendingConstant>
+    t227: Vector<String>
+    t228: Vector<Int>
+    t229: FrontRewrite<T_TcStaticTyping>
+    t230: FrontRewrite<T_TcStaticVerdict>
+    t231: FrontRewrite<Int>
+    t232: FrontRewrite<String>
     t233: Vector<Int>
-    t234: FrontRewrite<String>
-    t235: FrontRewrite<Int>
-    t236: Vector<Int>
-    t237: FrontRewrite<Int>
+    t234: Vector<Int>
+    t235: FrontRewrite<String>
+    t236: FrontRewrite<Int>
+    t237: Vector<Int>
     t238: FrontRewrite<Int>
+    t239: FrontRewrite<Int>
     v26: Int
     v27: Bool
     v28: Bool
     v29: Int
     v30: Int
-    v31: Int
 }
 
 extension FrontPart6: NoCopy {}
@@ -1571,199 +1571,202 @@ extension FrontPart6: Serialize {}
 extension FrontPart6: Deserialize {}
 
 public struct FrontSnap6 {
-    r220: Vector<Int>
     r221: Vector<Int>
-    r228: Vector<T_TcStaticTyping>
-    r229: Vector<T_TcStaticVerdict>
-    r230: Vector<Int>
-    r231: Vector<String>
-    r234: Vector<String>
-    r235: Vector<Int>
-    r237: Vector<Int>
+    r222: Vector<Int>
+    r229: Vector<T_TcStaticTyping>
+    r230: Vector<T_TcStaticVerdict>
+    r231: Vector<Int>
+    r232: Vector<String>
+    r235: Vector<String>
+    r236: Vector<Int>
     r238: Vector<Int>
+    r239: Vector<Int>
     v26: Int
     v27: Bool
     v28: Bool
     v29: Int
     v30: Int
-    v31: Int
 }
 
 extension FrontSnap6: NoCopy {}
 
 func front_snapshot_6(c: &FrontCut) -> FrontSnap6 {
-    FrontSnap6(r220: front_copy(&c.drops.bc.mir.tc.measured_nodes),
-               r221: front_copy(&c.drops.bc.mir.tc.measured_values),
-               r228: front_copy(&c.drops.bc.mir.tc.static_typing),
-               r229: front_copy(&c.drops.bc.mir.tc.static_verdicts),
-               r230: front_copy(&c.drops.bc.mir.tc.static_values),
-               r231: front_copy(&c.drops.bc.mir.tc.static_reasons),
-               r234: front_copy(&c.drops.bc.mir.tc.export_symbols),
-               r235: front_copy(&c.drops.bc.mir.tc.export_nodes),
-               r237: front_copy(&c.drops.bc.mir.tc.blocking_twins),
-               r238: front_copy(&c.drops.bc.mir.tc.pair_defaults),
+    FrontSnap6(r221: front_copy(&c.drops.bc.mir.tc.measured_nodes),
+               r222: front_copy(&c.drops.bc.mir.tc.measured_values),
+               r229: front_copy(&c.drops.bc.mir.tc.static_typing),
+               r230: front_copy(&c.drops.bc.mir.tc.static_verdicts),
+               r231: front_copy(&c.drops.bc.mir.tc.static_values),
+               r232: front_copy(&c.drops.bc.mir.tc.static_reasons),
+               r235: front_copy(&c.drops.bc.mir.tc.export_symbols),
+               r236: front_copy(&c.drops.bc.mir.tc.export_nodes),
+               r238: front_copy(&c.drops.bc.mir.tc.blocking_twins),
+               r239: front_copy(&c.drops.bc.mir.tc.pair_defaults),
                v26: c.drops.bc.mir.tc.obligations_checked,
                v27: c.drops.bc.mir.tc.obligations_open,
                v28: c.drops.bc.mir.tc.keep_escaping,
                v29: c.drops.bc.mir.tc.chosen_pair,
-               v30: c.drops.bc.mir.tc.lend_head,
-               v31: c.drops.bc.mir.tc.place_wanted)
+               v30: c.drops.bc.mir.tc.lend_head)
 }
 
 func front_lengths_6(c: &FrontCut, out: &var Vector<Int>) {
-    out[213] = c.drops.bc.mir.tc.function_values.len()
-    out[214] = c.drops.bc.mir.tc.memory_constructions.len()
-    out[215] = c.drops.bc.mir.tc.memory_addresses.len()
-    out[216] = c.drops.bc.mir.tc.layout_asserts.len()
-    out[217] = c.drops.bc.mir.tc.layout_assert_messages.len()
-    out[218] = c.drops.bc.mir.tc.layout_assert_decls.len()
-    out[219] = c.drops.bc.mir.tc.layout_assert_generic.len()
-    out[220] = c.drops.bc.mir.tc.measured_nodes.len()
-    out[221] = c.drops.bc.mir.tc.measured_values.len()
-    out[222] = c.drops.bc.mir.tc.instance_params.len()
-    out[223] = c.drops.bc.mir.tc.instance_values.len()
-    out[224] = c.drops.bc.mir.tc.instance_types.len()
-    out[225] = c.drops.bc.mir.tc.pending_constants.len()
-    out[226] = c.drops.bc.mir.tc.phase_problems.len()
-    out[227] = c.drops.bc.mir.tc.phase_problem_modules.len()
-    out[228] = c.drops.bc.mir.tc.static_typing.len()
-    out[229] = c.drops.bc.mir.tc.static_verdicts.len()
-    out[230] = c.drops.bc.mir.tc.static_values.len()
-    out[231] = c.drops.bc.mir.tc.static_reasons.len()
-    out[232] = c.drops.bc.mir.tc.length_param_owners.len()
-    out[233] = c.drops.bc.mir.tc.length_param_indexes.len()
-    out[234] = c.drops.bc.mir.tc.export_symbols.len()
-    out[235] = c.drops.bc.mir.tc.export_nodes.len()
-    out[236] = c.drops.bc.mir.tc.erased_nodes.len()
-    out[237] = c.drops.bc.mir.tc.blocking_twins.len()
-    out[238] = c.drops.bc.mir.tc.pair_defaults.len()
+    out[213] = c.drops.bc.mir.tc.func_pointer_literals.len()
+    out[214] = c.drops.bc.mir.tc.function_values.len()
+    out[215] = c.drops.bc.mir.tc.memory_constructions.len()
+    out[216] = c.drops.bc.mir.tc.memory_addresses.len()
+    out[217] = c.drops.bc.mir.tc.layout_asserts.len()
+    out[218] = c.drops.bc.mir.tc.layout_assert_messages.len()
+    out[219] = c.drops.bc.mir.tc.layout_assert_decls.len()
+    out[220] = c.drops.bc.mir.tc.layout_assert_generic.len()
+    out[221] = c.drops.bc.mir.tc.measured_nodes.len()
+    out[222] = c.drops.bc.mir.tc.measured_values.len()
+    out[223] = c.drops.bc.mir.tc.instance_params.len()
+    out[224] = c.drops.bc.mir.tc.instance_values.len()
+    out[225] = c.drops.bc.mir.tc.instance_types.len()
+    out[226] = c.drops.bc.mir.tc.pending_constants.len()
+    out[227] = c.drops.bc.mir.tc.phase_problems.len()
+    out[228] = c.drops.bc.mir.tc.phase_problem_modules.len()
+    out[229] = c.drops.bc.mir.tc.static_typing.len()
+    out[230] = c.drops.bc.mir.tc.static_verdicts.len()
+    out[231] = c.drops.bc.mir.tc.static_values.len()
+    out[232] = c.drops.bc.mir.tc.static_reasons.len()
+    out[233] = c.drops.bc.mir.tc.length_param_owners.len()
+    out[234] = c.drops.bc.mir.tc.length_param_indexes.len()
+    out[235] = c.drops.bc.mir.tc.export_symbols.len()
+    out[236] = c.drops.bc.mir.tc.export_nodes.len()
+    out[237] = c.drops.bc.mir.tc.erased_nodes.len()
+    out[238] = c.drops.bc.mir.tc.blocking_twins.len()
+    out[239] = c.drops.bc.mir.tc.pair_defaults.len()
 }
 
 func front_make_6(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap6, after: &FrontSnap6) -> FrontPart6 {
-    FrontPart6(t213: front_suffix(&c.drops.bc.mir.tc.function_values, lo[213], hi[213]),
-               t214: front_suffix(&c.drops.bc.mir.tc.memory_constructions, lo[214], hi[214]),
-               t215: front_suffix(&c.drops.bc.mir.tc.memory_addresses, lo[215], hi[215]),
-               t216: front_suffix(&c.drops.bc.mir.tc.layout_asserts, lo[216], hi[216]),
-               t217: front_suffix(&c.drops.bc.mir.tc.layout_assert_messages, lo[217], hi[217]),
-               t218: front_suffix(&c.drops.bc.mir.tc.layout_assert_decls, lo[218], hi[218]),
-               t219: front_suffix(&c.drops.bc.mir.tc.layout_assert_generic, lo[219], hi[219]),
-               t220: front_rewrite_Int(&before.r220, &after.r220),
+    FrontPart6(t213: front_suffix(&c.drops.bc.mir.tc.func_pointer_literals, lo[213], hi[213]),
+               t214: front_suffix(&c.drops.bc.mir.tc.function_values, lo[214], hi[214]),
+               t215: front_suffix(&c.drops.bc.mir.tc.memory_constructions, lo[215], hi[215]),
+               t216: front_suffix(&c.drops.bc.mir.tc.memory_addresses, lo[216], hi[216]),
+               t217: front_suffix(&c.drops.bc.mir.tc.layout_asserts, lo[217], hi[217]),
+               t218: front_suffix(&c.drops.bc.mir.tc.layout_assert_messages, lo[218], hi[218]),
+               t219: front_suffix(&c.drops.bc.mir.tc.layout_assert_decls, lo[219], hi[219]),
+               t220: front_suffix(&c.drops.bc.mir.tc.layout_assert_generic, lo[220], hi[220]),
                t221: front_rewrite_Int(&before.r221, &after.r221),
-               t222: front_suffix(&c.drops.bc.mir.tc.instance_params, lo[222], hi[222]),
-               t223: front_suffix(&c.drops.bc.mir.tc.instance_values, lo[223], hi[223]),
-               t224: front_suffix(&c.drops.bc.mir.tc.instance_types, lo[224], hi[224]),
-               t225: front_suffix(&c.drops.bc.mir.tc.pending_constants, lo[225], hi[225]),
-               t226: front_suffix(&c.drops.bc.mir.tc.phase_problems, lo[226], hi[226]),
-               t227: front_suffix(&c.drops.bc.mir.tc.phase_problem_modules, lo[227], hi[227]),
-               t228: front_rewrite_TcStaticTyping(&before.r228, &after.r228),
-               t229: front_rewrite_TcStaticVerdict(&before.r229, &after.r229),
-               t230: front_rewrite_Int(&before.r230, &after.r230),
-               t231: front_rewrite_String(&before.r231, &after.r231),
-               t232: front_suffix(&c.drops.bc.mir.tc.length_param_owners, lo[232], hi[232]),
-               t233: front_suffix(&c.drops.bc.mir.tc.length_param_indexes, lo[233], hi[233]),
-               t234: front_rewrite_String(&before.r234, &after.r234),
-               t235: front_rewrite_Int(&before.r235, &after.r235),
-               t236: front_suffix(&c.drops.bc.mir.tc.erased_nodes, lo[236], hi[236]),
-               t237: front_rewrite_Int(&before.r237, &after.r237),
+               t222: front_rewrite_Int(&before.r222, &after.r222),
+               t223: front_suffix(&c.drops.bc.mir.tc.instance_params, lo[223], hi[223]),
+               t224: front_suffix(&c.drops.bc.mir.tc.instance_values, lo[224], hi[224]),
+               t225: front_suffix(&c.drops.bc.mir.tc.instance_types, lo[225], hi[225]),
+               t226: front_suffix(&c.drops.bc.mir.tc.pending_constants, lo[226], hi[226]),
+               t227: front_suffix(&c.drops.bc.mir.tc.phase_problems, lo[227], hi[227]),
+               t228: front_suffix(&c.drops.bc.mir.tc.phase_problem_modules, lo[228], hi[228]),
+               t229: front_rewrite_TcStaticTyping(&before.r229, &after.r229),
+               t230: front_rewrite_TcStaticVerdict(&before.r230, &after.r230),
+               t231: front_rewrite_Int(&before.r231, &after.r231),
+               t232: front_rewrite_String(&before.r232, &after.r232),
+               t233: front_suffix(&c.drops.bc.mir.tc.length_param_owners, lo[233], hi[233]),
+               t234: front_suffix(&c.drops.bc.mir.tc.length_param_indexes, lo[234], hi[234]),
+               t235: front_rewrite_String(&before.r235, &after.r235),
+               t236: front_rewrite_Int(&before.r236, &after.r236),
+               t237: front_suffix(&c.drops.bc.mir.tc.erased_nodes, lo[237], hi[237]),
                t238: front_rewrite_Int(&before.r238, &after.r238),
+               t239: front_rewrite_Int(&before.r239, &after.r239),
                v26: after.v26,
                v27: after.v27,
                v28: after.v28,
                v29: after.v29,
-               v30: after.v30,
-               v31: after.v31)
+               v30: after.v30)
 }
 
 func front_shrunk_6(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.drops.bc.mir.tc.function_values.len() < hi[213] {
+    if c.drops.bc.mir.tc.func_pointer_literals.len() < hi[213] {
+        return "drops.bc.mir.tc.func_pointer_literals"
+    }
+    if c.drops.bc.mir.tc.function_values.len() < hi[214] {
         return "drops.bc.mir.tc.function_values"
     }
-    if c.drops.bc.mir.tc.memory_constructions.len() < hi[214] {
+    if c.drops.bc.mir.tc.memory_constructions.len() < hi[215] {
         return "drops.bc.mir.tc.memory_constructions"
     }
-    if c.drops.bc.mir.tc.memory_addresses.len() < hi[215] {
+    if c.drops.bc.mir.tc.memory_addresses.len() < hi[216] {
         return "drops.bc.mir.tc.memory_addresses"
     }
-    if c.drops.bc.mir.tc.layout_asserts.len() < hi[216] {
+    if c.drops.bc.mir.tc.layout_asserts.len() < hi[217] {
         return "drops.bc.mir.tc.layout_asserts"
     }
-    if c.drops.bc.mir.tc.layout_assert_messages.len() < hi[217] {
+    if c.drops.bc.mir.tc.layout_assert_messages.len() < hi[218] {
         return "drops.bc.mir.tc.layout_assert_messages"
     }
-    if c.drops.bc.mir.tc.layout_assert_decls.len() < hi[218] {
+    if c.drops.bc.mir.tc.layout_assert_decls.len() < hi[219] {
         return "drops.bc.mir.tc.layout_assert_decls"
     }
-    if c.drops.bc.mir.tc.layout_assert_generic.len() < hi[219] {
+    if c.drops.bc.mir.tc.layout_assert_generic.len() < hi[220] {
         return "drops.bc.mir.tc.layout_assert_generic"
     }
-    if c.drops.bc.mir.tc.instance_params.len() < hi[222] {
+    if c.drops.bc.mir.tc.instance_params.len() < hi[223] {
         return "drops.bc.mir.tc.instance_params"
     }
-    if c.drops.bc.mir.tc.instance_values.len() < hi[223] {
+    if c.drops.bc.mir.tc.instance_values.len() < hi[224] {
         return "drops.bc.mir.tc.instance_values"
     }
-    if c.drops.bc.mir.tc.instance_types.len() < hi[224] {
+    if c.drops.bc.mir.tc.instance_types.len() < hi[225] {
         return "drops.bc.mir.tc.instance_types"
     }
-    if c.drops.bc.mir.tc.pending_constants.len() < hi[225] {
+    if c.drops.bc.mir.tc.pending_constants.len() < hi[226] {
         return "drops.bc.mir.tc.pending_constants"
     }
-    if c.drops.bc.mir.tc.phase_problems.len() < hi[226] {
+    if c.drops.bc.mir.tc.phase_problems.len() < hi[227] {
         return "drops.bc.mir.tc.phase_problems"
     }
-    if c.drops.bc.mir.tc.phase_problem_modules.len() < hi[227] {
+    if c.drops.bc.mir.tc.phase_problem_modules.len() < hi[228] {
         return "drops.bc.mir.tc.phase_problem_modules"
     }
-    if c.drops.bc.mir.tc.length_param_owners.len() < hi[232] {
+    if c.drops.bc.mir.tc.length_param_owners.len() < hi[233] {
         return "drops.bc.mir.tc.length_param_owners"
     }
-    if c.drops.bc.mir.tc.length_param_indexes.len() < hi[233] {
+    if c.drops.bc.mir.tc.length_param_indexes.len() < hi[234] {
         return "drops.bc.mir.tc.length_param_indexes"
     }
-    if c.drops.bc.mir.tc.erased_nodes.len() < hi[236] {
+    if c.drops.bc.mir.tc.erased_nodes.len() < hi[237] {
         return "drops.bc.mir.tc.erased_nodes"
     }
     ""
 }
 
 func front_apply_6(c: &var FrontCut, part: &FrontPart6) {
-    front_append(&var c.drops.bc.mir.tc.function_values, &part.t213)
-    front_append(&var c.drops.bc.mir.tc.memory_constructions, &part.t214)
-    front_append(&var c.drops.bc.mir.tc.memory_addresses, &part.t215)
-    front_append(&var c.drops.bc.mir.tc.layout_asserts, &part.t216)
-    front_append(&var c.drops.bc.mir.tc.layout_assert_messages, &part.t217)
-    front_append(&var c.drops.bc.mir.tc.layout_assert_decls, &part.t218)
-    front_append(&var c.drops.bc.mir.tc.layout_assert_generic, &part.t219)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.measured_nodes, &part.t220)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.measured_values, &part.t221)
-    front_append(&var c.drops.bc.mir.tc.instance_params, &part.t222)
-    front_append(&var c.drops.bc.mir.tc.instance_values, &part.t223)
-    front_append(&var c.drops.bc.mir.tc.instance_types, &part.t224)
-    front_append(&var c.drops.bc.mir.tc.pending_constants, &part.t225)
-    front_append(&var c.drops.bc.mir.tc.phase_problems, &part.t226)
-    front_append(&var c.drops.bc.mir.tc.phase_problem_modules, &part.t227)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.static_typing, &part.t228)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.static_verdicts, &part.t229)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.static_values, &part.t230)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.static_reasons, &part.t231)
-    front_append(&var c.drops.bc.mir.tc.length_param_owners, &part.t232)
-    front_append(&var c.drops.bc.mir.tc.length_param_indexes, &part.t233)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.export_symbols, &part.t234)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.export_nodes, &part.t235)
-    front_append(&var c.drops.bc.mir.tc.erased_nodes, &part.t236)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.blocking_twins, &part.t237)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.pair_defaults, &part.t238)
+    front_append(&var c.drops.bc.mir.tc.func_pointer_literals, &part.t213)
+    front_append(&var c.drops.bc.mir.tc.function_values, &part.t214)
+    front_append(&var c.drops.bc.mir.tc.memory_constructions, &part.t215)
+    front_append(&var c.drops.bc.mir.tc.memory_addresses, &part.t216)
+    front_append(&var c.drops.bc.mir.tc.layout_asserts, &part.t217)
+    front_append(&var c.drops.bc.mir.tc.layout_assert_messages, &part.t218)
+    front_append(&var c.drops.bc.mir.tc.layout_assert_decls, &part.t219)
+    front_append(&var c.drops.bc.mir.tc.layout_assert_generic, &part.t220)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.measured_nodes, &part.t221)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.measured_values, &part.t222)
+    front_append(&var c.drops.bc.mir.tc.instance_params, &part.t223)
+    front_append(&var c.drops.bc.mir.tc.instance_values, &part.t224)
+    front_append(&var c.drops.bc.mir.tc.instance_types, &part.t225)
+    front_append(&var c.drops.bc.mir.tc.pending_constants, &part.t226)
+    front_append(&var c.drops.bc.mir.tc.phase_problems, &part.t227)
+    front_append(&var c.drops.bc.mir.tc.phase_problem_modules, &part.t228)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.static_typing, &part.t229)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.static_verdicts, &part.t230)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.static_values, &part.t231)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.static_reasons, &part.t232)
+    front_append(&var c.drops.bc.mir.tc.length_param_owners, &part.t233)
+    front_append(&var c.drops.bc.mir.tc.length_param_indexes, &part.t234)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.export_symbols, &part.t235)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.export_nodes, &part.t236)
+    front_append(&var c.drops.bc.mir.tc.erased_nodes, &part.t237)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.blocking_twins, &part.t238)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.pair_defaults, &part.t239)
     c.drops.bc.mir.tc.obligations_checked = part.v26
     c.drops.bc.mir.tc.obligations_open = part.v27
     c.drops.bc.mir.tc.keep_escaping = part.v28
     c.drops.bc.mir.tc.chosen_pair = part.v29
     c.drops.bc.mir.tc.lend_head = part.v30
-    c.drops.bc.mir.tc.place_wanted = part.v31
 }
 
 // Piece 7 of the slicer, from `drops.bc.mir.tc` on.
 public struct FrontPart7 {
+    v31: Int
     v32: Int
     v102: Int
     v103: Int
@@ -1802,6 +1805,7 @@ extension FrontPart7: Serialize {}
 extension FrontPart7: Deserialize {}
 
 public struct FrontSnap7 {
+    v31: Int
     v32: Int
     v102: Int
     v103: Int
@@ -1835,7 +1839,8 @@ public struct FrontSnap7 {
 extension FrontSnap7: NoCopy {}
 
 func front_snapshot_7(c: &FrontCut) -> FrontSnap7 {
-    FrontSnap7(v32: c.drops.bc.mir.tc.presence_chain,
+    FrontSnap7(v31: c.drops.bc.mir.tc.place_wanted,
+               v32: c.drops.bc.mir.tc.presence_chain,
                v102: c.drops.bc.mir.tc.current,
                v103: c.drops.bc.mir.tc.current_decl,
                v104: c.drops.bc.mir.tc.current_trait,
@@ -1870,7 +1875,8 @@ func front_lengths_7(c: &FrontCut, out: &var Vector<Int>) {
 
 func front_make_7(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap7, after: &FrontSnap7) -> FrontPart7 {
-    FrontPart7(v32: after.v32,
+    FrontPart7(v31: after.v31,
+               v32: after.v32,
                v102: after.v102,
                v103: after.v103,
                v104: after.v104,
@@ -1905,6 +1911,7 @@ func front_shrunk_7(c: &FrontCut, hi: &Vector<Int>) -> String {
 }
 
 func front_apply_7(c: &var FrontCut, part: &FrontPart7) {
+    c.drops.bc.mir.tc.place_wanted = part.v31
     c.drops.bc.mir.tc.presence_chain = part.v32
     c.drops.bc.mir.tc.current = part.v102
     c.drops.bc.mir.tc.current_decl = part.v103
@@ -1947,24 +1954,24 @@ public struct FrontPart8 {
     t100: Vector<Int>
     t101: Vector<Int>
     t102: Vector<Int>
-    t115: FrontRewrite<Int>
     t116: FrontRewrite<Int>
     t117: FrontRewrite<Int>
-    v109: Int
     t118: FrontRewrite<Int>
+    v109: Int
     t119: FrontRewrite<Int>
     t120: FrontRewrite<Int>
+    t121: FrontRewrite<Int>
     v110: Int
-    t164: FrontRewrite<Int>
-    t165: Vector<Int>
+    t165: FrontRewrite<Int>
     t166: Vector<Int>
     t167: Vector<Int>
     t168: Vector<Int>
-    t170: FrontRewrite<Int>
-    t171: Vector<Int>
+    t169: Vector<Int>
+    t171: FrontRewrite<Int>
     t172: Vector<Int>
     t173: Vector<Int>
     t174: Vector<Int>
+    t175: Vector<Int>
 }
 
 extension FrontPart8: NoCopy {}
@@ -1977,16 +1984,16 @@ extension FrontPart8: Deserialize {}
 public struct FrontSnap8 {
     r93: Vector<Int>
     r98: Vector<Int>
-    r115: Vector<Int>
     r116: Vector<Int>
     r117: Vector<Int>
-    v109: Int
     r118: Vector<Int>
+    v109: Int
     r119: Vector<Int>
     r120: Vector<Int>
+    r121: Vector<Int>
     v110: Int
-    r164: Vector<Int>
-    r170: Vector<Int>
+    r165: Vector<Int>
+    r171: Vector<Int>
 }
 
 extension FrontSnap8: NoCopy {}
@@ -1994,16 +2001,16 @@ extension FrontSnap8: NoCopy {}
 func front_snapshot_8(c: &FrontCut) -> FrontSnap8 {
     FrontSnap8(r93: front_copy(&c.drops.bc.mir.tc.param_owners.heads),
                r98: front_copy(&c.drops.bc.mir.tc.extensions_of.heads),
-               r115: front_copy(&c.drops.bc.mir.tc.walks.keys_a),
-               r116: front_copy(&c.drops.bc.mir.tc.walks.keys_b),
-               r117: front_copy(&c.drops.bc.mir.tc.walks.values),
+               r116: front_copy(&c.drops.bc.mir.tc.walks.keys_a),
+               r117: front_copy(&c.drops.bc.mir.tc.walks.keys_b),
+               r118: front_copy(&c.drops.bc.mir.tc.walks.values),
                v109: c.drops.bc.mir.tc.walks.used,
-               r118: front_copy(&c.drops.bc.mir.tc.holds.keys_a),
-               r119: front_copy(&c.drops.bc.mir.tc.holds.keys_b),
-               r120: front_copy(&c.drops.bc.mir.tc.holds.values),
+               r119: front_copy(&c.drops.bc.mir.tc.holds.keys_a),
+               r120: front_copy(&c.drops.bc.mir.tc.holds.keys_b),
+               r121: front_copy(&c.drops.bc.mir.tc.holds.values),
                v110: c.drops.bc.mir.tc.holds.used,
-               r164: front_copy(&c.drops.bc.mir.tc.summary_deps.heads),
-               r170: front_copy(&c.drops.bc.mir.tc.default_at.heads))
+               r165: front_copy(&c.drops.bc.mir.tc.summary_deps.heads),
+               r171: front_copy(&c.drops.bc.mir.tc.default_at.heads))
 }
 
 func front_lengths_8(c: &FrontCut, out: &var Vector<Int>) {
@@ -2017,22 +2024,22 @@ func front_lengths_8(c: &FrontCut, out: &var Vector<Int>) {
     out[100] = c.drops.bc.mir.tc.extensions_of.key_b.len()
     out[101] = c.drops.bc.mir.tc.extensions_of.values.len()
     out[102] = c.drops.bc.mir.tc.extensions_of.next.len()
-    out[115] = c.drops.bc.mir.tc.walks.keys_a.len()
-    out[116] = c.drops.bc.mir.tc.walks.keys_b.len()
-    out[117] = c.drops.bc.mir.tc.walks.values.len()
-    out[118] = c.drops.bc.mir.tc.holds.keys_a.len()
-    out[119] = c.drops.bc.mir.tc.holds.keys_b.len()
-    out[120] = c.drops.bc.mir.tc.holds.values.len()
-    out[164] = c.drops.bc.mir.tc.summary_deps.heads.len()
-    out[165] = c.drops.bc.mir.tc.summary_deps.key_a.len()
-    out[166] = c.drops.bc.mir.tc.summary_deps.key_b.len()
-    out[167] = c.drops.bc.mir.tc.summary_deps.values.len()
-    out[168] = c.drops.bc.mir.tc.summary_deps.next.len()
-    out[170] = c.drops.bc.mir.tc.default_at.heads.len()
-    out[171] = c.drops.bc.mir.tc.default_at.key_a.len()
-    out[172] = c.drops.bc.mir.tc.default_at.key_b.len()
-    out[173] = c.drops.bc.mir.tc.default_at.values.len()
-    out[174] = c.drops.bc.mir.tc.default_at.next.len()
+    out[116] = c.drops.bc.mir.tc.walks.keys_a.len()
+    out[117] = c.drops.bc.mir.tc.walks.keys_b.len()
+    out[118] = c.drops.bc.mir.tc.walks.values.len()
+    out[119] = c.drops.bc.mir.tc.holds.keys_a.len()
+    out[120] = c.drops.bc.mir.tc.holds.keys_b.len()
+    out[121] = c.drops.bc.mir.tc.holds.values.len()
+    out[165] = c.drops.bc.mir.tc.summary_deps.heads.len()
+    out[166] = c.drops.bc.mir.tc.summary_deps.key_a.len()
+    out[167] = c.drops.bc.mir.tc.summary_deps.key_b.len()
+    out[168] = c.drops.bc.mir.tc.summary_deps.values.len()
+    out[169] = c.drops.bc.mir.tc.summary_deps.next.len()
+    out[171] = c.drops.bc.mir.tc.default_at.heads.len()
+    out[172] = c.drops.bc.mir.tc.default_at.key_a.len()
+    out[173] = c.drops.bc.mir.tc.default_at.key_b.len()
+    out[174] = c.drops.bc.mir.tc.default_at.values.len()
+    out[175] = c.drops.bc.mir.tc.default_at.next.len()
 }
 
 func front_make_8(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
@@ -2047,24 +2054,24 @@ func front_make_8(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
                t100: front_suffix(&c.drops.bc.mir.tc.extensions_of.key_b, lo[100], hi[100]),
                t101: front_suffix(&c.drops.bc.mir.tc.extensions_of.values, lo[101], hi[101]),
                t102: front_suffix(&c.drops.bc.mir.tc.extensions_of.next, lo[102], hi[102]),
-               t115: front_rewrite_Int(&before.r115, &after.r115),
                t116: front_rewrite_Int(&before.r116, &after.r116),
                t117: front_rewrite_Int(&before.r117, &after.r117),
-               v109: after.v109,
                t118: front_rewrite_Int(&before.r118, &after.r118),
+               v109: after.v109,
                t119: front_rewrite_Int(&before.r119, &after.r119),
                t120: front_rewrite_Int(&before.r120, &after.r120),
+               t121: front_rewrite_Int(&before.r121, &after.r121),
                v110: after.v110,
-               t164: front_rewrite_Int(&before.r164, &after.r164),
-               t165: front_suffix(&c.drops.bc.mir.tc.summary_deps.key_a, lo[165], hi[165]),
-               t166: front_suffix(&c.drops.bc.mir.tc.summary_deps.key_b, lo[166], hi[166]),
-               t167: front_suffix(&c.drops.bc.mir.tc.summary_deps.values, lo[167], hi[167]),
-               t168: front_suffix(&c.drops.bc.mir.tc.summary_deps.next, lo[168], hi[168]),
-               t170: front_rewrite_Int(&before.r170, &after.r170),
-               t171: front_suffix(&c.drops.bc.mir.tc.default_at.key_a, lo[171], hi[171]),
-               t172: front_suffix(&c.drops.bc.mir.tc.default_at.key_b, lo[172], hi[172]),
-               t173: front_suffix(&c.drops.bc.mir.tc.default_at.values, lo[173], hi[173]),
-               t174: front_suffix(&c.drops.bc.mir.tc.default_at.next, lo[174], hi[174]))
+               t165: front_rewrite_Int(&before.r165, &after.r165),
+               t166: front_suffix(&c.drops.bc.mir.tc.summary_deps.key_a, lo[166], hi[166]),
+               t167: front_suffix(&c.drops.bc.mir.tc.summary_deps.key_b, lo[167], hi[167]),
+               t168: front_suffix(&c.drops.bc.mir.tc.summary_deps.values, lo[168], hi[168]),
+               t169: front_suffix(&c.drops.bc.mir.tc.summary_deps.next, lo[169], hi[169]),
+               t171: front_rewrite_Int(&before.r171, &after.r171),
+               t172: front_suffix(&c.drops.bc.mir.tc.default_at.key_a, lo[172], hi[172]),
+               t173: front_suffix(&c.drops.bc.mir.tc.default_at.key_b, lo[173], hi[173]),
+               t174: front_suffix(&c.drops.bc.mir.tc.default_at.values, lo[174], hi[174]),
+               t175: front_suffix(&c.drops.bc.mir.tc.default_at.next, lo[175], hi[175]))
 }
 
 func front_shrunk_8(c: &FrontCut, hi: &Vector<Int>) -> String {
@@ -2092,28 +2099,28 @@ func front_shrunk_8(c: &FrontCut, hi: &Vector<Int>) -> String {
     if c.drops.bc.mir.tc.extensions_of.next.len() < hi[102] {
         return "drops.bc.mir.tc.extensions_of.next"
     }
-    if c.drops.bc.mir.tc.summary_deps.key_a.len() < hi[165] {
+    if c.drops.bc.mir.tc.summary_deps.key_a.len() < hi[166] {
         return "drops.bc.mir.tc.summary_deps.key_a"
     }
-    if c.drops.bc.mir.tc.summary_deps.key_b.len() < hi[166] {
+    if c.drops.bc.mir.tc.summary_deps.key_b.len() < hi[167] {
         return "drops.bc.mir.tc.summary_deps.key_b"
     }
-    if c.drops.bc.mir.tc.summary_deps.values.len() < hi[167] {
+    if c.drops.bc.mir.tc.summary_deps.values.len() < hi[168] {
         return "drops.bc.mir.tc.summary_deps.values"
     }
-    if c.drops.bc.mir.tc.summary_deps.next.len() < hi[168] {
+    if c.drops.bc.mir.tc.summary_deps.next.len() < hi[169] {
         return "drops.bc.mir.tc.summary_deps.next"
     }
-    if c.drops.bc.mir.tc.default_at.key_a.len() < hi[171] {
+    if c.drops.bc.mir.tc.default_at.key_a.len() < hi[172] {
         return "drops.bc.mir.tc.default_at.key_a"
     }
-    if c.drops.bc.mir.tc.default_at.key_b.len() < hi[172] {
+    if c.drops.bc.mir.tc.default_at.key_b.len() < hi[173] {
         return "drops.bc.mir.tc.default_at.key_b"
     }
-    if c.drops.bc.mir.tc.default_at.values.len() < hi[173] {
+    if c.drops.bc.mir.tc.default_at.values.len() < hi[174] {
         return "drops.bc.mir.tc.default_at.values"
     }
-    if c.drops.bc.mir.tc.default_at.next.len() < hi[174] {
+    if c.drops.bc.mir.tc.default_at.next.len() < hi[175] {
         return "drops.bc.mir.tc.default_at.next"
     }
     ""
@@ -2130,60 +2137,60 @@ func front_apply_8(c: &var FrontCut, part: &FrontPart8) {
     front_append(&var c.drops.bc.mir.tc.extensions_of.key_b, &part.t100)
     front_append(&var c.drops.bc.mir.tc.extensions_of.values, &part.t101)
     front_append(&var c.drops.bc.mir.tc.extensions_of.next, &part.t102)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.walks.keys_a, &part.t115)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.walks.keys_b, &part.t116)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.walks.values, &part.t117)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.walks.keys_a, &part.t116)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.walks.keys_b, &part.t117)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.walks.values, &part.t118)
     c.drops.bc.mir.tc.walks.used = part.v109
-    front_rewrite_apply(&var c.drops.bc.mir.tc.holds.keys_a, &part.t118)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.holds.keys_b, &part.t119)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.holds.values, &part.t120)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.holds.keys_a, &part.t119)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.holds.keys_b, &part.t120)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.holds.values, &part.t121)
     c.drops.bc.mir.tc.holds.used = part.v110
-    front_rewrite_apply(&var c.drops.bc.mir.tc.summary_deps.heads, &part.t164)
-    front_append(&var c.drops.bc.mir.tc.summary_deps.key_a, &part.t165)
-    front_append(&var c.drops.bc.mir.tc.summary_deps.key_b, &part.t166)
-    front_append(&var c.drops.bc.mir.tc.summary_deps.values, &part.t167)
-    front_append(&var c.drops.bc.mir.tc.summary_deps.next, &part.t168)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.default_at.heads, &part.t170)
-    front_append(&var c.drops.bc.mir.tc.default_at.key_a, &part.t171)
-    front_append(&var c.drops.bc.mir.tc.default_at.key_b, &part.t172)
-    front_append(&var c.drops.bc.mir.tc.default_at.values, &part.t173)
-    front_append(&var c.drops.bc.mir.tc.default_at.next, &part.t174)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.summary_deps.heads, &part.t165)
+    front_append(&var c.drops.bc.mir.tc.summary_deps.key_a, &part.t166)
+    front_append(&var c.drops.bc.mir.tc.summary_deps.key_b, &part.t167)
+    front_append(&var c.drops.bc.mir.tc.summary_deps.values, &part.t168)
+    front_append(&var c.drops.bc.mir.tc.summary_deps.next, &part.t169)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.default_at.heads, &part.t171)
+    front_append(&var c.drops.bc.mir.tc.default_at.key_a, &part.t172)
+    front_append(&var c.drops.bc.mir.tc.default_at.key_b, &part.t173)
+    front_append(&var c.drops.bc.mir.tc.default_at.values, &part.t174)
+    front_append(&var c.drops.bc.mir.tc.default_at.next, &part.t175)
 }
 
 // Piece 9 of the slicer, from `drops.bc.mir.tc.std_verdicts` on.
 public struct FrontPart9 {
-    t175: FrontRewrite<Int>
-    t176: Vector<Int>
+    t176: FrontRewrite<Int>
     t177: Vector<Int>
     t178: Vector<Int>
     t179: Vector<Int>
-    t181: Vector<String>
-    t182: Vector<Int>
+    t180: Vector<Int>
+    t182: Vector<String>
     t183: Vector<Int>
-    t184: Vector<String>
-    t195: FrontRewrite<Int>
-    t196: Vector<Int>
+    t184: Vector<Int>
+    t185: Vector<String>
+    t196: FrontRewrite<Int>
     t197: Vector<Int>
     t198: Vector<Int>
     t199: Vector<Int>
-    t239: Vector<T_MirFunc>
-    t240: Vector<T_MirLocal>
-    t241: Vector<T_MirBlock>
-    t242: Vector<T_MirStmt>
-    t243: Vector<T_MirPlace>
-    t244: Vector<T_MirProj>
-    t245: Vector<T_MirOperand>
-    t246: Vector<T_MirRvalue>
-    t247: Vector<Int>
-    t248: Vector<T_MirArm>
-    t249: Vector<T_MirCall>
-    t250: Vector<Int>
-    t251: Vector<String>
-    t252: Vector<T_MirWindow>
-    t253: Vector<T_MirDiag>
-    t254: Vector<String>
-    t255: Vector<Int>
-    t261: FrontRewrite<T_MirScopeEntry>
+    t200: Vector<Int>
+    t240: Vector<T_MirFunc>
+    t241: Vector<T_MirLocal>
+    t242: Vector<T_MirBlock>
+    t243: Vector<T_MirStmt>
+    t244: Vector<T_MirPlace>
+    t245: Vector<T_MirProj>
+    t246: Vector<T_MirOperand>
+    t247: Vector<T_MirRvalue>
+    t248: Vector<Int>
+    t249: Vector<T_MirArm>
+    t250: Vector<T_MirCall>
+    t251: Vector<Int>
+    t252: Vector<String>
+    t253: Vector<T_MirWindow>
+    t254: Vector<T_MirDiag>
+    t255: Vector<String>
+    t256: Vector<Int>
+    t262: FrontRewrite<T_MirScopeEntry>
 }
 
 extension FrontPart9: NoCopy {}
@@ -2194,235 +2201,235 @@ extension FrontPart9: Serialize {}
 extension FrontPart9: Deserialize {}
 
 public struct FrontSnap9 {
-    r175: Vector<Int>
-    r195: Vector<Int>
-    r261: Vector<T_MirScopeEntry>
+    r176: Vector<Int>
+    r196: Vector<Int>
+    r262: Vector<T_MirScopeEntry>
 }
 
 extension FrontSnap9: NoCopy {}
 
 func front_snapshot_9(c: &FrontCut) -> FrontSnap9 {
-    FrontSnap9(r175: front_copy(&c.drops.bc.mir.tc.std_verdicts.heads),
-               r195: front_copy(&c.drops.bc.mir.tc.closure_index.heads),
-               r261: front_copy(&c.drops.bc.mir.scope))
+    FrontSnap9(r176: front_copy(&c.drops.bc.mir.tc.std_verdicts.heads),
+               r196: front_copy(&c.drops.bc.mir.tc.closure_index.heads),
+               r262: front_copy(&c.drops.bc.mir.scope))
 }
 
 func front_lengths_9(c: &FrontCut, out: &var Vector<Int>) {
-    out[175] = c.drops.bc.mir.tc.std_verdicts.heads.len()
-    out[176] = c.drops.bc.mir.tc.std_verdicts.key_a.len()
-    out[177] = c.drops.bc.mir.tc.std_verdicts.key_b.len()
-    out[178] = c.drops.bc.mir.tc.std_verdicts.values.len()
-    out[179] = c.drops.bc.mir.tc.std_verdicts.next.len()
-    out[181] = c.drops.bc.mir.tc.std_rows.keys.len()
-    out[182] = c.drops.bc.mir.tc.std_rows.verdicts.len()
-    out[183] = c.drops.bc.mir.tc.std_rows.causes.len()
-    out[184] = c.drops.bc.mir.tc.std_rows.labels.len()
-    out[195] = c.drops.bc.mir.tc.closure_index.heads.len()
-    out[196] = c.drops.bc.mir.tc.closure_index.key_a.len()
-    out[197] = c.drops.bc.mir.tc.closure_index.key_b.len()
-    out[198] = c.drops.bc.mir.tc.closure_index.values.len()
-    out[199] = c.drops.bc.mir.tc.closure_index.next.len()
-    out[239] = c.drops.bc.mir.funcs.len()
-    out[240] = c.drops.bc.mir.locals.len()
-    out[241] = c.drops.bc.mir.blocks.len()
-    out[242] = c.drops.bc.mir.stmts.len()
-    out[243] = c.drops.bc.mir.places.len()
-    out[244] = c.drops.bc.mir.projs.len()
-    out[245] = c.drops.bc.mir.operands.len()
-    out[246] = c.drops.bc.mir.rvalues.len()
-    out[247] = c.drops.bc.mir.lists.len()
-    out[248] = c.drops.bc.mir.arms.len()
-    out[249] = c.drops.bc.mir.calls.len()
-    out[250] = c.drops.bc.mir.types.len()
-    out[251] = c.drops.bc.mir.conds.len()
-    out[252] = c.drops.bc.mir.windows.len()
-    out[253] = c.drops.bc.mir.diags.len()
-    out[254] = c.drops.bc.mir.problems.len()
-    out[255] = c.drops.bc.mir.problem_modules.len()
-    out[261] = c.drops.bc.mir.scope.len()
+    out[176] = c.drops.bc.mir.tc.std_verdicts.heads.len()
+    out[177] = c.drops.bc.mir.tc.std_verdicts.key_a.len()
+    out[178] = c.drops.bc.mir.tc.std_verdicts.key_b.len()
+    out[179] = c.drops.bc.mir.tc.std_verdicts.values.len()
+    out[180] = c.drops.bc.mir.tc.std_verdicts.next.len()
+    out[182] = c.drops.bc.mir.tc.std_rows.keys.len()
+    out[183] = c.drops.bc.mir.tc.std_rows.verdicts.len()
+    out[184] = c.drops.bc.mir.tc.std_rows.causes.len()
+    out[185] = c.drops.bc.mir.tc.std_rows.labels.len()
+    out[196] = c.drops.bc.mir.tc.closure_index.heads.len()
+    out[197] = c.drops.bc.mir.tc.closure_index.key_a.len()
+    out[198] = c.drops.bc.mir.tc.closure_index.key_b.len()
+    out[199] = c.drops.bc.mir.tc.closure_index.values.len()
+    out[200] = c.drops.bc.mir.tc.closure_index.next.len()
+    out[240] = c.drops.bc.mir.funcs.len()
+    out[241] = c.drops.bc.mir.locals.len()
+    out[242] = c.drops.bc.mir.blocks.len()
+    out[243] = c.drops.bc.mir.stmts.len()
+    out[244] = c.drops.bc.mir.places.len()
+    out[245] = c.drops.bc.mir.projs.len()
+    out[246] = c.drops.bc.mir.operands.len()
+    out[247] = c.drops.bc.mir.rvalues.len()
+    out[248] = c.drops.bc.mir.lists.len()
+    out[249] = c.drops.bc.mir.arms.len()
+    out[250] = c.drops.bc.mir.calls.len()
+    out[251] = c.drops.bc.mir.types.len()
+    out[252] = c.drops.bc.mir.conds.len()
+    out[253] = c.drops.bc.mir.windows.len()
+    out[254] = c.drops.bc.mir.diags.len()
+    out[255] = c.drops.bc.mir.problems.len()
+    out[256] = c.drops.bc.mir.problem_modules.len()
+    out[262] = c.drops.bc.mir.scope.len()
 }
 
 func front_make_9(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap9, after: &FrontSnap9) -> FrontPart9 {
-    FrontPart9(t175: front_rewrite_Int(&before.r175, &after.r175),
-               t176: front_suffix(&c.drops.bc.mir.tc.std_verdicts.key_a, lo[176], hi[176]),
-               t177: front_suffix(&c.drops.bc.mir.tc.std_verdicts.key_b, lo[177], hi[177]),
-               t178: front_suffix(&c.drops.bc.mir.tc.std_verdicts.values, lo[178], hi[178]),
-               t179: front_suffix(&c.drops.bc.mir.tc.std_verdicts.next, lo[179], hi[179]),
-               t181: front_suffix(&c.drops.bc.mir.tc.std_rows.keys, lo[181], hi[181]),
-               t182: front_suffix(&c.drops.bc.mir.tc.std_rows.verdicts, lo[182], hi[182]),
-               t183: front_suffix(&c.drops.bc.mir.tc.std_rows.causes, lo[183], hi[183]),
-               t184: front_suffix(&c.drops.bc.mir.tc.std_rows.labels, lo[184], hi[184]),
-               t195: front_rewrite_Int(&before.r195, &after.r195),
-               t196: front_suffix(&c.drops.bc.mir.tc.closure_index.key_a, lo[196], hi[196]),
-               t197: front_suffix(&c.drops.bc.mir.tc.closure_index.key_b, lo[197], hi[197]),
-               t198: front_suffix(&c.drops.bc.mir.tc.closure_index.values, lo[198], hi[198]),
-               t199: front_suffix(&c.drops.bc.mir.tc.closure_index.next, lo[199], hi[199]),
-               t239: front_suffix(&c.drops.bc.mir.funcs, lo[239], hi[239]),
-               t240: front_suffix(&c.drops.bc.mir.locals, lo[240], hi[240]),
-               t241: front_suffix(&c.drops.bc.mir.blocks, lo[241], hi[241]),
-               t242: front_suffix(&c.drops.bc.mir.stmts, lo[242], hi[242]),
-               t243: front_suffix(&c.drops.bc.mir.places, lo[243], hi[243]),
-               t244: front_suffix(&c.drops.bc.mir.projs, lo[244], hi[244]),
-               t245: front_suffix(&c.drops.bc.mir.operands, lo[245], hi[245]),
-               t246: front_suffix(&c.drops.bc.mir.rvalues, lo[246], hi[246]),
-               t247: front_suffix(&c.drops.bc.mir.lists, lo[247], hi[247]),
-               t248: front_suffix(&c.drops.bc.mir.arms, lo[248], hi[248]),
-               t249: front_suffix(&c.drops.bc.mir.calls, lo[249], hi[249]),
-               t250: front_suffix(&c.drops.bc.mir.types, lo[250], hi[250]),
-               t251: front_suffix(&c.drops.bc.mir.conds, lo[251], hi[251]),
-               t252: front_suffix(&c.drops.bc.mir.windows, lo[252], hi[252]),
-               t253: front_suffix(&c.drops.bc.mir.diags, lo[253], hi[253]),
-               t254: front_suffix(&c.drops.bc.mir.problems, lo[254], hi[254]),
-               t255: front_suffix(&c.drops.bc.mir.problem_modules, lo[255], hi[255]),
-               t261: front_rewrite_whole(&after.r261))
+    FrontPart9(t176: front_rewrite_Int(&before.r176, &after.r176),
+               t177: front_suffix(&c.drops.bc.mir.tc.std_verdicts.key_a, lo[177], hi[177]),
+               t178: front_suffix(&c.drops.bc.mir.tc.std_verdicts.key_b, lo[178], hi[178]),
+               t179: front_suffix(&c.drops.bc.mir.tc.std_verdicts.values, lo[179], hi[179]),
+               t180: front_suffix(&c.drops.bc.mir.tc.std_verdicts.next, lo[180], hi[180]),
+               t182: front_suffix(&c.drops.bc.mir.tc.std_rows.keys, lo[182], hi[182]),
+               t183: front_suffix(&c.drops.bc.mir.tc.std_rows.verdicts, lo[183], hi[183]),
+               t184: front_suffix(&c.drops.bc.mir.tc.std_rows.causes, lo[184], hi[184]),
+               t185: front_suffix(&c.drops.bc.mir.tc.std_rows.labels, lo[185], hi[185]),
+               t196: front_rewrite_Int(&before.r196, &after.r196),
+               t197: front_suffix(&c.drops.bc.mir.tc.closure_index.key_a, lo[197], hi[197]),
+               t198: front_suffix(&c.drops.bc.mir.tc.closure_index.key_b, lo[198], hi[198]),
+               t199: front_suffix(&c.drops.bc.mir.tc.closure_index.values, lo[199], hi[199]),
+               t200: front_suffix(&c.drops.bc.mir.tc.closure_index.next, lo[200], hi[200]),
+               t240: front_suffix(&c.drops.bc.mir.funcs, lo[240], hi[240]),
+               t241: front_suffix(&c.drops.bc.mir.locals, lo[241], hi[241]),
+               t242: front_suffix(&c.drops.bc.mir.blocks, lo[242], hi[242]),
+               t243: front_suffix(&c.drops.bc.mir.stmts, lo[243], hi[243]),
+               t244: front_suffix(&c.drops.bc.mir.places, lo[244], hi[244]),
+               t245: front_suffix(&c.drops.bc.mir.projs, lo[245], hi[245]),
+               t246: front_suffix(&c.drops.bc.mir.operands, lo[246], hi[246]),
+               t247: front_suffix(&c.drops.bc.mir.rvalues, lo[247], hi[247]),
+               t248: front_suffix(&c.drops.bc.mir.lists, lo[248], hi[248]),
+               t249: front_suffix(&c.drops.bc.mir.arms, lo[249], hi[249]),
+               t250: front_suffix(&c.drops.bc.mir.calls, lo[250], hi[250]),
+               t251: front_suffix(&c.drops.bc.mir.types, lo[251], hi[251]),
+               t252: front_suffix(&c.drops.bc.mir.conds, lo[252], hi[252]),
+               t253: front_suffix(&c.drops.bc.mir.windows, lo[253], hi[253]),
+               t254: front_suffix(&c.drops.bc.mir.diags, lo[254], hi[254]),
+               t255: front_suffix(&c.drops.bc.mir.problems, lo[255], hi[255]),
+               t256: front_suffix(&c.drops.bc.mir.problem_modules, lo[256], hi[256]),
+               t262: front_rewrite_whole(&after.r262))
 }
 
 func front_shrunk_9(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.drops.bc.mir.tc.std_verdicts.key_a.len() < hi[176] {
+    if c.drops.bc.mir.tc.std_verdicts.key_a.len() < hi[177] {
         return "drops.bc.mir.tc.std_verdicts.key_a"
     }
-    if c.drops.bc.mir.tc.std_verdicts.key_b.len() < hi[177] {
+    if c.drops.bc.mir.tc.std_verdicts.key_b.len() < hi[178] {
         return "drops.bc.mir.tc.std_verdicts.key_b"
     }
-    if c.drops.bc.mir.tc.std_verdicts.values.len() < hi[178] {
+    if c.drops.bc.mir.tc.std_verdicts.values.len() < hi[179] {
         return "drops.bc.mir.tc.std_verdicts.values"
     }
-    if c.drops.bc.mir.tc.std_verdicts.next.len() < hi[179] {
+    if c.drops.bc.mir.tc.std_verdicts.next.len() < hi[180] {
         return "drops.bc.mir.tc.std_verdicts.next"
     }
-    if c.drops.bc.mir.tc.std_rows.keys.len() < hi[181] {
+    if c.drops.bc.mir.tc.std_rows.keys.len() < hi[182] {
         return "drops.bc.mir.tc.std_rows.keys"
     }
-    if c.drops.bc.mir.tc.std_rows.verdicts.len() < hi[182] {
+    if c.drops.bc.mir.tc.std_rows.verdicts.len() < hi[183] {
         return "drops.bc.mir.tc.std_rows.verdicts"
     }
-    if c.drops.bc.mir.tc.std_rows.causes.len() < hi[183] {
+    if c.drops.bc.mir.tc.std_rows.causes.len() < hi[184] {
         return "drops.bc.mir.tc.std_rows.causes"
     }
-    if c.drops.bc.mir.tc.std_rows.labels.len() < hi[184] {
+    if c.drops.bc.mir.tc.std_rows.labels.len() < hi[185] {
         return "drops.bc.mir.tc.std_rows.labels"
     }
-    if c.drops.bc.mir.tc.closure_index.key_a.len() < hi[196] {
+    if c.drops.bc.mir.tc.closure_index.key_a.len() < hi[197] {
         return "drops.bc.mir.tc.closure_index.key_a"
     }
-    if c.drops.bc.mir.tc.closure_index.key_b.len() < hi[197] {
+    if c.drops.bc.mir.tc.closure_index.key_b.len() < hi[198] {
         return "drops.bc.mir.tc.closure_index.key_b"
     }
-    if c.drops.bc.mir.tc.closure_index.values.len() < hi[198] {
+    if c.drops.bc.mir.tc.closure_index.values.len() < hi[199] {
         return "drops.bc.mir.tc.closure_index.values"
     }
-    if c.drops.bc.mir.tc.closure_index.next.len() < hi[199] {
+    if c.drops.bc.mir.tc.closure_index.next.len() < hi[200] {
         return "drops.bc.mir.tc.closure_index.next"
     }
-    if c.drops.bc.mir.funcs.len() < hi[239] {
+    if c.drops.bc.mir.funcs.len() < hi[240] {
         return "drops.bc.mir.funcs"
     }
-    if c.drops.bc.mir.locals.len() < hi[240] {
+    if c.drops.bc.mir.locals.len() < hi[241] {
         return "drops.bc.mir.locals"
     }
-    if c.drops.bc.mir.blocks.len() < hi[241] {
+    if c.drops.bc.mir.blocks.len() < hi[242] {
         return "drops.bc.mir.blocks"
     }
-    if c.drops.bc.mir.stmts.len() < hi[242] {
+    if c.drops.bc.mir.stmts.len() < hi[243] {
         return "drops.bc.mir.stmts"
     }
-    if c.drops.bc.mir.places.len() < hi[243] {
+    if c.drops.bc.mir.places.len() < hi[244] {
         return "drops.bc.mir.places"
     }
-    if c.drops.bc.mir.projs.len() < hi[244] {
+    if c.drops.bc.mir.projs.len() < hi[245] {
         return "drops.bc.mir.projs"
     }
-    if c.drops.bc.mir.operands.len() < hi[245] {
+    if c.drops.bc.mir.operands.len() < hi[246] {
         return "drops.bc.mir.operands"
     }
-    if c.drops.bc.mir.rvalues.len() < hi[246] {
+    if c.drops.bc.mir.rvalues.len() < hi[247] {
         return "drops.bc.mir.rvalues"
     }
-    if c.drops.bc.mir.lists.len() < hi[247] {
+    if c.drops.bc.mir.lists.len() < hi[248] {
         return "drops.bc.mir.lists"
     }
-    if c.drops.bc.mir.arms.len() < hi[248] {
+    if c.drops.bc.mir.arms.len() < hi[249] {
         return "drops.bc.mir.arms"
     }
-    if c.drops.bc.mir.calls.len() < hi[249] {
+    if c.drops.bc.mir.calls.len() < hi[250] {
         return "drops.bc.mir.calls"
     }
-    if c.drops.bc.mir.types.len() < hi[250] {
+    if c.drops.bc.mir.types.len() < hi[251] {
         return "drops.bc.mir.types"
     }
-    if c.drops.bc.mir.conds.len() < hi[251] {
+    if c.drops.bc.mir.conds.len() < hi[252] {
         return "drops.bc.mir.conds"
     }
-    if c.drops.bc.mir.windows.len() < hi[252] {
+    if c.drops.bc.mir.windows.len() < hi[253] {
         return "drops.bc.mir.windows"
     }
-    if c.drops.bc.mir.diags.len() < hi[253] {
+    if c.drops.bc.mir.diags.len() < hi[254] {
         return "drops.bc.mir.diags"
     }
-    if c.drops.bc.mir.problems.len() < hi[254] {
+    if c.drops.bc.mir.problems.len() < hi[255] {
         return "drops.bc.mir.problems"
     }
-    if c.drops.bc.mir.problem_modules.len() < hi[255] {
+    if c.drops.bc.mir.problem_modules.len() < hi[256] {
         return "drops.bc.mir.problem_modules"
     }
     ""
 }
 
 func front_apply_9(c: &var FrontCut, part: &FrontPart9) {
-    front_rewrite_apply(&var c.drops.bc.mir.tc.std_verdicts.heads, &part.t175)
-    front_append(&var c.drops.bc.mir.tc.std_verdicts.key_a, &part.t176)
-    front_append(&var c.drops.bc.mir.tc.std_verdicts.key_b, &part.t177)
-    front_append(&var c.drops.bc.mir.tc.std_verdicts.values, &part.t178)
-    front_append(&var c.drops.bc.mir.tc.std_verdicts.next, &part.t179)
-    front_append(&var c.drops.bc.mir.tc.std_rows.keys, &part.t181)
-    front_append(&var c.drops.bc.mir.tc.std_rows.verdicts, &part.t182)
-    front_append(&var c.drops.bc.mir.tc.std_rows.causes, &part.t183)
-    front_append(&var c.drops.bc.mir.tc.std_rows.labels, &part.t184)
-    front_rewrite_apply(&var c.drops.bc.mir.tc.closure_index.heads, &part.t195)
-    front_append(&var c.drops.bc.mir.tc.closure_index.key_a, &part.t196)
-    front_append(&var c.drops.bc.mir.tc.closure_index.key_b, &part.t197)
-    front_append(&var c.drops.bc.mir.tc.closure_index.values, &part.t198)
-    front_append(&var c.drops.bc.mir.tc.closure_index.next, &part.t199)
-    front_append(&var c.drops.bc.mir.funcs, &part.t239)
-    front_append(&var c.drops.bc.mir.locals, &part.t240)
-    front_append(&var c.drops.bc.mir.blocks, &part.t241)
-    front_append(&var c.drops.bc.mir.stmts, &part.t242)
-    front_append(&var c.drops.bc.mir.places, &part.t243)
-    front_append(&var c.drops.bc.mir.projs, &part.t244)
-    front_append(&var c.drops.bc.mir.operands, &part.t245)
-    front_append(&var c.drops.bc.mir.rvalues, &part.t246)
-    front_append(&var c.drops.bc.mir.lists, &part.t247)
-    front_append(&var c.drops.bc.mir.arms, &part.t248)
-    front_append(&var c.drops.bc.mir.calls, &part.t249)
-    front_append(&var c.drops.bc.mir.types, &part.t250)
-    front_append(&var c.drops.bc.mir.conds, &part.t251)
-    front_append(&var c.drops.bc.mir.windows, &part.t252)
-    front_append(&var c.drops.bc.mir.diags, &part.t253)
-    front_append(&var c.drops.bc.mir.problems, &part.t254)
-    front_append(&var c.drops.bc.mir.problem_modules, &part.t255)
-    front_rewrite_apply(&var c.drops.bc.mir.scope, &part.t261)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.std_verdicts.heads, &part.t176)
+    front_append(&var c.drops.bc.mir.tc.std_verdicts.key_a, &part.t177)
+    front_append(&var c.drops.bc.mir.tc.std_verdicts.key_b, &part.t178)
+    front_append(&var c.drops.bc.mir.tc.std_verdicts.values, &part.t179)
+    front_append(&var c.drops.bc.mir.tc.std_verdicts.next, &part.t180)
+    front_append(&var c.drops.bc.mir.tc.std_rows.keys, &part.t182)
+    front_append(&var c.drops.bc.mir.tc.std_rows.verdicts, &part.t183)
+    front_append(&var c.drops.bc.mir.tc.std_rows.causes, &part.t184)
+    front_append(&var c.drops.bc.mir.tc.std_rows.labels, &part.t185)
+    front_rewrite_apply(&var c.drops.bc.mir.tc.closure_index.heads, &part.t196)
+    front_append(&var c.drops.bc.mir.tc.closure_index.key_a, &part.t197)
+    front_append(&var c.drops.bc.mir.tc.closure_index.key_b, &part.t198)
+    front_append(&var c.drops.bc.mir.tc.closure_index.values, &part.t199)
+    front_append(&var c.drops.bc.mir.tc.closure_index.next, &part.t200)
+    front_append(&var c.drops.bc.mir.funcs, &part.t240)
+    front_append(&var c.drops.bc.mir.locals, &part.t241)
+    front_append(&var c.drops.bc.mir.blocks, &part.t242)
+    front_append(&var c.drops.bc.mir.stmts, &part.t243)
+    front_append(&var c.drops.bc.mir.places, &part.t244)
+    front_append(&var c.drops.bc.mir.projs, &part.t245)
+    front_append(&var c.drops.bc.mir.operands, &part.t246)
+    front_append(&var c.drops.bc.mir.rvalues, &part.t247)
+    front_append(&var c.drops.bc.mir.lists, &part.t248)
+    front_append(&var c.drops.bc.mir.arms, &part.t249)
+    front_append(&var c.drops.bc.mir.calls, &part.t250)
+    front_append(&var c.drops.bc.mir.types, &part.t251)
+    front_append(&var c.drops.bc.mir.conds, &part.t252)
+    front_append(&var c.drops.bc.mir.windows, &part.t253)
+    front_append(&var c.drops.bc.mir.diags, &part.t254)
+    front_append(&var c.drops.bc.mir.problems, &part.t255)
+    front_append(&var c.drops.bc.mir.problem_modules, &part.t256)
+    front_rewrite_apply(&var c.drops.bc.mir.scope, &part.t262)
 }
 
 // Piece 10 of the slicer, from `drops.bc.mir` on.
 public struct FrontPart10 {
-    t262: FrontRewrite<Int>
-    t263: FrontRewrite<T_MirLoop>
-    t264: FrontRewrite<T_MirCatch>
-    t265: FrontRewrite<T_MirChain>
-    t266: Vector<Int>
-    t267: FrontRewrite<Int>
-    t268: Vector<Int>
-    t269: FrontRewrite<Int>
+    t263: FrontRewrite<Int>
+    t264: FrontRewrite<T_MirLoop>
+    t265: FrontRewrite<T_MirCatch>
+    t266: FrontRewrite<T_MirChain>
+    t267: Vector<Int>
+    t268: FrontRewrite<Int>
+    t269: Vector<Int>
     t270: FrontRewrite<Int>
-    t281: Vector<Int>
-    t282: FrontRewrite<Int>
+    t271: FrontRewrite<Int>
+    t282: Vector<Int>
     t283: FrontRewrite<Int>
     t284: FrontRewrite<Int>
     t285: FrontRewrite<Int>
-    t286: Vector<Int>
-    t287: Vector<T_MirAccessor>
-    t288: Vector<Int>
+    t286: FrontRewrite<Int>
+    t287: Vector<Int>
+    t288: Vector<T_MirAccessor>
+    t289: Vector<Int>
     v140: Int
     v141: Int
     v142: Int
@@ -2444,17 +2451,17 @@ extension FrontPart10: Serialize {}
 extension FrontPart10: Deserialize {}
 
 public struct FrontSnap10 {
-    r262: Vector<Int>
-    r263: Vector<T_MirLoop>
-    r264: Vector<T_MirCatch>
-    r265: Vector<T_MirChain>
-    r267: Vector<Int>
-    r269: Vector<Int>
+    r263: Vector<Int>
+    r264: Vector<T_MirLoop>
+    r265: Vector<T_MirCatch>
+    r266: Vector<T_MirChain>
+    r268: Vector<Int>
     r270: Vector<Int>
-    r282: Vector<Int>
+    r271: Vector<Int>
     r283: Vector<Int>
     r284: Vector<Int>
     r285: Vector<Int>
+    r286: Vector<Int>
     v140: Int
     v141: Int
     v142: Int
@@ -2471,17 +2478,17 @@ public struct FrontSnap10 {
 extension FrontSnap10: NoCopy {}
 
 func front_snapshot_10(c: &FrontCut) -> FrontSnap10 {
-    FrontSnap10(r262: front_copy(&c.drops.bc.mir.scope_marks),
-                r263: front_copy(&c.drops.bc.mir.loops),
-                r264: front_copy(&c.drops.bc.mir.catches),
-                r265: front_copy(&c.drops.bc.mir.chains),
-                r267: front_copy(&c.drops.bc.mir.touched),
-                r269: front_copy(&c.drops.bc.mir.pending),
-                r270: front_copy(&c.drops.bc.mir.pending_parents),
-                r282: front_copy(&c.drops.bc.mir.moved_parts),
-                r283: front_copy(&c.drops.bc.mir.leftover_parts),
-                r284: front_copy(&c.drops.bc.mir.release_fields),
-                r285: front_copy(&c.drops.bc.mir.release_types),
+    FrontSnap10(r263: front_copy(&c.drops.bc.mir.scope_marks),
+                r264: front_copy(&c.drops.bc.mir.loops),
+                r265: front_copy(&c.drops.bc.mir.catches),
+                r266: front_copy(&c.drops.bc.mir.chains),
+                r268: front_copy(&c.drops.bc.mir.touched),
+                r270: front_copy(&c.drops.bc.mir.pending),
+                r271: front_copy(&c.drops.bc.mir.pending_parents),
+                r283: front_copy(&c.drops.bc.mir.moved_parts),
+                r284: front_copy(&c.drops.bc.mir.leftover_parts),
+                r285: front_copy(&c.drops.bc.mir.release_fields),
+                r286: front_copy(&c.drops.bc.mir.release_types),
                 v140: c.drops.bc.mir.cur,
                 v141: c.drops.bc.mir.local_base,
                 v142: c.drops.bc.mir.block_base,
@@ -2496,44 +2503,44 @@ func front_snapshot_10(c: &FrontCut) -> FrontSnap10 {
 }
 
 func front_lengths_10(c: &FrontCut, out: &var Vector<Int>) {
-    out[262] = c.drops.bc.mir.scope_marks.len()
-    out[263] = c.drops.bc.mir.loops.len()
-    out[264] = c.drops.bc.mir.catches.len()
-    out[265] = c.drops.bc.mir.chains.len()
-    out[266] = c.drops.bc.mir.leaf_local.len()
-    out[267] = c.drops.bc.mir.touched.len()
-    out[268] = c.drops.bc.mir.leaf_capture.len()
-    out[269] = c.drops.bc.mir.pending.len()
-    out[270] = c.drops.bc.mir.pending_parents.len()
-    out[281] = c.drops.bc.mir.statement_windows.len()
-    out[282] = c.drops.bc.mir.moved_parts.len()
-    out[283] = c.drops.bc.mir.leftover_parts.len()
-    out[284] = c.drops.bc.mir.release_fields.len()
-    out[285] = c.drops.bc.mir.release_types.len()
-    out[286] = c.drops.bc.mir.aux.len()
-    out[287] = c.drops.bc.mir.accessors.len()
-    out[288] = c.drops.bc.mir.accessor_of.len()
+    out[263] = c.drops.bc.mir.scope_marks.len()
+    out[264] = c.drops.bc.mir.loops.len()
+    out[265] = c.drops.bc.mir.catches.len()
+    out[266] = c.drops.bc.mir.chains.len()
+    out[267] = c.drops.bc.mir.leaf_local.len()
+    out[268] = c.drops.bc.mir.touched.len()
+    out[269] = c.drops.bc.mir.leaf_capture.len()
+    out[270] = c.drops.bc.mir.pending.len()
+    out[271] = c.drops.bc.mir.pending_parents.len()
+    out[282] = c.drops.bc.mir.statement_windows.len()
+    out[283] = c.drops.bc.mir.moved_parts.len()
+    out[284] = c.drops.bc.mir.leftover_parts.len()
+    out[285] = c.drops.bc.mir.release_fields.len()
+    out[286] = c.drops.bc.mir.release_types.len()
+    out[287] = c.drops.bc.mir.aux.len()
+    out[288] = c.drops.bc.mir.accessors.len()
+    out[289] = c.drops.bc.mir.accessor_of.len()
 }
 
 func front_make_10(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap10, after: &FrontSnap10) -> FrontPart10 {
-    FrontPart10(t262: front_rewrite_Int(&before.r262, &after.r262),
-                t263: front_rewrite_whole(&after.r263),
+    FrontPart10(t263: front_rewrite_Int(&before.r263, &after.r263),
                 t264: front_rewrite_whole(&after.r264),
                 t265: front_rewrite_whole(&after.r265),
-                t266: front_suffix(&c.drops.bc.mir.leaf_local, lo[266], hi[266]),
-                t267: front_rewrite_Int(&before.r267, &after.r267),
-                t268: front_suffix(&c.drops.bc.mir.leaf_capture, lo[268], hi[268]),
-                t269: front_rewrite_Int(&before.r269, &after.r269),
+                t266: front_rewrite_whole(&after.r266),
+                t267: front_suffix(&c.drops.bc.mir.leaf_local, lo[267], hi[267]),
+                t268: front_rewrite_Int(&before.r268, &after.r268),
+                t269: front_suffix(&c.drops.bc.mir.leaf_capture, lo[269], hi[269]),
                 t270: front_rewrite_Int(&before.r270, &after.r270),
-                t281: front_suffix(&c.drops.bc.mir.statement_windows, lo[281], hi[281]),
-                t282: front_rewrite_Int(&before.r282, &after.r282),
+                t271: front_rewrite_Int(&before.r271, &after.r271),
+                t282: front_suffix(&c.drops.bc.mir.statement_windows, lo[282], hi[282]),
                 t283: front_rewrite_Int(&before.r283, &after.r283),
                 t284: front_rewrite_Int(&before.r284, &after.r284),
                 t285: front_rewrite_Int(&before.r285, &after.r285),
-                t286: front_suffix(&c.drops.bc.mir.aux, lo[286], hi[286]),
-                t287: front_suffix(&c.drops.bc.mir.accessors, lo[287], hi[287]),
-                t288: front_suffix(&c.drops.bc.mir.accessor_of, lo[288], hi[288]),
+                t286: front_rewrite_Int(&before.r286, &after.r286),
+                t287: front_suffix(&c.drops.bc.mir.aux, lo[287], hi[287]),
+                t288: front_suffix(&c.drops.bc.mir.accessors, lo[288], hi[288]),
+                t289: front_suffix(&c.drops.bc.mir.accessor_of, lo[289], hi[289]),
                 v140: after.v140,
                 v141: after.v141,
                 v142: after.v142,
@@ -2548,45 +2555,45 @@ func front_make_10(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
 }
 
 func front_shrunk_10(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.drops.bc.mir.leaf_local.len() < hi[266] {
+    if c.drops.bc.mir.leaf_local.len() < hi[267] {
         return "drops.bc.mir.leaf_local"
     }
-    if c.drops.bc.mir.leaf_capture.len() < hi[268] {
+    if c.drops.bc.mir.leaf_capture.len() < hi[269] {
         return "drops.bc.mir.leaf_capture"
     }
-    if c.drops.bc.mir.statement_windows.len() < hi[281] {
+    if c.drops.bc.mir.statement_windows.len() < hi[282] {
         return "drops.bc.mir.statement_windows"
     }
-    if c.drops.bc.mir.aux.len() < hi[286] {
+    if c.drops.bc.mir.aux.len() < hi[287] {
         return "drops.bc.mir.aux"
     }
-    if c.drops.bc.mir.accessors.len() < hi[287] {
+    if c.drops.bc.mir.accessors.len() < hi[288] {
         return "drops.bc.mir.accessors"
     }
-    if c.drops.bc.mir.accessor_of.len() < hi[288] {
+    if c.drops.bc.mir.accessor_of.len() < hi[289] {
         return "drops.bc.mir.accessor_of"
     }
     ""
 }
 
 func front_apply_10(c: &var FrontCut, part: &FrontPart10) {
-    front_rewrite_apply(&var c.drops.bc.mir.scope_marks, &part.t262)
-    front_rewrite_apply(&var c.drops.bc.mir.loops, &part.t263)
-    front_rewrite_apply(&var c.drops.bc.mir.catches, &part.t264)
-    front_rewrite_apply(&var c.drops.bc.mir.chains, &part.t265)
-    front_append(&var c.drops.bc.mir.leaf_local, &part.t266)
-    front_rewrite_apply(&var c.drops.bc.mir.touched, &part.t267)
-    front_append(&var c.drops.bc.mir.leaf_capture, &part.t268)
-    front_rewrite_apply(&var c.drops.bc.mir.pending, &part.t269)
-    front_rewrite_apply(&var c.drops.bc.mir.pending_parents, &part.t270)
-    front_append(&var c.drops.bc.mir.statement_windows, &part.t281)
-    front_rewrite_apply(&var c.drops.bc.mir.moved_parts, &part.t282)
-    front_rewrite_apply(&var c.drops.bc.mir.leftover_parts, &part.t283)
-    front_rewrite_apply(&var c.drops.bc.mir.release_fields, &part.t284)
-    front_rewrite_apply(&var c.drops.bc.mir.release_types, &part.t285)
-    front_append(&var c.drops.bc.mir.aux, &part.t286)
-    front_append(&var c.drops.bc.mir.accessors, &part.t287)
-    front_append(&var c.drops.bc.mir.accessor_of, &part.t288)
+    front_rewrite_apply(&var c.drops.bc.mir.scope_marks, &part.t263)
+    front_rewrite_apply(&var c.drops.bc.mir.loops, &part.t264)
+    front_rewrite_apply(&var c.drops.bc.mir.catches, &part.t265)
+    front_rewrite_apply(&var c.drops.bc.mir.chains, &part.t266)
+    front_append(&var c.drops.bc.mir.leaf_local, &part.t267)
+    front_rewrite_apply(&var c.drops.bc.mir.touched, &part.t268)
+    front_append(&var c.drops.bc.mir.leaf_capture, &part.t269)
+    front_rewrite_apply(&var c.drops.bc.mir.pending, &part.t270)
+    front_rewrite_apply(&var c.drops.bc.mir.pending_parents, &part.t271)
+    front_append(&var c.drops.bc.mir.statement_windows, &part.t282)
+    front_rewrite_apply(&var c.drops.bc.mir.moved_parts, &part.t283)
+    front_rewrite_apply(&var c.drops.bc.mir.leftover_parts, &part.t284)
+    front_rewrite_apply(&var c.drops.bc.mir.release_fields, &part.t285)
+    front_rewrite_apply(&var c.drops.bc.mir.release_types, &part.t286)
+    front_append(&var c.drops.bc.mir.aux, &part.t287)
+    front_append(&var c.drops.bc.mir.accessors, &part.t288)
+    front_append(&var c.drops.bc.mir.accessor_of, &part.t289)
     c.drops.bc.mir.cur = part.v140
     c.drops.bc.mir.local_base = part.v141
     c.drops.bc.mir.block_base = part.v142
@@ -2602,34 +2609,34 @@ func front_apply_10(c: &var FrontCut, part: &FrontPart10) {
 
 // Piece 11 of the slicer, from `drops.bc.mir.func_of` on.
 public struct FrontPart11 {
-    t256: FrontRewrite<Int>
-    t257: Vector<Int>
+    t257: FrontRewrite<Int>
     t258: Vector<Int>
     t259: Vector<Int>
     t260: Vector<Int>
-    t271: FrontRewrite<Int>
-    t272: Vector<Int>
+    t261: Vector<Int>
+    t272: FrontRewrite<Int>
     t273: Vector<Int>
     t274: Vector<Int>
     t275: Vector<Int>
-    t276: FrontRewrite<Int>
-    t277: Vector<Int>
+    t276: Vector<Int>
+    t277: FrontRewrite<Int>
     t278: Vector<Int>
     t279: Vector<Int>
     t280: Vector<Int>
-    t289: Vector<T_MirDiag>
-    t290: Vector<Int>
+    t281: Vector<Int>
+    t290: Vector<T_MirDiag>
     t291: Vector<Int>
-    t292: Vector<T_MirDiag>
-    t293: Vector<String>
-    t294: Vector<Int>
+    t292: Vector<Int>
+    t293: Vector<T_MirDiag>
+    t294: Vector<String>
     t295: Vector<Int>
     t296: Vector<Int>
-    t297: Vector<Bool>
-    t298: Vector<Int>
+    t297: Vector<Int>
+    t298: Vector<Bool>
     t299: Vector<Int>
     t300: Vector<Int>
     t301: Vector<Int>
+    t302: Vector<Int>
 }
 
 extension FrontPart11: NoCopy {}
@@ -2640,204 +2647,204 @@ extension FrontPart11: Serialize {}
 extension FrontPart11: Deserialize {}
 
 public struct FrontSnap11 {
-    r256: Vector<Int>
-    r271: Vector<Int>
-    r276: Vector<Int>
+    r257: Vector<Int>
+    r272: Vector<Int>
+    r277: Vector<Int>
 }
 
 extension FrontSnap11: NoCopy {}
 
 func front_snapshot_11(c: &FrontCut) -> FrontSnap11 {
-    FrontSnap11(r256: front_copy(&c.drops.bc.mir.func_of.heads),
-                r271: front_copy(&c.drops.bc.mir.closure_counts.heads),
-                r276: front_copy(&c.drops.bc.mir.function_targets.heads))
+    FrontSnap11(r257: front_copy(&c.drops.bc.mir.func_of.heads),
+                r272: front_copy(&c.drops.bc.mir.closure_counts.heads),
+                r277: front_copy(&c.drops.bc.mir.function_targets.heads))
 }
 
 func front_lengths_11(c: &FrontCut, out: &var Vector<Int>) {
-    out[256] = c.drops.bc.mir.func_of.heads.len()
-    out[257] = c.drops.bc.mir.func_of.key_a.len()
-    out[258] = c.drops.bc.mir.func_of.key_b.len()
-    out[259] = c.drops.bc.mir.func_of.values.len()
-    out[260] = c.drops.bc.mir.func_of.next.len()
-    out[271] = c.drops.bc.mir.closure_counts.heads.len()
-    out[272] = c.drops.bc.mir.closure_counts.key_a.len()
-    out[273] = c.drops.bc.mir.closure_counts.key_b.len()
-    out[274] = c.drops.bc.mir.closure_counts.values.len()
-    out[275] = c.drops.bc.mir.closure_counts.next.len()
-    out[276] = c.drops.bc.mir.function_targets.heads.len()
-    out[277] = c.drops.bc.mir.function_targets.key_a.len()
-    out[278] = c.drops.bc.mir.function_targets.key_b.len()
-    out[279] = c.drops.bc.mir.function_targets.values.len()
-    out[280] = c.drops.bc.mir.function_targets.next.len()
-    out[289] = c.drops.bc.diags.len()
-    out[290] = c.drops.bc.labels.len()
-    out[291] = c.drops.bc.parents.len()
-    out[292] = c.drops.diags.len()
-    out[293] = c.drops.problems.len()
-    out[294] = c.drops.problem_modules.len()
-    out[295] = c.drops.partial_drops.len()
-    out[296] = c.drops.guards.len()
-    out[297] = c.drops.elaborated.len()
-    out[298] = c.drops.flag_first.len()
-    out[299] = c.drops.flag_count.len()
-    out[300] = c.drops.flag_local.len()
-    out[301] = c.drops.flag_place.len()
+    out[257] = c.drops.bc.mir.func_of.heads.len()
+    out[258] = c.drops.bc.mir.func_of.key_a.len()
+    out[259] = c.drops.bc.mir.func_of.key_b.len()
+    out[260] = c.drops.bc.mir.func_of.values.len()
+    out[261] = c.drops.bc.mir.func_of.next.len()
+    out[272] = c.drops.bc.mir.closure_counts.heads.len()
+    out[273] = c.drops.bc.mir.closure_counts.key_a.len()
+    out[274] = c.drops.bc.mir.closure_counts.key_b.len()
+    out[275] = c.drops.bc.mir.closure_counts.values.len()
+    out[276] = c.drops.bc.mir.closure_counts.next.len()
+    out[277] = c.drops.bc.mir.function_targets.heads.len()
+    out[278] = c.drops.bc.mir.function_targets.key_a.len()
+    out[279] = c.drops.bc.mir.function_targets.key_b.len()
+    out[280] = c.drops.bc.mir.function_targets.values.len()
+    out[281] = c.drops.bc.mir.function_targets.next.len()
+    out[290] = c.drops.bc.diags.len()
+    out[291] = c.drops.bc.labels.len()
+    out[292] = c.drops.bc.parents.len()
+    out[293] = c.drops.diags.len()
+    out[294] = c.drops.problems.len()
+    out[295] = c.drops.problem_modules.len()
+    out[296] = c.drops.partial_drops.len()
+    out[297] = c.drops.guards.len()
+    out[298] = c.drops.elaborated.len()
+    out[299] = c.drops.flag_first.len()
+    out[300] = c.drops.flag_count.len()
+    out[301] = c.drops.flag_local.len()
+    out[302] = c.drops.flag_place.len()
 }
 
 func front_make_11(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap11, after: &FrontSnap11) -> FrontPart11 {
-    FrontPart11(t256: front_rewrite_Int(&before.r256, &after.r256),
-                t257: front_suffix(&c.drops.bc.mir.func_of.key_a, lo[257], hi[257]),
-                t258: front_suffix(&c.drops.bc.mir.func_of.key_b, lo[258], hi[258]),
-                t259: front_suffix(&c.drops.bc.mir.func_of.values, lo[259], hi[259]),
-                t260: front_suffix(&c.drops.bc.mir.func_of.next, lo[260], hi[260]),
-                t271: front_rewrite_Int(&before.r271, &after.r271),
-                t272: front_suffix(&c.drops.bc.mir.closure_counts.key_a, lo[272], hi[272]),
-                t273: front_suffix(&c.drops.bc.mir.closure_counts.key_b, lo[273], hi[273]),
-                t274: front_suffix(&c.drops.bc.mir.closure_counts.values, lo[274], hi[274]),
-                t275: front_suffix(&c.drops.bc.mir.closure_counts.next, lo[275], hi[275]),
-                t276: front_rewrite_Int(&before.r276, &after.r276),
-                t277: front_suffix(&c.drops.bc.mir.function_targets.key_a, lo[277], hi[277]),
-                t278: front_suffix(&c.drops.bc.mir.function_targets.key_b, lo[278], hi[278]),
-                t279: front_suffix(&c.drops.bc.mir.function_targets.values, lo[279], hi[279]),
-                t280: front_suffix(&c.drops.bc.mir.function_targets.next, lo[280], hi[280]),
-                t289: front_suffix(&c.drops.bc.diags, lo[289], hi[289]),
-                t290: front_suffix(&c.drops.bc.labels, lo[290], hi[290]),
-                t291: front_suffix(&c.drops.bc.parents, lo[291], hi[291]),
-                t292: front_suffix(&c.drops.diags, lo[292], hi[292]),
-                t293: front_suffix(&c.drops.problems, lo[293], hi[293]),
-                t294: front_suffix(&c.drops.problem_modules, lo[294], hi[294]),
-                t295: front_suffix(&c.drops.partial_drops, lo[295], hi[295]),
-                t296: front_suffix(&c.drops.guards, lo[296], hi[296]),
-                t297: front_suffix(&c.drops.elaborated, lo[297], hi[297]),
-                t298: front_suffix(&c.drops.flag_first, lo[298], hi[298]),
-                t299: front_suffix(&c.drops.flag_count, lo[299], hi[299]),
-                t300: front_suffix(&c.drops.flag_local, lo[300], hi[300]),
-                t301: front_suffix(&c.drops.flag_place, lo[301], hi[301]))
+    FrontPart11(t257: front_rewrite_Int(&before.r257, &after.r257),
+                t258: front_suffix(&c.drops.bc.mir.func_of.key_a, lo[258], hi[258]),
+                t259: front_suffix(&c.drops.bc.mir.func_of.key_b, lo[259], hi[259]),
+                t260: front_suffix(&c.drops.bc.mir.func_of.values, lo[260], hi[260]),
+                t261: front_suffix(&c.drops.bc.mir.func_of.next, lo[261], hi[261]),
+                t272: front_rewrite_Int(&before.r272, &after.r272),
+                t273: front_suffix(&c.drops.bc.mir.closure_counts.key_a, lo[273], hi[273]),
+                t274: front_suffix(&c.drops.bc.mir.closure_counts.key_b, lo[274], hi[274]),
+                t275: front_suffix(&c.drops.bc.mir.closure_counts.values, lo[275], hi[275]),
+                t276: front_suffix(&c.drops.bc.mir.closure_counts.next, lo[276], hi[276]),
+                t277: front_rewrite_Int(&before.r277, &after.r277),
+                t278: front_suffix(&c.drops.bc.mir.function_targets.key_a, lo[278], hi[278]),
+                t279: front_suffix(&c.drops.bc.mir.function_targets.key_b, lo[279], hi[279]),
+                t280: front_suffix(&c.drops.bc.mir.function_targets.values, lo[280], hi[280]),
+                t281: front_suffix(&c.drops.bc.mir.function_targets.next, lo[281], hi[281]),
+                t290: front_suffix(&c.drops.bc.diags, lo[290], hi[290]),
+                t291: front_suffix(&c.drops.bc.labels, lo[291], hi[291]),
+                t292: front_suffix(&c.drops.bc.parents, lo[292], hi[292]),
+                t293: front_suffix(&c.drops.diags, lo[293], hi[293]),
+                t294: front_suffix(&c.drops.problems, lo[294], hi[294]),
+                t295: front_suffix(&c.drops.problem_modules, lo[295], hi[295]),
+                t296: front_suffix(&c.drops.partial_drops, lo[296], hi[296]),
+                t297: front_suffix(&c.drops.guards, lo[297], hi[297]),
+                t298: front_suffix(&c.drops.elaborated, lo[298], hi[298]),
+                t299: front_suffix(&c.drops.flag_first, lo[299], hi[299]),
+                t300: front_suffix(&c.drops.flag_count, lo[300], hi[300]),
+                t301: front_suffix(&c.drops.flag_local, lo[301], hi[301]),
+                t302: front_suffix(&c.drops.flag_place, lo[302], hi[302]))
 }
 
 func front_shrunk_11(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.drops.bc.mir.func_of.key_a.len() < hi[257] {
+    if c.drops.bc.mir.func_of.key_a.len() < hi[258] {
         return "drops.bc.mir.func_of.key_a"
     }
-    if c.drops.bc.mir.func_of.key_b.len() < hi[258] {
+    if c.drops.bc.mir.func_of.key_b.len() < hi[259] {
         return "drops.bc.mir.func_of.key_b"
     }
-    if c.drops.bc.mir.func_of.values.len() < hi[259] {
+    if c.drops.bc.mir.func_of.values.len() < hi[260] {
         return "drops.bc.mir.func_of.values"
     }
-    if c.drops.bc.mir.func_of.next.len() < hi[260] {
+    if c.drops.bc.mir.func_of.next.len() < hi[261] {
         return "drops.bc.mir.func_of.next"
     }
-    if c.drops.bc.mir.closure_counts.key_a.len() < hi[272] {
+    if c.drops.bc.mir.closure_counts.key_a.len() < hi[273] {
         return "drops.bc.mir.closure_counts.key_a"
     }
-    if c.drops.bc.mir.closure_counts.key_b.len() < hi[273] {
+    if c.drops.bc.mir.closure_counts.key_b.len() < hi[274] {
         return "drops.bc.mir.closure_counts.key_b"
     }
-    if c.drops.bc.mir.closure_counts.values.len() < hi[274] {
+    if c.drops.bc.mir.closure_counts.values.len() < hi[275] {
         return "drops.bc.mir.closure_counts.values"
     }
-    if c.drops.bc.mir.closure_counts.next.len() < hi[275] {
+    if c.drops.bc.mir.closure_counts.next.len() < hi[276] {
         return "drops.bc.mir.closure_counts.next"
     }
-    if c.drops.bc.mir.function_targets.key_a.len() < hi[277] {
+    if c.drops.bc.mir.function_targets.key_a.len() < hi[278] {
         return "drops.bc.mir.function_targets.key_a"
     }
-    if c.drops.bc.mir.function_targets.key_b.len() < hi[278] {
+    if c.drops.bc.mir.function_targets.key_b.len() < hi[279] {
         return "drops.bc.mir.function_targets.key_b"
     }
-    if c.drops.bc.mir.function_targets.values.len() < hi[279] {
+    if c.drops.bc.mir.function_targets.values.len() < hi[280] {
         return "drops.bc.mir.function_targets.values"
     }
-    if c.drops.bc.mir.function_targets.next.len() < hi[280] {
+    if c.drops.bc.mir.function_targets.next.len() < hi[281] {
         return "drops.bc.mir.function_targets.next"
     }
-    if c.drops.bc.diags.len() < hi[289] {
+    if c.drops.bc.diags.len() < hi[290] {
         return "drops.bc.diags"
     }
-    if c.drops.bc.labels.len() < hi[290] {
+    if c.drops.bc.labels.len() < hi[291] {
         return "drops.bc.labels"
     }
-    if c.drops.bc.parents.len() < hi[291] {
+    if c.drops.bc.parents.len() < hi[292] {
         return "drops.bc.parents"
     }
-    if c.drops.diags.len() < hi[292] {
+    if c.drops.diags.len() < hi[293] {
         return "drops.diags"
     }
-    if c.drops.problems.len() < hi[293] {
+    if c.drops.problems.len() < hi[294] {
         return "drops.problems"
     }
-    if c.drops.problem_modules.len() < hi[294] {
+    if c.drops.problem_modules.len() < hi[295] {
         return "drops.problem_modules"
     }
-    if c.drops.partial_drops.len() < hi[295] {
+    if c.drops.partial_drops.len() < hi[296] {
         return "drops.partial_drops"
     }
-    if c.drops.guards.len() < hi[296] {
+    if c.drops.guards.len() < hi[297] {
         return "drops.guards"
     }
-    if c.drops.elaborated.len() < hi[297] {
+    if c.drops.elaborated.len() < hi[298] {
         return "drops.elaborated"
     }
-    if c.drops.flag_first.len() < hi[298] {
+    if c.drops.flag_first.len() < hi[299] {
         return "drops.flag_first"
     }
-    if c.drops.flag_count.len() < hi[299] {
+    if c.drops.flag_count.len() < hi[300] {
         return "drops.flag_count"
     }
-    if c.drops.flag_local.len() < hi[300] {
+    if c.drops.flag_local.len() < hi[301] {
         return "drops.flag_local"
     }
-    if c.drops.flag_place.len() < hi[301] {
+    if c.drops.flag_place.len() < hi[302] {
         return "drops.flag_place"
     }
     ""
 }
 
 func front_apply_11(c: &var FrontCut, part: &FrontPart11) {
-    front_rewrite_apply(&var c.drops.bc.mir.func_of.heads, &part.t256)
-    front_append(&var c.drops.bc.mir.func_of.key_a, &part.t257)
-    front_append(&var c.drops.bc.mir.func_of.key_b, &part.t258)
-    front_append(&var c.drops.bc.mir.func_of.values, &part.t259)
-    front_append(&var c.drops.bc.mir.func_of.next, &part.t260)
-    front_rewrite_apply(&var c.drops.bc.mir.closure_counts.heads, &part.t271)
-    front_append(&var c.drops.bc.mir.closure_counts.key_a, &part.t272)
-    front_append(&var c.drops.bc.mir.closure_counts.key_b, &part.t273)
-    front_append(&var c.drops.bc.mir.closure_counts.values, &part.t274)
-    front_append(&var c.drops.bc.mir.closure_counts.next, &part.t275)
-    front_rewrite_apply(&var c.drops.bc.mir.function_targets.heads, &part.t276)
-    front_append(&var c.drops.bc.mir.function_targets.key_a, &part.t277)
-    front_append(&var c.drops.bc.mir.function_targets.key_b, &part.t278)
-    front_append(&var c.drops.bc.mir.function_targets.values, &part.t279)
-    front_append(&var c.drops.bc.mir.function_targets.next, &part.t280)
-    front_append(&var c.drops.bc.diags, &part.t289)
-    front_append(&var c.drops.bc.labels, &part.t290)
-    front_append(&var c.drops.bc.parents, &part.t291)
-    front_append(&var c.drops.diags, &part.t292)
-    front_append(&var c.drops.problems, &part.t293)
-    front_append(&var c.drops.problem_modules, &part.t294)
-    front_append(&var c.drops.partial_drops, &part.t295)
-    front_append(&var c.drops.guards, &part.t296)
-    front_append(&var c.drops.elaborated, &part.t297)
-    front_append(&var c.drops.flag_first, &part.t298)
-    front_append(&var c.drops.flag_count, &part.t299)
-    front_append(&var c.drops.flag_local, &part.t300)
-    front_append(&var c.drops.flag_place, &part.t301)
+    front_rewrite_apply(&var c.drops.bc.mir.func_of.heads, &part.t257)
+    front_append(&var c.drops.bc.mir.func_of.key_a, &part.t258)
+    front_append(&var c.drops.bc.mir.func_of.key_b, &part.t259)
+    front_append(&var c.drops.bc.mir.func_of.values, &part.t260)
+    front_append(&var c.drops.bc.mir.func_of.next, &part.t261)
+    front_rewrite_apply(&var c.drops.bc.mir.closure_counts.heads, &part.t272)
+    front_append(&var c.drops.bc.mir.closure_counts.key_a, &part.t273)
+    front_append(&var c.drops.bc.mir.closure_counts.key_b, &part.t274)
+    front_append(&var c.drops.bc.mir.closure_counts.values, &part.t275)
+    front_append(&var c.drops.bc.mir.closure_counts.next, &part.t276)
+    front_rewrite_apply(&var c.drops.bc.mir.function_targets.heads, &part.t277)
+    front_append(&var c.drops.bc.mir.function_targets.key_a, &part.t278)
+    front_append(&var c.drops.bc.mir.function_targets.key_b, &part.t279)
+    front_append(&var c.drops.bc.mir.function_targets.values, &part.t280)
+    front_append(&var c.drops.bc.mir.function_targets.next, &part.t281)
+    front_append(&var c.drops.bc.diags, &part.t290)
+    front_append(&var c.drops.bc.labels, &part.t291)
+    front_append(&var c.drops.bc.parents, &part.t292)
+    front_append(&var c.drops.diags, &part.t293)
+    front_append(&var c.drops.problems, &part.t294)
+    front_append(&var c.drops.problem_modules, &part.t295)
+    front_append(&var c.drops.partial_drops, &part.t296)
+    front_append(&var c.drops.guards, &part.t297)
+    front_append(&var c.drops.elaborated, &part.t298)
+    front_append(&var c.drops.flag_first, &part.t299)
+    front_append(&var c.drops.flag_count, &part.t300)
+    front_append(&var c.drops.flag_local, &part.t301)
+    front_append(&var c.drops.flag_place, &part.t302)
 }
 
 // Piece 12 of the slicer, from `eval` on.
 public struct FrontPart12 {
-    t302: Vector<T_EvalValue>
-    t303: Vector<T_EvalEnd>
-    t304: Vector<Bool>
-    t305: Vector<T_EvalValue>
-    t306: Vector<Int>
-    t307: FrontRewrite<Int>
-    t308: Vector<T_MirDiag>
+    t303: Vector<T_EvalValue>
+    t304: Vector<T_EvalEnd>
+    t305: Vector<Bool>
+    t306: Vector<T_EvalValue>
+    t307: Vector<Int>
+    t308: FrontRewrite<Int>
+    t309: Vector<T_MirDiag>
     v151: Int
     v152: T_TcFault
-    t309: Vector<T_FrontLayer>
+    t310: Vector<T_FrontLayer>
     v153: String
     v154: String
     v155: String
@@ -2870,7 +2877,7 @@ extension FrontPart12: Serialize {}
 extension FrontPart12: Deserialize {}
 
 public struct FrontSnap12 {
-    r307: Vector<Int>
+    r308: Vector<Int>
     v151: Int
     v152: T_TcFault
     v153: String
@@ -2900,7 +2907,7 @@ public struct FrontSnap12 {
 extension FrontSnap12: NoCopy {}
 
 func front_snapshot_12(c: &FrontCut) -> FrontSnap12 {
-    FrontSnap12(r307: front_copy(&c.eval.stack),
+    FrontSnap12(r308: front_copy(&c.eval.stack),
                 v151: c.eval.steps,
                 v152: c.eval.last_fault,
                 v153: c.checked,
@@ -2928,28 +2935,28 @@ func front_snapshot_12(c: &FrontCut) -> FrontSnap12 {
 }
 
 func front_lengths_12(c: &FrontCut, out: &var Vector<Int>) {
-    out[302] = c.eval.values.len()
-    out[303] = c.eval.ends.len()
-    out[304] = c.eval.active.len()
-    out[305] = c.eval.parts.len()
-    out[306] = c.eval.constant_of.len()
-    out[307] = c.eval.stack.len()
-    out[308] = c.eval.diags.len()
-    out[309] = c.layers.len()
+    out[303] = c.eval.values.len()
+    out[304] = c.eval.ends.len()
+    out[305] = c.eval.active.len()
+    out[306] = c.eval.parts.len()
+    out[307] = c.eval.constant_of.len()
+    out[308] = c.eval.stack.len()
+    out[309] = c.eval.diags.len()
+    out[310] = c.layers.len()
 }
 
 func front_make_12(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
     before: &FrontSnap12, after: &FrontSnap12) -> FrontPart12 {
-    FrontPart12(t302: front_suffix(&c.eval.values, lo[302], hi[302]),
-                t303: front_suffix(&c.eval.ends, lo[303], hi[303]),
-                t304: front_suffix(&c.eval.active, lo[304], hi[304]),
-                t305: front_suffix(&c.eval.parts, lo[305], hi[305]),
-                t306: front_suffix(&c.eval.constant_of, lo[306], hi[306]),
-                t307: front_rewrite_Int(&before.r307, &after.r307),
-                t308: front_suffix(&c.eval.diags, lo[308], hi[308]),
+    FrontPart12(t303: front_suffix(&c.eval.values, lo[303], hi[303]),
+                t304: front_suffix(&c.eval.ends, lo[304], hi[304]),
+                t305: front_suffix(&c.eval.active, lo[305], hi[305]),
+                t306: front_suffix(&c.eval.parts, lo[306], hi[306]),
+                t307: front_suffix(&c.eval.constant_of, lo[307], hi[307]),
+                t308: front_rewrite_Int(&before.r308, &after.r308),
+                t309: front_suffix(&c.eval.diags, lo[309], hi[309]),
                 v151: after.v151,
                 v152: after.v152,
-                t309: front_suffix(&c.layers, lo[309], hi[309]),
+                t310: front_suffix(&c.layers, lo[310], hi[310]),
                 v153: after.v153,
                 v154: after.v154,
                 v155: after.v155,
@@ -2975,41 +2982,41 @@ func front_make_12(c: &FrontCut, lo: &Vector<Int>, hi: &Vector<Int>,
 }
 
 func front_shrunk_12(c: &FrontCut, hi: &Vector<Int>) -> String {
-    if c.eval.values.len() < hi[302] {
+    if c.eval.values.len() < hi[303] {
         return "eval.values"
     }
-    if c.eval.ends.len() < hi[303] {
+    if c.eval.ends.len() < hi[304] {
         return "eval.ends"
     }
-    if c.eval.active.len() < hi[304] {
+    if c.eval.active.len() < hi[305] {
         return "eval.active"
     }
-    if c.eval.parts.len() < hi[305] {
+    if c.eval.parts.len() < hi[306] {
         return "eval.parts"
     }
-    if c.eval.constant_of.len() < hi[306] {
+    if c.eval.constant_of.len() < hi[307] {
         return "eval.constant_of"
     }
-    if c.eval.diags.len() < hi[308] {
+    if c.eval.diags.len() < hi[309] {
         return "eval.diags"
     }
-    if c.layers.len() < hi[309] {
+    if c.layers.len() < hi[310] {
         return "layers"
     }
     ""
 }
 
 func front_apply_12(c: &var FrontCut, part: &FrontPart12) {
-    front_append(&var c.eval.values, &part.t302)
-    front_append(&var c.eval.ends, &part.t303)
-    front_append(&var c.eval.active, &part.t304)
-    front_append(&var c.eval.parts, &part.t305)
-    front_append(&var c.eval.constant_of, &part.t306)
-    front_rewrite_apply(&var c.eval.stack, &part.t307)
-    front_append(&var c.eval.diags, &part.t308)
+    front_append(&var c.eval.values, &part.t303)
+    front_append(&var c.eval.ends, &part.t304)
+    front_append(&var c.eval.active, &part.t305)
+    front_append(&var c.eval.parts, &part.t306)
+    front_append(&var c.eval.constant_of, &part.t307)
+    front_rewrite_apply(&var c.eval.stack, &part.t308)
+    front_append(&var c.eval.diags, &part.t309)
     c.eval.steps = part.v151
     c.eval.last_fault = part.v152
-    front_append(&var c.layers, &part.t309)
+    front_append(&var c.layers, &part.t310)
     c.checked = part.v153
     c.verified = part.v154
     c.elaborated = part.v155
@@ -3488,7 +3495,7 @@ func front_apply_15(c: &var FrontCut, part: &FrontPart15) {
 public func front_part_lengths(c: &FrontCut) -> Vector<Int> {
     var out = Vector<Int>()
     var k = 0
-    while k < 310 {
+    while k < 311 {
         try! out.push(0)
         k = k + 1
     }

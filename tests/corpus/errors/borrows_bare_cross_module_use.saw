@@ -1,0 +1,23 @@
+// SL-916: a bare `borrows -> T` accessor declared in one module and used
+// from another is ONE error, at the declaration. The using module is refused
+// with no message of its own, so no later stage lowers the uses typecheck
+// left unsettled: a write through the refused subscript, a compound write, a
+// `&var` argument, a write and a read through the refused method, and a
+// named `borrow var` block.
+// COMPILE-FLAGS: --module-path slab916={TESTDIR}/modules/slab916
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value
+
+import slab916.*
+
+func main() {
+    var s = Slab(cells: [0; 4])
+    s[0] = 3
+    s[1] += 2
+    bump(&var s[2])
+    s.at(1) = 4
+    let n = s.at(0)
+    borrow var e = s[0] {
+        e = n
+    }
+}

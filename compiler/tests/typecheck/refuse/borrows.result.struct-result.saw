@@ -1,0 +1,20 @@
+// refuses: borrows.result at 11:10
+// message: write `borrows -> &Cell`
+// the fixit spells a local struct as the source writes it, not module-qualified
+
+struct Cell { n: Int }
+struct Table {
+    cells: [Cell; 2]
+}
+
+extension Table {
+    func [](&self, i: Int) borrows -> Cell {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var t = Table(cells: [Cell(n: 0); 2])
+    t[0].n = 4
+    t[1] = Cell(n: 3)
+}

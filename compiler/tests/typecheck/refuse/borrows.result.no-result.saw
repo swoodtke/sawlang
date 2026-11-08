@@ -1,0 +1,18 @@
+// refuses: borrows.result at 10:10
+// message: writes no result
+// a `borrows` function that writes no result reports the declaration alone, not a `lend` mismatch against `Void`
+
+struct Table {
+    n: Int
+}
+
+extension Table {
+    func touch(&self) borrows {
+        lend self.n
+    }
+}
+
+func main() {
+    let t = Table(n: 1)
+    t.touch()
+}

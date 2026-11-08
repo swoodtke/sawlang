@@ -293,6 +293,10 @@ public struct TcProgram {
     // the call, so it is escaping whether or not it says so (D35).
     keep_escaping: Bool
     diags: Vector<TcDiag>
+    // The modules refused with no message of their own: each calls a
+    // `borrows` accessor whose declaration `borrows.result` refuses, so no
+    // later stage lowers a call typecheck left unsettled (SL-916).
+    quiet_refused: Vector<Int>
     // The warnings and the kept old `borrow` prefixes, in the order made;
     // the driver prints the warnings a `-W` category asks for.
     warnings: Vector<TcWarning>
@@ -735,7 +739,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       instance_types: Vector<Int>(),
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
                       mapped_calls: 0, members_built: false, tiers_ready: false, phase_problems: Vector<String>(),
-                      phase_problem_modules: Vector<Int>(), static_typing: Vector<TcStaticTyping>(),
+                      phase_problem_modules: Vector<Int>(), quiet_refused: Vector<Int>(), static_typing: Vector<TcStaticTyping>(),
                       static_verdicts: Vector<TcStaticVerdict>(),
                       static_values: Vector<Int>(), static_reasons: Vector<String>(),
                       length_param_owners: Vector<Int>(), length_param_indexes: Vector<Int>(),
@@ -1000,6 +1004,13 @@ extension TcProgram {
         while k < self.res.diags.len() {
             let d = self.res.diags[k]
             if d.module == m {
+                return true
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.quiet_refused.len() {
+            if self.quiet_refused[k] == m {
                 return true
             }
             k = k + 1

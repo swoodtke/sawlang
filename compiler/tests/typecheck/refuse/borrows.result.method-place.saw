@@ -1,0 +1,20 @@
+// refuses: borrows.result at 9:10
+// an assignment and an `&var` argument through a bare `borrows -> Int` method report the declaration alone, not a `type.not-a-place` per use
+
+struct Table {
+    cells: [Int; 4]
+}
+
+extension Table {
+    func at(&self, i: Int) borrows -> Int {
+        lend self.cells[i]
+    }
+}
+
+func bump(x: &var Int) { x = x + 1 }
+
+func main() {
+    var t = Table(cells: [0; 4])
+    t.at(0) = 5
+    bump(&var t.at(0))
+}

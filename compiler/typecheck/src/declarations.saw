@@ -389,6 +389,19 @@ extension TcProgram {
         TcLend.Other
     }
 
+    // Whether `borrows` declaration `d` names no lendable result, the
+    // bare `borrows -> T` that `borrows.result` refuses at the declaration;
+    // a use through it reports nothing more, so one bad declaration is one
+    // error. An accessor in an interface module is never one, since its
+    // declaration is not checked here. (SL-916)
+    public func lend_refused(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let s = self.sigs[d]
+        (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending == TcLend.Other && not self.is_interface(self.res.decls[d].module)
+    }
+
     // Whether what a `borrows` result lends is writable: `&var T`, `&var T?`
     // or `&var [T]`.
     public func lend_is_exclusive(&self, result: Int) -> Bool {

@@ -1610,6 +1610,10 @@ extension TcProgram {
             return
         }
         let sig = self.sigs[d]
+        if self.lend_refused(d) {
+            self.lend_mode(e, sig.lending_exclusive)
+            return
+        }
         var wanted = sig.result
         let inner = self.referent(wanted)
         if inner >= 0 {
@@ -14656,6 +14660,7 @@ extension TcProgram {
     func settle_subscript(&var self, at: Int, role: TcRole, writes: Bool, lending: Bool) {
         var c = self.calls[at]
         let target_sig = self.sigs[c.target]
+        let quiet = self.lend_refused(c.target)
         c.role = role
         if role == TcRole.Setitem {
             let setter = self.setitem_of(c.owner)
@@ -14664,16 +14669,20 @@ extension TcProgram {
                 c.derived = false
             } else if lending && target_sig.lending_exclusive {
                 c.derived = true
-            } else {
+            } else if not quiet {
                 self.refuse_role(c.node, c.owner, "a setitem: it declares no `[]=`, and its `[]` lends no writable place")
             }
         } else if role == TcRole.Getitem {
             c.derived = lending
         } else {
             if not lending {
-                self.refuse_role(c.node, c.owner, "a place accessor: its `[]` is a getitem, which copies the element out; write through a `borrows` accessor")
+                if not quiet {
+                    self.refuse_role(c.node, c.owner, "a place accessor: its `[]` is a getitem, which copies the element out; write through a `borrows` accessor")
+                }
             } else if writes && not target_sig.lending_exclusive {
-                self.refuse_role(c.node, c.owner, "a writable place: its `[]` lends read-only")
+                if not quiet {
+                    self.refuse_role(c.node, c.owner, "a writable place: its `[]` lends read-only")
+                }
             }
         }
         self.calls[at] = c
@@ -16064,6 +16073,10 @@ extension TcProgram {
     }
 
     func refuse_not_a_place(&var self, e: Int) {
+        let at = self.call_at[e]
+        if at >= 0 && self.lend_refused(self.calls[at].target) {
+            return
+        }
         self.refuse(e, "type.not-a-place",
                     "this is a value, not a place: it cannot be assigned, moved from or borrowed exclusively")
     }

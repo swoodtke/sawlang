@@ -1,0 +1,23 @@
+// refuses: borrows.result at 9:10
+// a compound assignment, an `&var` argument and a named `var` block through a bare `borrows -> Int` subscript report the declaration alone
+
+struct Table {
+    cells: [Int; 4]
+}
+
+extension Table {
+    func [](&self, i: Int) borrows -> Int {
+        lend self.cells[i]
+    }
+}
+
+func bump(x: &var Int) { x = x + 1 }
+
+func main() {
+    var t = Table(cells: [0; 4])
+    t[0] += 1
+    bump(&var t[0])
+    borrow var e = t[0] {
+        e = 5
+    }
+}

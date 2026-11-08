@@ -1276,7 +1276,7 @@ extension TcProgram {
     }
 
     // Function `d`'s written return type node, or -1 when it writes none.
-    func written_return(&self, d: Int) -> Int {
+    public func written_return(&self, d: Int) -> Int {
         let node = self.res.decls[d].node
         var k = 0
         while k < self.child_count(node) {
