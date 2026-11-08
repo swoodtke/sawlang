@@ -376,22 +376,22 @@ the targeted tests the per-commit gate policy names.
 
 ## Design-brief workflow
 Design decisions are made WITH the user, recorded as `designs/NN-*.md`
-briefs, implemented by dispatched agents (one at a time; concurrent
-only in isolated worktrees). Each finished brief unit reaches main as a
-squashed sawtracker patch (section above), its server gate green.
+briefs, implemented by dispatched agents (concurrent only in isolated
+worktrees, up to the current agent limit; see below). Each finished
+brief unit reaches main as a squashed sawtracker patch (section
+above), its server gate green.
 
-**DIVISION OF LABOR + MODELS (user rulings, Aug 13-18):** the user
-designs and RULES; the LEAD (session model) writes briefs, dispatches,
-and VALIDATES every work product before it reaches main. Subagents are
-ALWAYS `model: opus`, explicitly set — never inherited. Two exceptions:
-a lead-model subagent may be dispatched (a) for the narrow aspect an
-Opus agent demonstrably failed on (per-aspect, earned by the failure),
-or (b) proactively to SPEC a tricky rewrite (emission census, exact
-APIs, worked examples) that Opus then implements. A SONNET agent may
-build oracle-dense MECHANICAL corpus work when the brief pins the grids,
-the per-cell rule authorities, and a no-guessing rule (undetermined
-cells flagged OPEN, never invented expectations) — per-task,
-user-approved.
+**DIVISION OF LABOR + MODELS (user rulings, Aug 13-18; Nov 8):** the
+user designs and RULES; the LEAD (session model) writes briefs,
+dispatches, and VALIDATES every work product before it reaches main.
+**Which model a subagent runs on, and how many run at once, changes
+often**, so this file doesn't fix them. Check the dispatching session's
+memory for the current subagent configuration, or ASK the user when
+memory has none or it looks stale. Whatever the model, set it
+explicitly at dispatch, never inherited, and give each brief the level
+of detail that model needs. A brief for oracle-dense corpus work pins
+the grids and each cell's rule authority, and requires undetermined
+cells to be flagged OPEN, never filled with an invented expectation.
 
 **WORKTREES + INTEGRATION (patch flow, Sep 8 2026):** ALL work happens
 in isolated worktrees — NOTHING is committed directly on main any more
