@@ -6846,6 +6846,7 @@ extension MirProgram {
         let depth = self.open_scope()
         var root = -1
         let subject = self.lend_subject(scrutinee)
+        var window_mark = -1
         if self.conditional_lend(subject) {
             let lent = self.bind_optional_place(-1, subject)
             root = self.place_local(lent)
@@ -6875,6 +6876,7 @@ extension MirProgram {
             if steps.len() == 1 && steps[0].fresh {
                 self.own_temp(root)
             }
+            window_mark = mark
         }
         var state = MirMatch(arms: Vector<Int>(), entries: Vector<Int>(), cells: Vector<MirCell>(),
                              cache_parent: Vector<Int>(), cache_decl: Vector<Int>(), cache_index: Vector<Int>(),
@@ -6930,6 +6932,20 @@ extension MirProgram {
             let entry = state.entries[k]
             if entry >= 0 {
                 self.enter(entry)
+                // An arm whose pattern binds nothing of the lent place runs
+                // with the scrutinee's windows closed, since the head's lend
+                // is not what it binds; an arm that binds keeps them for its
+                // block (SL:borrowing §12, rule 1).
+                var closed = Vector<Int>()
+                var saved = Vector<MirScopeEntry>()
+                if window_mark >= 0 && not state.held && not mir_holds(&state.bind_arms, k) {
+                    var j = window_mark
+                    while j < self.scope.len() {
+                        try! saved.push(self.scope[j])
+                        j = j + 1
+                    }
+                    self.close_windows_from(window_mark, &var closed)
+                }
                 if state.held {
                     let taken = self.arm_taken(&state, k)
                     let pattern = self.tc.res.first_node_child(state.arms[k])
@@ -6951,6 +6967,23 @@ extension MirProgram {
                 self.close_scope()
                 self.unwind_to(depth)
                 self.goto(join)
+                // The next arm's path still has them open: the entries since
+                // the scrutinee's mark go back as they were, a temporary's
+                // among them, so every exit keeps its order.
+                if closed.len() > 0 {
+                    var kept = Vector<MirScopeEntry>()
+                    var r = 0
+                    while r < window_mark {
+                        try! kept.push(self.scope[r])
+                        r = r + 1
+                    }
+                    r = 0
+                    while r < saved.len() {
+                        try! kept.push(saved[r])
+                        r = r + 1
+                    }
+                    self.scope = move kept
+                }
             }
             k = k + 1
         }

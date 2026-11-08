@@ -97,11 +97,11 @@
 // prints: epi C
 // prints: arm one
 // prints: match place U
-// prints: arm zero
 // prints: epi U
-// prints: match place C
 // prints: arm zero
+// prints: match place C
 // prints: epi C
+// prints: arm zero
 // prints: by reference U
 // prints: show_ref 0
 // prints: epi U

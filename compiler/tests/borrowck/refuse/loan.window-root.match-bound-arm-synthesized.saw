@@ -1,0 +1,42 @@
+// refuses: loan.window-root at 39:24
+// the same through an accessor with a `@synthesize(shared)` twin over an
+// element that is not Copy: the bound arm's shared window still holds the
+// root against the arm's write, and the arm binding nothing writes it freely
+// (SL-956)
+
+enum Kind { case A(value: Int), case B }
+
+struct Slot {
+    n: Int
+    kind: Kind
+    log: Vector<Int>
+}
+
+extension Slot: NoCopy {}
+
+struct Table {
+    a: Vector<Slot>
+}
+
+extension Table: NoCopy {}
+
+extension Table {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Slot {
+        lend self.a[i]
+    }
+}
+
+func main() {
+    var a = Vector<Slot>()
+    var k = 0
+    while k < 4 {
+        try! a.push(Slot(n: 0, kind: Kind.A(value: k), log: Vector<Int>()))
+        k = k + 1
+    }
+    var t = Table(a: move a)
+    match t[1].kind {
+        case A(v) -> { t[2].n = v },
+        case B -> { t[2].n = 0 }
+    }
+}

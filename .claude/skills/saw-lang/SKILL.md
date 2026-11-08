@@ -978,8 +978,8 @@ var u = w.copy()       // explicit duplicate
     close in reverse; a temporary head is fine; no `else`),
     `if let e = m.find(&k) { … } else { … }` / `if var e = m.find(&k) { e.n += 1 }`
     (the then-block; a miss opens none), `while var e = it.find(&k) { … }`
-    (each body), `for x in v.iter() { … }`, a `match` arm over a lent place
-    (`case Some(var x)`, `case Occupied(_, var v) -> { lend v }`). `let`
+    (each body), `for x in v.iter() { … }`, a `match` arm over a lent place that binds a payload
+    (`case Some(var x)`, `case Occupied(_, var v) -> { lend v }`); an arm binding nothing runs with the window CLOSED, so `match t[i].state { case Live -> { t[i].n = 7 } }` writes the root (patterns and guards run with it open). `let`
     reads, `var` writes (needs a `&var` lend).
   - **Refusals that teach:** `if let x = v[i]` (unconditional:
     `borrows.unconditional-test`, use `borrow let`), `guard let e = m.find(&k)`

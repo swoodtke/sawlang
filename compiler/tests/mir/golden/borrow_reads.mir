@@ -297,20 +297,20 @@ fn borrow_reads.scrutinee(t: &borrow_reads.Tags) -> Int {
     }
 
     bb5: {
-        _0 = const 1: Int;
         window_close w0 epilogue borrow_reads.Tags.[](i: Int) (owner borrow_reads.Tags) -> [return: bb7];
     }
 
     bb6: {
-        _0 = const 2: Int;
         window_close w0 epilogue borrow_reads.Tags.[](i: Int) (owner borrow_reads.Tags) -> [return: bb8];
     }
 
     bb7: {
+        _0 = const 1: Int;
         goto -> bb2;
     }
 
     bb8: {
+        _0 = const 2: Int;
         goto -> bb2;
     }
 }

@@ -1,0 +1,162 @@
+// probe: stated
+// about: a `match` on a lent place closes the scrutinee's window at the entry of an arm whose pattern binds nothing of it, exactly once on every path out of the arm, through only an exclusive accessor and through a `@synthesize(shared)` twin alike; an arm binding a payload keeps it for its block (SL-956)
+// stage 0: predates the per-arm window
+// speeds: -O0 -O2
+// prints: open 1
+// prints: close 1
+// prints: arm
+// prints: open 1
+// prints: close 1
+// prints: open 2
+// prints: close 2
+// prints: open 2
+// prints: close 2
+// prints: early 5
+// prints: open 1
+// prints: close 1
+// prints: loop 1
+// prints: open 1
+// prints: close 1
+// prints: open 1
+// prints: close 1
+// prints: loop 3
+// prints: open 1
+// prints: bound 1
+// prints: close 1
+// prints: open 1
+// prints: close 1
+// prints: open 1
+// prints: close 1
+// prints: unbound b
+// prints: open 3
+// prints: close 3
+// prints: open 1
+// prints: close 1
+// prints: open 2
+// prints: close 2
+// prints: open 2
+// prints: close 2
+// prints: value 4
+// prints: shared 7
+// The accessor prints in its prologue and its epilogue, so the output is where
+// each window opens and closes. Every arm that binds nothing prints `close`
+// before its own output; the bound arm prints `close` after it.
+enum State { case Free, case Live }
+enum Kind { case A(value: Int), case B }
+
+struct Slot {
+    state: State
+    n: Int
+    kind: Kind
+}
+
+struct Table {
+    a: [Slot; 4]
+}
+
+extension Table {
+    func [](&var self, i: Int) borrows -> &var Slot {
+        print("open {}", i)
+        lend self.a[i]
+        print("close {}", i)
+    }
+}
+
+struct Quiet {
+    a: [Slot; 4]
+}
+
+extension Quiet {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Slot {
+        lend self.a[i]
+    }
+}
+
+func slots() -> [Slot; 4] {
+    [Slot(state: State.Live, n: 1, kind: Kind.A(value: 1)); 4]
+}
+
+func order(t: &var Table) {
+    match t[1].state {
+        case Free -> {},
+        case Live -> { print("arm") }
+    }
+}
+
+func early(t: &var Table) -> Int {
+    match t[1].state {
+        case Free -> { return 0 },
+        case Live -> {
+            t[2].n = 5
+            return t[2].n
+        }
+    }
+}
+
+func looping(t: &var Table) {
+    var i = 0
+    while i < 3 {
+        i = i + 1
+        match t[1].state {
+            case Free -> { break },
+            case Live -> {
+                if i == 2 {
+                    continue
+                }
+                print("loop {}", i)
+            }
+        }
+    }
+}
+
+func bound(t: &var Table) {
+    match t[1].kind {
+        case A(var k) -> {
+            print("bound {}", k)
+            k = 9
+        },
+        case B -> {}
+    }
+}
+
+func unbound(t: &var Table) {
+    t[1].kind = Kind.B
+    match t[1].kind {
+        case A(var k) -> { k = 0 },
+        case B -> {
+            print("unbound b")
+            t[3].n = 2
+        }
+    }
+}
+
+func value(t: &var Table) -> Int {
+    match t[1].state {
+        case Free -> 0,
+        case Live -> {
+            t[2].n = 4
+            t[2].n
+        }
+    }
+}
+
+func shared() -> Int {
+    var q = Quiet(a: slots())
+    match q[1].state {
+        case Free -> {},
+        case Live -> { q[1].n = 7 }
+    }
+    q[1].n
+}
+
+func main() {
+    var t = Table(a: slots())
+    order(&var t)
+    print("early {}", early(&var t))
+    looping(&var t)
+    bound(&var t)
+    unbound(&var t)
+    print("value {}", value(&var t))
+    print("shared {}", shared())
+}

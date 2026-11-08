@@ -5409,7 +5409,7 @@ it, and they close in reverse order.
   [Functions](#functions)).
 - A lend whose result is only a value, copied out of the place or returned by
   a call on it, closes as soon as the value is read. One used by reference (an
-  argument's place, rendering or comparing the place, a `match` on the place)
+  argument's place, rendering or comparing the place, a `match` on the place, for its pattern tests, its guards and an arm that binds of it)
   keeps its window for that use. In `show(doc.section("net").title(), next())`
   the section's window closes once `title()` returns, before `next()` runs. A
   chain that crosses a value a call returned closes its windows there in every
@@ -5419,6 +5419,16 @@ it, and they close in reverse order.
 - In a head, a lend that is not what the head binds closes once its value is
   read. In `for i in 0..st.slot(1).n { … }` the window closes once the bound is
   read, before the body runs, so the body may borrow `st` exclusively.
+- In a `match` on a lent place, the head's window stays open through the
+  pattern tests and the guards, and then each arm decides: an arm whose
+  pattern binds a payload of the place keeps the window for its block, and an
+  arm that binds nothing (`case Live`, `case Some(_)`, `_`) runs with it
+  closed, so its body may use the root. The window closes once on every way
+  out of the arm. However the scrutinee is computed, a temporary it leaves
+  lives to the end of the `match` and does not hold the window open. An
+  `if let`, `if var`, `while let` or `while var` over a lent place follows the
+  same rule: its block keeps the window when its pattern binds the place, and
+  its `else` runs with the window closed.
 - A conditional lend reached into inline needs `!`, which panics if the place
   is absent, or `?`, which skips if it is absent. An absent conditional write
   still evaluates its right side: `v.find(9)?.value = loud(3)` calls `loud(3)`
@@ -6109,7 +6119,7 @@ an unnamed lend's is its statement or head expression, and a lent argument's
 is the call. An unnamed lend whose result is only a value, copied out of the
 place or returned by a call on it, closes as soon as the value is read; one
 used by reference (a lent argument, rendering or comparing the place, a
-`match` on the place) keeps its window for that use. Nothing outside the
+`match` on the place, for its pattern tests, its guards and an arm that binds of it) keeps its window for that use. Nothing outside the
 window runs with the place lent.
 
 Windows **nest**, which is what orders them. `b[0][1].count += 1` is two

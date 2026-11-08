@@ -1,0 +1,30 @@
+// refuses: loan.window-root at 27:24
+// a `match` arm whose plain-name payload binding reads the lent place in
+// place keeps the scrutinee's window for its block, so a write of the root
+// there conflicts with it; an arm binding nothing runs with the window closed
+// (SL-956)
+
+enum Kind { case A(value: Int), case B }
+
+struct Slot {
+    n: Int
+    kind: Kind
+}
+
+struct Table {
+    a: [Slot; 4]
+}
+
+extension Table {
+    func [](&var self, i: Int) borrows -> &var Slot {
+        lend self.a[i]
+    }
+}
+
+func main() {
+    var t = Table(a: [Slot(n: 0, kind: Kind.A(value: 1)); 4])
+    match t[1].kind {
+        case A(k) -> { t[2].n = k },
+        case B -> { t[2].n = 0 }
+    }
+}

@@ -1,0 +1,40 @@
+// refuses: loan.window-root at 37:27
+// a bound arm keeps the window even when the scrutinee also leaves a temporary, so its root write conflicts (SL-956)
+enum State { case Free, case Live }
+
+struct Slot {
+    state: State
+    n: Int
+    opt: Int?
+}
+
+struct Table {
+    a: [Slot; 4]
+}
+
+extension Table {
+    func [](&var self, i: Int) borrows -> &var Slot {
+        print("open {}", i)
+        lend self.a[i]
+        print("close {}", i)
+    }
+    func find(&var self, i: Int) borrows -> &var Slot? {
+        if i > 3 {
+            return None
+        }
+        lend self.a[i]
+    }
+}
+
+func fresh() -> Table {
+    Table(a: [Slot(state: State.Live, n: 1, opt: 5); 4])
+}
+
+func main() {
+    var t = fresh()
+    let s = "ab"
+    match t[s.copy().len() - 1].opt {
+        case Some(v) -> { t[2].n = v },
+        case None -> {}
+    }
+}

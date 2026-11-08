@@ -1,0 +1,60 @@
+// probe: stated
+// about: a `match` on a lent place whose scrutinee also leaves a temporary (an index computed through an owned copy) closes its window at an arm that binds nothing, as any scrutinee does; and an `if let` over a lent place's field runs its `else` with the window closed (SL-956)
+// stage 0: predates the per-arm window
+// speeds: -O0 -O2
+// prints: open 1
+// prints: close 1
+// prints: open 1
+// prints: close 1
+// prints: open 1
+// prints: close 1
+// prints: 7
+// prints: open 1
+// prints: close 1
+// prints: open 1
+// prints: close 1
+// prints: open 2
+// prints: close 2
+// prints: open 2
+// prints: close 2
+// prints: 3
+// The accessor prints in its prologue and its epilogue. Each value is read
+// into a `let` before it is printed, so no window spans a `print`.
+enum State { case Free, case Live }
+
+struct Slot {
+    state: State
+    n: Int
+    opt: Int?
+}
+
+struct Table {
+    a: [Slot; 4]
+}
+
+extension Table {
+    func [](&var self, i: Int) borrows -> &var Slot {
+        print("open {}", i)
+        lend self.a[i]
+        print("close {}", i)
+    }
+}
+
+func main() {
+    var t = Table(a: [Slot(state: State.Live, n: 1, opt: 5); 4])
+    let s = "ab"
+    match t[s.copy().len() - 1].state {
+        case Live -> { t[1].n = 7 },
+        case Free -> {}
+    }
+    let n = t[1].n
+    print("{}", n)
+    t[1].opt = None
+    if let v = t[1].opt {
+        print("got {}", v)
+    } else {
+        t[2].n = 3
+    }
+    let m = t[2].n
+    print("{}", m)
+}
