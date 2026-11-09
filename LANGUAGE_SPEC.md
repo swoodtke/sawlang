@@ -4022,10 +4022,14 @@ in test code for a production type (see [Policy conformances: declared beside
 the type](#policy-conformances-declared-beside-the-type)).
 
 - **`Copy` is DERIVED, not declared.** A type whose owning members are all
-  `Copy` is `Copy`, with no declaration written and none asked for. That covers
-  the trivially-copyable (POD) types — `Int`, `Bool`, `Float`, POD
-  structs/tuples, fixed arrays of such — and the refcounted ones: `String`,
-  `Arc` and `Data` are `Copy`, and so is `struct Ticket { code: String }`.
+  trivial or compiler-handled is `Copy`, with no declaration written and none
+  asked for. That covers the trivially-copyable (POD) types — `Int`, `Bool`,
+  `Float`, POD structs/tuples, fixed arrays of such — and the members whose
+  retain the compiler handles itself: `String`, an escaping closure, a fixed
+  array of either, and another struct or enum on this tier, so
+  `struct Ticket { code: String }` is `Copy`. A field of a type that DECLARES
+  `Copy` (`Arc`, `Data`, `Channel`) is not one of them: the struct owes its own
+  policy (`copy.undeclared-policy`).
   Whether a given type duplicates bitwise or by retaining a refcount is an
   emission detail, and no rule above code generation distinguishes the two.
   `Data`'s copy is a retain of shared storage; the bytes separate at the first
@@ -4033,7 +4037,8 @@ the type](#policy-conformances-declared-beside-the-type)).
   semantics (see [Data](#data)).
 - **A DECLARED `Copy` conformance has two forms.** The empty one is an
   assertion — `@synthesize extension Point: Copy {}` compiles only while the
-  members qualify, which makes it a type-level API contract. The one with a
+  members qualify (not checked by `sawc` yet, SL-1018), which makes it a
+  type-level API contract. The one with a
   `copy()` body is the retain hook: the compiler calls that body at every silent
   transfer. `Arc` and `Channel` are built on it, in ordinary Saw rather than
   compiler magic, which is what lets you write your own `Arc`-alike.
@@ -4044,8 +4049,7 @@ the type](#policy-conformances-declared-beside-the-type)).
   suspension point (below); the cost is the author's documented choice.
 - **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`,
   `SpinLock`, `Once`, [`Atomic`](#atomicint) — a copy of any of those is a
-  second, independent piece of state; currently also `Map`/`Set`, whose
-  `ExplicitCopy` conformance is future work). Move-only, and it is the
+  second, independent piece of state). Move-only, and it is the
   declaration that overrides what the members would have derived.
 - **`ExplicitCopy`** — the trait that says a duplicate exists and is spelled.
   Every `Copy` type satisfies it, since duplicating one for free is a valid way
@@ -4054,7 +4058,7 @@ the type](#policy-conformances-declared-beside-the-type)).
   `T`. A type declaring it and nothing else is move-only: every transfer needs
   `move`, every duplicate a visible `.copy()`. **Contract: the duplicate may be
   expensive, and reaches every owned member** — e.g. `Vector` (whose conformance
-  is bounded `T: ExplicitCopy`).
+  is bounded `T: ExplicitCopy`), `Map` and `Set`.
   `@synthesize extension T: ExplicitCopy {}` derives the memberwise body.
 - **`NoCopy` and `ExplicitCopy` extend `Deinit`**: they are declared as
   `trait NoCopy: Deinit` and `trait ExplicitCopy: Deinit` in the builtin
@@ -4068,7 +4072,10 @@ the type](#policy-conformances-declared-beside-the-type)).
   of the checkpoint and both halves ran `deinit`. A hand-written `deinit` body
   goes inside the policy conformance, where the requirement is inherited:
 
-  ```saw-fragment
+  ```saw
+  struct Res { fd: Int }
+  func close(fd: Int) { }
+
   extension Res: NoCopy {
       func deinit(&var self) { close(self.fd) }
   }
@@ -4083,14 +4090,18 @@ the type](#policy-conformances-declared-beside-the-type)).
   leave a reader asking whether its transfers copy silently, need `.copy()`,
   or only move. The second conformance is refused:
 
-  ```saw-fragment
+  ```saw-error
+  // error-rule: copy.second-policy
+  // error-contains: a second copy policy beside `Copy`
+  struct Ticket { code: String }
+
   @synthesize
   extension Ticket: Copy {}
 
   @synthesize
   extension Ticket: ExplicitCopy {}
   // error: `Ticket` conforms to `ExplicitCopy`, a second copy policy beside
-  //        `Copy` at 2:19: a type has one of `Copy`, `ExplicitCopy` and
+  //        `Copy` at 6:19: a type has one of `Copy`, `ExplicitCopy` and
   //        `NoCopy`, bounded or not, so a transfer of it copies silently,
   //        needs `.copy()`, or only moves; keep the one its values need
   ```
@@ -4107,7 +4118,9 @@ the type](#policy-conformances-declared-beside-the-type)).
   run only when the copy is spelled. To give such a type a copy of its own,
   write the retain hook, `extension T: Copy { func copy(&self) -> T { … } }`.
 
-  ```saw-fragment
+  ```saw-error
+  // error-rule: copy.outside-policy
+  // error-contains: `Money` declares no copy policy
   struct Money { cents: Int }
 
   extension Money {
@@ -4211,7 +4224,8 @@ before monomorphization asks the parameter's BOUNDS instead. A place value read
 is such a site ([Value reads](#value-reads)): it is legal exactly when every
 parameter the element type mentions carries a `Copy`-family bound, and the
 refusal is reported in the generic body rather than at one caller's
-instantiation. Where the read is legal, the copy is emitted at the
+instantiation (`sawc` still reports it at the call, SL-1019). Where the read is
+legal, the copy is emitted at the
 instantiation, alongside the matching drop, so the concrete tier decides which
 copy it is.
 
@@ -4220,7 +4234,8 @@ can have its `copy()` derived memberwise (POD fields bitwise, copy-policy fields
 via their own `copy()`), but the derivation is opt-in: mark the extension
 `@synthesize`, or write `copy()` by hand. See
 [Synthesized conformances](#synthesized-conformances). A `NoCopy` field makes
-derivation impossible and is reported by name.
+derivation impossible and is reported by name (not checked by `sawc` yet,
+SL-1018).
 
 ```saw
 struct Snapshot {
@@ -4261,8 +4276,8 @@ already on this tier. A field of a *declared* `Copy` type is not one of
 them — an `Arc<T>` field makes the containment rule apply as usual:
 
 ```
-struct `Carrier` contains Copy field `tag` of type `Arc<Res>` but does
-not implement Copy
+`Carrier` holds `Carrier.tag` of type `Arc<Res>`, which declares Copy, so
+it declares its own policy: `extension Carrier: NoCopy {}`, ...
 ```
 
 Declaring the stricter `NoCopy` on a type that would be on this tier is legal,
@@ -4323,15 +4338,16 @@ and duplicates the payload the way that tier duplicates: `None` copies to
 `Vector<Int>?` copies the buffer, a `File?` has no `.copy()` at all.
 
 A refused optional transfer names three ways out: `.copy()`, `move`, and
-`.take()`. The last writes `None` back into the place and hands the payload
-over, which is what makes it the spelling that works on a *field* — `move` there
-would be a partial move.
+`.take()` (the message does not name it yet, SL-1020). The last writes `None`
+back into the place and hands the payload over, which is what makes it the
+spelling that works on a *field* — `move` there would be a partial move.
 
 A tuple works the same way. `t.copy()` exists when no element is move-only, and
 copies each element at that element's own tier: a `String` or `Arc` element
 retains, a `Vector<Int>` element gets its own buffer, a trivial one is copied
 bitwise. A tuple holding a `NoCopy` element has no `.copy()`, and the refusal
-names the offending element by position and type.
+names the offending element by position and type (the message does not name it
+yet, SL-1020).
 
 ```saw-body
 var v: Vector<Int> = [1, 2]
@@ -4347,7 +4363,10 @@ bare one is the same error with the same hints. An enum whose payloads are only
 trivial or `Copy` needs no declaration, exactly as a `String`-field
 struct needs none.
 
-```saw-fragment
+```saw
+struct Tape { id: Int }
+extension Tape: NoCopy {}
+
 enum Reel {
     case Loaded(t: Tape),      // Tape is NoCopy
     case Empty
@@ -4384,10 +4403,15 @@ Some types represent unique resources that should not be copied. Trait
 conformance is declared through an `extension` (there is no struct-header
 `struct X: Trait` syntax):
 
-```saw-fragment
+```saw-error
+// error-rule: transfer.implicit-copy
+// error-contains: which is NoCopy, by value
 struct FileHandle {
     fd: Int
 }
+
+func close(fd: Int) { }
+func openHandle(path: String) -> FileHandle { FileHandle(fd: 3) }
 
 // Declare NoCopy (and its cleanup) via an extension
 extension FileHandle: NoCopy {
@@ -4398,7 +4422,8 @@ extension FileHandle: NoCopy {
 
 // NoCopy types must be explicitly moved
 var file = openHandle("data.txt")
-let borrowed = file    // Error! Cannot copy NoCopy type 'FileHandle'
+let borrowed = file    // error: this reads a place of type `FileHandle`,
+                       //        which is NoCopy, by value; write `move file`
 let owned = move file  // Ok, ownership transferred
 ```
 
@@ -4440,10 +4465,8 @@ The declaration says `consumes`; the call says `move`. A bare `b.finish()` on a
 consuming method is refused:
 
 ```
-error: `finish` consumes its receiver — write `(move b).finish()`
-hint: a consuming method ends the value it is called on, so the transfer is
-      spelled at the call. `b` is moved-from afterwards (a `var` revives on
-      reassignment)
+error: `finish` consumes its receiver, so the transfer is spelled at the call:
+       write `(move b).finish(...)`; a temporary receiver needs no `move`
 ```
 
 A TEMPORARY receiver needs no `move` — `Builder.make(n: 3).finish()` is legal
@@ -4463,6 +4486,8 @@ which is where four rules come from without a check of their own:
 | an indexed place (`(move v[0]).close()`) | no partial moves; `swap_out` is named |
 | Copy tier | legal; the call retires the binding, as `move` on a Copy value does |
 
+A field receiver's refusal does not name `h.res.take()` yet (SL-1020).
+
 #### The callee is the release point
 
 At the end of a consuming body the compiler releases what REMAINS of the
@@ -4477,7 +4502,11 @@ doing whatever teardown the author intends, including none — and the synthesiz
 drops then sweep the unmoved remainder. The replacement is per endpoint, not per
 type: an ordinary drop of the same value still runs body-then-drops.
 
-```saw-fragment
+```saw
+import std.data.{Data}
+
+func close_fd(fd: Int) { }
+
 struct Conn { fd: Int, buffer: Data }
 extension Conn: NoCopy {
     func deinit(&var self) { close_fd(self.fd) }
@@ -4504,7 +4533,12 @@ them.
 Each field is decided on EVERY path or NO path, statically, so no runtime drop
 flags exist. Fields are independent, so several may leave at once:
 
-```saw-fragment
+```saw
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+struct Pair { a: Tag, b: Tag, c: Tag }
+extension Pair: NoCopy {}
+
 extension Pair {
     func split(&var self) consumes -> (Tag, Tag) {
         (move self.a, move self.b)      // `c` is swept at body end
@@ -4517,9 +4551,9 @@ diverging path (a `panic`, a `return`) is exempt for the fields it never
 reaches. `self = v` inside a consuming body deinits the OLD referent whole,
 hand-written body included, because it is not the consumed endpoint.
 
-**The whole receiver.** *Status: planned.* `sawc` does not build this yet: it
-refuses `move self` while parsing, where the grammar accepts it (GRAMMAR.md
-§16). The examples below are *illustrative*.
+**The whole receiver.** *Status: planned.* `sawc` does not build this yet: the
+parser accepts `move self` (GRAMMAR.md §16), and a later stage refuses it for
+now (`slice.not-yet`). The examples below are *illustrative*.
 
 Inside a consuming body, `move self` hands the whole receiver onward: to the
 caller as the result, to another consuming call, or into a new value. It is the
@@ -4580,7 +4614,8 @@ extension Conn {
 
 #### v1 boundaries
 
-Each is a clean error naming the boundary.
+Each is a clean error naming the boundary (the message does not name it yet,
+SL-1020).
 
 - `consumes` requires `&var self`; a `&self` receiver, a `static` method, an
   `init` and a free function are all refused where the word is written.
@@ -4665,7 +4700,7 @@ func append_greeting(s: &var String) {
 
 var msg = String.from("Hello")
 append_greeting(&var msg)  // &var mirrors the &var parameter
-print(msg)  // "Hello, world!"
+print(msg)  // prints: Hello, world!
 
 // Multiple reference parameters.
 func swap<T>(a: &var T, b: &var T) { ... }
@@ -4701,7 +4736,8 @@ process(original)  // original is copied, unchanged
   must be a **statically-known** type — a `&var any Trait` **erased** referent is
   rejected (behind the erasure the caller's slot is a concrete type, so a
   differently-typed store would corrupt it), with a specific error pointing at
-  the `Box<any Trait>` level. The payload-swap idiom that *does* work: a
+  the `Box<any Trait>` level (the message does not name it yet, SL-1020). The
+  payload-swap idiom that *does* work: a
   `&var Box<any Shape>` referent is a sized concrete type, so
   `b = Box<any Shape>.make(Square(...))` replaces the payload and the caller's
   binding stays a valid `Box<any Shape>`. A generic `&var T` referent works per
@@ -5019,7 +5055,10 @@ enclosing function. Both are captured **by borrow**: the environment holds a
 pointer to the storage, so the body reads the live value, and through a
 `&var self` receiver or a `&var T` parameter it writes the caller's storage.
 
-```saw-fragment
+```saw
+struct Counter { n: Int }
+func run_int(f: () -> Int) -> Int { f() }
+
 extension Counter {
     func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
 
@@ -5060,12 +5099,19 @@ copy the values the body needs into locals ahead of the closure and capture
 those, or take the receiver as an explicit closure parameter
 (`body: (&Counter, Int) sync -> R`, called as `self.run({ c, v in c.n + v })`).
 
-A **consuming** `self` receiver (declared without `&`) is an owned binding, not
-a borrow, so it is captured by value under the ordinary transfer rules.
+In a `consumes` method the receiver is the callee's to end, not a borrow, so a
+closure that names `self` bare captures it by value under the ordinary transfer
+rules: a `Copy`-tier receiver copies, and a `NoCopy` one is refused
+(`transfer.implicit-copy`). `[&var self]` borrows it for a non-escaping
+closure, as in any `&var self` method, and so does copying what the body needs
+into locals first.
 
 The capture may also be written out loud, behind a borrow sigil:
 
-```saw-fragment
+```saw
+struct Counter { n: Int }
+func run_int(f: () -> Int) -> Int { f() }
+
 extension Counter {
     func viaFree(&self) -> Int { run_int({ [&self] in self.n + 1 }) }
     func bump(&var self) -> Int { run_int({ [&var self] in self.n += 10; self.n }) }
@@ -5077,7 +5123,12 @@ they meet the same non-escaping rule. `[&var self]` requires a `&var self`
 receiver: a shared receiver has no exclusive borrow to hand out, and asking for
 one names the working spelling.
 
-```saw-fragment
+```saw-error
+// error-rule: capture.exclusive-self
+// error-contains: `[&var self]` needs a `&var self` receiver
+struct Counter { n: Int }
+func run_int(f: () -> Int) -> Int { f() }
+
 extension Counter {
     func read(&self) -> Int { run_int({ [&var self] in self.n + 1 }) }
     // error: `[&var self]` needs a `&var self` receiver, and `read` takes
@@ -5126,7 +5177,9 @@ rules hold: **a `&var` forward requires an incoming `&var`** (a shared `&`
 reference cannot be upgraded to `&var` — rejected cleanly), while a `&var` may be
 forwarded as `&` (a downgrade to a shared read is fine).
 
-```saw-fragment
+```saw
+struct Counter { n: Int }
+
 func bump(x: &var Int) { x += 1 }
 func read_it(x: &Int) -> Int { x }
 
@@ -5178,11 +5231,13 @@ func swap(a: &var Int, b: &var Int) { ... }
 
 var x = 0
 var y = 0
-swap(&var x, &var x)  // error: `x` is passed as `&var` while also aliased
+swap(&var x, &var x)  // error: `x` is borrowed exclusively here while the
+                      //        argument holds `x` exclusively for its call
 swap(&var x, &var y)  // ok: distinct roots
 
 var p = Point(x: 1, y: 2)
-f(&var p, &p.x)       // error: `p` overlaps its field `p.x`
+f(&var p, &p.x)       // error: `p.x` is borrowed here while the argument
+                      //        holds `p` exclusively for its call
 f(&var p.x, &p.y)     // ok: disjoint fields (the rule is path-disjointness,
                       //     not one reference per variable)
 g(&x, &x)             // ok when both parameters are shared `&` (two readers)
@@ -5222,9 +5277,9 @@ path-disjointness test as the arguments written beside it.
 ```saw-fragment
 var p = Point(x: 1, y: 2)
 sink(&var p.x, reset(&var p))
-// error: exclusive access violation: `p` is borrowed by a nested call in this
-//        argument list while `p.x` is also accessed by reference in the same
-//        call — both reach `p`
+// error: `p` is borrowed by a nested call in this argument list while `p.x`
+//        is also accessed by reference in the same call; a call's references
+//        are checked together, so bind the nested call's result on its own
 
 add(&var x, bump(&var y))         // ok: distinct roots
 scale(&var p.y, bump(&var p.x))   // ok: disjoint fields, as everywhere else
@@ -5294,7 +5349,7 @@ changes.
 let h = group.spawn(run({ [&var n] in n = n + 1; n }))
 let seen = n
 // error: exclusive access violation: `n` cannot be read here — the task spawned
-//        at line 1 holds `&var n` until `h.join()` releases it
+//        at 1:29 holds `&var n` until `h.join()` releases it
 ```
 
 > **Invariant (for future features):** the fully-static guarantee rests on every
