@@ -7041,19 +7041,23 @@ is the one shared-ownership primitive. `Arc` is `Copy + Deinit`
 (retain on copy, release on drop; the last owner runs the payload's `deinit`
 exactly once), built on the same machinery as `String`.
 
-```saw-fragment
-// Atomic reference counting (thread-safe shared ownership). The control block
-// is an allocation, so the constructor reports; `try!` says this caller would
-// rather die than handle a refusal.
-let shared = try! Arc<Payload>(value: Payload(id: 7))
-let shared2 = shared          // copy() called, strong count increases
-print(shared2.strong_count()) // 2
+```saw
+struct Payload { id: Int }
 
-// Box<T, A>: owned heap allocation without sharing (NoCopy — move to transfer).
-// `make` is a static because the allocator type argument is named at the call
-// site, not because construction is special.
-let boxed = try! Box<Int>.make(42)
-print(boxed.value())          // 42
+func main() {
+    // Atomic reference counting (thread-safe shared ownership). The control
+    // block is an allocation, so the constructor reports; `try!` says this
+    // caller would rather die than handle a refusal.
+    let shared = try! Arc<Payload>(value: Payload(id: 7))
+    let shared2 = shared          // copy() called, strong count increases
+    print(shared2.strong_count()) // prints: 2
+
+    // Box<T, A>: owned heap allocation without sharing (NoCopy — move to
+    // transfer). `make` is a static because the allocator type argument is
+    // named at the call site, not because construction is special.
+    let boxed = try! Box<Int>.make(42)
+    print(boxed.value())          // prints: 42
+}
 ```
 
 `value()` is a `borrows` accessor: it lends the heap payload where it sits, and
@@ -7086,16 +7090,20 @@ declared `borrows(sync)`. The window is the critical section, and the lock is
 released when the window closes, on every way out. `get()` snapshots the
 payload (`T: ExplicitCopy`).
 
-```saw-fragment
-let m = Mutex<Int>(value: 0)
+```saw
+import std.mutex.{Mutex}
 
-let doubled = borrow var c = m.lock() {
-    c = c + 1
-    c * 2
-}                   // lock released at the block's end
+func main() {
+    let m = Mutex<Int>(value: 0)
 
-print(doubled)      // 2
-print(m.get())      // 1
+    let doubled = borrow var c = m.lock() {
+        c = c + 1
+        c * 2
+    }                   // lock released at the block's end
+
+    print(doubled)      // prints: 2
+    print(m.get())      // prints: 1
+}
 ```
 
 A `borrow` block is an expression, so what the critical section computes comes
@@ -7197,7 +7205,9 @@ A trait of your own that lists it is refused at its declaration, because a
 conformance to it would give a type a `deinit` and no copy policy, and no
 scope exit calls such a `deinit`:
 
-```saw-fragment
+```saw-error
+// error-rule: trait.deinit-parent
+// error-contains: lists `Deinit` as a parent
 trait Closeable: Deinit {}
 // error: `Closeable` lists `Deinit` as a parent, which only the copy policies
 //        `NoCopy` and `ExplicitCopy` do: a conformance to it would give a type
@@ -7458,8 +7468,10 @@ extension Buf: ExplicitCopy {
 }
 
 var a = makeBuf()
-var b = a          // Error: cannot copy value of type `Buf` which implements
-                   //        ExplicitCopy — use .copy() or `move`
+var b = a          // error: this reads a place of type `Buf`, which is
+                   //        ExplicitCopy, by value: only a Copy type copies
+                   //        silently; write `move a` to take it, `a.copy()`
+                   //        for a copy, or borrow it
 var c = a.copy()   // Ok: explicit, independent duplicate
 var d = move a     // Ok: ownership transferred, a no longer valid
 ```
@@ -7494,7 +7506,8 @@ func open_file(name: String) -> File { File(handle: 3) }
 
 var f = open_file("data.txt")
 let g = f        // error: this reads a place of type `File`, which is NoCopy,
-                 //        by value; write `move f` to take it, or borrow it
+                 //        by value: only a Copy type copies silently; write
+                 //        `move f` to take it, or borrow it
 let h = move f   // ok: f is now invalid
 // h.deinit() called at scope exit, file closed
 ```
@@ -7640,8 +7653,9 @@ struct Connection {
     socket: File       // File is NoCopy
     config: Config     // plain type
 }
-// error: struct `Connection` contains NoCopy field `socket` of type `File`
-//        but does not implement NoCopy
+// error: `Connection` holds `Connection.socket` of type `File`, which is
+//        NoCopy, so it declares its own policy: `extension Connection:
+//        NoCopy {}`, or `@synthesize` an ExplicitCopy
 
 // Fix: declare the policy. The body is empty; `deinit` is synthesized and
 // closes `socket` at scope exit.
@@ -7761,7 +7775,9 @@ auto-wrap*.
 
 In functions returning `Result<T, E>`, values are automatically wrapped:
 
-```saw-fragment
+```saw
+struct ParseError { line: Int, message: String }
+
 func parse_number(valid: Bool) -> Result<Int, ParseError> {
     if valid {
         return 42  // Auto-wrapped to Ok(value: 42)
@@ -7818,7 +7834,9 @@ one.
 A bare `None` is on that list too. At a declared `Result<T?, E>` it is
 `Ok(None)`, at all four targets and in a generic body:
 
-```saw-fragment
+```saw
+struct Stop { code: Int }
+
 func poll(n: Int) -> Result<Int?, Stop> {
     if n == 0 { return None }        // an explicit return
     None                             // …and the tail that means the same thing
@@ -7828,8 +7846,8 @@ func poll(n: Int) -> Result<Int?, Stop> {
 It can only mean the Ok side, so it is decided ahead of the ambiguity rule
 rather than by it — the none-literal fits every type, and asking that question
 of a `None` would reject an unambiguous program. A `None` at a `Result` whose Ok
-type is NOT an optional is a compile error naming the declared Ok type, at every
-one of the four targets.
+type is NOT an optional is a compile error naming the declared result type, at
+every one of the four targets.
 
 ### Error-type doctrine
 
@@ -7883,7 +7901,7 @@ operation's error type with the payload optionalized:
 
 ```saw-fragment
 func receive(&self) -> Result<T, ChannelError>       // parks until a message arrives
-func try_receive(&self) -> Result<T?, ChannelError>  // answers at once
+func try_receive(&self) unsafe -> Result<T?, ChannelError>  // answers at once
 ```
 
 `Ok(None)` is "nothing yet". Would-block is not an error — it is the normal
@@ -7896,7 +7914,13 @@ value has been set.
 The two peel apart cleanly at a call site, the `try` taking the error channel
 and the `while let` taking the optional:
 
-```saw-fragment
+```saw
+import std.channel.*
+
+struct Job { id: Int }
+
+func run(job: Job) {}
+
 func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
     var n = 0
     while let job = try ch.try_receive() {   // ends on empty, propagates on closed
@@ -7928,10 +7952,12 @@ let content = try! read_file("data.txt")  // Panics if Err
 ### Error routing at `try`
 
 A `try` whose callee fails with a different error type than the enclosing
-function declares spells the conversion, as a prefix clause:
+function declares spells the conversion, as a prefix clause (not built in
+`sawc` yet, SL-884):
 
 ```saw-fragment
-struct AllocError { size: Int, align: Int }
+import std.data.{Data}
+
 struct ParseError { line: Int }
 
 enum ConfigError {
@@ -8050,13 +8076,15 @@ func load_config() {
 }
 ```
 
-The compiler automatically creates a union type for multiple error types, allowing pattern matching in the catch block.
+The compiler automatically creates a union type for multiple error types,
+allowing pattern matching in the catch block (not built in `sawc` yet, SL-680).
 
 ### The error union
 
-When a `try { } catch { }` block propagates **more than one** error type, the
-implicit `error` variable has a compiler-synthesized **closed enum** over
-exactly the error types propagated in that block. Its observable semantics:
+When a `try { } catch { }` block propagates **more than one** error type (not
+built in `sawc` yet, SL-680), the implicit `error` variable has a
+compiler-synthesized **closed enum** over exactly the error types propagated in
+that block. Its observable semantics:
 
 - **Closed and exact.** `match error` must be exhaustive over exactly the
   propagated (deduplicated) set of error types — no catch-all is required. A
@@ -8165,7 +8193,7 @@ they yield is an ordinary value; the one exception is a `T` that is itself a
 `Result`, which the rule then covers on its own terms.
 
 **`Result` only.** Optionals and every other type stay freely discardable.
-Dropping the old value a map insert hands back is normal, and a `?.` chain
+Dropping the value `Vector.pop()` hands back is normal, and a `?.` chain
 typed `Void?` is a statement by design. There is no must-use attribute in Saw:
 a `Result` a caller may always ignore should not have been a `Result`.
 
@@ -8176,7 +8204,7 @@ force-unwrap failures and division by zero (see Runtime Semantics). The
 `panic(...)` builtin (design 49), `.len()` on a fixed array (design 72) and the
 `&[Int]` slice parameter below are implemented.
 
-```saw-fragment
+```saw
 func get_index(arr: &[Int], i: Int) -> Int {
     if i >= arr.len() {
         panic("Index {} out of bounds", i)
@@ -8199,13 +8227,13 @@ allocator exhaustion:
 
 ```saw-body
 panic("out of {}: wanted {}, had {}", "frames", 64, 3)
-// panic at slab.saw:41: out of frames: wanted 64, had 3
+// panics: out of frames: wanted 64, had 3
 ```
 
-The scratch holds 508 bytes of message. A longer one is cut and marked with a
-trailing `…`, the same marker fixed-mode `StringBuilder` uses, so a shortened
-abort message says it was shortened. The `panic at FILE:LINE:` prefix is an
-interned constant and is never cut.
+The scratch holds 508 bytes, the `panic at FILE:LINE:` prefix included. A
+longer message is cut and marked with a trailing `…`, the same marker
+fixed-mode `StringBuilder` uses, so a shortened abort message says it was
+shortened. The prefix is an interned constant and is never cut.
 
 `assert(cond, "want {} got {}", a, b)` renders its arguments on the failing
 branch only. A passing assert costs the condition test.
