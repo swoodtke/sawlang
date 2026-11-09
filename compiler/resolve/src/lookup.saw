@@ -946,12 +946,15 @@ extension ResProgram {
         var shadowed = ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1,
                                   node: -1)
         var same_scope = false
+        var site_module = self.current
+        var site_node = -1
         let local = self.find_local(name, ResSpace.Value)
         if local >= 0 {
             let found = self.locals[local]
             if not found.type_level {
                 shadowed = found.binding
                 same_scope = found.depth == depth
+                site_node = found.binding.node
             }
         }
         if shadowed.kind == ResBindKind.Unbound {
@@ -962,6 +965,8 @@ extension ResProgram {
                 let decl = self.decls[d]
                 if decl.kind == ResDeclKind.Static {
                     shadowed = res_decl_binding(d, &decl)
+                    site_module = decl.module
+                    site_node = decl.leaf
                 }
                 at = self.top.following(at)
             }
@@ -973,11 +978,14 @@ extension ResProgram {
             return
         }
         let text = self.name_text(name)
+        let site = self.binding_site(site_module, site_node)
         var msg = StringBuilder()
         if same_scope {
             try! msg.append("`")
             try! msg.append(text)
-            try! msg.append("` is already defined in this scope; a redefinition must derive from it, as `let ")
+            try! msg.append("` is already defined in this scope, at ")
+            try! msg.append(site)
+            try! msg.append("; a redefinition must derive from it, as `let ")
             try! msg.append(text)
             try! msg.append(" = f(")
             try! msg.append(text)
@@ -985,15 +993,28 @@ extension ResProgram {
         } else if shadow == ResShadow.Flat {
             try! msg.append("`")
             try! msg.append(text)
-            try! msg.append("` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name")
+            try! msg.append("` shadows the binding declared at ")
+            try! msg.append(site)
+            try! msg.append(", which a pattern, a parameter or a closure parameter may not do; pick another name")
         } else {
             try! msg.append("`")
             try! msg.append(text)
-            try! msg.append("` shadows an enclosing binding without deriving from it; pick another name, or mention `")
+            try! msg.append("` shadows the binding declared at ")
+            try! msg.append(site)
+            try! msg.append(" without deriving from it; pick another name, or mention `")
             try! msg.append(text)
             try! msg.append("` in the initializer")
         }
         self.refuse(leaf, "name.shadowing", msg.build())
+    }
+
+    // `FILE:L:C` of the leaf `node` in module `m`, as a diagnostic's own location reads.
+    func binding_site(&self, m: Int, node: Int) -> String {
+        var out = StringBuilder()
+        try! out.append(self.module_file(m))
+        try! out.append(":")
+        try! out.append(self.node_position(m, node))
+        out.build()
     }
 
     // Whether a name record from `from` on refers to `binding`.

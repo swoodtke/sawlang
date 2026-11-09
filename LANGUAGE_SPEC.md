@@ -350,7 +350,7 @@ let x: Int? = lookup()
 if let x = x { show(x) }          // OK: the scrutinee references the shadowed `x`
 let n = 5
 if branch {
-    let n = compute()             // error: `n` shadows an enclosing binding
+    let n = compute()             // error: `n` shadows the binding declared at FILE:L:C
     print(n)                      //        without deriving from it; pick another
 }                                 //        name, or mention `n` in the initializer
 ```
@@ -380,7 +380,7 @@ if branch {
 - Prelude/std names (`print`, `Vector`, …) are not bindings for this rule; a
   local named after one is governed by the existing rules, not design 100.
 - The diagnostic names the shadowed binding's exact declaration site
-  (`'data' shadows the binding declared at FILE:L:C`) and hints to rename or
+  (`` `data` shadows the binding declared at FILE:L:C ``) and hints to rename or
   derive it.
 
 ### Functions
