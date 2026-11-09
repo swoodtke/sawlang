@@ -13726,8 +13726,8 @@ not-yet-initialized panic; spin on `try_get` if a wait is what you want.
 
 ## 7. Metaprogramming
 
-**Status: partially implemented** — generics are built (see below); const
-evaluation, macros, and compile-time reflection are planned.
+**Status: partially implemented** — generics are built (see below); `const
+func`, macros and compile-time reflection are planned.
 
 ### Generics
 
@@ -13780,27 +13780,40 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // `U` is a METHOD-level type parameter, distinct from the element type `T`
     // and the allocator `A` (which the result vector inherits). The element is
     // lent as a `&T`, so the extension carries no copy bound.
-    func map<U>(&self, transform: (&T) -> U) unsafe -> Vector<U, A> { ... }
+    func map<U>(&self, transform: (&T) -> U) unsafe
+        -> Result<Vector<U, A>, AllocError> { ... }
 
     // `Acc` is the accumulator type (named `Acc`, not `A`, since `A` is now
     // the extension's allocator type parameter).
     func fold<Acc>(&self, initial: Acc, combine: (Acc, &T) -> Acc) unsafe -> Acc { ... }
 }
+```
 
+`map` allocates, so it returns a `Result`; the calls below unwrap it:
+
+```saw-body
 var v = Vector<Int>()
-// ...
-let labels = v.map { "n={$0}" }           // Vector<Int> -> Vector<String>, U inferred
-let sum    = v.fold(0) { $0 + $1 }         // -> Int, Acc inferred from `0`
-let typed  = v.map<String> { "n={$0}" }    // explicit is always allowed and wins
+try! v.push(1)
+try! v.push(2)
+// Vector<Int> -> Vector<String>, U inferred
+let labels = try! v.map { x in "n={x}" }
+// -> Int, Acc inferred from `0`
+let sum = v.fold(0) { acc, x in acc + x }
+// explicit is always allowed and wins
+let typed = try! v.map<String> { x in "n={x}" }
+print(labels.len())     // prints: 2
+print(sum)              // prints: 3
+print(typed.len())      // prints: 2
 ```
 
 The method's type arguments may be supplied **explicitly** at the call site
 (`v.map<String>(...)`) or **inferred** from the argument types (design 93):
-`v.map({ $0.to_string() })` solves `U` from the closure's inferred RETURN type,
-`v.fold(0) { ... }` solves the accumulator from the initial argument. Inference
-applies to generic free functions, methods, and **constructors** alike; a
-non-generic call still rejects type arguments. Explicit `<...>` always wins; a partial explicit prefix
-pins its leading parameters and the rest are inferred; an unconstrained trailing
+`v.map({ x in x.to_string() })` solves `U` from the closure's inferred RETURN
+type, `v.fold(0) { ... }` solves the accumulator from the initial argument.
+Inference applies to generic free functions, methods, and **constructors**
+alike; a non-generic call still rejects type arguments. Explicit `<...>` always
+wins; a partial explicit prefix pins its leading parameters and the rest are
+inferred; an unconstrained trailing
 parameter with a default type fills from the default. A parameter whose *value*
 default is typed by a type parameter (`func f<T>(a: Int, b: T = 0)`) has that
 default type-checked against the **instantiated** `T` at each call, and when `T`
@@ -13816,11 +13829,13 @@ bound-violating type is a clean call-anchored error, never an ICE. Inference
 never guesses — a
 parameter no argument constrains (**underdetermined**) or one an argument forces
 to two different types (**conflict**) is a clean error naming the parameter and
-suggesting explicit arguments, and an inferred argument is bound-checked naming
+suggesting explicit arguments (the message does not name it yet, SL-1020), and
+an inferred argument is bound-checked naming
 the inferred type. Inference runs non-closure arguments first, then closures,
 **fixpointing** over the argument list (design 105) so a parameter determined by
 an argument to its *right* — including a closure that precedes the value that
-fixes its `T` (`run({ $0 * 2 }, 10)`) — is solved on a later pass. Labeled
+fixes its `T` (`run({ x in x * 2 }, 10)`) — is solved on a later pass (`sawc`
+doesn't solve that shape yet, SL-1040). Labeled
 arguments are paired with parameters by LABEL before unifying. Inference also
 runs across an **overload set** (design 105): with no concrete match, each
 generic candidate is solved independently and the unique solving-and-type-matching
@@ -13906,9 +13921,24 @@ let w: Wrap<Int> = Wrap(value: "x")
 //        required to be both `Int` and `String`
 ```
 
-The slot reaches the initializer only. An expected type does not flow through
-call arguments, returns, or operators, so a construction in those positions
-writes its own arguments.
+A call argument's parameter type and a `return`'s declared type are expected
+types for a construction too, so they solve it the same way:
+
+```saw
+func take(v: Vector<Int>) -> Int { v.len() }
+
+func make() -> Vector<Int> {
+    Vector()
+}
+
+func main() {
+    print(take(Vector()))     // prints: 0
+    print(make().len())       // prints: 0
+}
+```
+
+An operator's operand is not such a position: the right side of `??` does not
+get the slot, so a construction there writes its own arguments.
 
 Inference never guesses here either. A construction no argument and no slot
 constrains is the underdetermined error, naming the parameter and the explicit
@@ -13970,8 +14000,8 @@ extension FixedBuf<N> {
 
 var small = FixedBuf<16>()
 var big   = FixedBuf<256>()
-print(sizeof<FixedBuf<16>>())      // 16
-print(sizeof<FixedBuf<256>>())     // 256
+print(sizeof<FixedBuf<16>>())      // prints: 16
+print(sizeof<FixedBuf<256>>())     // prints: 256
 ```
 
 `FixedBuf<16>` and `FixedBuf<256>` are different types with different layouts.
@@ -14003,6 +14033,7 @@ Scope, deliberately narrow in this version:
   of the grammar in this position: an argument list is closed by `>`, which is
   also the shift token. Write the multiplicative form (`FixedBuf<2 * 128>`) or
   a `static`. An array length is closed by `]` and takes the full grammar.
+  (A layout query in a type argument is not built in `sawc` yet, SL-457.)
 - **A module `static`** may be the argument on the same terms, so
   `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
   layout and one symbol. See Module-level statics for which statics fold.
@@ -14019,12 +14050,13 @@ Scope, deliberately narrow in this version:
 
   ```saw-body
   func width<const N: Int>(xs: [Int; N]) -> Int { N }
-  print(width([1, 2, 3, 4]))     // 4 — N solved from the argument
+  // N is solved from the argument
+  print(width([1, 2, 3, 4]))     // prints: 4
   ```
 
-Passing the wrong kind of argument is a clean error naming the parameter:
-`FixedBuf<Int>` reports that `N` takes a value, and `Pair<4>` that `T` takes a
-type.
+Passing the wrong kind of argument is a clean error naming the parameter (the
+message does not name it yet, SL-1020): `FixedBuf<Int>` reports that `N` takes
+a value, and `Pair<4>` that `T` takes a type.
 
 Not supported: const parameters of user types, comparisons over a parameter in
 the declaration (`where N > 0` — write `static_assert(N > 0, ...)` in the body),
@@ -14071,19 +14103,28 @@ site?** There are two answers, and they are inferred, not declared.
 - **It does** — the body needs `T` on the `Copy` tier, and each call site is
   checked against the type argument you actually passed.
 
-The refusal lands at the CALL, names the requirement, and quotes the line in the
-body that caused it:
+The refusal lands at the CALL, names the requirement, and names the body
+site that requires it:
 
-```saw-fragment
+```saw-error
+// error-rule: copy.requirement
+// error-contains: requires `T` to be Copy
+struct Res { w: Int }
+extension Res: NoCopy {}
+func sink<T>(x: T) -> Int { 1 }
+
 func twice<T>(x: T) -> Int {
     let a = sink(x)
     let b = sink(x)   // `x` is bound a second time here
     a + b
 }
 
+let r = Res(w: 1)
 twice(move r)
-// error: `twice` requires `T` to be `Copy` — it binds `x` twice, at lines 2
-//        and 3; `Res` is move-only
+// error: `twice` requires `T` to be Copy, as its body binds `x` twice on one
+//        path, at …:7:18 and 8:18, with nothing written, and `Res` is
+//        NoCopy: pass a Copy type, or declare the parameter `ExplicitCopy`
+//        and write `.copy()` in the body
 ```
 
 The rule is per PATH, not per mention. `if a < b { b } else { a }` names each
@@ -14221,8 +14262,8 @@ a `static` initializer, an array length, a repeat count, a const generic
 argument, `@align(N)`, and a `static_assert` — for every `T` whose layout the
 target alone fixes: the integers, `Bool`, `Float`, `String`, and any
 `UnsafePointer<T>` / `UnsafeConstPointer<T>`. A distinct alias measures as its
-underlying type, so `sizeof<Byte>()` is 1. Write the size once and derive the
-rest:
+underlying type, so `sizeof<Byte>()` is 1 (`sawc` checks such a static but does
+not build it yet, SL-457). Write the size once and derive the rest:
 
 ```saw-fragment
 static PIPE_BODY_BYTES: Int = 4096
@@ -14253,7 +14294,9 @@ func main() {
 `static_assert` runs after layout exists and takes any `T`, which is where a
 claim about a struct's layout belongs anyway:
 
-```saw-fragment
+```saw
+struct Region { a: Int, b: Int }
+
 static_assert(sizeof<Region>() == 16, "Region must stay two words")
 ```
 
@@ -14279,7 +14322,8 @@ func f() {
 The two length positions take the same expression grammar. `[T; N]` used to
 parse a smaller one and fail at the parser on anything outside it, while the
 repeat count beside it gave a semantic answer; both now parse everything and the
-evaluator gives the one answer.
+evaluator gives the one answer (a call or a shift in a length is not built in
+`sawc` yet, SL-457).
 
 ```saw-fragment
 // Const functions evaluated at compile time (planned)
@@ -14343,13 +14387,15 @@ struct Config {
 ## 8. Module System
 
 **Status: implemented.** `import` (module, specific-symbol, and qualified
-forms), `public import` re-export, inline and external `module` declarations,
-`public` visibility, scoped visibility (`public(package)`, `public(parent)`),
-import aliasing (`as`, design 53), glob imports (`import x.*`), and qualified
-access (`module.Type`) are all built. The `Saw.toml` package layout is handled
-by the Blade package manager.
+forms), `public import` re-export, `public` visibility, scoped visibility
+(`public(package)`, `public(parent)`), import aliasing (`as`, design 53), glob
+imports (`import x.*`), and qualified access (`module.Type`) are all built.
+Inline and external `module` declarations are not built in `sawc` yet (SL-884).
+The `Saw.toml` package layout is handled by the Blade package manager.
 
 ### Module Declaration
+
+Inline and external `module` declarations are not built in `sawc` yet (SL-884).
 
 ```saw-fragment
 // In lib.saw (package root)
@@ -14386,7 +14432,9 @@ and the extension scope of the module it publishes (see
 [Import form and extension visibility](#import-form-and-extension-visibility)),
 never a wider tier. The import forms are sugar for the qualified reach and are
 never the stricter of the set. A refusal names the tier and the DEFINING
-module, so the reader learns which modifier to change and where:
+module, so the reader learns which modifier to change and where (the message
+does not name it yet, SL-1020, for the glob through a facade and for the hint
+that says to mark it `public`):
 
 ```
 error: `internal_api` is public(package) in `pkg.secret`
@@ -14432,7 +14480,7 @@ extension Account {
 field's name, and an ordinary identifier everywhere else — `let private = 3`, a
 parameter labelled `private:`, and a field NAMED `private` all compile. On any
 other declaration it is refused, because a declaration with no modifier is
-already module-private:
+already module-private (`sawc build` still shows only the rule id, SL-1037):
 
 ```
 error: `private` is not a declaration modifier — a declaration with no modifier
@@ -14454,7 +14502,8 @@ carries no modifier at all (below).
 extension is not a nameable entity: nothing imports it, nothing calls it, and
 there is no name for a modifier to govern. Its members are what an importer
 reaches, and each of them says its own tier — so `public extension Account` is
-refused at the modifier, with the fixit "mark each member instead":
+refused at the modifier, and the fixit is to mark each member instead
+(`sawc build` still shows only the rule id, SL-1037):
 
 ```
 error: an extension cannot carry a visibility modifier — an extension is not a
@@ -14495,6 +14544,8 @@ Consequences:
   package). User code is always a separate module from std.
 
 #### Signature visibility: a public API needs public types
+
+**Status: not enforced by `sawc` yet (SL-1041).**
 
 A declaration may not name a type less visible than the declaration's own
 reach. A `public` function's parameters and return type are `public`; a
@@ -14565,7 +14616,11 @@ A member's reach is capped by the type it belongs to. A `public` member of a
 non-public struct is already inert (above), so its effective reach is the
 struct's, and the rule asks no more of it than that:
 
-```saw-fragment
+```saw
+struct Hidden {
+    n: Int
+}
+
 struct Inner {
     n: Int
 }
@@ -14650,11 +14705,13 @@ signatures are indistinguishable, the error is at the CALL — each declaration 
 fine on its own, and neither module knows the other exists:
 
 ```
-error: ambiguous method `kind` on `Reading`: `modules.ext142_dup_a` and
-       `modules.ext142_dup_b` both extend it with an indistinguishable signature
+error: ambiguous call: these candidates take the arguments equally well, so
+       write labels or type arguments that pick one: Reading.kind() [dupa];
+       Reading.kind() [dupb]
 ```
 
-Calling an out-of-scope method names the module that defines it:
+Calling an out-of-scope method names the module that defines it (the message
+does not name it yet, SL-1020):
 
 ```
 error: type `Data` has no method `u16_at` in scope here
@@ -14713,7 +14770,9 @@ Test code counts as a file of its own. An `@test` declaration, an
 `@test { … }` group and a test sidecar (`parser.test.saw`) cannot declare a
 policy for a production type, its own module's included:
 
-```saw-fragment
+```saw-error
+// error-rule: conformance.policy-placement
+// error-contains: `Pinned` is a production type
 struct Pinned {
     n: Int
 }
@@ -14778,7 +14837,7 @@ let frame = WireHeader(kind: 2, length: 8)
 ```
 
 Importing both under the bare name is legal; using it is not. The error names
-both modules at the use site:
+both modules at the use site (the message does not name them yet, SL-1020):
 
 ```saw-fragment
 import parser.{Header}
@@ -14827,9 +14886,11 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
 - core traits (the Copy family, `Deinit`, `Iterator`, `Equatable`, `Comparable`,
   `Hashable`, `Printable`, `Error`, `Send`, `Sync`, `ZeroInit`);
 - the builtins (`print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`) and
-  the concurrency primitives (`TaskGroup`, `sleep`, `spawn`, `cancelled`);
-  `StringBuilder` (common enough to stay bare); `Duration`, because `sleep` is
-  a prelude builtin and a `Duration` is the only thing it takes.
+  the concurrency primitives (`TaskGroup`, `sleep`, `cancelled`, `Atomic`),
+  with `Thread.spawn` and `Task.spawn` as forms, not importable names (a bare
+  `spawn` is retired, and `Task` is a reserved name); `StringBuilder` (common
+  enough to stay bare); `Duration`, because `sleep` is a prelude builtin and a
+  `Duration` is the only thing it takes.
 
 Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `SpinLock`, `Once`, `Instant`, `IoError`, `Utf8Error`, the
@@ -14840,8 +14901,9 @@ functions (std.slab), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without an import of its module. A bare reference to one is a
 clean error ("`TcpStream` is not in the prelude and must be imported") naming
-the three import forms that supply it. Because a non-imported std module is not
-even compiled into the program, a user is free to define its OWN
+the three import forms that supply it (`sawc` still reports `name.undefined` for
+`FixedBuf` and `FixedStringBuilder`, SL-1043). Because a non-imported std
+module is not even compiled into the program, a user is free to define its OWN
 `IoError`/`File`/etc. with no clash.
 
 The gate covers **every position a type is written**, not only the positions
@@ -15005,7 +15067,7 @@ hint: `import std.data.{Data}` selects it, `import std.data.*` takes the
 
 And the mirror — a qualified reference whose qualifier no whole-module import
 bound — names the line that would bind it, in a type position and an expression
-position alike:
+position alike (the message does not name it yet, SL-1020):
 
 ```
 error: `data` is not a module qualifier here
@@ -15035,10 +15097,8 @@ func first(h: &parser.Header) -> Int { h.tag }
 ```
 
 ```
-error: `Header` is not part of `parser`'s surface
-  --> app.saw:3:13
-hint: `Header` is imported by `parser` but not re-exported — add `public
-      import` in `parser`, or import `wire` directly
+error: `Header` is imported by `parser` but not re-exported: add `public
+       import` there, or import it directly
 ```
 
 Reachability is the visibility chain, so every spelling gets the same answer:
@@ -15098,10 +15158,11 @@ func park(t: &thread.Thread<Int>) -> Int { 0 }  // std's, qualified
 
 Two limits. A PRELUDE name is not in that tier — it is in scope with nothing
 written, a second declaration of `Vector` or `Duration` is a redefinition error,
-and an import of one is refused for the same reason. And two EXPLICIT imports
-binding one name to two identities are genuinely ambiguous, since neither is the
-weaker: that is the use-site error, reported where the name is written and
-naming both modules.
+and an import of one is refused for the same reason (`sawc` still accepts the
+import, SL-1042). And two EXPLICIT imports binding one name to two identities
+are genuinely ambiguous, since neither is the weaker: that is the use-site
+error, reported where the name is written and naming both modules (the message
+does not name them yet, SL-1020).
 
 ```
 error: ambiguous struct `Widget`: defined in both `modules.wire` and `modules.disk`
@@ -15133,7 +15194,8 @@ module. This matters because std leaf names — `data`, `path`, `time`, `net` �
 are among the most natural local names in the language, and importing a module
 may not cost the author the word.
 
-When member lookup then fails on a shadowing value, the error says why:
+When member lookup then fails on a shadowing value, the error says why (the
+message does not name it yet, SL-1020):
 
 ```
 error: type `Int` has no method `Data`
@@ -15175,7 +15237,8 @@ Two modules that import each other, directly or around a longer loop, are a
 compile error naming the loop. There is no order in which to check them — each
 needs the other's names first — so the compiler says which modules are in the
 cycle and where each edge is written, rather than picking an order and letting
-the failure land on whichever module lost:
+the failure land on whichever module lost (the message does not name the edge
+lines yet, SL-1020):
 
 ```
 error: import cycle: pkg.a -> pkg.b -> pkg.a
