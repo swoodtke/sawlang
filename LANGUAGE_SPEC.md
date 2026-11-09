@@ -1099,11 +1099,11 @@ G2 note).
 traits, and generic types/functions with monomorphization are all built (see
 the subsection notes). `Map`/`Set` and their `{ }` literals, context-driven
 Vector literals, and trait default methods are **implemented**. Planned pieces
-called out below: views of part of a container (`v[1..4]`; whole-container
-slices are implemented, see Slices), supertrait *enforcement*, and some
-primitive widths. `any Trait` existentials (type-erased dynamic dispatch)
-are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
-`.sqrt()`) are marked *(illustrative)*.
+called out below: supertrait *enforcement* and some primitive widths. Views
+of part of a container (`v[1..4]`) are built: `borrow let p = v[1..4] { … }`
+views the elements in place, and a plain `let` of a view is refused because
+the lend would outlive its statement. `any Trait` existentials (type-erased
+dynamic dispatch) are **implemented** (see Traits).
 
 ### Primitive Types
 
@@ -1158,7 +1158,7 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   single source of truth (the target word width), and **`.max`/`.min` are
   available on every fixed-width type and `UInt`** (`Int8.max == 127`,
   `UInt8.max == 255`, `Int32.min == -2147483648`, …). Use them instead of
-  hand-writing a bound (and to spell `Int8.min`, which a `-128i8` literal cannot).
+  hand-writing a bound.
 - An **integer literal is a platform `Int`** by default; a literal that does not
   fit the target word is a compile error *at the literal* (so `9_999_999_999`
   compiles on a 64-bit host but is rejected under a 32-bit target).
@@ -1202,16 +1202,16 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   type's.** Anything the constant evaluator folds (`2 + 3`, a shift, a mask,
   `~m`, a negated constant) takes the slot's fixed width at every position
   above. Each literal in it is written at that type, and each operation runs at
-  its operands' type exactly as it would at run time (see *Constant
-  expressions*). So `static HIGH: UInt64 = 1 << 63` is 2^63, and `~0` at a
-  `UInt8` slot is 255. A literal that does not fit the type, and an operation
-  whose result the type cannot hold, are clean compile errors: `let e: UInt16 =
-  1 << 20` is refused because the count 20 is past `UInt16`'s width, `256 - 1`
-  at `UInt8` because `256` does not fit, and `-(1 << 7)` at `Int8` because
-  `1 << 7` is already -128 there and negating it overflows. Write `Int8.min`,
-  or `-128`, which is one literal. An expression with a runtime operand in it
-  is not a constant and is unaffected: `n * 2` and `word | (1u32 << n)` type as
-  they always did.
+  its operands' type exactly as it would at run time (see
+  [The constant grammar](#the-constant-grammar)). So
+  `static HIGH: UInt64 = 1 << 63` is 2^63, and `~0` at a `UInt8` slot is 255.
+  A literal that does not fit the type, and an operation whose result the type
+  cannot hold, are clean compile errors: `let e: UInt16 = 1 << 20` is refused
+  because the count 20 is past `UInt16`'s width, `256 - 1` at `UInt8` because
+  `256` does not fit, and `-(1 << 7)` at `Int8` because `1 << 7` is already
+  -128 there and negating it overflows. Write `Int8.min`, or `-128`, which is
+  one literal. An expression with a runtime operand in it is not a constant and
+  is unaffected: `n * 2` and `word | (1u32 << n)` type as they always did.
 - **A CLOSURE body's return positions are those positions too.** The tail
   expression, the if/match arm results inside it, and a `return` in the body all
   take the closure's declared return type, so a `(Int32) sync -> Int32` slot
@@ -1274,11 +1274,11 @@ passes, a bare literal adopts) and a byte buffer has no second reading for a
 number. A `Byte`-typed parameter appears only where an integer-rendering
 sibling shares the name; `StringBuilder.append` is that case.
 
-Two consequences. A bare literal never becomes a `Byte`, which is what makes
-`append(65)`-renders-digits and `append(Byte(65))`-writes-a-raw-byte an
-unambiguous pair rather than a trap. And `Byte` may not be an enum's raw backing
-(`enum E: Byte` is an error, since a raw backing is a fixed-width integer), so
-wire enums keep `UInt8`.
+Two consequences. A bare literal never becomes a `Byte` (not enforced by
+`sawc` yet, SL-48), which is what makes `append(65)`-renders-digits and
+`append(Byte(65))`-writes-a-raw-byte an unambiguous pair rather than a trap.
+And `Byte` may not be an enum's raw backing (`enum E: Byte` is an error, since
+a raw backing is a fixed-width integer), so wire enums keep `UInt8`.
 
 #### `Scalar`
 
@@ -1316,10 +1316,11 @@ the scalar's UTF-8 encoding — the character — which is what a bare `Int`
 scalar could not do: a loop over the old `chars()` printed numbers where every
 reader expected letters.
 
-Construction takes the label, like every other struct construction
-(see [Functions](#functions), *Labeled arguments*): `Scalar(value: 34)`, not
-`Scalar(34)`. There is no scalar literal syntax, so a comparison reads the
-code point back — `ch.value() == 34` — or compares against a hoisted constant.
+Construction is fallible, and its label is optional as at every call (see
+[Functions](#functions), *Labeled arguments*): `Scalar(34)` is the same call
+as `Scalar(value: 34)`. There is no scalar literal syntax, so a comparison
+reads the code point back — `ch.value() == 34` — or compares against a hoisted
+constant.
 
 ```saw-body
 static QUOTE: Int = 34
@@ -1425,8 +1426,9 @@ called directly.
 promises.
 
 `Never` is spellable wherever a return type is written, and only there: it is
-not a type values are stored at. A `-> Never` declaration lowers to a `void`
-symbol carrying LLVM's `noreturn`, which is the C `_start`/`abort` shape and
+not a type values are stored at (`sawc` does not refuse it elsewhere yet,
+SL-1007). A `-> Never` declaration lowers to a `void` symbol, and each call to
+it is followed by `unreachable`, which is the C `_start`/`abort` shape and
 what makes `@export`ing one usable as a bare-metal entry point (see
 [Interoperability](#10-interoperability)).
 
@@ -1451,7 +1453,7 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   `\u{...}`, plus the `\{` / `\}` brace forms (a literal brace, distinct from
   interpolation). `\0` produces an interior NUL that `len()` counts (`len` is
   authoritative — the trailing NUL never defines the length). Any OTHER backslash sequence is a
-  clean **lex error** naming it (``unknown escape `\d` ``) — the backslash is
+  clean **lex error** (`syntax.lex.escape`) — the backslash is
   never silently dropped.
 - **`\u{...}` escapes** (design 53). A string literal may contain a Unicode
   scalar escape `\u{1F600}` — 1–6 hex digits — encoded to its UTF-8 bytes in the
@@ -1464,17 +1466,16 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   files are decoded as UTF-8 before lexing, and the only escape that introduces
   a code point (`\u{...}`) is scalar-validated at lex time (there are no
   byte/`\x` escapes), so an invalid-UTF-8 literal cannot be written; and
-  **`String.fromBytes(data: &Data) -> Result<String, Utf8Error>`** copies raw
-  bytes into a fresh string after a full runtime UTF-8 scan (rejecting invalid
+  **`Data.to_string() -> Result<String, Utf8Error>`** copies the bytes
+  into a fresh string after a full runtime UTF-8 scan (rejecting invalid
   lead/continuation bytes, overlong encodings, UTF-16 surrogates, scalars beyond
   U+10FFFF, and truncated sequences). `Utf8Error.offset` is the byte index where
   the first malformed sequence begins (bytes before it decode cleanly —
   `valid_up_to()` semantics). Validation is written in Saw, not the compiler.
-  `Data.to_string() -> Result<String, Utf8Error>` is the same door under a
-  different name — it delegates to `fromBytes` (design 122), so decoding a byte
-  buffer read off a socket or a file surfaces the failure instead of minting a
-  String that breaks the invariant. `Utf8Error` conforms to `Error`, so it
-  interpolates and boxes at an erased `Result<T, Box<any Error>>` boundary.
+  Decoding a byte buffer read off a socket or a file through it (design 122)
+  surfaces the failure instead of minting a String that breaks the invariant.
+  `Utf8Error` conforms to `Error`, so it interpolates and boxes at an erased
+  `Result<T, Box<any Error>>` boundary.
   The std operations that take text from the operating system (an environment
   value, an argument, a path) run the same scan and report bytes that fail it
   as `SystemErrorKind.InvalidUtf8` (§9, "Text from the operating system").
@@ -1610,7 +1611,8 @@ shared until written.
   `UInt8` and a bare literal from one declaration — `Data` deals in nothing but
   bytes, so a number arriving at one has no second reading. `d[i]` is the
   exception on the read side: a place has one type for reading and writing, and
-  it is `UInt8` so that `d[i] = 42` stays writable.
+  it is `UInt8` so that `d[i] = 42` stays writable. (`iter()` is not built in
+  std yet, SL-1009)
 - **Reading `d[i]` costs nothing.** A read, the getitem `d[i]` or a shared
   lend such as `&d[i]`, reaches the `&self` accessor, so it works on a `let`
   binding, a `&Data` parameter, or a slice several `Data`s share. A write, the
@@ -1622,7 +1624,7 @@ shared until written.
   is the optional copy beside a panicking `[]`, not a different kind of read.
 - **Iterating holds a retain.** `iter()` returns a `DataIterator` that owns a
   `Data`, so an iterator outliving the binding it came from still reads live
-  bytes.
+  bytes. (not built in std yet, SL-1009)
 
 Out of range, `set`/`d[i]` panic and `get`/`slice` answer
 `None` — design 130's accessor rule, the same split `Vector` uses. A refused
@@ -1630,6 +1632,9 @@ ALLOCATION is a different question and rides a different channel: `set` reports
 it, `d[i]` panics (see [Allocation failure](#allocation-failure)).
 
 ### Source-location literals
+
+**Status: partially implemented:** the front end accepts them, and `sawc build`
+does not lower them yet (SL-1010).
 
 Three magic literals expand at compile time to their **definition site** — the
 place the token literally appears in source (design 98). They are ordinary
@@ -1761,8 +1766,10 @@ try! pair.x.push(2)                 // the named spelling reaches the same slot
 // Mutability is the root's: `let t = (v, 7)` rejects every line above, the way
 // `let h` rejects `h.v.push(x)`.
 //
-//   error: cannot call `&var self` method `push` on immutable variable `t`
-//   error: cannot assign to element of immutable variable `t`
+//   error: this exclusive borrow of `t.0` would let it be written, and `t` is a
+//          `let` binding, which is never written
+//   error: this assignment writes `t.1`, and `t` is a `let` binding, which is
+//          never written
 //
 // The Law of Exclusivity judges elements by PATH, as it judges struct fields:
 // `f(&var t.0, &t.1)` names two disjoint elements and compiles, while
@@ -1772,7 +1779,7 @@ try! pair.x.push(2)                 // the named spelling reaches the same slot
 //
 // A value READ out of an element follows the copy tier, like any other place:
 // `let e = t.0` is bitwise for a trivial element, a retain for Copy, and
-// a clean error for ExplicitCopy/NoCopy naming `move`/`.copy()`.
+// a clean error for ExplicitCopy/NoCopy naming `.copy()` or a borrow.
 
 // An ANNOTATED tuple literal is checked against the declared element types, so
 // an optional element takes the ordinary one-level auto-wrap and a fixed-width
@@ -1795,11 +1802,12 @@ let (p, (q, r)) = (1, (2, 3)) // nested
 // the same shape are mutually compatible (labels are a view over the positional
 // layout); two named tuples with different names or a different order are NOT.
 // Literals are all-or-nothing labeled and may not reorder against a known
-// target. Access by `.name` OR positionally (`.0`/`[i]`).
+// target. Access by `.name` OR positionally (`.0`).
 let named: (x: Int, y: Int) = (x: 10, y: 20)
 let y = named.y                     // by name
 let y2 = named.1                    // positionally (same field)
-let flowed: (Int, Int) = named      // named -> positional (compatible)
+// named -> positional is compatible (not built in `sawc` yet, SL-1008)
+let flowed: (Int, Int) = named
 // The NAMED pattern form `let (x: a, y: b) = named` is deferred — use the
 // positional form `let (a2, b2) = named` (labels are ignored in patterns).
 
@@ -1818,6 +1826,7 @@ let sized = [0; 2 * 128]                 // type `[Int; 256]`
 // region's size is written:
 static REGION_SIZE: Int = 65536
 var region: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+// (`/` in a length is not built in `sawc` yet, SL-457)
 var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
 
 // A length that folds to a negative number is a compile error:
@@ -1853,12 +1862,14 @@ static SCRATCH: [Int8; 4096] = [0; 4096]     // zeroinitializer, in .bss
 //                      must be a `var`). The dynamic-index escape hatch, mirroring
 //                      `Vector.swap`: it lets a dynamic-index exclusivity conflict
 //                      be sidestepped without copying elements.
-print(fixed.len())            // 5
+print(fixed.len())            // prints: 5
 var reversible = [10, 20, 30]
 reversible.swap(0, 2)         // -> [30, 20, 10]
 
 // A whole array passes as a slice, `&fixed` where a `&[Int]` is expected (see
-// Slices); a view of part of one, `fixed[1..4]`, is planned.
+// Slices). A view of part of one, `borrow let p = fixed[1..4] { … }`, views
+// the elements in place; a plain `let` of a view is refused because the lend
+// would outlive its statement.
 
 // Vectors (dynamic, heap allocated) — stdlib `Vector<T>`. A bracket literal
 // builds a Vector when the EXPECTED type is `Vector<T, A>` (design 54); with no
@@ -1883,7 +1894,8 @@ last wins. Each element is consumed exactly as an `insert`/`push` argument
 (moves for owning types). A consequence, made explicit by design 122: **there is
 no bare block statement.** A closure literal alone in statement position would
 build a closure and discard it, so none of its body would run — that is a
-compile error naming the two real spellings (call it, `{ ... }()`, or bind it).
+compile error naming the two real spellings (call it, `{ ... }()`, or bind it)
+(not enforced by `sawc` yet, SL-1006).
 To narrow a value's lifetime, extract a function.
 
 **Binding a `Void` expression** (design 122, refined by design 132). Writing
@@ -1918,11 +1930,12 @@ an error the definition did not.
 ITSELF at a bigger type argument — `deepen<T>` calling `deepen<Wrap<T>>` — has
 no finite set of instantiations, and a runtime condition guarding the recursion
 decides nothing about which instantiations exist. The compiler refuses it at the
-demanding call site, naming the chain:
+demanding call site:
 
 ```
-error: instantiation of `Wrap<Wrap<Wrap<Wrap<…>>>>` exceeds the instantiation
-depth limit (64): deepen<Int> → deepen<Wrap<Int>> → … → Wrap<Wrap<Wrap<…>>>
+error: this call instantiates a type nested more than 64 deep: a generic that
+instantiates itself at a growing type has no finite set of instances
+(polymorphic recursion, SL-507)
 ```
 
 The limit is per CHAIN, not a cap on how many instantiations a program has, so
@@ -1980,7 +1993,7 @@ to all structs.
 
 ### Enums (Algebraic Data Types)
 
-```saw-fragment
+```saw-body
 // Variants are introduced with the `case` keyword.
 
 // Simple enum
@@ -2013,6 +2026,10 @@ match msg1 {
     case Write(text) -> print(text),
     case Color(r, g, b) -> set_color(r, g, b)
 }
+
+func quit() {}
+func move_to(x: Int, y: Int) {}
+func set_color(r: Int, g: Int, b: Int) {}
 ```
 
 #### Match consumes an owned enum
@@ -2034,12 +2051,19 @@ tier, because a borrowed binding is never retained at any tier. A place
 scrutinee (`match v[0]`) is refused by the place rule below instead, which names
 the receiver's own escape hatches.
 
-```saw-fragment
+```saw-error
+// error-rule: transfer.move-from-borrow
+// error-contains: cannot move out of `r`
+struct Res { id: Int }
+extension Res: NoCopy {}
+enum Slot { case Filled(r: Res), case Empty }
+extension Slot: NoCopy {}
+
 func take_it(s: &var Slot) -> Res {
     match s {
         case Filled(r) -> move r,
-        // error: cannot move out of `r`: it binds a payload inside a value
-        // this match only BORROWS ...
+        // error: cannot move out of `r`: it names a place it only borrows, a
+        // `borrow` binding or a part of a scrutinee a match borrows ...
         case Empty -> Res(id: 0)
     }
 }
@@ -2135,7 +2159,7 @@ retain of the payload and releases it when the arm ends; the scrutinee keeps
 its own reference and drops at the end of its own scope. Matching one twice is
 allowed, and reading `strong_count()` inside an arm shows both owners.
 
-```saw-fragment
+```saw-body
 enum Holder {
     case Full(a: Arc<Res>),
     case Nothing
@@ -2146,6 +2170,11 @@ let h = Holder.Full(a: try! Arc<Res>(value: Res(id: 9)))
 match h { case Full(a) -> first(a), case Nothing -> {} }
 match h { case Full(a) -> second(a), case Nothing -> {} }
 // the payload is released once, when `h`'s scope ends
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+func first(a: Arc<Res>) {}
+func second(a: Arc<Res>) {}
 ```
 
 #### Methods on enums
@@ -2281,9 +2310,12 @@ enum Right: UInt32 {
 3. **`as` goes one way.** The enum is its tag, so `e as UInt8` is total. The
    inverse is partial and is spelled `from(raw:)`:
 
-```saw-fragment
+```saw-body
+enum SysError: UInt8 { case Ok = 0, case BadHandle = 3 }
+let byte: UInt8 = 3
+
 if let e = SysError.from(raw: byte) {
-    print("decoded {e}")
+    print("decoded {e as UInt8}")   // prints: decoded 3
 } else {
     print("unrecognized status byte")
 }
@@ -2300,7 +2332,8 @@ enum, not to the instantiation, and only a payload type could differ between
 them.
 
 A case of a backed enum is a compile-time constant, so it may be a
-`static_assert` operand, an array length, or an operand of the bit operators in
+`static_assert` operand, an array length (the array-length form is not built in
+`sawc` yet, SL-457), or an operand of the bit operators in
 a constant. A combination of cases is the **backing integer**, not the enum; see
 "Flag enums".
 
