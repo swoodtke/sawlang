@@ -10988,7 +10988,10 @@ semantics (fairness, the op budget) designed for a spelling only tests write.
 
 ### Tasks and Channels
 
-```saw-fragment
+```saw-body
+import std.channel.{Channel}
+func heavy_computation() -> Int { 6 * 7 }
+
 // Spawn an OS thread (escaping closure; every capture must be Send). The OS
 // may refuse the thread, so the form hands back a Result
 var worker = try! Thread.spawn {
@@ -11019,7 +11022,13 @@ result of `Task.spawn(...)` must reach `join()`, `detach()` or `cancel()`. Both
 discard spellings are compile errors, including the `let _ =` that discards a
 `Result`, since this `Result`'s `Ok` is a live thread:
 
-```saw-fragment
+```saw-error
+// error-rule: result.discarded
+// error-contains: is silently discarded
+func crunch(n: Int) -> Int { n * 2 }
+let n = 3
+let urgent = true
+
 Thread.spawn { [n] in crunch(n) }
 // error: the result of this expression is `Result<std.thread.Thread<Int>,
 //        std.systemerror.SystemError>` and is silently discarded
@@ -11040,11 +11049,15 @@ if urgent { let _ = t.join() }
 the handle they bind; the `Err` path owes nothing, since no thread exists
 there:
 
-```saw-fragment
+```saw-body
+func compress(job: Int) -> Int { job * 2 }
+let job = 5
+
 // Parenthesised: in a `match` head a bare `{` begins the arms, never a trailing closure
 match Thread.spawn({ [job] in compress(job) }) {
     case Ok(worker) -> {
         var w = move worker
+        // prints: compressed 10 bytes
         print("compressed {w.join()} bytes")
     },
     case Err(e) -> print("no thread: {e}")
@@ -11058,13 +11071,15 @@ which is the wait-here spelling.
 
 Two things discharge the obligation besides a written `join()`. One is a move
 into storage whose owner consumes the handle in its own `deinit`; the compiler
-asks only that the owning type DECLARE a hand-written `deinit`, which is how a
+asks only that the owning type DECLARE a hand-written `deinit` (`sawc` still
+refuses a struct-literal move into such an owner, SL-1035), which is how a
 worker pool outlives the function that starts it:
 
-```saw-fragment
+```saw
 import std.thread.{Thread}
 
 struct Pool { workers: Vector<Thread<Void>> }
+func serve() {}
 
 extension Pool: NoCopy {
     func deinit(&var self) blocking {
@@ -11099,7 +11114,7 @@ forgets can still reach a thread handle's destructor unconsumed. That path
 panics, naming the type and the fates:
 
 ```
-panic at thread.saw:207: Thread was dropped without being joined or detached —
+panic at thread.saw:LINE: Thread was dropped without being joined or detached —
 `join()` waits for it and takes its result, `detach()` gives the thread to the
 process
 ```
@@ -11114,7 +11129,12 @@ blocking edge, error paths included.
 `detach()` is the second fate, on both engines. It consumes the handle and
 gives the work to the process. Nothing will join it, so its result is given up:
 
-```saw-fragment
+```saw-body
+func compress(job: Int) -> Int { job * 2 }
+func reindex(catalog: Int) -> Int { catalog }
+let job = 5
+let catalog = 9
+
 var worker = try! Thread.spawn { [job] in compress(job) }
 worker.detach()                  // the handle is consumed here
 
@@ -11164,7 +11184,11 @@ A spawn brace captures nothing implicitly. The capture list is the body's
 parameter list: each entry transfers at the spawn, by value, at its own copy
 tier, and `[move x]` is how a move-only value goes.
 
-```saw-fragment
+```saw-error
+// error-rule: spawn.implicit-capture
+// error-contains: a spawned brace captures nothing implicitly
+func crunch(n: Int) -> Int { n * 2 }
+
 let count = 3
 var t = try! Thread.spawn { crunch(count) }
 // error: a spawned brace captures nothing implicitly, and this body names
@@ -11185,7 +11209,11 @@ the reader of a spawn site is looking.
 A `Thread.spawn { ... }` body is a `sync` context: a spawned thread runs no
 executor, so there is nothing on it to resume a suspension.
 
-```saw-fragment
+```saw-error
+// error-rule: effect.thread-body
+// error-contains: cannot suspend in a `Thread.spawn { ... }` body
+import std.task.*
+
 var t = try! Thread.spawn { yield_now(); 7 }
 // error: cannot suspend in a `Thread.spawn { ... }` body: closure calls
 //        `yield_now` (parks the task)
@@ -11202,10 +11230,12 @@ spawned thread. Design 103's offload — which moves such a call to a worker
 thread and parks the task — applies to a suspending body, and there is no task
 here to park. An ordinary `sync` body still refuses the same call.
 
-```saw-fragment
+```saw-body
 extern "C" {
-    blocking func compress(src: UnsafePointer<Int8>, n: Int) -> Int
+    blocking func compress(src: Int32, n: Int32) -> Int32
 }
+let buf: Int32 = 4096
+let len: Int32 = 16
 var t = try! Thread.spawn { [buf, len] in compress(buf, len) }   // blocks on purpose
 let bytes = t.join()
 ```
@@ -11269,7 +11299,13 @@ declare `blocking`, because its signature is what a caller in another module
 reads, and so must an `@export` function, whose callers are C code. Inference
 covers the others:
 
-```saw-fragment
+```saw-error
+// error-rule: effect.blocking-undeclared
+// error-contains: is public and its body blocks the thread
+struct Config { version: Int }
+func parse(raw: Int) -> Config { Config(version: raw) }
+func read_settled(path: String) blocking -> Int { 1 }
+
 public func load_config(path: String) -> Config { parse(read_settled(path)) }
 // error: `load_config` is public and its body blocks the thread
 //        (`load_config` → `read_settled` (blocking)), so its signature must
@@ -11467,7 +11503,10 @@ public struct Fleet { pool: Pool }
 //        harbor.Pool` reaches `Pool`'s `blocking` `deinit`), so its
 //        declaration must say so: declare `func deinit(&var self) blocking {}`
 //        in its copy-policy extension
+// error: `Fleet` holds `Fleet.pool` of type `harbor.Pool`, which is NoCopy, so
+//        it declares its own policy: `extension Fleet: NoCopy {}` ...
 
+// The extension below answers both errors.
 extension Fleet: NoCopy {
     func deinit(&var self) blocking {}
 }
@@ -11488,7 +11527,13 @@ included, so it may not block. One that calls a `blocking` function, or a
 pair whose default suspends, such as `Thread.join()`, is refused at the
 declaration:
 
-```saw-fragment
+```saw-error
+// error-rule: effect.sync
+// error-contains: which runs where nothing may suspend, and it calls
+import std.thread.{Thread}
+
+struct Pool { workers: Vector<Thread<Void>> }
+
 extension Pool: NoCopy {
     func deinit(&var self) {
         while self.workers.len() > 0 {
@@ -11516,7 +11561,8 @@ import std.net.{TcpStream}
 import std.task.*                // design 114: `yield_now` lives in std.task
 
 func worker(base: Int) -> Int {
-    print(base)
+    print(base)                  // prints: 10
+                                 // prints: 20
     yield_now()                  // cooperatively hand control back to the group
     return base + 1
 }
@@ -11526,8 +11572,9 @@ func main() {
     let a = group.spawn(worker(10))   // -> Task<Int> (a Void spawn gives
                                       //    a Task<Void>, design 102)
     let b = group.spawn(worker(20))
-    print(a.join())                   // drive the group; take a's result: 11
-    print(b.join())                   // 21
+    // drive the group; take a's result
+    print(a.join())                   // prints: 11
+    print(b.join())                   // prints: 21
 }                                     // group Deinit drains any unjoined child
 
 // A task's owned values die WITH THE TASK (design 124), not with the group, so a
@@ -11637,7 +11684,7 @@ func square(n: Int) -> Int {
 
 func main() {
     let squared = Task.spawn(square(6))
-    print(squared.join())        // 36
+    print(squared.join())        // prints: 36
 }
 ```
 
@@ -11667,7 +11714,11 @@ there is nobody left to ask it to stop; join after, because a cancelled task
 reaches its own completion through ordinary control flow, and that is where the
 values it owns are released:
 
-```saw-fragment
+```saw
+import std.task.*
+
+func open(id: Int) -> Int { id }
+
 func serve(id: Int) {
     let conn = open(id)
     while true {
@@ -11681,7 +11732,7 @@ func main() {
     worker.detach()
     print("main is finished")
 }
-// main is finished
+// prints: main is finished
 // (then: the task is cancelled, runs its cancel path, and `conn` closes)
 ```
 
@@ -11731,7 +11782,7 @@ consumer — and that exemption is what makes the accept-loop idiom work. One
 that escapes the check and reaches its destructor unconsumed panics:
 
 ```
-panic at taskgroup.saw:1827: Task was dropped without being joined, detached or
+panic at taskgroup.saw:LINE: Task was dropped without being joined, detached or
 cancelled — `join()` waits for it and takes its result, `detach()` hands it to
 the process, `cancel()` asks it to stop
 ```
@@ -11774,21 +11825,31 @@ There are two spellings and one rule. A borrow **capture** reaches the spawner
 through a closure the task runs; a `&`/`&var` **argument** of the spawned call
 reaches it directly:
 
-```saw-fragment
+```saw-body
+func run(body: () -> Int) -> Int { body() }
+func bump(n: &var Int) -> Int { n + 1 }
+
+var n = 7
+var group = TaskGroup()
 let h = group.spawn(run({ [&var n] in n = n + 1; n }))   // capture
+print(h.join())                                          // prints: 8
 let g = group.spawn(bump(&var n))                        // argument
+print(g.join())                                          // prints: 9
 ```
 
 Both are sound when the borrowed binding is declared **before** its group.
 Destruction is LIFO and the group's `Deinit` joins at scope exit, so everything
 declared ahead of the group is still alive when the join runs:
 
-```saw-fragment
+```saw-body
+func run(body: () -> Int) -> Int { body() }
+
 var n = 7
 var group = TaskGroup()
 let h = group.spawn(run({ [&var n] in n = n + 1; n }))
-print(h.join())        // 8
-print(n)               // 8 — the task's write is visible at the root
+print(h.join())        // prints: 8
+// the task's write is visible at the root
+print(n)               // prints: 8
 ```
 
 Declared **after** the group, that argument inverts: LIFO tears the binding down
@@ -11823,10 +11884,19 @@ function types](#sendable-function-types)), which asks the same of each
 borrow: `[&var n]` needs `n` to be `Send`, and `[&base]` needs `base` to be
 `Sync`.
 
-```saw-fragment
+```saw-error
+// error-rule: coro.spawn-not-send
+// error-contains: parameter `pool` of type `&std.taskgroup.TaskGroup`
+func run(body: () -> Int) -> Int { body() }
+func bump(n: &var Int) -> Int { n + 1 }
+func waiter(pool: &TaskGroup) -> Int { 1 }
+var n = 7
+var m = 8
+var pool = TaskGroup()
+
 var group = try! TaskGroup(threads: 2)
 let h = group.spawn(bump(&var n))                        // crosses: `Int` is `Send`
-let c = group.spawn(run({ [&var n] in n = n + 1; n }))   // crosses
+let c = group.spawn(run({ [&var m] in m = m + 1; m }))   // crosses
 let p = group.spawn(waiter(&pool))
 // error: cannot spawn `waiter`: parameter `pool` of type
 //        `&std.taskgroup.TaskGroup` is not `Send` …
@@ -11875,7 +11945,9 @@ two `&x` borrows may be live at once, and the caller may read `x` beside them.
 The argument spelling reads the same, and the spawn-join-use order is what a
 worker filling a caller's buffer looks like:
 
-```saw-fragment
+```saw-body
+import std.task.*
+
 func fill(v: &var Vector<Int>, n: Int) -> Int {
     var i = 0
     while i < n {
@@ -11889,8 +11961,9 @@ func fill(v: &var Vector<Int>, n: Int) -> Int {
 var buf: Vector<Int> = []
 var group = TaskGroup()
 let h = group.spawn(fill(&var buf, 3))
-print(h.join())        // 3
-print(buf.len())       // 3 — the task wrote through to the root
+print(h.join())        // prints: 3
+// the task wrote through to the root
+print(buf.len())       // prints: 3
 ```
 
 The frame holds a pointer into the caller's storage and owns nothing through it,
@@ -11904,7 +11977,12 @@ one. Before the extent existed, `consume(move buf)` between a spawn and its
 join dropped the buffer and the join then drove a task that read the freed
 slot — silently, exit 0.
 
-```saw-fragment
+```saw-error
+// error-rule: loan.move-while-borrowed
+// error-contains: cannot `move` `buf` while a spawned task borrows it
+func run(body: () -> Int) -> Int { body() }
+func consume(v: Vector<Int>) -> Int { v.len() }
+
 var buf: Vector<Int> = [1, 2, 3]
 var group = TaskGroup()
 let h = group.spawn(run({ [&var buf] in try! buf.push(9); buf.len() }))
@@ -11938,7 +12016,11 @@ has. While a handle is live, further `group.spawn`s and `count()` read the
 group beside it, and `&var group`, an assignment to the group or the group's
 drop are refused. A handle therefore cannot outlive its group:
 
-```saw-fragment
+```saw-error
+// error-rule: loan.handle-escape
+// error-contains: the task handle this `group.spawn` makes leaves the function
+func work(n: Int) -> Int { n }
+
 func leak() -> Task<Int> {
     var group = TaskGroup()
     group.spawn(work(5))
@@ -11958,7 +12040,12 @@ the function, a handle stored where it outlives the group (an `Optional`, a
 struct or a `Vector` declared before the group and used after the group's
 scope ends) is refused at the group's closing brace:
 
-```saw-fragment
+```saw-error
+// error-rule: loan.handle-outlives-group
+// error-contains: ends here while the task handle
+func work(n: Int) -> Int { n }
+func ready() -> Bool { true }
+
 var kept: Task<Int>? = None
 if ready() {
     var group = TaskGroup()
@@ -12002,6 +12089,7 @@ func handle(s: TcpStream) -> Int { read_header(move s).len() }
 ```
 saw tasks: 2 live (unsynchronized snapshot)
   task group 1 slot 0 gen 1 io-parked
+    at net.saw:LINE in park
     at net.saw:412 in TcpStream.read
     at server.saw:18 in read_header
     at server.saw:24 in handle
@@ -12102,10 +12190,11 @@ the task internally, so the caller writes an ordinary method call with no `io_wa
 in sight. Errors are `IoError`: the failing operation's name, the host or
 other subject it was given, a portable `IoErrorKind`, and the platform's own
 code for the refusal. It conforms to `Error`, so `"{e}"` renders it as
-`io error: connect "10.0.0.7" failed (host unreachable)`: the KIND only, which
-is what makes the text read the same on every host. `e.subject()` reads the
-subject back, and an operation given none (a read of a connected stream)
-renders without it.
+`io error: connect "10.0.0.7" failed (host unreachable)`. It renders the KIND,
+not the platform's code, so the text reads the same on every host; only a
+failure no kind names adds its number (`other error, errno N`).
+`e.subject()` reads the subject back, and an operation given none (a read of
+a connected stream) renders without it.
 
 The two halves answer different questions and design 234 §2 keeps them apart.
 `e.kind()` is the branchable half: a curated portable set (`NotFound`,
@@ -12124,7 +12213,9 @@ User code builds an `IoError` with `IoError.of(syscall:kind:)`, or
 `IoError.of(syscall:subject:kind:)` to name what the operation was given, for
 a test double or a failure of its own. The result's `code()` is `0`.
 
-```saw-fragment
+```saw-body
+import std.net.{IoError, IoErrorKind}
+
 let refused = IoError.of(syscall: "connect", kind: IoErrorKind.ConnectionRefused)
 // "{refused}" renders as: io error: connect failed (connection refused)
 let named = IoError.of(syscall: "connect", subject: "db.internal",
@@ -12132,7 +12223,7 @@ let named = IoError.of(syscall: "connect", subject: "db.internal",
 // "{named}" renders as: io error: connect "db.internal" failed (connection refused)
 ```
 
-```saw-fragment
+```saw
 import std.net.{TcpListener, TcpStream}
 
 // A cooperative echo, entirely over the safe owning API. Failable ops return
@@ -12383,7 +12474,11 @@ frame, or the heap. Both survive the park by construction — a suspending
 function's locals live in its frame, which is heap-resident across every
 suspension, and heap storage lives until it is freed.
 
-```saw-fragment
+```saw
+extern "C" {
+    blocking func read(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+}
+
 func reader(fd: Int32) unsafe -> Int {
     var buf: [Int8; 64] = [0; 64]          // frame-owned: survives the park
     read(fd, (&buf) as UnsafePointer<Int8>, 64)
