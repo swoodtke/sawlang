@@ -5471,7 +5471,10 @@ then finishes.
 
 So a `borrows` body has three parts, a prologue, the window and an epilogue:
 
-```saw-fragment
+```saw
+struct Entry { n: Int }
+struct Ledger { entries: [Entry; 4], touched: Int }
+
 extension Ledger {
     public func entry(&var self, i: Int) borrows -> &var Entry {
         if i < 0 || i >= self.entries.len() {     // prologue: runs at entry
@@ -5481,6 +5484,8 @@ extension Ledger {
         self.touched = self.touched + 1           // epilogue: runs at window close
     }
 }
+
+func main() {}
 ```
 
 `-> &var T` names the **place** the method lends, never a returned value, so
@@ -5499,7 +5504,10 @@ before the `lend`:
   `return` there, or one that returns any other value, is a compile error
   naming `return None`.
 
-```saw-fragment
+```saw
+struct Entry { n: Int }
+struct Ledger { entries: [Entry; 4], frozen: Bool, touched: Int }
+
 extension Ledger {
     public func entry(&var self, i: Int) borrows -> &var Entry {
         lend self.entries[i]
@@ -5509,13 +5517,15 @@ extension Ledger {
         self.touched = self.touched + 1           // runs only when not frozen
     }
 }
+
+func main() {}
 ```
 
 Every path must `lend` exactly once, or diverge (a `panic` before the
 `lend` is the bounds-check shape) — the coverage rule, checked the way return
 coverage is. A `lend` inside a loop is rejected: two windows would need their
-prologues and epilogues interleaved. Lend once, after the loop has chosen the
-place.
+prologues and epilogues interleaved (`sawc` refuses both shapes as not built
+yet, SL-1025). Lend once, after the loop has chosen the place.
 
 #### The lent place is rooted in the receiver
 
@@ -5811,16 +5821,16 @@ bump(&var g[4])         // exclusive, spanning the call
 `borrow` prefix (`borrow var v[i] += 1`, `bump(borrow var g[4])`), and every
 binding of one with `borrow` after its keyword (`if borrow let x = …`,
 `for borrow var x in …`, `case Some(borrow var x)`). v0.19.0 still accepts each
-of those spellings with the meaning it had; they are GRAMMAR.md's `deprecated`
-rows, and a later release refuses them. Under `-W borrow-prefix`, each prefix
-these rules make redundant draws the `borrows.redundant-prefix` warning with a
-fix-it naming the spelling that replaces it: the prefix dropped, or, at a
-by-reference argument, the argument's sigil. Warnings are off by default and
-never change the exit status. `sawc fix FILE...` applies those fix-its in
-place. It runs the same decision itself, so it does not depend on the warning
-being on, and `--check` reports without writing. It prints a `FIX` line per
-rewrite and a `KEEP` line, with the reason, per prefix whose meaning the
-unprefixed spelling lacks:
+of those spellings with the meaning it had (not built in `sawc` yet, SL-601);
+they are GRAMMAR.md's `deprecated` rows, and a later release refuses them.
+Under `-W borrow-prefix`, each prefix these rules make redundant draws the
+`borrows.redundant-prefix` warning with a fix-it naming the spelling that
+replaces it: the prefix dropped, or, at a by-reference argument, the
+argument's sigil. Warnings are off by default and never change the exit
+status. `sawc fix FILE...` applies those fix-its in place. It runs the same
+decision itself, so it does not depend on the warning being on, and `--check`
+reports without writing. It prints a `FIX` line per rewrite and a `KEEP` line,
+with the reason, per prefix whose meaning the unprefixed spelling lacks:
 
 - a prefix that copies a conditional lend out of an `if let`, `while let` or
   `guard let` head, where the unprefixed head binds the place or is refused;
@@ -5844,7 +5854,7 @@ there. The opt-out is declared on the accessor, as
 
 ```saw-fragment
 extension SpinLock<T> {
-    func lock(&self) sync borrows(sync) -> &var T { … }
+    func lock(&self) unsafe sync borrows(sync) -> &var T { … }
 }
 
 borrow var n = counter.lock() {
@@ -5908,7 +5918,8 @@ last parameter is the value (`syntax.rule.subscript-declaration`):
 
 - **The position picks the role.** A subscript read as a value is the getitem:
   a declared one is called as written, and a derived one is a shared lend plus
-  a copy. `m[k] = v` is the setitem. A write through the element
+  a copy (`sawc` does not render through a getitem yet, SL-1023). `m[k] = v`
+  is the setitem. A write through the element
   (`m[k] += 1`, `m[k].field = v`, `m[k].push(x)`, `bump(&var m[k])`) and a
   binding head (`borrow var e = m[k] { … }`, an `if let` or `for` head) lend
   the place, through the place accessor when one is declared; a compound
@@ -5919,12 +5930,14 @@ last parameter is the value (`syntax.rule.subscript-declaration`):
   element, and the place otherwise; a call head (`find`, `as_array`) is always
   the lend.** So `match v[i] { … }` over a Copy element matches a copy, and
   `v[i].n` over one reads the copied element's field, while a NoCopy element
-  is matched and read where it sits.
+  is matched and read where it sits (`sawc` binds the element's storage
+  instead, SL-1022).
 - A plain member and a `borrows` member of one name and parameters are
   separated the same way: a value read takes the plain one, and a write
   position or a binding head takes the `borrows` one. Where neither decides (a
   shared read with both declared), the plain one wins, since a copy is what a
-  value read means.
+  value read means (`sawc` does not separate them yet when their receivers
+  differ, SL-1023).
 - `counts[k] += 1` is a getitem and then a setitem, and panics if `k` is
   absent. The receiver and every key expression are evaluated exactly once,
   even though getitem and setitem are two calls, so `counts[next_key()] += 1`
@@ -5988,11 +6001,13 @@ compiler-known argument label with `??` semantics, not a lazy-parameter
 feature, so nothing is captured or allocated. The operations it uses are one
 declared trait:
 
-```saw-fragment
+```saw
 trait KeyedPlace<K, V> {
     func find(&var self, key: &K) borrows -> &var V?    // the existing entry, if any
     func insert_and_lend(&var self, key: K, value: V) borrows -> &var V   // store, then lend
 }
+
+func main() {}
 ```
 
 The receiver and the key are evaluated exactly once, first:
@@ -6033,7 +6048,7 @@ Its root charge is shared when the receiver is `&self`.
 extension Document {
     // A view into the parsed document. Callers reach the section where it
     // sits; nothing they can write reaches this storage.
-    public func section(&self, name: String) borrows -> &Section? {
+    public func find_section(&self, name: String) borrows -> &Section? {
         if let i = self._section_index(name) {
             lend self.sections[i]
         } else {
@@ -6042,15 +6057,17 @@ extension Document {
     }
 }
 
-print(doc.section("package")!.get("name") ?? "")   // shared lend
+print(doc.find_section("package")!.get("name") ?? "")   // shared lend
 ```
 
-```saw-fragment
+```saw-error
+// error-rule: mutability.immutable
+// error-contains: `doc.find_section(0)` lends a read-only place
 struct Section { name: String }
 struct Document { sections: [Section; 1] }
 
 extension Document {
-    public func section(&self, i: Int) borrows -> &Section? {
+    public func find_section(&self, i: Int) borrows -> &Section? {
         if i < 0 || i >= 1 { return None }
         lend self.sections[i]
     }
@@ -6058,9 +6075,10 @@ extension Document {
 
 func main() {
     var doc = Document(sections: [Section(name: "package")])
-    doc.section(0)!.name = "other"
-    // error: a write through `Document.section`, which lends the place
-    //        READ-ONLY
+    doc.find_section(0)!.name = "other"
+    // error: this assignment writes `doc.find_section(0)!.name`, and
+    //        `doc.find_section(0)` lends a read-only place (`-> &T`):
+    //        declare the accessor `-> &var T` to lend a writable one
 }
 ```
 
@@ -6145,7 +6163,9 @@ Nothing in the accessor's body enters into either fact. A `&var self` accessor
 borrows its receiver exclusively at every use, a read-only window included,
 whether or not its body writes `self`, so a `let` root is refused by name:
 
-```saw-fragment
+```saw-error
+// error-rule: mutability.immutable
+// error-contains: declares no shared twin
 struct Bag { cells: [Int; 4], visits: Int }
 
 extension Bag {
@@ -6178,7 +6198,9 @@ There is no separate rule for it: the receiver borrow's mode is what the
 [root charge](#exclusivity-invalidation-and-the-fences) compares, and a place
 borrow charges its root whichever sigil is written.
 
-```saw-fragment
+```saw-error
+// error-rule: loan.window-root
+// error-contains: while the window of `[]` opened at
 struct Bag { cells: [Int; 4], visits: Int }
 
 extension Bag {
@@ -6195,8 +6217,10 @@ func pair(a: &Int, b: &Int) -> Int { a + b }
 func main() {
     var b = Bag(cells: [10, 20, 30, 40], visits: 0)
     print(pair(&b[0], &b.tally(1)))
-    // error: a read-only RESULT is not a shared receiver BORROW: both
-    //        accessors take `&var self`, so these are two exclusive borrows of `b`
+    // A read-only RESULT is not a shared receiver BORROW: both accessors
+    // take `&var self`, so these are two exclusive borrows of `b`.
+    // error: `b` is borrowed exclusively here while the window of `[]` opened
+    //        at 16:16 holds `b` exclusively until the window closes
 }
 ```
 
@@ -6307,7 +6331,9 @@ by what it forwards; it still follows the outer's declaration.
 So a read-only forward through `Data` runs the shared `[]` and never separates
 bytes, even from an accessor that takes `&var self`:
 
-```saw-fragment
+```saw
+import std.data.*
+
 struct Frame { payload: Data, reads: Int }
 @synthesize extension Frame: Copy {}   // a field of a declared-Copy type (`Data`) is containment
 
@@ -6318,6 +6344,8 @@ extension Frame {
         self.reads = self.reads + 1
     }
 }
+
+func main() {}
 ```
 
 A `(&var self) borrows -> &var UInt8` forward of the same place runs the
@@ -6398,7 +6426,10 @@ writable. Each path through the body either `lend`s real storage (the present
 path) or plainly returns `None` (the absent path — no storage, an immediate
 value) or diverges:
 
-```saw-fragment
+```saw
+struct Cell { weight: Int }
+struct Grid { cells: [Cell; 9] }
+
 extension Grid {
     public func at(&self, i: Int) borrows -> &Cell? {
         if i < 0 || i >= 9 {
@@ -6407,6 +6438,8 @@ extension Grid {
         lend self.cells[i]
     }
 }
+
+func main() {}
 ```
 
 `lend` may not appear in a loop, so a body that has to *search* for the place
@@ -6516,10 +6549,11 @@ tier, move-only elements included, and they emit no copy and no drop. A `match`
 on a lent place matches it where it sits, and an arm that binds a name
 reborrows that payload's place, read-only for a plain name and writable for
 `var` (see [Conditional lends](#conditional-lends-borrows--t)). A `match` on a
-subscript of a Copy-tier element matches a copy, by the subscript's plain role.
+subscript of a Copy-tier element matches a copy, by the subscript's plain role
+(`sawc` binds the element's storage instead, SL-1022).
 
 ```saw-fragment
-if let s = doc.section("package") { ... }   // present: no read at all
+if let s = doc.find_section("package") { ... }   // present: no read at all
 borrow let s = slots[i] {                   // discriminant through the lend
     match s {
         case Empty -> 0,
@@ -6537,6 +6571,8 @@ the lend is unconditional, so the optional the use site sees is the element
 rather than the lend's own presence, and asking whether it holds anything is
 still a look at the tag. It desugars to `is_some()`, which is the same question
 written out.
+
+`std.compiler.frame` is not in `sawc`'s std yet (SL-704).
 
 ```saw-fragment
 struct Session { id: Int }
@@ -6583,8 +6619,13 @@ the payload in place (above): a plain name read-only, and `var` writable
 mutable binding of the payload. A place binding can also be **lent**, which is
 how a container whose storage is a slot enum publishes an accessor at all:
 
-```saw-fragment
+```saw
+struct Res { id: Int }
+extension Res: NoCopy {}
 enum Slot { case Empty, case Filled(key: Int, res: Res) }
+extension Slot: NoCopy {}
+struct Table { slots: Vector<Slot> }
+extension Table: NoCopy {}
 
 extension Table {
     public func at(&var self, i: Int) borrows -> &var Res? {
@@ -6599,6 +6640,8 @@ extension Table {
         }
     }
 }
+
+func main() {}
 ```
 
 The accessor names the slot with a `borrow` block, matches the bound place,
@@ -6651,9 +6694,9 @@ own root, name overlapping storage, and the diagnostic says so:
 
 ```saw-fragment
 setboth(&var p.at(0), &var p.at(1))
-// error: exclusive access violation: the place `p.at(…)` borrows `p` for the
-//        whole window, and `p` is accessed by reference a second time in the
-//        same call
+// Both windows hold `p` for the whole call.
+// error: `p` is borrowed exclusively here while the window of `[]` … holds
+//        `p` exclusively until the window closes
 ```
 
 The window is the whole call, so a reference created by a NESTED call in the
@@ -6693,9 +6736,9 @@ declaration's terms.**
 - A trait may require a `borrows` or `borrows(sync)` method
   (`syntax.rule.requirement-borrows`), as `KeyedPlace` does (see
   [Subscripts](#subscripts-getitem-setitem-and-the-place)). A call through a
-  bound or an `any Trait` follows the requirement's declaration, and a plain
-  `borrows` implementation satisfies a `borrows(sync)` requirement, never the
-  reverse.
+  bound or an `any Trait` follows the requirement's declaration (not built in
+  `sawc` yet, SL-1024), and a plain `borrows` implementation satisfies a
+  `borrows(sync)` requirement, never the reverse.
 
 #### Borrowing structs
 
@@ -6832,11 +6875,11 @@ for var c in grid.cells() { c.weight += 1 }
   collection is charged for the whole loop, exclusively for `for var`, so the
   body cannot push to the vector it is walking. The `LendingIterator` meaning
   is planned: `for var x in` parses today, and over an `Iterator` it is a
-  mutable binding of each owned item.
+  mutable binding of each owned item (not built in `sawc` yet, SL-601).
 - `for borrow let x in …` and `for borrow var x in …` are v0.18.0's spellings
   (`syntax.borrow.for`, deprecated), and `for borrow let i in 0..n` is
   refused, since a range has nothing to lend, with a hint naming
-  `for i in 0..n`.
+  `for i in 0..n` (not built in `sawc` yet, SL-601).
 
 **Owned fields and `deinit` are supported**, and two things happen at the
 window's close in this order: the borrowing struct is destroyed, and then the
