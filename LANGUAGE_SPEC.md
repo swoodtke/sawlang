@@ -8304,8 +8304,9 @@ let c = UInt8.from(truncating: big)     // 232 — the low 8 bits, on purpose
   identity, so there is no boolean parameter and no `truncate: false` corner.
 
 Both `from` forms are defined for **every** source/target pair, total ones
-included, so `Int.from(x: Int8)` type-checks and is always `Some`. A generic
-body can rely on the shape existing at whatever type it is instantiated at.
+included, so `Int.from(h)` with `h: Int8` type-checks and is always `Some`. A
+generic body can rely on the shape existing at whatever type it is
+instantiated at.
 
 Saturating conversion is not offered. Clamping is a value-domain policy, not a
 bit operation, and offering it as an escape from the checked cast would
@@ -8484,10 +8485,11 @@ func f(a: Int) -> Int {
 ```
 
 The merged type is the arm type every other arm widens into losslessly: the
-identity, same-sign widening, and unsigned into strictly wider signed, which is
-the total half of the conversion table above. Each arm extends into it by its
-own signedness, so an unsigned arm zero-extends and keeps its value. Arms with
-no such common type are refused where they are written:
+identity, and, into or out of `Int` or `UInt`, same-sign widening and unsigned
+into strictly wider signed, which is the total half of the conversion table
+above. Each arm extends into it by its own signedness, so an unsigned arm
+zero-extends and keeps its value. Arms with no such common type are refused
+where they are written:
 
 ```saw-error
 // error-rule: type.mismatch
@@ -8530,8 +8532,9 @@ Per arm, and only one arm runs, so `if flag { move a } else { move a }` is
 legal and `if flag { move a } else { Res(w: 1) }` is too. The constructs the
 rule covers are the ones whose value is a block tail they hand on: a value
 `if`, an `if let`, a `match`, an inline `catch`, a `try { } catch { }` block,
-and `break <value>`, whose merged home is the loop's. Reading a `Copy` value in
-an arm retains it, the same as reading one anywhere else.
+and `break <value>`, whose merged home is the loop's (not built in `sawc` yet,
+SL-674). Reading a `Copy` value in an arm retains it, the same as reading one
+anywhere else.
 
 #### A closure body's tail is a transfer
 
@@ -8608,7 +8611,10 @@ would give one value two owners. The refusal is the one the unwrapped spelling
 has always given — which is the point of the rule: `-> Res` and `-> Res?`
 differ by a `?`, and they do not differ about whether a move is written.
 
-```saw-fragment
+```saw
+struct Res { w: Int }
+extension Res: NoCopy {}
+
 func plain(r: Res) -> Res  { move r }
 func opt(r: Res)   -> Res? { move r }     // the same word, one `?` later
 ```
@@ -8756,8 +8762,10 @@ knows which side is the source, and general assignability does not.
   under a 32-bit target. Use a wider fixed-width field type for such constants.
 - **All six fold in a constant.** `1 << BIT`, `MASK & ~ALIGN`, `A | B` are
   compile-time constants wherever their operands are, so a bit position or a
-  mask is an array length, a repeat count, a const generic argument or a
-  `static_assert` operand. See "Compile-Time Evaluation" for the grammar and for
+  mask is an array length, a repeat count or a `static_assert` operand, and a
+  const generic argument through a named constant, since a generic list takes
+  no bitwise operator (the six don't fold in an array length or a repeat count
+  in `sawc` yet, SL-457). See "Compile-Time Evaluation" for the grammar and for
   the width the folding uses.
 
 #### Flag enums
@@ -8814,15 +8822,16 @@ writes. See "Compile-Time Evaluation".
 Outside a constant, a bit operator applied to an enum-typed **value** is a
 compile error. The projection is explicit:
 
-```saw-fragment
+```saw-error
+// error-rule: operator.undefined
+// error-contains: a bit operator takes integers
+enum Perm: UInt8 { case Read = 0x01, case Write = 0x02, case Exec = 0x04 }
 let held = Perm.Write
 let flags = (held as UInt8) | (Perm.Exec as UInt8)   // UInt8, 6
 
 let bad = held | Perm.Exec
-// error: operator `|` requires integer operands, got `Perm` and `Perm`
-//   hint: an enum is a closed set of tags, not a bit set: write
-//         `(a as UInt8) | (b as UInt8)`. The result is the backing integer,
-//         because a combined value need not be a declared case
+// error: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`,
+//        and this is `Perm`
 ```
 
 `e as Backing` is the same total projection design 145 defines, and requiring it
@@ -8852,7 +8861,7 @@ is what keeps "a raw-backed enum value is always a declared case" true.
 
   func main() {
       try! reserve()
-      // panic at reserve.saw:6: try! failed: allocation of 64 bytes (align 8) failed
+      // panics: try! failed: allocation of 64 bytes (align 8) failed
   }
   ```
 
@@ -8867,7 +8876,8 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   that folds out of range is a compile error instead, and a total pair is never
   checked. See "Integer Conversions".
 - **Fixed-array indexing with an out-of-bounds compile-time constant** is a
-  **compile error** ("index out of range"), mirroring the tuple-index check.
+  **compile error** ("index out of range"), mirroring the tuple-index check
+  (`sawc` still panics at run time instead, SL-1030).
 - **Fixed-array indexing with a *dynamic* index** is **bounds-checked at
   runtime** (design 63): `0 <= i < N` (folded to one unsigned compare, so a
   negative index is caught too); an out-of-range index panics
@@ -8900,7 +8910,9 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   A declared conformance that neither carries `@synthesize` nor writes `equals`
   is a compile error; see [Synthesized conformances](#synthesized-conformances).
 
-  ```saw-fragment
+  ```saw
+  struct Named { name: String }
+
   @synthesize
   extension Named: Equatable {}
   ```
@@ -8969,8 +8981,9 @@ trait Comparable {          // requires Equatable
   is `false` (matching the primitive `fcmp`); in a three-way `compare`, an
   unordered pair yields `Equal` (there is no total order over NaN — documented).
 - **An integer orders at its OWN signedness** (design 252). `UInt.max > 1` is
-  true, `UInt.max.compare(&1)` is `Greater`, and the two agree wherever an
-  unsigned integer is compared — an operator, a `T: Comparable` bound, a sort, a
+  true, `UInt.max.compare(&1)` is `Greater` (`sawc` still refuses the bare
+  literal under `&`, SL-1031), and the two agree wherever an unsigned integer
+  is compared — an operator, a `T: Comparable` bound, a sort, a
   struct field or enum payload reached by a derived memberwise compare. A
   **distinct alias** over an unsigned underlying orders as that underlying
   (`Byte(255) > Byte(127)`): an alias has no operator surface of its own, and
@@ -9021,15 +9034,16 @@ Two rules follow from the signature.
 may take ownership of an operand every caller only lends, so it is refused at
 the declaration:
 
-```saw-fragment
+```saw-error
+// error-rule: conformance.signature
+// error-contains: a parameter's type differs
+struct Tag { id: Int }
+extension Tag: NoCopy {}
 extension Tag: Equatable {
     func equals(&self, other: Tag) -> Bool { self.id == other.id }
 }
-// error: parameter `other` of `equals` must be a reference: trait `Equatable`
-//   declares it `&Self`, and this implementation takes it by value (`Tag`)
-// hint: write `func equals(&self, other: &Self)` — on `Tag` that is `&Tag`. A
-//   by-value parameter says the body may consume what it is given, and every
-//   caller of the requirement hands it a borrow
+// error: `Tag.equals` does not meet `Equatable.equals`, as `Tag` conforms to
+//        `Equatable` needs: a parameter's type differs
 ```
 
 The rule is general — a conformance's parameters mirror the requirement's
@@ -9044,8 +9058,12 @@ position from which a conformance could release a value the caller still owns.
 (`a == b`, `a < b`); the direct call writes the `&` every reference argument in
 Saw writes, at a concrete receiver and through a generic bound alike:
 
-```saw-fragment
+```saw-body
+struct Tag { id: Int }
+let a = Tag(id: 9)
+let b = Tag(id: 3)
 if not a.equals(&b) { print("tags differ") }
+// prints: tags differ
 
 func differ<T: Equatable>(a: &T, b: &T) -> Bool { a.equals(&b) }
 ```
@@ -9163,7 +9181,9 @@ trait Deserialize {
   conform to `Serialize` ``. A derived `deserialize` owns each field from the
   moment it is read, so when a later field fails, the ones read before it are
   dropped. **Status: implemented** (SL-833).
-  ```saw-fragment
+  ```saw
+  struct Endpoint { host: String, port: Int }
+
   @synthesize
   extension Endpoint: Serialize {}
   @synthesize
@@ -9301,7 +9321,11 @@ methods carry **no copy bound**. Each lends the element to the closure as a
 `&T`, so the vector still owns it afterwards and a move-only element type
 traverses like any other:
 
-```saw-fragment
+```saw-body
+struct Job { name: String }
+extension Job: NoCopy {}
+extension Job { func label(&self) -> String { self.name } }
+
 var jobs = Vector<Job>()        // Job is NoCopy
 try! jobs.push(Job(name: "alpha"))
 
@@ -9310,11 +9334,9 @@ let labels = try! jobs.map<String>({ j in j.label() })  // map allocates, so it 
 let total  = jobs.fold<Int>(0) { acc, j in acc + j.name.len() }
 ```
 
-`map`'s closure is written inside the parentheses rather than trailing it,
-because a trailing closure is not recognized inside a `try` operand today —
-`try! jobs.map { … }` reads the `{` as a separate closure and the call as a
-field access (DF-259c). `each` and `fold` are unaffected: neither allocates,
-so neither needs the `try!`.
+`map` allocates, so it reports and takes a `try!`; its closure may trail, as in
+`try! jobs.map { … }`, or sit inside the parentheses. `each` and `fold` need no
+`try!`, since neither allocates.
 
 Reading a `&T` binding yields the value, so `{ $0 * 2 }` and `{ $0.to_string() }`
 are written exactly as before. What the reference spelling changes is
@@ -9326,12 +9348,10 @@ drivable. A closure is reached through a function value, so its body is not a
 coroutine frame and a suspension written there has nowhere to park; the compiler
 refuses one at the closure:
 
-```
-error: coroutine transform: the suspending call `slow_double(...)` appears
-inside a CLOSURE BODY in driven `traverse`, and a closure body is not driven —
-its suspension has no frame to park in. Call it outside the closure and pass the
-result in, or move the whole closure body into a named function the driven body
-calls.
+```text
+error: effect.closure-suspends: a closure body cannot suspend, and this calls
+`slow_double`, which may suspend (`slow_double` → `sleep` (parks the task)):
+call it outside the closure
 ```
 
 The refusal does not depend on where the closure is written: a closure in an
@@ -9582,7 +9602,7 @@ never panics, including on an 800-digit significand or `1e999999999`.
 
 ```saw-body
 let text = (0.1 + 0.2).to_string()   // "0.30000000000000004"
-print(text.to_float()! == 0.1 + 0.2) // true
+print(text.to_float()! == 0.1 + 0.2) // prints: true
 ```
 
 Both directions work in the **freestanding** profile: the algorithms are
