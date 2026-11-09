@@ -1525,7 +1525,7 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   NUL byte, which would end the C string early. Every string's bytes are
   already NUL-terminated, so nothing is copied: the pointer is the string's
   own, valid for the window. It is a conditional lend (see
-  [Conditional lends](#conditional-lends-borrows--t)), so the window holds the
+  [Conditional lends](#conditional-lends-borrows---t)), so the window holds the
   string, and moving or replacing it inside the window is refused. As an
   argument, `strlen(s.c_string()!)` passes the pointer for the call and
   panics on an interior NUL; `if let p = s.c_string() { … } else { … }`
@@ -5463,7 +5463,7 @@ place. There are four spellings:
 | `borrows -> &var T?` | the conditional lend of a writable one |
 
 `?` rides the lent type and is the LEND's own presence, not the element's (see
-[Conditional lends](#conditional-lends-borrows--t)).
+[Conditional lends](#conditional-lends-borrows---t)).
 
 Three rules bound the spelling.
 
@@ -5543,9 +5543,9 @@ before the `lend`:
 - **Before the `lend`**, a path that returns has lent nothing. In a plain
   accessor that is the coverage error below. A conditional accessor's absent
   path is the one valued `return` a `borrows` body has, and it is spelled
-  `return None` (see [Conditional lends](#conditional-lends-borrows--t)). A bare
-  `return` there, or one that returns any other value, is a compile error
-  naming `return None`.
+  `return None` (see
+  [Conditional lends](#conditional-lends-borrows---t)). A bare `return` there,
+  or one that returns any other value, is a compile error naming `return None`.
 
 ```saw
 struct Entry { n: Int }
@@ -5806,7 +5806,7 @@ borrow var n = counter.lock() { n += 1 }
 - There is no `else` clause. The binding carries whatever the accessor lends,
   so a conditional lend binds an optional place, which the body unwraps with
   `e!` or `e?.f`; `if let`, which binds `&T` directly, is the usual spelling
-  for one (see [Conditional lends](#conditional-lends-borrows--t)).
+  for one (see [Conditional lends](#conditional-lends-borrows---t)).
 - The block is an expression, and its value is its tail, as with `if` and
   `match`. The value must be owned or copied out. It never carries the borrow
   itself: no reference, slice or borrowing struct into the place leaves the
@@ -6611,7 +6611,7 @@ they look at the discriminant through the lend. So they are legal for every
 tier, move-only elements included, and they emit no copy and no drop. A `match`
 on a lent place matches it where it sits, and an arm that binds a name
 reborrows that payload's place, read-only for a plain name and writable for
-`var` (see [Conditional lends](#conditional-lends-borrows--t)).
+`var` (see [Conditional lends](#conditional-lends-borrows---t)).
 
 ```saw-fragment
 if let s = doc.find_section("package") { ... }   // present: no read at all
@@ -6986,7 +6986,7 @@ Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)`
 is the optional copy of `v[i]`: it returns the element's value, so it needs a
 copyable element and a write through it would change only the copy.
 `Vector.find(i)` is the conditional lend (see
-[Conditional lends](#conditional-lends-borrows--t)):
+[Conditional lends](#conditional-lends-borrows---t)):
 
 ```saw-fragment
 if let e = v.get(i) { ... }               // an optional copy, so the copy tier decides
@@ -7149,7 +7149,7 @@ borrow of the mutex for the whole critical section, and a move needs exclusive
 access, so a move cannot be spelled while any thread is inside the lock. Moving
 an IDLE mutex relocates two words and a payload, and nothing was pointing at
 either — which is why `Mutex` is ordinary `NoCopy` and deliberately not
-[`NoMove`](#nomove).
+[`NoMove`](#the-nomove-trait-pinned-types).
 
 `lock` blocks the calling THREAD on a contended lock. Prefer a `Channel` where
 a task would otherwise wait. The window cannot span a suspension, because
@@ -8659,8 +8659,9 @@ extension Res {
 The way out is not a `move`: a borrowed receiver has nothing to move, because
 the value is not this frame's. An author who means to DUPLICATE gives the type a
 duplicable policy and spells `self.copy()`; one who means to CONSUME declares the
-method [`consumes`](#consuming-receivers), and the caller writes the `move`.
-Reading a `Copy` receiver retains it, once, exactly as before.
+method [`consumes`](#consuming-method-receivers-consumes), and the caller
+writes the `move`. Reading a `Copy` receiver retains it, once, exactly as
+before.
 
 #### A `try` forwards its subject's storage
 
@@ -12565,7 +12566,11 @@ type that does not derive the parent is refused there, naming the field or
 payload that blocks it. In a generic body the bound carries the parent, so
 `T: Shippable` meets a `T: Send` bound.
 
-```saw-fragment
+```saw-error
+// error-rule: conformance.derived-parent
+// error-contains: which requires `Send`, and `Buf` is not `Send`
+func deliver<U: Send>(item: &U) {}
+
 trait Shippable: Send {
     func label(&self) -> String
 }
@@ -12647,8 +12652,9 @@ value. A `sendable` value converts to the same type without the word, and
 never back; generic arguments do not convert (`Vector<() sendable -> Int>`
 is not a `Vector<() -> Int>`).
 
-```saw-fragment
+```saw-body
 struct Job { run: () sync sendable -> Int }
+func take_plain(f: () -> Int) {}
 
 let n = 4
 let inferred = { [n] in n + 1 }       // `() sendable -> Int`: `Int` is both
@@ -12659,7 +12665,11 @@ take_plain(inferred)                   // `() -> Int` takes a `sendable` value
 A closure taken at a written `sendable` type is refused when a capture does
 not prove it, naming the capture:
 
-```saw-fragment
+```saw-error
+// error-rule: capture.sendable
+// error-contains: says `sendable`, but it captures `h` of type
+struct Handle { raw: UnsafePointer<Int> }
+
 func keep(h: Handle) unsafe -> () sendable -> Int {
     { [h] in 1 }
 }
@@ -12673,12 +12683,19 @@ A closure whose type is inferred is never refused for its captures; it is
 told at the use that needs the trait, a `T: Send` bound, a `Channel` element,
 a `Thread.spawn` capture or a spawned frame:
 
-```saw-fragment
-needs_send({ [h] in 4 })
-// error: `() -> Int` does not satisfy `Send`, the bound on `T` of
-//        `needs_send`; the function type `() -> Int` is not `sendable` …;
-//        the closure passed here is not `sendable`, since it captures `h` of
-//        type `Handle`, which is not `Send` …
+```saw-error
+// error-rule: type.bound
+// error-contains: the closure passed here is not `sendable`, since it captures
+struct Handle { raw: UnsafePointer<Int> }
+func needs_send<T: Send>(f: T) {}
+
+func g(h: Handle) {
+    needs_send({ [h] in 4 })
+    // error: `() -> Int` does not satisfy `Send`, the bound on `T` of
+    //        `needs_send`; the function type `() -> Int` is not `sendable` …;
+    //        the closure passed here is not `sendable`, since it captures `h`
+    //        of type `Handle`, which is not `Send` …
+}
 ```
 
 Peers whose type is inferred together, an array literal's elements and a
@@ -12692,12 +12709,16 @@ A root parameter written `f: () -> Int` holds exactly the closure its spawn
 site passes, so the frame crosses to a `TaskGroup(threads: N)` worker when
 that closure proves `sendable`:
 
-```saw-fragment
+```saw-body
+func run(f: () -> Int) -> Int { f() }
+
 var n = 7
 let base = 12
 var group = try! TaskGroup(threads: 2)
 let h = group.spawn(run({ [&var n] in n = n + 1; n }))   // crosses: `Int` is `Send`
 let d = group.spawn(run({ [&base] in base * 2 }))         // crosses: `Int` is `Sync`
+print("{} {}", h.join(), d.join())
+// prints: 8 24
 ```
 
 #### `UnsafeSync` / `UnsafeSend`
@@ -12745,15 +12766,16 @@ and `trait Shipped: UnsafeSend` as a trait's parent. A trait parent would let
 every conformance to `Shipped` grant `Send` without the header check above,
 so the assertion is never inherited through a user trait. These are two
 builtin traits, not a user-definable unsafe-trait feature. The
-[orphan rule](#conformance-coherence-the-orphan-rule) applies unchanged, and
-the assertion is declared beside the type, in its defining file: test code
-cannot assert it for a production type (see [Policy conformances: declared
-beside the type](#policy-conformances-declared-beside-the-type)).
+[orphan rule](#conformance-coherence-the-orphan-rule-design-142)
+applies unchanged, and the assertion is declared beside the type, in its
+defining file: test code cannot assert it for a production type (see
+[Policy conformances: declared beside the
+type](#policy-conformances-declared-beside-the-type)).
 
 ### A raw buffer shared across threads
 
-**Status: implemented; the `Mutex.lock()` accessor Level 1's example locks
-through is planned (see [Synchronized Access](#synchronized-access)).** A type
+**Status: implemented, including the `Mutex.lock()` accessor Level 1's example
+locks through (see [Synchronized Access](#synchronized-access)).** A type
 that owns raw memory — a pointer into the heap,
 a mapped region, an inline byte array it hands addresses out of — becomes
 shareable in one of two ways, and which one you want depends on where the
@@ -12946,15 +12968,14 @@ is also what blocks `Sync`, which is why the assertion is legal here at all.
 Without it the `static` is refused, and the diagnostic names the field that
 blocked the derivation and the line to add:
 
-```
-error: static `SCRATCH` has non-Sync type `BumpArena`; statics must be Sync
-       (shared across all tasks)
-  hint: ... `BumpArena` carries an interior cell (design 186), so it derives no
-        `Sync`: field `region` of type `UnsafeMutableInterior<[UInt8; 4096]>` is
-        mutable through a shared borrow, which the derivation cannot reason
-        about. If the synchronization is real but invisible to the compiler, say
-        so — `extension BumpArena: UnsafeSync {}`, beside the type, where it can
-        be audited.
+```text
+error: the static `SCRATCH` has type `BumpArena`, which is not `Sync`, and a
+       static is reachable from every thread: `BumpArena` holds an interior
+       cell in `BumpArena.region` (`UnsafeMutableInterior<[UInt8; 4096]>`), so
+       it derives no `Sync`; when its synchronization is real, declare
+       `extension BumpArena: UnsafeSync {}` beside the type; or give the
+       static a `Sync` type, such as `Atomic<Int>` or a `SpinLock`, or declare
+       it an `unsafe static var` and own the argument that serializes it
 ```
 
 #### The two rules, and the fallback
@@ -13063,7 +13084,9 @@ which is why the program adds them.
 **Status: implemented (design 41).** A `static` is a module-level
 constant-initialized global:
 
-```saw-fragment
+```saw
+struct Point { x: Int, y: Int }
+
 static MAX_TASKS: Int = 256           // POD scalar → rodata
 static PRIMES: [Int; 3] = [2, 3, 5]   // constant fixed-array literal
 static ORIGIN: Point = Point(x: 0, y: 0)  // POD struct literal
@@ -13072,7 +13095,7 @@ static ARENA: [UInt8; 65536] = [0; 65536]  // all-zero initializer → .bss too
 public static VERSION: Int = 7        // exported; read as `mod.VERSION`
 ```
 
-Statics obey four rules, ratified in design 19:
+Statics obey five rules, ratified in design 19:
 
 - **Const-initialized only.** A static is image bytes, so its initial value
   is fixed at compile time. There are exactly THREE tiers, and the third one
@@ -13145,7 +13168,7 @@ Statics obey four rules, ratified in design 19:
      one, and the alias carries the same bytes — which is what lets a table be
      seeded from a named value instead of a repeated literal:
 
-     ```saw-fragment
+     ```saw
      struct Slot { generation: Int, owner: Int }
      struct Region { head: Slot, count: Int }
 
@@ -13359,7 +13382,8 @@ func ptr(&self) unsafe -> UnsafePointer<T>   // the only accessor
 
 The signature is the whole safety story. Every function touching a cell is
 dragged into the declared-`unsafe` domain by the ordinary
-[trigger rule](#the-unsafe-surface), with no new effect rules; a safe public
+[trigger rule](#unsafe-code--unsafe-types-and-the-functions-that-touch-them),
+with no new effect rules; a safe public
 wrapper method takes on the all-safe-parameters obligation exactly where
 `SpinLock.lock` already does. The cell is layout-transparent — it occupies
 exactly its `T` — so a cell field costs no wrapper, and construction is
@@ -13489,8 +13513,9 @@ NoCopy member gets ([The Copy trait family](#the-copy-trait-family)):
 
 ```saw
 struct Stats { hits: Atomic<Int> }
-// error: struct `Stats` contains NoCopy field `hits` of type `Atomic<Int>`
-//        but does not implement NoCopy
+// error: `Stats` holds `Stats.hits` of type `Atomic<Int>`, which is NoCopy,
+//        so it declares its own policy: `extension Stats: NoCopy {}`, or
+//        `@synthesize` an ExplicitCopy
 
 extension Stats: NoCopy {}       // the fix the diagnostic names
 ```
@@ -13527,16 +13552,17 @@ let seen = borrow let c = STATS.lock() { c.hits }   // the block's value comes b
 let quick = if let c = STATS.try_lock() { c.hits } else { 0 }   // never spins; absent: another owner holds it
 ```
 
-- `lock()`, declared `func lock(&self) sync borrows(sync) -> &var T`, spins
-  until the lock is free and lends the payload for the lend's window. The
+- `lock()`, declared `func lock(&self) unsafe sync borrows(sync) -> &var T`,
+  spins until the lock is free and lends the payload for the lend's window. The
   lock is released when the window closes, on every way out. It is a
   [cell-carrying](#interior-mutability) `&self` accessor, so it works on a
   `static`, a `let` or a `&SpinLock` parameter, while no other use of the lock
   is allowed inside the window.
-- `try_lock()`, declared `func try_lock(&self) sync borrows(sync) -> &var T?`,
-  decides with one compare-and-swap. It is a conditional lend: absent when
+- `try_lock()`, declared
+  `func try_lock(&self) unsafe sync borrows(sync) -> &var T?`, decides with one
+  compare-and-swap. It is a conditional lend: absent when
   another owner held the lock at that instant, and the body unwraps it (see
-  [Conditional lends](#conditional-lends-borrows--t)). `try_` means
+  [Conditional lends](#conditional-lends-borrows---t)). `try_` means
   non-blocking.
 - `is_locked() -> Bool` is a debugging aid; the answer can be stale
   before it is read, so branch with `try_lock`, not with this.
@@ -13565,7 +13591,7 @@ re-entrant lock would hand out two live `&var T` to one payload.
   own, before it would spin. `try_lock` answers `None` only when another owner
   holds the lock. A hosted owner is the calling thread.
 - The owner comes from a runtime seam, `__saw_rt_lock_owner()`, that answers
-  who is asking; its signature is in `rt/ABI.md`, so a `--runtime-provider`
+  who is asking; its signature is in `runtime/ABI.md`, so a `--runtime-provider`
   implements a checked signature. A hosted runtime answers with the calling
   thread. A freestanding runtime has no thread id to give, and for a kernel the
   owner is the CPU or hart plus the interrupt context, because the re-entry
@@ -13596,7 +13622,8 @@ Hold it briefly. A waiter burns its core until the lock is free.
 `std.net`; the freestanding profile rejects the import.
 
 A signal is something a task waits for, not something that interrupts one.
-`SignalWatch.watch(which)` returns a handle whose `next()` suspends until the
+`SignalWatch.watch(which)` returns a `Result<SignalWatch, IoError>`, and the
+handle's `next()` suspends until the
 signal is delivered, parking the task on the reactor exactly as a socket read
 does — so cancellation, the fairness budget and the deadlock walk all treat a
 parked watcher as the io park it is.
@@ -13666,12 +13693,13 @@ func workers() -> Int {              // a safe function: no `unsafe` anywhere
 }
 ```
 
-- `set(value: T)` publishes, once. **Panics** if a value is already present, or
-  if another thread is publishing at that instant. Racing setters resolve
-  through a compare-exchange: the first wins, every loser panics.
-- `get() -> T` returns the published value (`T: ExplicitCopy`). **Panics** if nothing
-  has been published yet.
-- `try_get() -> T?` is the inspectable twin — `None` while unset.
+- `set(&self, value: T) unsafe` publishes, once. **Panics** if a value is
+  already present, or if another thread is publishing at that instant. Racing
+  setters resolve through a compare-exchange: the first wins, every loser
+  panics.
+- `get(&self) unsafe -> T` returns the published value (`T: ExplicitCopy`).
+  **Panics** if nothing has been published yet.
+- `try_get(&self) unsafe -> T?` is the inspectable twin — `None` while unset.
 - `is_set() -> Bool` is a debugging aid; the answer can be stale before it is
   read.
 
@@ -15787,8 +15815,9 @@ struct already has a stable **declaration-order, natural-ABI layout** (see
 opt-in — export signatures are gated by a C-safe type whitelist instead. There
 are **no** `unsafe` blocks and no unsafe regions: unsafety is type-carried, and a
 declaration that touches an unsafe type declares the effect in its signature (see
-[Unsafe Code](#unsafe-code) below). Still *planned*: C-varargs on the export
-side. (The spec's `*Char`/`*var Void` shorthand is illustrative; the implemented
+[Unsafe Code](#unsafe-code--unsafe-types-and-the-functions-that-touch-them)
+below). Still *planned*: C-varargs on the export side. (The spec's
+`*Char`/`*var Void` shorthand is illustrative; the implemented
 spelling is `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 
 ### C FFI
