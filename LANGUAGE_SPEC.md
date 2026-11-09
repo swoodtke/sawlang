@@ -580,8 +580,11 @@ member — `import m.{pick}` puts every `pick` in `m` in scope, matching what
 **Status: implemented (design 53).** A parameter may carry a default value on
 free functions, methods, and inits. Rules:
 
-- **Trailing only.** A parameter without a default may not follow one that has
-  a default (a declaration error).
+- **A default may come before a parameter without one.** A call skips the
+  defaulted parameter by labelling what follows it. A positional call binds
+  left to right, so it cannot skip: the first positional argument lands on the
+  defaulted parameter, and the call is refused if that leaves a later
+  parameter with no argument.
 - **Per-call, at the call site.** An omitted trailing argument is filled by
   evaluating the default expression *at the call site, once per call* — a fresh
   value each time (a default that calls a counter observes a new value on every
@@ -607,6 +610,20 @@ func connect(host: String, port: Int = 8080, tls: Bool = false) -> Int { port }
 connect("a")                 // port 8080, tls false
 connect("a", 443)            // port 443, tls false
 connect("a", 443, true)      // all explicit
+```
+
+```saw-body
+func add(a: Int = 1, b: Int) -> Int { a + b }
+print(add(b: 2))             // prints: 3
+print(add(a: 5, b: 2))       // prints: 7
+print(add(5, 2))             // prints: 7
+```
+
+```saw-error
+// error-rule: call.arity
+// error-contains: missing an argument for `b`
+func add(a: Int = 1, b: Int) -> Int { a + b }
+print(add(2))    // error: the positional 2 binds `a`, leaving `b` without one
 ```
 
 **Labeled arguments (lenient model).**
@@ -2517,14 +2534,37 @@ target takes at most one `?` (`syntax.rule.cast-target-question`):
 `(x ?? y) as Int`. Types nested inside a cast target (`x as Vector<Int??>`)
 are unaffected.
 
-**`??` peels exactly one layer, and its default owes what is left.** On a
-`Vector<Int?>`, `v.get(9)` is an `Int??` and `v.get(9) ?? v.get(0)` is a type
-error: the default is another `Int??` where an `Int?` is owed. The error names
-both types (not enforced by `sawc` yet, SL-1017). A bare `None` on the right
-adopts the payload type, so `v.get(9) ?? None` is the usual spelling;
-otherwise peel the default yourself. The rule refuses only a default DEEPER
-than the payload — everything the ordinary one-layer coalesce does is
-untouched.
+**`??` peels one layer, and its default owes the scrutinee's depth or the
+payload's.** A default of the scrutinee's own optional depth yields that depth,
+so fallbacks chain (`a ?? b ?? 0`). A default of the payload's type yields the
+payload. On a `Vector<Int?>`, `v.get(9)` is an `Int??`, so `v.get(9) ??
+v.get(0)` is an `Int??` too, not an `Int?`, and `v.get(9) ?? 5` is an `Int?`.
+A default deeper than the scrutinee is a type error naming the payload type it
+owes. A bare `None` on the right adopts the payload type.
+
+```saw-body
+var v = Vector<Int?>()
+try! v.push(None)
+try! v.push(7)
+let n: Int? = None
+let m: Int? = 4
+print(n ?? m ?? 0)                    // prints: 4
+print(n ?? 9)                         // prints: 9
+let w = v.get(9) ?? v.get(0)          // an `Int??`, here `Some(None)`
+print(w == None)                      // prints: false
+let x = v.get(9) ?? v.get(1) ?? v.get(0)
+print(x!!)                            // prints: 7
+let z = v.get(9) ?? 5                 // an `Int?`, the payload type
+print(z == None)                      // prints: false
+```
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: the type of the optional's payload, which `??` falls back to
+let x: Int? = None
+let d: Int?? = 5
+let r = x ?? d    // error: the default is deeper than the scrutinee
+```
 
 **At a declared `-> T?`, a bare `None` ARM of the tail's value branch is the
 OUTER absence, and a VALUE arm owes exactly one wrap.** The two readings only
@@ -4219,15 +4259,18 @@ func dup<T: ExplicitCopy>(x: &T) -> T {
 
 **A type that mentions a type parameter has no tier of its own — it demands a
 bound.** `Slot<K>`'s transfer class is whatever the instantiation's `K` turns
-out to be, so it cannot be read off the declaration, and a site that must decide
-before monomorphization asks the parameter's BOUNDS instead. A place value read
-is such a site ([Value reads](#value-reads)): it is legal exactly when every
-parameter the element type mentions carries a `Copy`-family bound, and the
-refusal is reported in the generic body rather than at one caller's
-instantiation (`sawc` still reports it at the call, SL-1019). Where the read is
-legal, the copy is emitted at the
-instantiation, alongside the matching drop, so the concrete tier decides which
-copy it is.
+out to be, so it cannot be read off the declaration. A place value read of one
+([Value reads](#value-reads)) is a silent copy, so a generic body that makes it
+infers a `Copy` requirement on `K`, and an instantiation that breaks it is
+refused at that call, naming the body site: ``error: `first` requires `K` to
+be Copy, as its body copies one at FILE:LINE:COL with nothing written, and
+`Res` is NoCopy``. A `public` generic must declare the tier (`<K: Copy>`),
+and an `ExplicitCopy` bound does not license the silent copy; both are
+`copy.declared-bound` errors at the declaration. The section "An
+element type that mentions a type parameter is an inferred requirement", under
+Value reads, has the full rule. Where the read is legal, the
+copy is emitted at the instantiation, alongside the matching drop, so the
+concrete tier decides which copy it is.
 
 **Derivation & containment.** A struct declaring `ExplicitCopy`/`Copy`
 can have its `copy()` derived memberwise (POD fields bitwise, copy-policy fields
@@ -5925,13 +5968,33 @@ last parameter is the value (`syntax.rule.subscript-declaration`):
   the place, through the place accessor when one is declared; a compound
   assignment of the whole element with none is the getitem and then the
   setitem.
-- **A subscript head, scrutinee or projection base takes its plain role when
-  one exists, a declared getitem or the getitem derived for a Copy-tier
-  element, and the place otherwise; a call head (`find`, `as_array`) is always
-  the lend.** So `match v[i] { … }` over a Copy element matches a copy, and
-  `v[i].n` over one reads the copied element's field, while a NoCopy element
-  is matched and read where it sits (`sawc` binds the element's storage
-  instead, SL-1022).
+- **A subscript head or projection base takes its plain role when one exists,
+  a declared getitem or the getitem derived for a Copy-tier element, and the
+  place otherwise; a call head (`find`, `as_array`) is always the lend.** So
+  `v[i].n` over a Copy element reads the copied element's field, while a
+  NoCopy element is read where it sits. A `match` on a subscript lends the
+  element like the other binding heads (`if var`, `borrow var`, `for`), at
+  every copy tier, so a `var` payload binding writes it; the local-copy
+  spelling is `let m = v[i]` and then `match m`.
+
+```saw-body
+enum Mode { case A, case B(n: Int) }
+var v = Vector<Mode>()
+try! v.push(Mode.B(n: 3))
+match v[0] {
+    case A -> { print("a") }
+    case B(var n) -> { n += 1 }       // writes the element
+}
+let m = v[0]                          // a copy
+match m {
+    case B(var n) -> { n += 10 }      // writes the copy only
+    case A -> { }
+}
+match v[0] {
+    case B(n) -> { print(n) }         // prints: 4
+    case A -> { }
+}
+```
 - A plain member and a `borrows` member of one name and parameters are
   separated the same way: a value read takes the plain one, and a write
   position or a binding head takes the `borrows` one. Where neither decides (a
@@ -6548,9 +6611,7 @@ they look at the discriminant through the lend. So they are legal for every
 tier, move-only elements included, and they emit no copy and no drop. A `match`
 on a lent place matches it where it sits, and an arm that binds a name
 reborrows that payload's place, read-only for a plain name and writable for
-`var` (see [Conditional lends](#conditional-lends-borrows--t)). A `match` on a
-subscript of a Copy-tier element matches a copy, by the subscript's plain role
-(`sawc` binds the element's storage instead, SL-1022).
+`var` (see [Conditional lends](#conditional-lends-borrows--t)).
 
 ```saw-fragment
 if let s = doc.find_section("package") { ... }   // present: no read at all
