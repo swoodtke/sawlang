@@ -331,6 +331,17 @@ got here. They apply to Python, C and every `.saw` file.
    follow the saw-docs skill; plain comments follow rules 1-8.
 10. Changing code next to a comment means checking that comment still holds.
 
+`tools/commentlint.py` (run.py's `comments` step, on every patch) checks
+rules 2, 3 and 6 as far as text can show them: dates, history words,
+references (more than one per comment, or one that is not a trailing
+pointer), line numbers and counts. Its baseline,
+`tools/commentlint_baseline.tsv`, records each of today's findings by its
+text and may only shrink; the step compares it with the base revision's
+copy, so it cannot be raised by hand: a new finding fails the step, and so
+does a fixed one until `commentlint.py --write-baseline` lowers the count.
+A justified false positive goes in `tools/commentlint_allow.tsv` with its
+reason.
+
 ## Sawtracker (issues + the merge gate)
 All issue tracking AND merge gating live in sawtracker, a webserver at
 `Mac-Studio.local:8787` (CLI: `~/bin/sawtracker`; env `SAWTRACKER_HOST`/

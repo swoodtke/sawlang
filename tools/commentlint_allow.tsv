@@ -1,0 +1,8 @@
+# Justified comment-lint false positives. A finding is skipped when its path and
+# rule match and TEXT is a substring of the stripped comment line.
+# Columns, tab-separated: PATH	RULE	TEXT	REASON (never empty).
+# A row that matches no finding fails the check.
+std/float.saw	date	SPE 2021	a paper citation's year, not a dated note
+compiler/lex/src/lib.saw	history	previously emitted	token order, not history
+std/task.saw	numbers.line	worker.saw:21	quoted program output in an example
+tools/gate_jobs.py	numbers.count	75%	the stated core budget the module implements, not a statistic

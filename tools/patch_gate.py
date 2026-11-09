@@ -257,7 +257,11 @@ def main():
             continue
         print("gate: ---- %s ----" % name, flush=True)
         start = time.time()
-        rc = subprocess.run([sys.executable] + command, cwd=REPO).returncode
+        part_env = dict(os.environ)
+        if args.changed_since:
+            # The revision a part compares committed data against (comment baseline).
+            part_env["SAW_GATE_BASE"] = args.changed_since
+        rc = subprocess.run([sys.executable] + command, cwd=REPO, env=part_env).returncode
         took = duration(time.time() - start)
         results.append("%s %s (%s)" % (name, "passed" if rc == 0 else "FAILED, exit %d" % rc, took))
     print("gate: " + "; ".join(results))

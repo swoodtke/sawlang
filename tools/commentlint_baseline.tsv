@@ -1,0 +1,527 @@
+# Comment-lint baseline: one row per distinct finding, PATH RULE COUNT TEXT.
+# Counts may only fall; tools/commentlint.py --write-baseline lowers them
+# and refuses a rise, and the step compares this file with the base revision's.
+blade/src/builder.saw	history	1	source where Blade used to put it, is simply not consulted.
+blade/src/builder.saw	refs.count	1	Design 143: every artifact lands in `.build/<target>/`, never beside the
+blade/src/builder.saw	refs.count	1	The write happens for an APPLICATION only (design 143). An application's
+blade/src/builder.saw	refs.count	1	design 149, reaching the SOS image path (design 172 part 2): a
+blade/src/builder.saw	refs.position	1	(DF-140e) — the arms unify to the error type and the auto-wrap into
+blade/src/builder.saw	refs.position	1	Design 122 unit B made the UTF-8 decode fallible, so a binary file is now
+blade/src/builder.saw	refs.position	1	Design 143: an SOS image is an artifact like any other, so it lands
+blade/src/builder.saw	refs.position	1	Design 143: every artifact lands in `.build/<target>/`, never beside the
+blade/src/builder.saw	refs.position	1	The write happens for an APPLICATION only (design 143). An application's
+blade/src/builder.saw	refs.position	1	`blade clean`: remove build output (design 143). Without a target that is
+blade/src/builder.saw	refs.position	2	design 149, reaching the SOS image path (design 172 part 2): a
+blade/src/builder.saw	refs.position	1	design 149: `[package] runtime = true` says this package implements
+blade/src/builder.saw	refs.position	1	package whose only entry is `src/lib.saw` is a library. Design 143 hangs
+blade/src/builder.saw	refs.position	1	state (design 64 B4). This is the sanctioned way to change the lock after
+blade/src/cli.saw	refs.position	1	build (design 143). Empty is a safe way to say "unspecified" here: no triple
+blade/src/cli.saw	refs.position	1	design 139: `Run` carries an owned `Vector<String>`, so the enum names its
+blade/src/git.saw	refs.position	1	Git integration for Blade (design 64 B5) — shells out to the `git` CLI (no
+blade/src/lock.saw	history	1	The write half used to be discarded, so a lock file that failed halfway
+blade/src/lock.saw	refs.position	1	One locked package. This was five parallel `Vector<String>` until design 169:
+blade/src/main.saw	refs.position	1	(design 143) and `.blade/` holds Blade's dependency checkouts. A new
+blade/src/main.saw	refs.position	1	EVERY failing path must go through here. Until design 140 only `blade test`
+blade/src/main.saw	refs.position	1	either step failed — design 132 unit G made both halves return the cause.
+blade/src/main.saw	refs.position	1	released it (DF-288a). The argv vector is a
+blade/src/manifest.saw	refs.position	1	(This was columnar `Vector<String>` until design 68 root-caused DF6(b): an
+blade/src/manifest.saw	refs.position	1	(design 64 B1). Re-reads Saw.toml from `root_dir` so `Manifest` stays a
+blade/src/manifest.saw	refs.position	1	A manifest error is a Printable error (design 56): manifest loading returns
+blade/src/manifest.saw	refs.position	1	design 149: `runtime = true` declares this package a RUNTIME PROVIDER —
+blade/src/manifest.saw	refs.position	1	design 56 dogfood: this returns an ERASED Result. A `ManifestError`
+blade/src/manifest.saw	refs.position	1	does, so `try` carries the errno cause straight through (design 132
+blade/src/resolver.saw	history	1	The graph walk used to be a self-recursive `visit`, which is a SUSPENDING
+blade/src/resolver.saw	refs.count	1	dogfood. This was blocked until design 68 root-caused the cross-module
+blade/src/resolver.saw	refs.count	1	reap loop parks — and design 44 embeds a suspending callee's frame by value,
+blade/src/resolver.saw	refs.position	1	(design 64 B3). Path dependencies only in this cut; git candidates are wired
+blade/src/resolver.saw	refs.position	1	dogfood. This was blocked until design 68 root-caused the cross-module
+blade/src/resolver.saw	refs.position	1	package (design 64 B2), imported by path — the B8 "blade depends on semver"
+blade/src/resolver.saw	refs.position	1	reap loop parks — and design 44 embeds a suspending callee's frame by value,
+blade/src/sosimg.saw	history	1	and design 170 turned the silent truncation that used to happen here into a
+blade/src/sosimg.saw	history	1	import used to work around is gone.)
+blade/src/sosimg.saw	history	1	rather than one per band (design 212 unit 2 — `load_sos_config` used to
+blade/src/sosimg.saw	history	1	values used to be the defaults for every target, so an arm64 image would
+blade/src/sosimg.saw	refs.count	1	SINCE v3 THE ADDRESSES NEED NO NARROWING (design 172 unit 8): `entry` and
+blade/src/sosimg.saw	refs.count	1	too, type annotations included, since design 150 — the DF-140c limit this
+blade/src/sosimg.saw	refs.position	1	PLACE rather than held (design 146). The search runs once here and every
+blade/src/sosimg.saw	refs.position	1	SINCE v3 THE ADDRESSES NEED NO NARROWING (design 172 unit 8): `entry` and
+blade/src/sosimg.saw	refs.position	1	THE DEVICE WINDOW (design 178's finale constraint 1). Absent for every
+blade/src/sosimg.saw	refs.position	1	TWO SPELLINGS, ONE MEANING (design 162 unit 4). A package that builds for
+blade/src/sosimg.saw	refs.position	1	Typed local (DF-140d): returning the value directly would have to
+blade/src/sosimg.saw	refs.position	1	and design 170 turned the silent truncation that used to happen here into a
+blade/src/sosimg.saw	refs.position	1	extension is module-private (design 80/142), so nothing outside this file
+blade/src/sosimg.saw	refs.position	1	rather than one per band (design 212 unit 2 — `load_sos_config` used to
+blade/src/sosimg.saw	refs.position	2	too, type annotations included, since design 150 — the DF-140c limit this
+blade/src/tester.saw	refs.position	1	Preflight (design 97): `blade test` compiles each test with `sawc`
+blade/src/tester.saw	refs.position	1	SURFACED, never swallowed (design 97: `blade test` must not hide why a
+blade/src/tester.saw	refs.position	1	Where the compiled test binaries go (design 143): under the same
+blade/src/tester.saw	refs.position	1	`<name>.module`, then one per dependency (design 64 B6). When resolution
+blade/src/tester.saw	refs.position	1	design 57 dogfood: time the whole run with the monotonic clock, and
+compiler/asserts/src/layout.saw	refs.position	1	(SL-914). An address no constant gives is the author's to align, and a `T`
+compiler/asserts/src/layout.saw	refs.position	1	The layout-assert funnel (SL:open-questions D40): a `static_assert` that
+compiler/borrowck/src/check.saw	refs.position	1	The borrow check's initialisation half (SL:architecture §3.6): one
+compiler/borrowck/src/conflicts.saw	refs.position	1	An accessor's prologue (SL:borrowing §2.7): each return of a lend that
+compiler/borrowck/src/conflicts.saw	refs.position	1	The borrow check's loan half (SL:architecture §3.6): one function at a
+compiler/borrowck/src/conflicts.saw	refs.position	1	before the group's teardown drains the task (design 188). It is
+compiler/borrowck/src/loans.saw	refs.count	1	declaration, the use site choosing (design 141).
+compiler/borrowck/src/loans.saw	refs.position	1	Each handle loan's carriers, and its first way out (SL-683): the
+compiler/borrowck/src/loans.saw	refs.position	1	THE SPAWN-BORROW FUNNEL (SL:coroutines A8c): each borrow a group
+compiler/borrowck/src/loans.saw	refs.position	1	The loan analysis (SL:architecture §3.6, "Loans"): one function at a time,
+compiler/borrowck/src/loans.saw	refs.position	1	its root exclusively (SL:borrowing §3), a place window's and a
+compiler/coro/src/align.saw	refs.position	1	end of the body (SL-932), and its refusal says so.
+compiler/coro/src/bttable.saw	refs.count	1	absent until the new std's executor layout has one (SL-577).
+compiler/coro/src/bttable.saw	refs.position	1	The logical-backtrace table, `__saw_bt_table` (SL:coroutines A16a). A
+compiler/coro/src/drive.saw	refs.position	1	Drive sites (SL:coroutines §4 A4b, compiler/tests/coro/README.md "Drive
+compiler/coro/src/lifetimes.saw	refs.count	1	spans rather than its item's points (SL-970).
+compiler/coro/src/lifetimes.saw	refs.position	1	not every row (SL-970). `finish` gives each row's spans.
+compiler/coro/src/lower.saw	refs.count	1	frame runs (std.taskgroup's dump) follows only a live child (SL-863).
+compiler/coro/src/lower.saw	refs.position	1	(SL:coroutines §3.1, A3c). The park's record goes into the task's context
+compiler/coro/src/lower.saw	refs.position	1	`counter` (SL:coroutines A9). The point becomes the counter's charge, and
+compiler/coro/src/lower.saw	refs.position	1	`frame_local`) points at (SL:coroutines §3.1). `dest = g(args)` becomes the
+compiler/coro/src/lower.saw	refs.position	1	for the effects alone (design 22): it makes its caller suspend, and runs as
+compiler/coro/src/program.saw	refs.position	1	Coroutine lowering's program (SL:architecture §3.9): mono's program, and
+compiler/coro/src/program.saw	refs.position	1	One step of a lowered frame's poison list (SL:coroutines B3): at `at` in
+compiler/coro/src/spawn.saw	refs.position	1	Spawn sites (SL:coroutines §3.1, compiler/tests/coro/README.md "Spawn
+compiler/coro/src/verify.saw	refs.position	1	body's own accesses (SL:architecture §3.9). A lifetime is the one
+compiler/coro/src/verify.saw	refs.position	1	record (SL-355). The record holds its reason's value: 0 ready, 1 a timer,
+compiler/coro/src/verify.saw	refs.position	1	than once per place (SL-970): the allowed places, by offset the offload
+compiler/driver/src/main.saw	refs.position	1	`sawc fix`: in each FILE, every old `borrow` prefix SL:borrowing §12 makes
+compiler/driver/src/main.saw	refs.position	1	and every name its output reports is a usage error (SL-995). Returns 0
+compiler/drops/src/elaborate.saw	refs.position	1	Drop elaboration (SL:architecture §3.7): every `drop(p)` of borrow-checked
+compiler/drops/src/program.saw	refs.position	1	Drop elaboration's program (SL:architecture §3.7): the borrow-checked MIR,
+compiler/eval/src/interp.saw	refs.position	1	The constant evaluator (SL:architecture §3.10, Ruled): a MIR interpreter
+compiler/eval/src/interp.saw	refs.position	1	construction of a cell that is a constant (SL:open-questions D38). A
+compiler/eval/src/program.saw	refs.position	1	`UnsafeMemory(<int>)` of type `ty` whose word is `bits` (SL:open-questions
+compiler/eval/src/program.saw	refs.position	1	positions' are read by later stages (SL:architecture §3.10). The MIR
+compiler/lex/src/lib.saw	refs.count	1	`#file`/`#line`/`#function` (design 98) plus `#lend_var` (design 179).
+compiler/lex/src/lib.saw	refs.count	1	doc-comment trivia (design 121) and the string-segment arena (design 268),
+compiler/lex/src/lib.saw	refs.count	1	doc-comment trivia (design 121) and the string-segment arena (design 268). One
+compiler/lex/src/lib.saw	refs.count	1	every interpolated string's typed segments to `segments` (design 268), and
+compiler/lex/src/lib.saw	refs.count	1	same bytes written as content (SL-238).
+compiler/lex/src/lib.saw	refs.position	1	(design 268): `seg_count` is 0 on every token but an InterpString.
+compiler/lex/src/lib.saw	refs.position	1	A captured documentation-comment LINE (design 121). Doc comments are lexed as
+compiler/lex/src/lib.saw	refs.position	1	An INTERP_STRING (design 268) instead continues with ONE FIELD PER TYPED
+compiler/lex/src/lib.saw	refs.position	1	Bytes are unsigned since design 250; only the widening to `Int` is left,
+compiler/lex/src/lib.saw	refs.position	1	Decimal integer or float. Design 161, the LOOKAHEAD rule: a `.`
+compiler/lex/src/lib.saw	refs.position	1	Design 121 doc-comment trivia. A line-leading `///` (exactly three
+compiler/lex/src/lib.saw	refs.position	1	Design 161: one-token lookback. Digits right after a member-access
+compiler/lex/src/lib.saw	refs.position	1	One canonical doc-trivia record (design 121), one per captured `///`/`//!`
+compiler/lex/src/lib.saw	refs.position	1	One canonical segment field (design 268) for an INTERP_STRING record:
+compiler/lex/src/lib.saw	refs.position	1	One piece of an InterpString token's content — design 268's typed segment,
+compiler/lex/src/lib.saw	refs.position	1	`#file`/`#line`/`#function` (design 98) plus `#lend_var` (design 179).
+compiler/lex/src/lib.saw	refs.position	1	`tuple_index` is design 161's one-token LOOKBACK: the caller passes true when
+compiler/lex/src/lib.saw	refs.position	1	doc-comment trivia (design 121) and the string-segment arena (design 268),
+compiler/lex/src/lib.saw	refs.position	2	doc-comment trivia (design 121) and the string-segment arena (design 268). One
+compiler/lex/src/lib.saw	refs.position	1	every interpolated string's typed segments to `segments` (design 268), and
+compiler/lex/src/lib.saw	refs.position	1	parse (`String.to_uint`, design 119) — a value past 2^64-1 comes back None —
+compiler/llvm/src/bodies.saw	refs.position	1	Item `k`'s resume function, `i32 (ptr %frame, ptr %cx)` (SL:coroutines
+compiler/llvm/src/calls.saw	refs.position	1	A view's accessor, `name` its builtin's spelling (SL-914). The receiver
+compiler/llvm/src/calls.saw	refs.position	1	The blocking-extern offload (design 183; runtime/ABI.md, "Blocking-extern
+compiler/llvm/src/calls.saw	refs.position	1	mono (design 148), so the receiver is never read. On a slice, the
+compiler/llvm/src/closures.saw	refs.position	1	closure, a non-escaping closure's environment local (SL-805) or a
+compiler/llvm/src/closures.saw	refs.position	1	which panics rather than freeing the block twice (SL-795 needs the
+compiler/llvm/src/module.saw	refs.position	1	The LLVM backend's program (SL:architecture §3.10): one textual `.ll` for
+compiler/llvm/src/module.saw	refs.position	1	What the backend reads of coroutine lowering's program (SL:coroutines
+compiler/llvm/src/module.saw	refs.position	1	undefined value (SL-776). Every site that names an item goes through
+compiler/llvm/src/ops.saw	refs.position	1	A view's projection into `dest` (SL-914): the base view's address
+compiler/llvm/src/ops.saw	refs.position	1	`x as T` with a Float on either side (SL-927). An integer becomes the
+compiler/llvm/src/ops.saw	refs.position	1	value checks that it fits (design 170), and an `as` from a Float to an
+compiler/llvm/src/places.saw	refs.position	1	THE RANGE VIEW'S BACKEND (SL:borrowing §6): range view `rv` (MIR's
+compiler/llvm/src/program.saw	refs.position	1	branches do (SL-528). A line below zero is a site with no line,
+compiler/llvm/src/render.saw	refs.position	1	Rendering through the builder role (design 137): a call of an item mono
+compiler/llvm/src/split.saw	refs.position	1	The whole program's `.ll` cut into codegen units (SL-955), each a module
+compiler/llvm/src/units.saw	refs.position	1	build compiles its `.ll` per Saw module (SL-955): one unit per module, and
+compiler/mir/src/build.saw	refs.position	1	An op-budget point (design 127), of the class `budget_class` gave its
+compiler/mir/src/build.saw	refs.position	1	call (design 219), but a copy the lowering chooses carries no such
+compiler/mir/src/initialisation.saw	refs.position	1	The initialisation analysis (SL:architecture §3.6, "Initialisation"): a
+compiler/mir/src/initialisation.saw	refs.position	1	What drop elaboration does with a `drop(p)` (SL:architecture §3.7): a
+compiler/mir/src/lower.saw	refs.count	1	(design 219). A position typecheck recorded no transfer for is an
+compiler/mir/src/lower.saw	refs.position	1	(SL:borrowing §12.1, "arguments first"). One taken by value is an
+compiler/mir/src/lower.saw	refs.position	1	(design 219). A position typecheck recorded no transfer for is an
+compiler/mir/src/lower.saw	refs.position	1	A view's projection, `view.field` or `view[i]` (SL-914): the base view
+compiler/mir/src/lower.saw	refs.position	1	MIR lowering (SL:architecture §3.5): every body typecheck checked becomes a
+compiler/mir/src/lower.saw	refs.position	1	Slice method `e` (SL:borrowing §6): the arguments first, then the
+compiler/mir/src/lower.saw	refs.position	1	THE RANGE VIEW FUNNEL (SL:borrowing §6): the slice of the elements
+compiler/mir/src/lower.saw	refs.position	1	THE WHOLE-CONTAINER COERCION (SL:borrowing §6): reference operand `o`,
+compiler/mir/src/lower.saw	refs.position	1	The one funnel every operand is built through (SL:architecture §3.5,
+compiler/mir/src/lower.saw	refs.position	1	The op-budget point at the top of a loop's body (design 127): every
+compiler/mir/src/lower.saw	refs.position	1	body here is one as the accessor's summary makes it (SL:architecture
+compiler/mir/src/lower.saw	refs.position	1	every copy tier and copies or moves nothing (SL:borrowing §2.4). A
+compiler/mir/src/lower.saw	refs.position	1	it stands for is the window the caller opens (SL:architecture
+compiler/mir/src/lower.saw	refs.position	1	its body lowered after the function it is written in (SL:architecture
+compiler/mir/src/lower.saw	refs.position	1	one is stored (SL:architecture §3.5, evaluation order). A whole slot
+compiler/mir/src/lower.saw	refs.position	1	per guarded range (SL-979). A test's or a guard's false edge goes on in
+compiler/mir/src/lower.saw	refs.position	1	scratch and allocates nothing (design 137), so it is a constant of its
+compiler/mir/src/lower.saw	refs.position	1	than comparing every row at every test (SL-970). A row's cell at `p`
+compiler/mir/src/lower.saw	refs.position	1	them (design 66): each written argument evaluated left to right as
+compiler/mir/src/lower.saw	refs.position	1	whole is an optional copy (SL:borrowing §2.2). On the present path,
+compiler/mir/src/model.saw	refs.position	1	(SL:architecture §3.5): the prologue, run at `window_open`, which produces
+compiler/mir/src/model.saw	refs.position	1	(SL:architecture §3.8, task roots), so this is no call of `target`.
+compiler/mir/src/model.saw	refs.position	1	A test driver's drive site (design 44): `target` the root function,
+compiler/mir/src/model.saw	refs.position	1	An op-budget point (design 127), opening a loop's body.
+compiler/mir/src/model.saw	refs.position	1	The MIR's records (SL:architecture §3.5): a function is locals plus basic
+compiler/mir/src/split.saw	refs.position	1	(SL:architecture §3.7). The record write is a transfer the shared
+compiler/mir/src/split.saw	refs.position	1	An accessor lowered as two halves around its `lend` (SL:architecture §3.5,
+compiler/mir/src/verify.saw	refs.position	1	An accessor's halves (SL:architecture §3.5): a `borrows` accessor that
+compiler/mir/src/verify.saw	refs.position	1	and borrowck's carried loans read the two lists in step (SL-495), so a
+compiler/mir/src/verify.saw	refs.position	1	such a move is a double free once code exists (SL-475). A value that
+compiler/mono/src/glue.saw	refs.position	1	Glue (SL:architecture §3.7, §3.8): what a drop or a copy of a concrete type
+compiler/mono/src/program.saw	refs.position	1	Monomorphization's program (SL:architecture §3.8): drop elaboration's
+compiler/mono/src/program.saw	refs.position	1	What a `Thread.spawn` site's lowering calls (SL-765), by concrete call:
+compiler/mono/src/program.saw	refs.position	1	What a drive site's lowering calls (SL:coroutines A4b), made at the
+compiler/mono/src/program.saw	refs.position	1	What a spawn site's lowering calls (SL:coroutines A7a), made at the
+compiler/mono/src/worklist.saw	refs.count	1	reaches what its lowering calls (SL:coroutines A7a): std's task box,
+compiler/mono/src/worklist.saw	refs.position	1	A `Thread.spawn` site (SL-765) reaches what its lowering calls: its
+compiler/mono/src/worklist.saw	refs.position	1	The atomic role's width rule at an instantiation (SL:open-questions
+compiler/mono/src/worklist.saw	refs.position	1	The worklist (SL:architecture §3.8): items reached from the roots, each
+compiler/mono/src/worklist.saw	refs.position	1	`NoMove` at an instantiation (SL-662): the first move out of a place
+compiler/mono/src/worklist.saw	refs.position	1	calls besides the park (SL:coroutines A3c): a timer park the deadline it
+compiler/mono/src/worklist.saw	refs.position	1	integer `as`, whose panic names the value (SL-927). An interpolated
+compiler/mono/src/worklist.saw	refs.position	1	is not built yet (SL-507). The first call `call` meets at is kept, and
+compiler/mono/src/worklist.saw	refs.position	1	keyed apart from the root's ordinary item (SL:architecture §3.8): the
+compiler/mono/src/worklist.saw	refs.position	1	offload calls (SL:coroutines A14a): the job's completion check, and the
+compiler/mono/src/worklist.saw	refs.position	1	reaches what its lowering calls (SL:coroutines A7a): std's task box,
+compiler/mono/src/worklist.saw	refs.position	1	suspends, as Stage 0's are (SL:coroutines A4b). It also reaches the std
+compiler/parse/src/diag.saw	refs.position	1	Diagnostics as records (SL:architecture §3.0): the refusal's stable name, a
+compiler/parse/src/parser.saw	refs.position	1	every `<` at that depth up to where it stopped (SL-424 c29). It takes no
+compiler/parse/src/reader.saw	refs.position	1	must come back byte for byte (the renderer differential of SL-424). Leaf
+compiler/parse/src/tree.saw	refs.position	1	The arena AST (SL:architecture §3.2): nodes in one flat vector, each node's
+compiler/resolve/src/collect.saw	refs.position	1	Phase 1, collect (SL:architecture §3.3): each module's top-level
+compiler/resolve/src/imports.saw	refs.count	1	Phase 2, imports (SL:architecture §3.3, design 150): each import finds its
+compiler/resolve/src/imports.saw	refs.position	2	Phase 2, imports (SL:architecture §3.3, design 150): each import finds its
+compiler/resolve/src/imports.saw	refs.position	1	existed (SL:testing). A binding names a whole overload set, so the
+compiler/resolve/src/imports.saw	refs.position	1	importers (design 229) is computed by a worklist to a fixpoint, import
+compiler/resolve/src/lang.saw	refs.position	1	The interior-mutability cell (design 186), constructed positionally.
+compiler/resolve/src/lang.saw	refs.position	1	The lang-item table (SL-456): the std declarations the compiler knows by
+compiler/resolve/src/lang.saw	refs.position	1	and lowers its accessors (SL-914). A role's index is its position, so
+compiler/resolve/src/lang.saw	refs.position	1	range subscript takes (SL:borrowing §6). Stage 0's vocabulary has none.
+compiler/resolve/src/lang.saw	refs.position	1	that text has one source (SL-768). Stage 0's compiler writes its own.
+compiler/resolve/src/loader.saw	refs.position	1	The gated tier (design 255): every public std declaration the prelude
+compiler/resolve/src/lookup.saw	history	1	"" when `text` is no retired name.
+compiler/resolve/src/lookup.saw	history	1	THE RETIRED-NAME FUNNEL: a name the language once defined and no longer
+compiler/resolve/src/lookup.saw	history	1	The refusal for a name the language retired, naming what replaced it, or
+compiler/resolve/src/lookup.saw	refs.count	1	with design 255's tier). Every position that resolves a bare name passes
+compiler/resolve/src/lookup.saw	refs.position	1	The one lookup of a bare name, and the scopes it reads (design 150's order,
+compiler/resolve/src/lookup.saw	refs.position	1	with design 255's tier). Every position that resolves a bare name passes
+compiler/resolve/src/model.saw	refs.position	1	The records name resolution produces (SL:architecture §3.3). Every record is
+compiler/resolve/src/prelude.saw	refs.position	1	(SL:open-questions D23), spelled as Stage 0's synthesized helpers,
+compiler/resolve/src/prelude.saw	refs.position	1	Two of the tables resolution starts from (SL:open-questions D12): the
+compiler/resolve/src/prelude.saw	refs.position	1	effect-only suspension point (design 22), and `__saw_suspend`, a ready park.
+compiler/resolve/src/twins.saw	refs.position	1	The `&self` twins `@synthesize(shared)` derives (SL:borrowing §4), copied
+compiler/resolve/src/verify.saw	refs.position	1	The resolution table's verifier (SL:architecture §3.0, "every boundary has
+compiler/resolve/src/walk.saw	refs.position	1	A call: its head, classified once (SL:architecture §3.3), then its
+compiler/resolve/src/walk.saw	refs.position	1	Phase 3, signatures and bodies (SL:architecture §3.3): with every table
+compiler/resolve/src/walk.saw	refs.position	1	inherited associated type bare, as they do its own (SL-499), so it
+compiler/target/src/layout.saw	refs.position	1	A raw-backed enum IS its backing integer (design 145): the backing's
+compiler/target/src/layout.saw	refs.position	1	The target description (SL:architecture §3.10): the one module that answers
+compiler/target/src/layout.saw	refs.position	1	call; else it emits std's Saw body (SL-944). A yes means the intrinsic
+compiler/tests/coro/census.py	refs.position	1	design (SL:architecture §5, "language changed"): each is counted as
+compiler/tests/coro/coro_lane.py	refs.position	1	program its first line names (SL:coroutines A16a): the same frames, by
+compiler/tests/corpusdiff/corpusdiff.py	refs.count	1	(SL-666).
+compiler/tests/corpusdiff/corpusdiff.py	refs.position	1	`// differs:` citing SL:hazards with its `// prints:` lines, an `oracle
+compiler/tests/corpusdiff/corpusdiff.py	refs.position	1	put in one bucket under one key (SL-655). Its baseline is a regression gate
+compiler/tests/fixpoint/fixpoint_lane.py	refs.position	1	adjudicated reason: SL:hazards' "oracle known wrong" discipline, so a
+compiler/tests/grammar/cases.py	refs.position	1	design 259 ruling, listed tracker ruling and lexical rule needs a case of
+compiler/tests/grammar/cases.py	refs.position	1	parser census, design 259's rulings, and the tracker rulings GRAMMAR.md
+compiler/tests/oracle.py	refs.count	1	that holds sawc to Stage 0 shares (SL-655, SL-665). No lane runs Stage 0;
+compiler/tests/oracle.py	refs.position	1	The sawc rule SL:coroutines §3.3 names for a refusal Stage 0 makes, by a
+compiler/tests/oracle.py	refs.position	2	that holds sawc to Stage 0 shares (SL-655, SL-665). No lane runs Stage 0;
+compiler/tests/parse_lane.py	refs.position	1	The C3 shape of SL:hazards: a quote inside a `//` comment inside an
+compiler/tests/parse_lane.py	refs.position	1	parser implements so far (SL-424, contract item 7). The lane runs one `sawc
+compiler/tests/resolve/resolve_lane.py	refs.position	1	The package the identity cases reach (SL-826): a module with a static and a
+compiler/tests/run/float_methods_vectors.py	refs.position	1	SL-944's result for `method` on patterns `a` (and `b`), as bits, or
+compiler/tests/run/float_methods_vectors.py	refs.position	1	held to an independent derivation of SL-944's rules first. The two differ only
+compiler/tests/run/run_lane.py	refs.count	1	otherwise (SL:architecture §5).
+compiler/tests/run/run_lane.py	refs.position	1	Failures for a program whose `// differs:` cites an SL:hazards entry:
+compiler/tests/run/run_lane.py	refs.position	1	`panic at` line's location; when the reason cites an SL:hazards entry, a
+compiler/tests/run/run_lane.py	refs.position	1	order are a function of its own module (SL-955). Units are paired and
+compiler/tests/run/run_lane.py	refs.position	1	view's accesses none (SL-914). The count is over the module, so
+compiler/tests/std/std_lane.py	refs.position	1	- the compiler finds the OS-thread engine in `std.thread` (SL-965): the
+compiler/tests/std/std_lane.py	refs.position	1	The OS-thread engine found in `std.thread` (SL-965): the lang-item
+compiler/tests/std/std_lane.py	refs.position	1	runtime, the task executor and the network stack; SL-443).
+compiler/tools/ast_nodes.py	refs.position	1	(design 103); a `Thread.spawn` body (sync, but blocking-permitted) calls
+compiler/tools/ast_nodes.py	refs.position	1	An `?.` unwrap point inside an optional chain (design 111). Wraps the
+compiler/tools/ast_nodes.py	refs.position	1	Chained assignment `x?.y = v` (design 111). `target` is an OptionalEvalExpr
+compiler/tools/ast_nodes.py	refs.position	1	Design 137. `"n = {}"` lexes as an interpolated string like any other — the
+compiler/tools/ast_nodes.py	refs.position	1	Fixed-width suffix (design 53): one of i8/i16/i32/i64/u8/u16/u32/u64 when
+compiler/tools/ast_nodes.py	refs.position	1	Set literal `{a, b, ...}` (design 54, two or more elements — the comma
+compiler/tools/ast_nodes.py	refs.position	1	carve-out licensed it (design 260). Stamped on the first check and read
+compiler/tools/comma_funnel.py	refs.position	1	(SL-437): its element parser, closer, trailing-comma policy and line breaks come
+compiler/tools/depth_funnel.py	refs.position	1	256-deep budget (SL-424, contract item 5), and this lane holds the parser to it.
+compiler/tools/runtime_table.py	refs.position	1	outlives Stage 0 (SL:open-questions D41). Beside each seam goes its owner: the
+compiler/tools/speculation_ledger.py	refs.position	1	A speculation (SL-424 U4c) parses ahead and may be undone by
+compiler/tools/subset_check.py	refs.position	1	The S and L entries SL:hazards declares, read from its tracked copy.
+compiler/tools/subset_check.py	refs.position	1	The tracked copy of SL:hazards, whose headings name its entries. Its sibling
+compiler/typecheck/src/adjust.saw	refs.position	1	client (SL:architecture §3.4, "Peeling"): the slot's own members first,
+compiler/typecheck/src/adjust.saw	refs.position	1	passes as a slice of (SL:borrowing §6); -1 for any other type. A
+compiler/typecheck/src/api.saw	refs.position	1	Copy tiers, and runs the checks that need only those (SL:architecture §3.4,
+compiler/typecheck/src/api.saw	refs.position	1	SL:architecture §3.4's order, each over the layer's part of its table.
+compiler/typecheck/src/arith.saw	refs.position	1	The float literal's exact decimal path (design 253), in `Int` arithmetic
+compiler/typecheck/src/bodies.saw	refs.count	1	SL:open-questions D38). The cell is layout-transparent, so each is a
+compiler/typecheck/src/bodies.saw	refs.count	1	`borrow` form takes the `borrows` one (SL:borrowing §12.4, SL-684).
+compiler/typecheck/src/bodies.saw	refs.count	1	arguments fill, each borrowed (design 137); `sizeof` and `alignof`;
+compiler/typecheck/src/bodies.saw	refs.count	1	design 219's requirement (`implied_copies`).
+compiler/typecheck/src/bodies.saw	refs.count	1	the place it lends (design 141). Each is read off the use the place's
+compiler/typecheck/src/bodies.saw	refs.count	1	write switches to (SL:borrowing §12.4, SL-684). -1 for any other tie.
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL-472), and a shared one never either.
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL-474). A bare `&x` is no place, and keeps its reference type.
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL-660). A type `walked` holds was found valid or is being walked.
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL:architecture §3.10): a value that does not fit where it adopts, or
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL:borrowing §12.4). An element that copies only by inference owes
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL:borrowing §12.5). Returns whether it refused.
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL:borrowing §5.1). Its entry points:
+compiler/typecheck/src/bodies.saw	refs.position	1	(SL:open-questions D38); no other construction of a cell is.
+compiler/typecheck/src/bodies.saw	refs.position	1	(design 131). An optional assignment as the subject, `let _ = a?.b =
+compiler/typecheck/src/bodies.saw	refs.position	1	(design 44). The one argument is the root, a call of a function or a
+compiler/typecheck/src/bodies.saw	refs.position	1	(design 80). A marked field's view keeps its marker, which its
+compiler/typecheck/src/bodies.saw	refs.position	1	A `Result` computed where nothing reads it is refused (design 151): a
+compiler/typecheck/src/bodies.saw	refs.position	1	A `let` or `var` of view `value` (SL:borrowing §6, §12.5): the view is
+compiler/typecheck/src/bodies.saw	refs.position	1	A builtin function (SL:open-questions D12): `print`, `panic` and
+compiler/typecheck/src/bodies.saw	refs.position	1	A lone name: a binding, or, when resolve took it for a case (SL:open-
+compiler/typecheck/src/bodies.saw	refs.position	1	A slice's `get(i)`, `sort()`, `fill(value)` and `copy()` (SL:borrowing
+compiler/typecheck/src/bodies.saw	refs.position	1	An atomic intrinsic of the new std's builtin module (SL:open-questions
+compiler/typecheck/src/bodies.saw	refs.position	1	Each old `borrow` prefix SL:borrowing §12 makes redundant draws the
+compiler/typecheck/src/bodies.saw	refs.position	1	How `args` bind to candidate `c`'s parameters (design 66): in order,
+compiler/typecheck/src/bodies.saw	refs.position	1	Optional's `take`, `is_some` and `is_none` (design 131) while the
+compiler/typecheck/src/bodies.saw	refs.position	1	SL-940's coercion (`func_pointer_value`); anything else is a closure
+compiler/typecheck/src/bodies.saw	refs.position	1	SL:open-questions D38). The cell is layout-transparent, so each is a
+compiler/typecheck/src/bodies.saw	refs.position	1	Settles a subscript's role (SL:borrowing §5) and the borrow of a
+compiler/typecheck/src/bodies.saw	refs.position	1	THE LEND-WINDOW FUNNEL (SL:borrowing §12): where the window of each
+compiler/typecheck/src/bodies.saw	refs.position	1	THE RANGE VIEW (SL:borrowing §6): `a[r]` over a fixed array, a slice or
+compiler/typecheck/src/bodies.saw	refs.position	1	The body half of type checking (SL:architecture §3.4, "Type inference is
+compiler/typecheck/src/bodies.saw	refs.position	1	The expected-type funnel (SL:architecture §3.4): checks expression `e`
+compiler/typecheck/src/bodies.saw	refs.position	1	The new std's in-place drop (SL-662): one `UnsafePointer<T>`, whose
+compiler/typecheck/src/bodies.saw	refs.position	1	The overload filter (SL:architecture §3.4, "Overloads"): the one place
+compiler/typecheck/src/bodies.saw	refs.position	1	`None` (design 145); the member table holds it as synthesized.
+compiler/typecheck/src/bodies.saw	refs.position	1	`Task.spawn(f(x))`, the background spawn form (design 242). Its one
+compiler/typecheck/src/bodies.saw	refs.position	1	`Thread.spawn { ... }`, the OS-thread form (design 242). Its one
+compiler/typecheck/src/bodies.saw	refs.position	1	`copy()` the lowering calls. Design 219 refuses a spelled copy no bound
+compiler/typecheck/src/bodies.saw	refs.position	1	`to_string()` (design 135): a Printable value off the builtin fast
+compiler/typecheck/src/bodies.saw	refs.position	1	arguments fill, each borrowed (design 137); `sizeof` and `alignof`;
+compiler/typecheck/src/bodies.saw	refs.position	1	body writes (SL-914). A construction, `UnsafeMemory<T, Use>(address)`,
+compiler/typecheck/src/bodies.saw	refs.position	1	cannot exist (design 228). Refuses at `at` when the body `subject`
+compiler/typecheck/src/bodies.saw	refs.position	1	default drives inference where nothing else does (design 108). A type
+compiler/typecheck/src/bodies.saw	refs.position	1	design 219's inferred requirement, checked at each call (D30).
+compiler/typecheck/src/bodies.saw	refs.position	1	design 219's requirement (`implied_copies`).
+compiler/typecheck/src/bodies.saw	refs.position	1	each instantiation that makes it `NoMove` (SL-662). A consumed match's
+compiler/typecheck/src/bodies.saw	refs.position	1	every field visible (SL-648). A zero-initialized static constructs too.
+compiler/typecheck/src/bodies.saw	refs.position	1	integer type its position expects (design 87). A literal is typed once,
+compiler/typecheck/src/bodies.saw	refs.position	1	literal's own type drives inference (design 108). Any other value would
+compiler/typecheck/src/bodies.saw	refs.position	1	no exact Float (SL-927). The argument takes no expectation, as an
+compiler/typecheck/src/bodies.saw	refs.position	1	over one, built from one value, bare or labeled `value:` (design 186;
+compiler/typecheck/src/bodies.saw	refs.position	1	parameter and whose default the call uses: design 108's defaults.
+compiler/typecheck/src/bodies.saw	refs.position	1	parameter is answered by the bounds in scope (design 219). A NoCopy
+compiler/typecheck/src/bodies.saw	refs.position	1	parameter's copy is design 219's inferred requirement, an implied copy
+compiler/typecheck/src/bodies.saw	refs.position	1	place accessor for an element that copies silently (SL:borrowing
+compiler/typecheck/src/bodies.saw	refs.position	1	reads layouts through `measures` (SL:open-questions D40), or names a
+compiler/typecheck/src/bodies.saw	refs.position	1	refuses `infer.failed` where nothing determines one (SL-657). A written
+compiler/typecheck/src/bodies.saw	refs.position	1	that name is seen: the call of the field's value (SL:open-questions
+compiler/typecheck/src/bodies.saw	refs.position	1	the place it lends (design 141). Each is read off the use the place's
+compiler/typecheck/src/bodies.saw	refs.position	1	the tail are checked against (design 213). A reference binding returned
+compiler/typecheck/src/bodies.saw	refs.position	1	tracks (design 219). `move o!` moves the whole binding `o`.
+compiler/typecheck/src/bodies.saw	refs.position	1	use that writes (design 141); -1 for any other tie.
+compiler/typecheck/src/bodies.saw	refs.position	1	used whole, a lend call's or a `borrow` binding's (SL:borrowing §2.2,
+compiler/typecheck/src/bodies.saw	refs.position	2	write switches to (SL:borrowing §12.4, SL-684). -1 for any other tie.
+compiler/typecheck/src/bodies.saw	refs.position	1	write the place and shared otherwise (SL:borrowing §3). It is the one
+compiler/typecheck/src/bodychecks.saw	refs.position	1	holds a borrow no suspension may span (SL:borrowing §2.5): no call in
+compiler/typecheck/src/bodychecks.saw	refs.position	1	typed it (SL:architecture §3.4, "Other checks that need only types", and
+compiler/typecheck/src/bodyverify.saw	refs.position	1	The body half's verifier (SL:architecture §3.0, "every boundary has a
+compiler/typecheck/src/candidates.saw	refs.position	1	means, a test-only one what production code's means (SL:testing), and
+compiler/typecheck/src/candidates.saw	refs.position	1	module's overload set, or a merged set's (design 249), externs and
+compiler/typecheck/src/candidates.saw	refs.position	1	shape that overrides the memberwise construction (SL-648). A field's
+compiler/typecheck/src/captures.saw	refs.position	1	(SL-469). A closure that does not escape keeps its transfer-when-run rule.
+compiler/typecheck/src/captures.saw	refs.position	1	list and the body runs once (design 242), so it may consume what it
+compiler/typecheck/src/checks.saw	refs.position	1	(SL:testing): no call through the trait ever runs it, and test code's
+compiler/typecheck/src/checks.saw	refs.position	1	The atomic role's width rule (SL:open-questions D38): v1 atomics are
+compiler/typecheck/src/checks.saw	refs.position	1	The view rules (SL-914): each `UnsafeMemory<T, Use>` the program forms
+compiler/typecheck/src/checks.saw	refs.position	1	movability, zero value or thread behaviour (SL-659). It reads every
+compiler/typecheck/src/checks.saw	refs.position	1	production code is refused (SL:testing): a production generic has one
+compiler/typecheck/src/conform.saw	refs.position	1	builtin module holds (SL:open-questions D12): std is where such a type's
+compiler/typecheck/src/conform.saw	refs.position	1	checked as if it did not (SL:testing). A policy declared outside its
+compiler/typecheck/src/conform.saw	refs.position	1	code is a file of its own (SL:testing), so a test-only declaration is
+compiler/typecheck/src/conform.saw	refs.position	1	in module `owner` (design 142): its own, its direct imports' and those
+compiler/typecheck/src/conform.saw	refs.position	1	is production code's alone (SL-630). The policy conformance itself is
+compiler/typecheck/src/conform.saw	refs.position	1	one answer (SL-641). Each conformance after a type's first policy is
+compiler/typecheck/src/declarations.saw	refs.position	1	The accessor-signature reader (SL:architecture §3.4): what a `borrows`
+compiler/typecheck/src/declarations.saw	refs.position	1	which it fills (SL:open-questions D14); one that names a type for some
+compiler/typecheck/src/effects.saw	refs.count	1	method's extension, as `extension Vector<T: Copy>` (SL-501).
+compiler/typecheck/src/effects.saw	refs.position	1	Phase 3 of type checking (SL:architecture §3.4, "Order", "Effects"): the
+compiler/typecheck/src/effects.saw	refs.position	1	declares (design 219): a public generic declares the tier its body
+compiler/typecheck/src/exhaust.saw	refs.position	1	Match exhaustiveness (SL:architecture §3.4, "Other checks that need only
+compiler/typecheck/src/fold.saw	refs.count	1	(`arith.saw`, SL:architecture §3.10): every value is its type's, every
+compiler/typecheck/src/fold.saw	refs.position	1	(`arith.saw`, SL:architecture §3.10): every value is its type's, every
+compiler/typecheck/src/fold.saw	refs.position	1	(design 87). It follows the MIR evaluator's rule, typed arithmetic
+compiler/typecheck/src/lang.saw	refs.position	1	The lang items' shapes (SL-456): each declaration the lang-item table binds
+compiler/typecheck/src/model.saw	refs.count	1	(SL:borrowing §12.4, SL-684); -1 for none.
+compiler/typecheck/src/model.saw	refs.position	2	(SL:borrowing §12.4, SL-684); -1 for none.
+compiler/typecheck/src/model.saw	refs.position	1	(design 145), an integer's `from` and `from(truncating:)` (design
+compiler/typecheck/src/model.saw	refs.position	1	How a body's expression is read where it stands (SL:architecture §3.4,
+compiler/typecheck/src/model.saw	refs.position	1	How the written arguments bind the target's parameters (design 66): a
+compiler/typecheck/src/model.saw	refs.position	1	The records the signature half of type checking produces (SL:architecture
+compiler/typecheck/src/model.saw	refs.position	1	The three Copy tiers (design 219), strongest last: a composite takes the
+compiler/typecheck/src/model.saw	refs.position	1	The three subscript roles (SL:borrowing §5): a declared or derived
+compiler/typecheck/src/model.saw	refs.position	1	suspend (SL-877): refused where the copy's hook would.
+compiler/typecheck/src/model.saw	refs.position	1	that writes switches to (design 141); -1 for none.
+compiler/typecheck/src/mutability.saw	refs.count	1	(SL-472), and a shared one, `self`'s included, never either (SL-483).
+compiler/typecheck/src/mutability.saw	refs.count	1	environment a lowering synthesizes, such as a place window's (SL-472).
+compiler/typecheck/src/mutability.saw	refs.position	1	(SL-472), and a shared one, `self`'s included, never either (SL-483).
+compiler/typecheck/src/overloads.saw	refs.position	1	and `borrow var` choose between (SL:borrowing §3, §4). Two members of
+compiler/typecheck/src/paths.saw	refs.position	1	The per-path use count of a generic body's locals (design 219): whether a
+compiler/typecheck/src/program.saw	refs.position	1	`borrows` member (SL:borrowing §12.4); -1 outside them.
+compiler/typecheck/src/program.saw	refs.position	1	a test-only one of that name is passed over as if absent (SL:testing,
+compiler/typecheck/src/program.saw	refs.position	1	literal is one literal, so its range is its negation's (SL:open-questions
+compiler/typecheck/src/program.saw	refs.position	1	module's refusal left unformed (SL:architecture §3.0): their error
+compiler/typecheck/src/program.saw	refs.position	1	records the copy, or -1; in a generic body it owes design 219's
+compiler/typecheck/src/program.saw	refs.position	1	slice's `get`, `sort` and `fill` call (std/vector.saw, SL-988); -1
+compiler/typecheck/src/refpositions.saw	refs.position	1	lets the borrow check stay inside a function (SL:architecture §3.6). Every
+compiler/typecheck/src/refpositions.saw	refs.position	1	raw pointer, the one crossing into the unsafe tier (DF-163f); anywhere
+compiler/typecheck/src/signatures.saw	refs.position	1	(SL:open-questions D14), so `extension Vector<String>` is about
+compiler/typecheck/src/signatures.saw	refs.position	1	formed, written, inferred or synthesized (design 109). Nothing else
+compiler/typecheck/src/spell.saw	refs.position	1	every nominal type by its identity (design 144). The dump and every
+compiler/typecheck/src/statics.saw	refs.position	1	(SL:architecture §3.10). A program naming no static in those positions is
+compiler/typecheck/src/strings.saw	refs.position	1	The String positions (SL-456): every expression where the compiler makes or
+compiler/typecheck/src/summaries.saw	refs.count	1	type parameters its body needs on the Copy tier (design 219). A generic
+compiler/typecheck/src/summaries.saw	refs.position	1	Phase 2 of type checking (SL:architecture §3.4, "Order"): the summaries
+compiler/typecheck/src/summaries.saw	refs.position	1	suspend yet (SL-877): a hook there that suspends is no suspension but
+compiler/typecheck/src/summaries.saw	refs.position	1	type parameters its body needs on the Copy tier (design 219). A generic
+compiler/typecheck/src/tier.saw	refs.count	1	argument can be, primitives included (design 109).
+compiler/typecheck/src/tier.saw	refs.position	1	The declaration side of design 188: `NoMove` stands only beside a
+compiler/typecheck/src/tier.saw	refs.position	1	arguments included (design 188). A pointer, and so a `Box`, holds its
+compiler/typecheck/src/typeops.saw	refs.position	1	(SL:borrowing §6). A site that needs the value a read yields asks
+compiler/typecheck/src/typeops.saw	refs.position	1	(design 47), the target's word; every fixed width is its own.
+compiler/typecheck/src/typeops.saw	refs.position	1	phase checks at each call (design 219). Every tier is final before a
+compiler/typecheck/src/types.saw	refs.position	1	The type interner (SL:architecture §3.0): one table per compilation, keyed by
+compiler/typecheck/src/verify.saw	refs.position	1	The signature half's verifier (SL:architecture §3.0, "every boundary has a
+libs/imgformat/src/lib.saw	date	1	That masking is the invariant this value rests on. (DF-243c ruled Aug 22:
+libs/imgformat/src/lib.saw	history	1	this sentence used to claim "bit 8 rather than 3" — impossible in a
+libs/imgformat/src/lib.saw	refs.count	1	IT LIVES IN `libs/`, BESIDE ITS PRODUCER (design 238 D-a). Blade takes it
+libs/imgformat/src/lib.saw	refs.count	1	WHY IT IS IN THE IMAGE AT ALL (design 178's finale constraint 1, ruled Aug
+libs/imgformat/src/lib.saw	refs.position	1	ADDRESSES ARE 64-BIT SINCE VERSION 3 (design 172 unit 8), ON BOTH PROFILES.
+libs/imgformat/src/lib.saw	refs.position	1	IT LIVES IN `libs/`, BESIDE ITS PRODUCER (design 238 D-a). Blade takes it
+libs/imgformat/src/lib.saw	refs.position	1	That masking is the invariant this value rests on. (DF-243c ruled Aug 22:
+libs/imgformat/src/lib.saw	refs.position	1	WHY IT IS IN THE IMAGE AT ALL (design 178's finale constraint 1, ruled Aug
+libs/imgformat/src/lib.saw	refs.position	1	it against its OWN tag; a mismatch is a refused image (design 162 unit
+libs/imgformat/src/lib.saw	refs.position	1	these values are the wire format, not an implementation detail — design 47.
+libs/semver/src/lib.saw	refs.count	1	A real dogfood of design 48 (Comparable/Equatable) and design 56 (Printable):
+libs/semver/src/lib.saw	refs.position	2	A real dogfood of design 48 (Comparable/Equatable) and design 56 (Printable):
+libs/toml/src/lib.saw	refs.count	1	DF-232f rider narrowed it to `public(package)` on a file-local reading (the
+libs/toml/src/lib.saw	refs.position	1	A TOML error is a Printable error (design 56): it renders itself, so it can be
+libs/toml/src/lib.saw	refs.position	1	An inline table value: `key = { subkey = "v", ... }` (one level, design 64
+libs/toml/src/lib.saw	refs.position	1	DF-232f rider narrowed it to `public(package)` on a file-local reading (the
+libs/toml/src/lib.saw	refs.position	1	Typed access (design 57 dogfood): parse the stored string as an integer.
+libs/toml/src/lib.saw	refs.position	1	Typed lookup (design 57 dogfood): a value parsed as an integer, or None if
+libs/toml/src/lib.saw	refs.position	1	`key`. Minimal (design 64 B1): one level, comma-separated `subkey = "value"`
+libs/toml/src/lib.saw	refs.position	1	audit DF-232q found inverted); the Aug-21 signature-visibility rule refuses
+libs/toml/src/lib.saw	refs.position	1	toml — a minimal TOML reader for Saw.toml / Saw.lock (design 64 B8, extracted
+libs/toml/src/lib.saw	refs.position	1	two lookups destroyed one section twice (DF-132a). Pair it with
+runtime/common/mem.saw	refs.count	1	allocation (design 123).
+runtime/common/mem.saw	refs.position	1	The global allocation seams (design 113b), authored in Saw.
+runtime/common/op_budget.saw	refs.count	1	reset would discard another's progress (design 225). The loop-backedge budget needs no
+runtime/common/op_budget.saw	refs.position	1	Cooperative-scheduler fairness backstop (design 89), authored in Saw.
+runtime/common/op_budget.saw	refs.position	1	reset would discard another's progress (design 225). The loop-backedge budget needs no
+runtime/common/os_ops.saw	refs.position	1	Close-on-exec (shim.c, SL-910): the type bit that makes a socket so at
+runtime/common/os_ops.saw	refs.position	1	Status-carrying OS operations (design 117), authored in Saw.
+runtime/common/proc.saw	refs.count	1	The wait uses no thread (design 182). `try_wait` is `waitpid(WNOHANG)` and
+runtime/common/proc.saw	refs.position	1	Process spawn seams (design 122), authored in Saw.
+runtime/common/proc.saw	refs.position	1	The wait uses no thread (design 182). `try_wait` is `waitpid(WNOHANG)` and
+runtime/common/pthread.saw	refs.count	1	because it takes a raw C function pointer, which Saw cannot name (DF-113b).
+runtime/common/pthread.saw	refs.position	1	The pthread wrapper seams (design 113b), authored in Saw.
+runtime/common/sleep.saw	refs.count	1	any executor (design 180).
+runtime/common/sleep.saw	refs.position	1	The thread-park timer seam (design 113b), authored in Saw.
+runtime/host_linux/clock.saw	refs.position	1	std.time clock seams (design 113b) — Linux.
+runtime/host_linux/dirent.saw	refs.position	1	`struct dirent` name projection (design 122) — Linux (glibc/musl).
+runtime/host_linux/net_os.saw	refs.position	1	OS-divergent errno and socket helpers (design 117) — Linux.
+runtime/host_linux/proc_wait.saw	refs.position	1	The child-exit descriptor (design 182) — Linux, authored in Saw.
+runtime/host_macos/clock.saw	refs.position	1	std.time clock seams (design 113b) — macOS.
+runtime/host_macos/dirent.saw	refs.position	1	`struct dirent` name projection (design 122) — macOS.
+runtime/host_macos/lock.saw	refs.position	1	The one-word lock seams (design 186) — macOS.
+runtime/host_macos/net_os.saw	refs.position	1	OS-divergent errno and socket helpers (design 117) — macOS.
+runtime/host_macos/proc_wait.saw	refs.position	1	The child-exit descriptor (design 182) — macOS, authored in Saw.
+runtime/host_macos/reactor.saw	refs.count	1	The wake is a broadcast: every thread blocked in `poll` returns (design 225).
+runtime/shim.c	refs.count	1	---- DF-113a: no C macro (SL-910) --------------------------------------
+runtime/shim.c	refs.count	1	---- DF-113a: no C macro (design 272) ----------------------------------
+runtime/shim.c	refs.count	1	---- DF-113a: no C macro, no per-host struct layout (design 184) --------
+runtime/shim.c	refs.count	1	---- DF-113b, plus no atomics over raw memory (design 242) --------------
+runtime/shim.c	refs.count	1	Three rules hold for the block as a whole. Design 272 records the races
+runtime/shim.c	refs.count	1	code stays stamped (SL-768).
+runtime/shim.c	refs.count	1	in std/file.saw. Every mode is close-on-exec (SL-910).
+runtime/shim.c	refs.count	1	synthesized thunk that reads its arguments from `job->args` (design 183),
+runtime/shim.c	refs.position	1	---- DF-113a: errno is a per-host macro --------------------------------
+runtime/shim.c	refs.position	2	---- DF-113a: no C macro (SL-910) --------------------------------------
+runtime/shim.c	refs.position	2	---- DF-113a: no C macro (design 272) ----------------------------------
+runtime/shim.c	refs.position	1	---- DF-113a: no C macro -----------------------------------------------
+runtime/shim.c	refs.position	2	---- DF-113a: no C macro, no per-host struct layout (design 184) --------
+runtime/shim.c	refs.position	1	---- DF-113a: no C struct layout ---------------------------------------
+runtime/shim.c	refs.position	2	---- DF-113a: no extern C global ---------------------------------------
+runtime/shim.c	refs.position	2	---- DF-113b, plus no atomics over raw memory (design 242) --------------
+runtime/shim.c	refs.position	1	---- DF-113b: no C function-pointer type -------------------------------
+runtime/shim.c	refs.position	1	---- DF-113b: the blocking-extern offload thread ------------------------
+runtime/shim.c	refs.position	1	---- DF-113c: variadic fcntl -------------------------------------------
+runtime/shim.c	refs.position	1	---- DF-186c: no 32-bit atomics through a pointer -----------------------
+runtime/shim.c	refs.position	1	---- Signals as reactor-readable events (design 272) --------------------
+runtime/shim.c	refs.position	1	Three rules hold for the block as a whole. Design 272 records the races
+runtime/shim.c	refs.position	1	to be destroyed before the block goes (SL-765). The layout is frozen in
+std/data.saw	refs.position	1	views, for the compiler's whole-container coercion (SL-988): null and 0
+std/map.saw	refs.position	1	The reporting twin of `copy`; its `try_` name awaits DF-257b's ruling.
+std/process.saw	refs.position	1	would run on until the child closed the pipe (SL-896). Each read lands in the
+std/set.saw	refs.position	1	The reporting twin of `copy`; its `try_` name awaits DF-257b's ruling.
+std/systemerror.saw	refs.position	1	the subject (SL-898): a retain of a string the caller already holds,
+std/task.saw	numbers.line	1	// at worker.saw:27 in middle
+std/task.saw	numbers.line	1	// at worker.saw:33 in watcher
+std/task.saw	refs.position	1	The entry executor (SL:coroutines §3.1, runtime/ABI.md "The compiler →
+std/task.saw	refs.position	1	The park points (SL:coroutines §3.1). Each is a lang item whose calls
+std/taskgroup.saw	refs.count	1	later record (SL:coroutines R3).
+std/taskgroup.saw	refs.position	1	A drive point's loop (SL:coroutines §4, A4b and A11): the frame is resumed
+std/taskgroup.saw	refs.position	1	The executor halves the park lowerings call (SL:coroutines §3.1). Each park
+std/taskgroup.saw	refs.position	1	The executor's side of the hidden-allocation boundary (design 234): a spawn
+std/taskgroup.saw	refs.position	1	The pool (SL:coroutines A17a). One mutex-protected run queue, the group's
+std/taskgroup.saw	refs.position	1	erased by it (SL-355). The value is the park's own: a descriptor park's
+std/taskgroup.saw	refs.position	1	released (SL:coroutines §3.1). The outstanding-handle check sits between the
+std/taskgroup.saw	refs.position	1	that child has returned and its slot is released or reused (SL-863). A
+std/thread.saw	refs.position	1	(SL:coroutines §3.1): the coroutine lowering replaces each call with its
+std/thread.saw	refs.position	1	Saw value cannot carry (DF-113b). Dispatch is static: the implementation is
+std/vector.saw	refs.position	1	The reporting twin of `copy`; its `try_` name awaits DF-257b's ruling.
+std/vector.saw	refs.position	1	any container reaches the one body (SL-988). `len()`, `s[i]`, `s[a..b]` and
+std/vector.saw	refs.position	1	views, for the compiler's whole-container coercion (SL-988): null and 0
+tools/battery.sh	refs.position	1	Until design 192 this lived as an untracked scratch script that each session
+tools/bench_compile.py	refs.count	1	while something else compiles. Run by hand, and post the table to SL-955.
+tools/bench_compile.py	refs.position	1	The compile-time benchmark (SL-955): five fixed builds, timed by
+tools/bench_compile.py	refs.position	1	while something else compiles. Run by hand, and post the table to SL-955.
+tools/check_citations.py	date	1	"— CLOSED", "— LANDED Aug 21", "(filed …) — FIXED", "— **CLOSED**".
+tools/check_citations.py	date	1	SL ISSUE IDS anchor exactly as DF numbers do (Sep 9). Real lines from the
+tools/check_citations.py	date	1	TWO ID SCHEMES, TWO AUTHORITIES (Sep 9). A citation may name a `DF-` number or
+tools/check_citations.py	date	1	the three blocks that reached main on Aug 24.
+tools/check_citations.py	date	1	tree's citations; found live at integration, lead fix Aug 24).
+tools/check_citations.py	history	1	an `SL-` sawtracker issue, since the user's Sep-9 ruling retired MINTING new DF
+tools/check_citations.py	history	1	the Sep-9 ruling retired new DF numbers. NO LETTER SUFFIX: a DF number could
+tools/check_citations.py	refs.count	1	`visibility_package_relative_import_fails_open.saw`, which cited DF-232n for two
+tools/check_citations.py	refs.position	1	`visibility_package_relative_import_fails_open.saw`, which cited DF-232n for two
+tools/check_citations.py	refs.position	1	days after DF-232n closed.
+tools/check_citations.py	refs.position	1	for the reason it names (DF-248c face 2). That needs the RUN's character, which
+tools/check_citations.py	refs.position	2	part: DF-218w narrowed to one shape, DF-248b's window half landed while its
+tools/check_citations.py	refs.position	1	shape of gap DF-248c is about in the first place.
+tools/check_citations.py	refs.position	1	the half that would have caught DF-232n.
+tools/check_citations.py	refs.position	1	which is not a status about DF-239b at all.
+tools/freestanding_runner.py	refs.position	1	it leaves undefined is a stray (SL-948). support.c still defines the memory
+tools/freestanding_runner.py	refs.position	1	pin becomes a RUN case with SL-955's one final link per image.
+tools/gmgate.py	refs.position	1	Stage 0 refuses `try! Thread.spawn` at parse (SL-765 Q1 (b)), so no
+tools/signal_hook_shim.py	refs.count	1	Design 272 unit 3 / SL-228 review r3. Two of the pins have to PAUSE A REAL
+tools/signal_hook_shim.py	refs.position	2	Design 272 unit 3 / SL-228 review r3. Two of the pins have to PAUSE A REAL
+tools/sl350_ir_measure.py	refs.position	1	Read-only SL-350 LLVM-IR census, comparison, and structural proof utility.
+tools/test_linux.py	history	1	limactl first on a PATH that holds no real one; no VM is touched. The retired
+tools/test_toolchain.py	refs.count	1	because design 238 unit 6's negative tests read exactly those words: a
+tools/test_toolchain.py	refs.position	1	because design 238 unit 6's negative tests read exactly those words: a
+tools/toolchain.py	date	1	RESOLUTION ORDER (design 238 D-b, ruled Aug 19): explicit intent first, then
+tools/toolchain.py	date	1	The upstream this resolver fetches from. Public over HTTPS (user, Aug 19), so
+tools/toolchain.py	history	1	used to compute off a `REPO_ROOT` are calls into here).
+tools/toolchain.py	refs.count	1	RESOLUTION ORDER (design 238 D-b, ruled Aug 19): explicit intent first, then
+tools/toolchain.py	refs.position	1	(Design 238 D-b3 wrote this as `~/.cache/sawos/toolchain/`; the repo-neutral
+tools/toolchain.py	refs.position	1	(design 238 unit 3), because this call's whole job is deciding whether the
+tools/toolchain.py	refs.position	1	2. `sawc` and `blade` on `$PATH` — the developer fast path, which design 238
+tools/toolchain.py	refs.position	1	Design 238 unit 6 tests this text: a consumer with no toolchain must be
+tools/toolchain.py	refs.position	1	One table, so a package that moves — as `imgformat` just did, design 238
+tools/toolchain.py	refs.position	1	RESOLUTION ORDER (design 238 D-b, ruled Aug 19): explicit intent first, then
+tools/toolchain.py	refs.position	1	and the wording lives in one place — which is what design 238 unit 6's
+tools/toolchain.py	refs.position	1	llvmlite cannot change a consumer's pinned build (SL-539). The
+tools/toolchain.py	refs.position	1	sawlang artifact" is a position-quantified rule, and design 238 splits the SOS
+tools/toolchain.py	refs.position	1	two — accepted and documented, design 238 D-b2 option (b). The driver's

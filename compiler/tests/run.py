@@ -16,7 +16,9 @@ compiler source and its own fixtures in `subset/`; compares the std suspension
 table with `tools/std_suspension.txt`; holds the seed's fetch funnel to its
 cases against a local blob host (`seed/`); requires the driver's release
 number, what `--version` prints and the release tag to agree; holds each
-frozen directory to the tree `tools/frozen_trees.tsv` records; compares the
+frozen directory to the tree `tools/frozen_trees.tsv` records; holds every code
+comment to the mechanical comment rules against a baseline that may only shrink
+(`tools/commentlint.py`); compares the
 runtime ABI table compiled into sawc with `runtime/ABI.md` and the runtime's
 sources; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
@@ -77,6 +79,8 @@ sys.path.insert(0, os.path.join(HERE, "grammar"))
 sys.path.append(os.path.join(REPO, "tools"))
 
 import gate_jobs  # noqa: E402
+import commentlint  # noqa: E402
+import test_commentlint  # noqa: E402
 import build  # noqa: E402
 import patch_gate  # noqa: E402
 import comma_funnel  # noqa: E402
@@ -503,6 +507,12 @@ def run_frozen(run):
     run.count("frozen trees", len(rows))
 
 
+def run_comments(run):
+    """The comment lint's own cases, then the tree against its shrink-only baseline."""
+    _run_module(run, test_commentlint)
+    _run_module(run, commentlint)
+
+
 def run_runtime_table(run):
     """The runtime ABI table compiled into sawc against a fresh reading of
     runtime/ABI.md, and each host's runtime sources and shim against it."""
@@ -749,6 +759,7 @@ STEPS = (
     Step("seed", "always"),
     Step("version", "built"),
     Step("frozen", "always"),
+    Step("comments", "always"),
     Step("runtime_table", "after build"),
     Step("grammar_lint", "after build"),
     Step("recognizer", "after build"),
