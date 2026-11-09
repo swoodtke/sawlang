@@ -62,6 +62,8 @@ func main() {
     let width = 3; let height = 4
     print(width * height)       // prints: 12
     if width < height { print("portrait"); print("done") }
+    // prints: portrait
+    // prints: done
 }
 ```
 
@@ -1226,8 +1228,10 @@ past it is total.
 
 ```saw-body
 let quote = try! Scalar(value: 34)     // U+0022
-print(quote)                           // prints: "     — the CHARACTER
-print(quote.value())                   // prints: 34    — the code point
+// The character itself.
+print(quote)                           // prints: "
+// The code point.
+print(quote.value())                   // prints: 34
 
 match Scalar(value: 0xD800) {
     case Ok(s) -> print(s),
@@ -2029,7 +2033,10 @@ func main() {
     }
     print("after")
 }
-// prints: arm 1, deinit 1, deinit 2, after
+// prints: arm 1
+// prints: deinit 1
+// prints: deinit 2
+// prints: after
 ```
 
 The rest follows from treating what is left over as a binding:
@@ -6936,10 +6943,15 @@ func main() {
     if let (x, _) = pair(1, 2) {
         print("bound {}", x.id)
     }
-    // prints: bound 1, deinit 1, deinit 2
+    // prints: bound 1
+    // prints: deinit 1
+    // prints: deinit 2
     let (y, _) = (Res(id: 3), Res(id: 4))
     print("bound {}", y.id)
-    // prints: deinit 4, bound 3, then deinit 3 when main ends
+    // prints: deinit 4
+    // prints: bound 3
+    // deinit 3 prints when main ends.
+    // prints: deinit 3
 }
 ```
 
@@ -6990,11 +7002,14 @@ func main() {
     let warm = true
     let same = (warm && open(1).ready()) == open(2).ready()
     print("same {}", same)
-    // prints: deinit 1, deinit 2, same true
+    // prints: deinit 1
+    // prints: deinit 2
+    // prints: same true
     let cold = false
     let either = cold || open(3).ready()
     print("either {}", either)
-    // prints: deinit 3, either true
+    // prints: deinit 3
+    // prints: either true
 }
 ```
 
@@ -7031,11 +7046,15 @@ func main() {
         case _ -> open(1).size()
     } + open(2).size()
     print("total {}", total)
-    // prints: deinit 1, deinit 2, total 3
+    // prints: deinit 1
+    // prints: deinit 2
+    // prints: total 3
     let warm = true
     let sum = (if warm { open(3).size() } else { 0 }) + open(4).size()
     print("sum {}", sum)
-    // prints: deinit 3, deinit 4, sum 7
+    // prints: deinit 3
+    // prints: deinit 4
+    // prints: sum 7
 }
 ```
 
@@ -7929,7 +7948,7 @@ that site.
 ```saw-body
 let big = 1000
 
-let a = big as UInt8                    // panics: 1000 has no UInt8 value
+let a = big as UInt8                    // panics: cast to UInt8 out of range: 1000
 let b = UInt8.from(big)                 // None
 let c = UInt8.from(truncating: big)     // 232 — the low 8 bits, on purpose
 ```
@@ -8019,7 +8038,7 @@ there. There is no `from(truncating:)` for a Float.
 let f = 300.75
 
 let a = f as Int                // 300 — truncated toward zero
-let b = f as UInt8              // panics: 300 has no UInt8 value
+let b = f as UInt8              // panics: cast to UInt8 out of range: 300.75
 let c = UInt8.from(f)           // None
 let d = Int.from(-0.9)          // Some(0)
 
@@ -8655,7 +8674,8 @@ let b = Tag(id: 3)
 if a > b { print("gt") }
 // prints: gt
 // prints: drop 3
-// prints: drop 9      — two drops for two values, however many comparisons ran
+// Two drops for two values, however many comparisons ran.
+// prints: drop 9
 ```
 
 Two rules follow from the signature.

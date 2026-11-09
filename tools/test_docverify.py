@@ -97,6 +97,100 @@ class Shapes(unittest.TestCase):
         self.assertTrue(run("saw-body", "let x = 1\nprint(x)").ok)
 
 
+class OutputPins(unittest.TestCase):
+    def test_passing_body_with_two_line_pins(self):
+        r = run("saw-body", "let x = 6\nprint(x * 2)   // prints: 12\n"
+                '// prints: done\nprint("done")')
+        self.assertTrue(r.ok, r.detail)
+        self.assertTrue(r.ran)
+
+    def test_stdout_mismatch_fails_with_both_sides(self):
+        r = run("saw-body", "print(1 + 1)   // prints: 3")
+        self.assertFalse(r.ok)
+        self.assertIn("expected:\n    1: 3", r.detail)
+        self.assertIn("actual:\n    1: 2", r.detail)
+
+    def test_empty_line_pin(self):
+        r = run("saw-body", 'print("a")\nprint("")\nprint("b")\n'
+                "// prints: a\n// prints:\n// prints: b")
+        self.assertTrue(r.ok, r.detail)
+
+    def test_extra_output_fails(self):
+        r = run("saw-body", 'print("a")\nprint("b")\n// prints: a')
+        self.assertFalse(r.ok)
+
+    def test_panic_pin_passes(self):
+        r = run("saw-body", 'print("before")   // prints: before\n'
+                'panic("boom")   // panics: boom')
+        self.assertTrue(r.ok, r.detail)
+
+    def test_panic_pin_with_wrong_text_fails(self):
+        r = run("saw-body", 'panic("boom")   // panics: bang')
+        self.assertFalse(r.ok)
+        self.assertIn("stderr lacks 'bang'", r.detail)
+
+    def test_panic_pin_without_a_panic_fails(self):
+        r = run("saw-body", 'print("x")   // panics: boom')
+        self.assertFalse(r.ok)
+
+    def test_nonzero_exit_without_panic_pin_fails(self):
+        r = run("saw-body", 'print("x")   // prints: x\nassert(false)')
+        self.assertFalse(r.ok)
+        self.assertIn("exited with status", r.detail)
+
+    def test_saw_block_with_pins_needs_main(self):
+        r = run("saw", "func f() -> Int { 1 }   // prints: 1")
+        self.assertFalse(r.ok)
+        self.assertIn("no `func main`", r.detail)
+
+    def test_pin_in_a_fragment_is_ok_and_counted(self):
+        r = run("saw-fragment", "print(1)   // prints: 2")
+        self.assertTrue(r.ok, r.detail)
+        self.assertTrue(r.unrun)
+        self.assertFalse(r.ran)
+        self.assertFalse(run("saw-fragment", "print(1)").unrun)
+
+    def test_pin_in_a_pending_block_is_ok(self):
+        saved = check_citations.ISSUES_DIR
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "SL-1.md").write_text('---\n{"id":"SL-1","status":"open"}\n---\n')
+            check_citations.ISSUES_DIR = Path(d)
+            try:
+                r = run("saw-pending SL-1", MISMATCH + "\n// prints: 1")
+            finally:
+                check_citations.ISSUES_DIR = saved
+        self.assertTrue(r.ok, r.detail)
+
+    def test_pin_in_an_error_block_fails(self):
+        r = run("saw-error", "// error-rule: type.mismatch\n" + MISMATCH + "\n// prints: 1")
+        self.assertFalse(r.ok)
+        self.assertIn("cannot pin output", r.detail)
+
+    def test_malformed_spacing_fails(self):
+        for bad in ("//prints: 1", "// prints : 1", "// Prints: 1", "// prints:1", "//  prints: 1"):
+            r = run("saw-body", f"print(1)   {bad}")
+            self.assertFalse(r.ok, bad)
+            self.assertIn("is not a pin", r.detail)
+
+    def test_two_panic_pins_fail(self):
+        r = run("saw-body", 'panic("a")   // panics: a\n// panics: a')
+        self.assertFalse(r.ok)
+        self.assertIn("at most one", r.detail)
+
+    def test_unpinned_block_is_compiled_not_run(self):
+        r = run("saw-body", "assert(false)")
+        self.assertTrue(r.ok, r.detail)
+        self.assertFalse(r.ran)
+
+    def test_pin_parse(self):
+        self.assertEqual(docverify.parse_pins("a // prints: x  \n// prints:\n// panics: p"),
+                         (["x", ""], "p", []))
+
+    def test_compare_stdout(self):
+        self.assertIsNone(docverify.compare_stdout(["a", ""], "a\n\n"))
+        self.assertIn("1: a", docverify.compare_stdout(["a"], ""))
+
+
 class Pending(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

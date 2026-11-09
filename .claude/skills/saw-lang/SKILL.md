@@ -5149,8 +5149,10 @@ construct in the owner and lend `&driver` down.
   failure left is the allocator.
   ```saw-body
   let quote = try! Scalar(value: 34)
-  print(quote)                      // prints: "    — Printable is the CHARACTER
-  print(quote.value())              // prints: 34   — the total read back
+  // Printable is the character itself.
+  print(quote)                      // prints: "
+  // The total reads back.
+  print(quote.value())              // prints: 34
 
   var out = StringBuilder()
   for ch in "héllo".scalars() {

@@ -641,6 +641,7 @@ CLAUDE.md, LANGUAGE_SPEC.md and the saw-lang skill with `sawc coro --check`,
 against what its fence claims:
 
 - `saw` and `saw-body` must compile (`saw-body` is wrapped in a `main`).
+- A `saw` or `saw-body` block with output pins is also built and run: each `// prints: TEXT` is one line of its stdout, in source order, and a `// panics: TEXT` requires the run to end in a panic whose message contains TEXT. A pin in a `saw-fragment` is not run but is counted in the summary's `unrun pins` column.
 - `saw-error` must be refused with the rule its first line pins
   (`// error-rule: RULE`, plus an optional `// error-contains: TEXT`), and with
   no missing-name or missing-import error beside it.

@@ -813,7 +813,12 @@ The standard library lives in `std/` and includes:
   for ch in "héllo".scalars() {
       print("{} {}", ch, ch.value())
   }
-  // prints: h 104 / é 233 / l 108 / l 108 / o 111, one per line
+  // One line per scalar.
+  // prints: h 104
+  // prints: é 233
+  // prints: l 108
+  // prints: l 108
+  // prints: o 111
   ```
 
   There is no grapheme type. Segmenting a combining accent or a flag emoji

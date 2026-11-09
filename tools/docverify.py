@@ -46,6 +46,27 @@ THE MARKERS:
                       is printed on every run, so erosion toward "everything
                       is a fragment" is loud.
 
+OUTPUT PINS. A `saw` or `saw-body` block may pin what it prints, and then it is
+built and run, not only compiled:
+
+    // prints: TEXT    one line of expected stdout, trailing on a code line or
+                       on a comment line of its own; TEXT is the rest of the
+                       line after one space, trailing whitespace stripped, and
+                       a bare `// prints:` pins an empty line. The pins in
+                       source order, one `\n` each, are the whole of stdout.
+    // panics: TEXT    the run must end in a panic, which aborts the process
+                       (SIGABRT) after writing `panic at FILE:LINE: ...` to
+                       stderr; stderr must contain TEXT. At most one per block.
+                       Stdout must still equal the line pins' output.
+
+A block with neither pin is only compiled. A pinned run has a 30-second limit,
+empty stdin and the scratch directory as its cwd; without a panic pin any
+non-zero exit fails it. A pin in a `saw-pending` block is allowed and runs
+once the block is promoted; a pin in a `saw-fragment` is not run but is counted
+(`unrun pins`). LANE ERRORS: a `saw` block with pins and no `func main`; a pin
+in a `saw-error` block; a `prints`/`panics` comment written any other way than
+the exact forms above.
+
 An untagged fence holding Saw code is a LANE ERROR: a block nobody classified
 is a block nobody checked. Untagged fences holding shell transcripts, output or
 grammar sketches are ignored; tag one `text` if the Saw heuristic trips on it.
@@ -72,6 +93,7 @@ import argparse
 import concurrent.futures
 import os
 import re
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -119,6 +141,15 @@ SAW_HINT_RE = re.compile(
 DIAG_RE = re.compile(r"^(?P<kind>ERROR|INVARIANT)\t(?P<rule>[^\t]*)\t(?P<loc>[^\t]*)\t"
                      r"(?P<msg>[^\t]*)(?:\t(?P<help>.*))?$")
 LINE_RE = re.compile(r"(?:^|:)(?P<line>\d+):\d+$")
+
+# Output pins. ANY_PIN_RE finds every spelling a reader could mean as a pin, so
+# one that EXACT_PIN_RE rejects is reported instead of silently ignored.
+ANY_PIN_RE = re.compile(r"//\s*(?P<kind>prints?|panics?)\s*:", re.I)
+EXACT_PIN_RE = re.compile(r"// (?P<kind>prints|panics):(?: (?P<text>.*))?$")
+RUN_TIMEOUT = 30
+# A Saw panic aborts the process, which Python reports as the negated signal.
+PANIC_STATUS = -int(signal.SIGABRT)
+MAIN_RE = re.compile(r"^\s*(\w+\s+)*func\s+main\s*\(", re.M)
 
 # What opens a top-level declaration, for the `saw-body` hoist.
 DECL_RE = re.compile(
@@ -187,11 +218,15 @@ class Result:
     ok: bool
     detail: str = ""
     shape: str = "as-is"
+    ran: bool = False
+    unrun: bool = False  # a fragment carrying a pin
 
 
 @dataclass
 class SourceCounts:
+    unrun: int = 0  # fragments carrying pins
     compiled: int = 0
+    run: int = 0  # the pinned subset of `compiled`
     refused: int = 0
     pending: int = 0
     exempt: int = 0
@@ -286,6 +321,77 @@ def wrap_body(body: str) -> str:
     """The `saw-body` shape: declarations hoisted, statements inside a `main`."""
     decls, stmts = split_declarations(body)
     return "\n".join(decls + ["func main() {"] + stmts + ["}"]) + "\n"
+
+
+def parse_pins(body: str) -> tuple[list[str], str | None, list[str]]:
+    """A block's output pins: (line pins in source order, the panic pin, lane errors).
+
+    Each pin comment is searched for anywhere on a line, so a trailing comment
+    and a comment line of its own read alike.
+    """
+    prints: list[str] = []
+    panics: list[str] = []
+    errors: list[str] = []
+    for n, line in enumerate(body.splitlines(), start=1):
+        m = ANY_PIN_RE.search(line)
+        if not m:
+            continue
+        exact = EXACT_PIN_RE.match(line, m.start())
+        if not exact:
+            errors.append(f"line {n}: `{line.strip()}` is not a pin; the forms are "
+                          "`// prints: TEXT` and `// panics: TEXT`, spelled exactly")
+            continue
+        text = (exact.group("text") or "").rstrip()
+        (prints if exact.group("kind") == "prints" else panics).append(text)
+    if len(panics) > 1:
+        errors.append("a block holds at most one `// panics:` pin")
+    return prints, (panics[0] if panics else None), errors
+
+
+def compare_stdout(expected: list[str], actual: str) -> str | None:
+    """None when `actual` is the pinned lines, else both sides as numbered lines."""
+    want = "".join(t + "\n" for t in expected)
+    if actual == want:
+        return None
+
+    def numbered(s: str) -> str:
+        lines = s.split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        return "\n".join(f"    {i}: {ln}" for i, ln in enumerate(lines, start=1)) or "    (empty)"
+
+    return f"stdout differs.\n  expected:\n{numbered(want)}\n  actual:\n{numbered(actual)}"
+
+
+def run_pinned(text: str, stem: str, expected: list[str], panic: str | None) -> str | None:
+    """Builds and runs `text`; None when it did what the pins say, else why not."""
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    src = SCRATCH / f"{stem}.saw"
+    exe = SCRATCH / stem
+    src.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+    exe.unlink(missing_ok=True)
+    try:
+        code, out = run_sawc(["build", str(src.relative_to(REPO)), "-o", str(exe.relative_to(REPO))])
+    except subprocess.TimeoutExpired:
+        return "does not compile: sawc timed out after 300s"
+    if code != 0 or not exe.exists():
+        return "does not compile:\n" + indent_out(out)
+    try:
+        proc = subprocess.run([str(exe)], cwd=SCRATCH, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return f"the run did not finish in {RUN_TIMEOUT}s"
+    if panic is None and proc.returncode != 0:
+        return (f"the run exited with status {proc.returncode}, and no `// panics:` pin "
+                "allows that:\n" + indent_out(proc.stderr))
+    if panic is not None:
+        if proc.returncode != PANIC_STATUS:
+            return (f"`// panics: {panic}` pinned, but the run exited with status "
+                    f"{proc.returncode}, not a panic's {PANIC_STATUS}")
+        if panic not in proc.stderr:
+            return (f"the run panicked, but stderr lacks {panic!r}:\n"
+                    + indent_out(proc.stderr))
+    return compare_stdout(expected, proc.stdout)
 
 
 def parse_diagnostics(output: str) -> list[Diagnostic]:
@@ -391,11 +497,26 @@ def check(block: Block, marker: str) -> Result:
     if marker == "MALFORMED-PENDING":
         return Result(block, marker, False,
                       f"`{block.info}`: the marker is `saw-pending SL-NNN`, one issue id")
+    prints, panic, pin_errors = parse_pins(block.body)
+    pinned = bool(prints) or panic is not None
+    if marker == "saw-error" and pinned:
+        pin_errors = ["a `saw-error` block cannot pin output; only `saw` and "
+                      "`saw-body` blocks are run"] + pin_errors
+    if marker not in ("saw", "saw-body") and pin_errors:
+        return Result(block, marker, False, "\n".join(pin_errors))
     if marker == "saw-fragment":
-        return Result(block, marker, True)
+        return Result(block, marker, True, unrun=pinned)
 
     if marker in ("saw", "saw-body"):
+        if pin_errors:
+            return Result(block, marker, False, "\n".join(pin_errors))
+        if pinned and marker == "saw" and not MAIN_RE.search(block.body):
+            return Result(block, marker, False,
+                          "a `saw` block that pins output declares no `func main`")
         text = block.body if marker == "saw" else wrap_body(block.body)
+        if pinned:
+            problem = run_pinned(text, stem, prints, panic)
+            return Result(block, marker, problem is None, problem or "", ran=True)
         out = compile_source(text, stem)
         if out.crashed:
             return Result(block, marker, False, "the compiler crashed:\n" + indent_out(out.output))
@@ -527,31 +648,37 @@ def main() -> int:
         c = counts[r.block.source]
         if r.marker == "saw-fragment":
             c.exempt += 1
+            c.unrun += r.unrun
         elif r.marker == "saw-error":
             c.refused += 1
         elif r.marker == "saw-pending":
             c.pending += 1
         elif r.marker in ("saw", "saw-body"):
             c.compiled += 1
+            c.run += r.ran
         if not r.ok:
             c.failures.append(r)
         if args.verbose:
             print(f"{'ok  ' if r.ok else 'FAIL'} {r.block.where:<28} {r.marker}")
 
     print()
-    print(f"{'source':<36} {'compiled':>9} {'refused':>8} {'pending':>8} {'exempt':>7} {'exempt %':>9}")
+    print(f"{'source':<36} {'compiled':>9} {'run':>5} {'refused':>8} {'pending':>8} "
+          f"{'exempt':>7} {'exempt %':>9} {'unrun pins':>11}")
     total = SourceCounts()
     for source in sources:
         c = counts[source]
         pct = (100.0 * c.exempt / c.total) if c.total else 0.0
-        print(f"{source:<36} {c.compiled:>9} {c.refused:>8} {c.pending:>8} {c.exempt:>7} {pct:>8.1f}%")
+        print(f"{source:<36} {c.compiled:>9} {c.run:>5} {c.refused:>8} {c.pending:>8} "
+              f"{c.exempt:>7} {pct:>8.1f}% {c.unrun:>11}")
+        total.unrun += c.unrun
         total.compiled += c.compiled
+        total.run += c.run
         total.refused += c.refused
         total.pending += c.pending
         total.exempt += c.exempt
     tpct = (100.0 * total.exempt / total.total) if total.total else 0.0
-    print(f"{'TOTAL':<36} {total.compiled:>9} {total.refused:>8} {total.pending:>8} "
-          f"{total.exempt:>7} {tpct:>8.1f}%")
+    print(f"{'TOTAL':<36} {total.compiled:>9} {total.run:>5} {total.refused:>8} "
+          f"{total.pending:>8} {total.exempt:>7} {tpct:>8.1f}% {total.unrun:>11}")
 
     failures = [r for r in results if not r.ok]
     if failures:
@@ -562,8 +689,8 @@ def main() -> int:
         print(f"\ndocverify: {len(failures)} block(s) failed of {len(results)}")
         return 1
 
-    print(f"\ndocverify: {len(results)} blocks OK ({total.compiled} compiled, "
-          f"{total.refused} refused, {total.pending} pending, {total.exempt} exempt)")
+    print(f"\ndocverify: {len(results)} blocks OK ({total.compiled} compiled, {total.run} run, "
+          f"{total.refused} refused, {total.pending} pending, {total.exempt} exempt, {total.unrun} unrun pins)")
     return 0
 
 
