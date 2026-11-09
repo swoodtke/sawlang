@@ -8,7 +8,7 @@ This specification mixes shipped behavior with designed-but-unbuilt features.
 Each major section is tagged so it can be read as an oracle for the current
 compiler:
 
-- **Status: implemented** — built and covered by the test suite (`make test`).
+- **Status: implemented** — built and covered by the test suite.
   Code examples use real, currently-compiling syntax.
 - **Status: partially implemented** — the core is built; specific sub-features
   called out inline are not yet. Examples that reach into unbuilt stdlib or
@@ -19,8 +19,10 @@ compiler:
   replacement is named.
 
 Where an example is *illustrative*, it shows intended shape, not guaranteed
-current behavior. When the implementation and this document disagree, the
-implementation wins and this document is the bug.
+current behavior. This document is authoritative for what Saw means; where
+`sawc` disagrees with it, the disagreement is tracked as an issue against
+whichever side is wrong, and an example of something `sawc` does not build yet
+is marked pending with that issue.
 
 ## 1. Design Philosophy
 
@@ -43,13 +45,9 @@ implementation wins and this document is the bug.
 
 ## 2. Basic Syntax
 
-**Status: implemented**, except where a construct is marked *(illustrative)*
-below (the array-literal `.map` shorthand shown below is planned; default
-parameter values ARE implemented, design 53). Infinite loops are written
-`while { }` — there is no `loop` keyword (it was dropped as redundant). Note the
-stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
-(see [Generics](#generics)); the illustrative example below is about method
-chaining directly on array literals, which is separate and still planned.
+**Status: implemented**, except the shorthand closure parameter `$0` (SL-828)
+and the valued `break` (SL-674), whose examples below are marked pending.
+Infinite loops are written `while { }`; there is no `loop` keyword.
 
 ### Statement Boundaries
 
@@ -110,7 +108,7 @@ block, and a closure body.
 
 A declaration list takes a newline per unit and is never joined by a `;` at
 all, so two units of one on a line report that each takes its own line instead.
-There are four: module scope, an inline `module m { … }` body, an extension's
+There are five: module scope, an inline `module m { … }` body, an extension's
 members, a trait's requirements, and an `extern "C" { … }` block.
 
 A list whose separator is a comma rather than a newline is unaffected, since a
@@ -141,14 +139,17 @@ if pending.len() == 0 {                     // fully broken
 Half-broken is what the rule exists to catch — an opening line that carries
 the first statement while the last one shares the closing brace's line:
 
-```saw-fragment
+```saw-body
+func help() { print("usage") }
+let arg = "--help"
 if arg == "--help" { help()
     return }
 ```
 
-The grammar accepts that (the newline is a legal separator) and the style rule
-does not. Prefer the broken form as soon as a body carries a `return`,
-`break` or `continue` beside anything else.
+The grammar accepts that (the newline is a legal separator), but the style
+recommendation is to write the body on its own lines instead. Prefer the broken
+form as soon as a body carries a `return`, `break` or `continue` beside
+anything else.
 
 Inside brackets a line break carries no meaning, so a list that does not fit on
 one line wraps. This holds between `(` and its matching `)`, between `[` and
@@ -223,7 +224,9 @@ func main() {
 line breaks inside one keep ending statements, including when the braces sit
 inside a wrapped argument list:
 
-```saw-fragment
+```saw-body
+func apply(values: Vector<Int>, f: (Int) -> Int) -> Int { f(values.get(0)!) }
+let v: Vector<Int> = [4]
 let doubled = apply(
     values: v.copy(),
     f: { n in
@@ -231,6 +234,7 @@ let doubled = apply(
         scaled
     },
 )
+print(doubled)                  // prints: 8
 ```
 
 An import's symbol list is the one brace pair that does wrap. It is a delimited
@@ -249,9 +253,11 @@ call never runs on into the line below it. A bracket that is never closed is
 reported at the opener rather than wherever the parse finally gave up:
 
 ```
-error: Parse error at 14:18: unclosed `(` — no matching `)` before the end of
-the file (a line break inside brackets does not close them)
+ERROR	syntax.lex.unclosed-bracket	14:18	this bracket is never closed
 ```
+
+A line break inside brackets does not close them, so the parse does not stop at
+the first line break.
 
 Suppression inside `<...>` applies only where the parser has committed to the
 generic reading — a type annotation, a generic parameter list on a declaration,
@@ -307,7 +313,12 @@ if var _ = reading {
 }
 ```
 
-```saw-fragment
+```saw-body
+func compute() -> Int { 3 }
+struct Handle { id: Int }
+extension Handle: NoCopy {}
+func openFile() -> Handle { Handle(id: 1) }
+
 let _ = compute()      // run compute() for its effect; drop the result now
 let _ = openFile()     // a NoCopy result is deinit'd at end of this statement
 ```
@@ -374,7 +385,9 @@ if branch {
 
 ### Functions
 
-```saw-fragment
+```saw-body
+let numbers: Vector<Int> = [1, 2, 3]
+
 // Basic function
 func add(a: Int, b: Int) -> Int {
     a + b  // implicit return for last expression
@@ -391,8 +404,9 @@ func divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
 func replace<T>(a: &var T, b: &var T) {
     a = b
 }
-// A true in-place swap is not writable this way — moving out of a reference is
-// rejected, so there is no way to park the old value. Use `Vector.swap(i, j)`.
+// A swap of two move-only values is not writable this way: moving out of a
+// reference is rejected, so there is no way to park the old value. A copyable
+// value swaps through a temporary; for elements, use `Vector.swap(i, j)`.
 
 // Functions with default parameter values (implemented, design 53)
 func greet(name: String, greeting: String = "Hello") -> String {
@@ -401,10 +415,19 @@ func greet(name: String, greeting: String = "Hello") -> String {
 greet("Sam")             // greeting defaults to "Hello"
 greet("Sam", "Hi")       // explicit
 
-// Trailing closure syntax (implemented — `numbers` is a Vector<Int>;
+// Trailing closure syntax (`numbers` is a Vector<Int>;
 // Vector.map infers U from the closure's return type, design 93)
 let doubled = numbers.map { x in x * 2 }
-let tripled = numbers.map { $0 * 3 }  // shorthand parameter form
+```
+
+The shorthand parameter form, `{ $0 * 3 }`, is not built yet:
+
+```saw-pending SL-828
+func main() {
+    let numbers: Vector<Int> = [1, 2, 3]
+    let tripled = try! numbers.map { $0 * 3 }
+    print(tripled.get(2)!)      // prints: 9
+}
 ```
 
 **Argument Evaluation Order:**
@@ -423,11 +446,13 @@ lends `v[0]` (see [Lends and their windows](#lends-and-their-windows)).
 ```saw-body
 func f(snapshot: Int, r: &var Int) {
     r += 100
-    print(snapshot)   // prints the value of the second arg's target BEFORE the call
+    // prints the value of the second arg's target BEFORE the call
+    print(snapshot)   // prints: 1
 }
 
 var b = 1
-f(b, &var b)          // snapshot copies b (== 1) at call setup; then b becomes 101
+// snapshot copies b (== 1) at call setup; then b becomes 101
+f(b, &var b)
 ```
 
 The one deliberate exception is **optional chaining** (`designs/111`, see
@@ -494,8 +519,8 @@ Tie-breaks apply in order, then the result must be unique:
    OVERLOADED and no concrete candidate matches, argument-type inference
    (design 93 + 105) is run PER generic candidate: if EXACTLY ONE generic
    overload both solves its type arguments and type-matches, it is picked; two or
-   more that solve are a clean ambiguity error listing the candidates and their
-   solved type args (`give explicit type arguments or labels`). A concrete
+   more that solve are a clean ambiguity error listing the candidates (`write
+   labels or type arguments that pick one`). A concrete
    candidate that matches always wins over any generic one, so an inferred
    overload never changes the meaning of a call that already resolved.
 4. **A bare integer literal prefers `Int`** — a bare integer literal prefers
@@ -540,12 +565,11 @@ names (`std.json` and `std.cbor` each declare their half). Which one a call mean
   bare into it (`import m.*`, `import m.{f}`). When two modules bring the same
   name, the merged set is one overload set and resolves by signature.
 - Two candidates that no rule separates are the ordinary call-site ambiguity.
-  Their signatures print the same text, so the hint names the module each comes
-  from:
+  Their signatures print the same text, so the message names the module each
+  comes from:
 
 ```
-error: ambiguous call to `chime`: multiple overloads match the argument types (Int)
-  hint: matching candidates: chime(n: Int) [modules.tie_a]; chime(n: Int) [modules.tie_b]
+ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: chime(n: Int) [modules.tie_a]; chime(n: Int) [modules.tie_b]
 ```
 
 An import binds the whole overload set a name stands for, not its first
@@ -725,9 +749,9 @@ A handful of functions are compiler-known (no import needed):
 
   `print` stays infallible in type, and a write that fails panics:
   `panic at FILE:LINE: failed printing to stdout: write failed (KIND)`, where
-  `KIND` is the `SystemError` description, with the platform's error number
-  for a failure no kind names (`write failed (other error, errno 9)` for a
-  closed standard output). A full disk and an I/O error panic the same way. A
+  `KIND` is the `SystemError` description (`invalid descriptor` for a closed
+  standard output), with the platform's error number for a failure no kind
+  names (`other error, errno N`). A full disk and an I/O error panic the same way. A
   program that must survive a lost standard output writes through a std handle
   that returns a `Result`. Standard output in non-blocking mode is waited on,
   not reported. A pipe whose reader has gone is different: the write raises
@@ -795,15 +819,13 @@ func checked(x: Int) -> Int {
 
 func main() {
     assert(1 + 1 == 2, "arithmetic is broken")   // no-op
-    print(checked(21))                            // 42
+    print(checked(21))                            // prints: 42
 }
 ```
 
 ### Control Flow
 
-```saw-error
-// error-rule: match.duplicate
-// error-contains: duplicate match arm: `1` is already matched
+```saw-body
 // The names the tour reads.
 enum Direction { case North, case South, case West }
 let a = 3
@@ -811,42 +833,103 @@ let b = 4
 let direction = Direction.West
 let value = 7
 let pair: (Int?, Int) = (2, 2)
-let code = 1
 let vec: Vector<Int> = [10, 20]
 let condition = false
-let found = true
 
 // If expressions (not statements)
 let max = if a > b { a } else { b }
+print(max)                  // prints: 4
 
 // Pattern matching (core feature). Arms are `case <pattern> -> <expr>`,
 // comma-separated. Matches must be exhaustive (cover every enum variant, or
 // use `_`).
-match direction {
+let way = match direction {
     case North -> "up",
     case South -> "down",
     case _ -> "sideways"
 }
+print(way)                  // prints: sideways
 
 // Literal, range, guard, and tuple patterns (design 63 — implemented). A match
 // on a value/tuple scrutinee tests arms in order:
-match value {
+let size = match value {
     case 0 -> "zero",              // integer / Bool / String literal patterns
     case 1..=9 -> "single digit",  // range patterns (`1..9` and `1..=9`)
-    case n if n < 0 -> "negative", // guard: runs after binding, falls through
+    case k if k < 0 -> "negative", // guard: runs after binding, falls through
     case _ -> "big",               // fallback (see exhaustiveness below)
 }
+print(size)                 // prints: single digit
+
 // Tuple patterns destructure and nest with the other forms:
-match pair {
+let place = match pair {
     case (Some(0), 0) -> "origin",
     case (x, 0) -> "on x axis",
-    case (Some(v), n) if v == n -> "match",   // nested payload / Optional pattern
+    case (Some(p), q) if p == q -> "match",   // nested payload / Optional pattern
     case (x, y) -> "general",                 // irrefutable arm = fallback
 }
+print(place)                // prints: match
+
 // Exhaustiveness: literal / range / guarded arms never prove it on an open type
 // — a wildcard or bare-binding (or irrefutable tuple) arm is required. EXCEPTION:
 // `true` + `false` arms exhaust Bool. A closed integer range-cover is not
 // computed (v1 — always add a fallback).
+
+// For loops over ranges. The range is exclusive: it prints 0 1 2 3 4.
+for i in 0..5 {
+    print(i)
+    // prints: 0
+    // prints: 1
+    // prints: 2
+    // prints: 3
+    // prints: 4
+}
+
+// Inclusive range `..=` (design 53): a dedicated Int.max-safe iterator, NOT a
+// `0..(5+1)` desugar — `0..=Int.max` yields Int.max and stops without phantom
+// overflow. Empty when start > end. This one prints 0 1 2 3 4 5.
+for i in 0..=5 {
+    print(i)
+    // prints: 0
+    // prints: 1
+    // prints: 2
+    // prints: 3
+    // prints: 4
+    // prints: 5
+}
+
+// enumerated() yields (index, element) pairs; each_indexed is its closure twin.
+for entry in vec.enumerated() {
+    print(entry.0)          // the index
+    print(entry.1)          // the element
+    // prints: 0
+    // prints: 10
+    // prints: 1
+    // prints: 20
+}
+vec.each_indexed { i, e in print(i) }
+// prints: 0
+// prints: 1
+
+// While loops (conditional and infinite `while { }`)
+while condition {
+    // ...
+}
+
+// Guard binds for the rest of the scope; the `else` must exit
+func process(input: String?) {
+    guard let text = input else {
+        return
+    }
+    // text is now unwrapped and available
+}
+```
+
+An arm that exactly duplicates an earlier one is a compile error:
+
+```saw-error
+// error-rule: match.duplicate
+// error-contains: duplicate match arm: `1` is already matched
+let code = 1
 
 // Duplicate arms: an arm that EXACTLY duplicates an earlier one is a compile
 // error, reported at the second and naming the first's line, because no input
@@ -861,45 +944,21 @@ match code {
     case 1 -> "one again",   // error: duplicate match arm: `1` is already
     case _ -> "other"        //   matched by the arm on the line above
 }
+```
 
-// For loops over ranges
-for i in 0..5 {
-    print(i)        // 0 1 2 3 4 (exclusive)
-}
+An infinite loop is an expression whose value is the `break` value (`while { }`
+is the idiom; there is no `loop` keyword). The valued `break` is not built in
+`sawc` yet:
 
-// Inclusive range `..=` (design 53): a dedicated Int.max-safe iterator, NOT a
-// `0..(5+1)` desugar — `0..=Int.max` yields Int.max and stops without phantom
-// overflow. Empty when start > end.
-for i in 0..=5 {
-    print(i)        // 0 1 2 3 4 5 (inclusive)
-}
-
-// enumerated() yields (index, element) pairs; each_indexed is its closure twin.
-for entry in vec.enumerated() {
-    print(entry.0)  // index
-    print(entry.1)  // element
-}
-vec.each_indexed { i, x in print(i) }
-
-// While loops (conditional and infinite `while { }`)
-while condition {
-    // ...
-}
-
-// Infinite loop as an expression with a break value (`while { }` is the idiom;
-// there is no `loop` keyword).
-let result = while {
-    if found {
-        break value
+```saw-pending SL-674
+func main() {
+    let found = true
+    let result = while {
+        if found {
+            break 42
+        }
     }
-}
-
-// Guard binds for the rest of the scope; the `else` must exit
-func process(input: String?) {
-    guard let value = input else {
-        return
-    }
-    // value is now unwrapped and available
+    print(result)           // prints: 42
 }
 ```
 
@@ -937,7 +996,8 @@ Two boundaries decide whether a loop diverges.
 
 **A `break` anywhere in the loop's own body cancels it**, valued or not, and
 every break form keeps the typing it already had: `break v` out of an infinite
-loop yields `T`, out of a conditional loop `T?`. The break belongs to the
+loop yields `T`, out of a conditional loop `T?` (not built in `sawc` yet,
+SL-674). The break belongs to the
 innermost loop enclosing it, so one inside a NESTED loop leaves the outer
 conditionless loop diverging. A `return` is not a break — a loop whose only
 exits are returns still diverges, because nothing continues past the loop
@@ -964,7 +1024,11 @@ func spin() -> Never {
 loop on the first `None`. It completes the `if let` / `guard let` family, and
 its subject is the drain: a source that yields `T?` until it is empty.
 
-```saw-fragment
+```saw-body
+struct Job { id: Int }
+func load_queue() -> Vector<Job> { [Job(id: 1)] }
+func run(job: Job) { print(job.id) }
+
 var pending: Vector<Job> = load_queue()
 while let job = pending.pop() {
     run(job)
