@@ -342,10 +342,13 @@ lend of §7.
   The inner borrow opens for as long as the outer lend is open, nested inside
   it, and closes in reverse order.
 - **Only the `lend` operand is exempt.** A place reached some other way is an
-  ordinary borrow and is written as one (codex t16). A plain `self.slots[b]` is
-  a getitem: refused for a NoCopy slot, an inferred Copy requirement for a generic slot (LANGUAGE_SPEC, design 219: an indexed place is always a duplicate), and for a Copy slot it
-  matches a copy, not the map's storage. So Map's `find` opens a borrow of the
-  slot, matches the bound place, and lends its payload:
+  ordinary borrow and is written as one (codex t16). A plain `self.slots[b]`
+  read as a value is a getitem: refused for a NoCopy slot, an inferred Copy
+  requirement for a generic slot (LANGUAGE_SPEC, design 219: an indexed place
+  is always a duplicate), and a copy for a Copy slot. A `match` on it is not a
+  value read: it lends the slot, as every binding head does, at every copy tier
+  (user ruling, Nov 9, SL-1022). Map's `find` names that borrow, matches the
+  bound place, and lends its payload:
   ```saw
   borrow var slot = self.slots[b] {
       match slot {
