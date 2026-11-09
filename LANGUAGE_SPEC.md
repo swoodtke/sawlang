@@ -2486,15 +2486,15 @@ user?.visits += 1                           // and its compound spelling
 let value = maybe ?? 0
 
 // Force unwrap (panics with "force unwrap of None" if the value is None)
-let value = maybe!
+let forced = maybe!
 
 // If-let binding
-if let value = maybe {
-    print("Got {value}")
+if let got = maybe {
+    print("Got {got}")
 }
 
 // Guard-let for early exit
-guard let value = maybe else {
+guard let present = maybe else {
     return
 }
 ```
@@ -2511,23 +2511,28 @@ layers.
 the type grammar counts a `??` as two optional layers, and expression position
 keeps it as the operator. The two never collide, because a type is otherwise
 followed by `=`, `,`, `)`, `>`, `{` or a newline — with one exception. The
-target of an `as` cast *is* followed by an expression continuation, so there the
-operator wins and `x as Int? ?? y` is a cast to `Int?` and then a coalesce.
-Types nested inside a cast target (`x as Vector<Int??>`) are unaffected.
+target of an `as` cast *is* followed by an expression continuation, so a cast
+target takes at most one `?` (`syntax.rule.cast-target-question`):
+`x as Int? ?? y` is refused. Coalesce first, then convert, as
+`(x ?? y) as Int`. Types nested inside a cast target (`x as Vector<Int??>`)
+are unaffected.
 
 **`??` peels exactly one layer, and its default owes what is left.** On a
 `Vector<Int?>`, `v.get(9)` is an `Int??` and `v.get(9) ?? v.get(0)` is a type
 error: the default is another `Int??` where an `Int?` is owed. The error names
-both types. A bare `None` on the right adopts the payload type, so
-`v.get(9) ?? None` is the usual spelling; otherwise peel the default yourself.
-The rule refuses only a default DEEPER than the payload — everything the
-ordinary one-layer coalesce does is untouched.
+both types (not enforced by `sawc` yet, SL-1017). A bare `None` on the right
+adopts the payload type, so `v.get(9) ?? None` is the usual spelling;
+otherwise peel the default yourself. The rule refuses only a default DEEPER
+than the payload — everything the ordinary one-layer coalesce does is
+untouched.
 
 **At a declared `-> T?`, a bare `None` ARM of the tail's value branch is the
 OUTER absence, and a VALUE arm owes exactly one wrap.** The two readings only
 come apart once `T` is itself an optional, and the reading is per ARM:
 
-```saw-fragment
+```saw
+enum Slotted { case Filled(v: Int?), case Blank }
+
 func slot(s: Slotted) -> Int?? {
     match s {
         case Filled(v) -> v,      // an `Int?` payload: one wrap, `Some(v)`
@@ -2580,10 +2585,11 @@ is refused, as `o?.pair.0` and `(o?.j).v` are; bind the payload first, as
 A `consumes` method called through a hop takes the payload of a temporary
 (`make()?.finish()`), but never moves one out of a place: `p?.finish()` on a
 binding is refused, where `p!` would need `move`. Take it first, as
-`p.take()?.finish()`, or bind it with `if let x = move p { x.finish() }`. A
-chain whose final method returns a `Result`, written as a statement, discards
-a `Result?`, and is refused as a discarded `Result` is (see
-[Discarding a Result](#discarding-a-result)).
+`p.take()?.finish()`, or bind it with
+`if let x = move p { (move x).finish() }`, since a `consumes` call on a
+binding spells its transfer at the call. A chain whose final method returns a
+`Result`, written as a statement, discards a `Result?`, and is refused as a
+discarded `Result` is (see [Discarding a Result](#discarding-a-result)).
 
 **Chained assignment** `x?.y = v` (and longer chains, `x?.a.b?.c = v`) writes the
 RHS through the chain into the payload FIELD **in place** iff every optional hop
@@ -2613,7 +2619,10 @@ runs on both paths as any RHS does.
 The head may be a **place**, a conditional lend (see
 [Lends and their windows](#lends-and-their-windows)):
 
-```saw-fragment
+```saw-body
+struct Cell { value: Int }
+var m = Map<String, Cell>()
+var v = Vector<Cell>()
 m.find(&"x")?.value = 42     // a map's conditional lend
 v.find(0)?.value = 8         // a vector's
 ```
@@ -2695,7 +2704,11 @@ cannot — above all a struct field, which is the move-out that no-partial-moves
 otherwise forbids. It needs a mutable place and is exclusivity-checked like any
 other `&var self` method. The checked spelling is `o.take()!`:
 
-```saw-fragment
+```saw
+import std.file.{File}
+
+func drop_file(f: File) {}
+
 struct Logger { sink: File? }
 extension Logger: NoCopy {}
 
@@ -2839,7 +2852,9 @@ declaration. Conformance matching requires the kinds to AGREE — a static
 requirement is satisfied only by a static, an instance requirement only by an
 instance method:
 
-```saw-fragment
+```saw
+struct Point { x: Int, y: Int }
+
 trait Maker {
     static func make(seed: Int) -> Self
     func label(&self) -> String
@@ -2986,9 +3001,10 @@ func main() {
 ```
 
 **Erasure.** No expression constructs through an `any Trait` existential, since
-an existential has no `Self` to build. A trait that declares an init
-requirement is still usable as `any Trait`, and its other members are callable
-through it: the requirement takes no vtable slot.
+an existential has no `Self` to build. A trait with an init requirement and at
+least one other method is still usable as `any Trait`, and its other members
+are callable through it: the requirement takes no vtable slot. A trait whose
+only member is an init requirement is a marker trait and cannot be erased.
 
 #### `any Trait` existentials (dynamic dispatch)
 
@@ -3009,8 +3025,8 @@ Costs are visible in the type:
 
 Anywhere else — a by-value binding, field, parameter, or return, or any other
 generic slot such as `Vector<any Trait>` or `Arc<any Trait>` — is a compile
-error naming the rule. `Vector<Box<any Trait>>` is the idiom for a heterogeneous
-collection.
+error naming the rule (`sawc` does not refuse every position yet, SL-1013).
+`Vector<Box<any Trait>>` is the idiom for a heterogeneous collection.
 
 ```saw
 trait Shape { func area(&self) -> Int }
@@ -3054,9 +3070,9 @@ per-concrete-type constant that backs downcasting (below).
 sync-callable through `any`; an unmarked one conservatively suspends, like any
 call through a function value.
 
-**Downcasting (v1).** An owned `Box<any Trait>` can be narrowed back to a
-concrete conforming type through two builtins with an **explicit** type argument
-(no inference):
+**Downcasting (v1)** (not built in `sawc` yet, SL-745). An owned
+`Box<any Trait>` can be narrowed back to a concrete conforming type through two
+builtins with an **explicit** type argument (no inference):
 
 - `b.is<T>() -> Bool` — compares the box's vtable `type_id` to `T`'s. A borrow:
   the box stays live, so a caller can branch before deciding to consume.
@@ -3092,7 +3108,9 @@ dispatchable. These are rejected with a diagnostic naming the reason:
   (`-> Self`), `Equatable`/`Comparable` (`other: &Self`), and any nesting
   (`-> Result<Self, E>`). By reference or by value makes no difference; the
   `&self` / `&var self` *receiver* is fine, so a mutating method IS erasable;
-- a method with its own generic type parameters;
+- a method with its own generic type parameters. Such a requirement is refused
+  at the trait itself (`trait.generic-requirement`: generic trait requirements
+  are not supported), so it never reaches erasure;
 - a trait with associated types (pinning `any Iterator<Item = Int>` is a later
   addition);
 - a marker trait (`Send`/`Sync`/`NoCopy`, or any trait with no methods) — there
@@ -3162,7 +3180,7 @@ extension Line: Printable {
 }
 
 let p = Point(x: 3, y: 4)
-print("point = {p}")   // point = (3, 4)
+print("point = {p}")   // prints: point = (3, 4)
 ```
 
 **`format` is `sync`.** A render calls `format` synchronously, into stack
@@ -3175,7 +3193,9 @@ implementation of `format` that suspends, directly, through a helper or
 through a bound, is refused at its declaration with the type and the path to
 the suspension:
 
-```saw-fragment
+```saw-error
+// error-rule: effect.format-suspends
+// error-contains: must not suspend
 // ticker.saw
 import std.task.*
 
@@ -3246,9 +3266,12 @@ cannot do this: it produces a `String`, which is a heap value by definition.
 That is the difference between the two spellings, and the reason the fixed one
 exists:
 
-```saw-fragment
-print("x = {x}")     // builds a String, then writes it
-print("x = {}", x)   // writes the pieces; no allocation anywhere
+```saw-body
+let x = 5
+// builds a String, then writes it
+print("x = {x}")     // prints: x = 5
+// writes the pieces; no allocation anywhere
+print("x = {}", x)   // prints: x = 5
 ```
 
 Both produce the same bytes. The second works in the freestanding profile with
@@ -3277,14 +3300,16 @@ content that does not fit is cut on a UTF-8 boundary and the marker `…` is
 stamped in its place, so a shortened result says it was shortened.
 `is_truncated()` reports it, and stays true until `clear()`.
 
-```saw-fragment
-var store: [Int8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-var b = StringBuilder(bytes: (&store) as UnsafePointer<Int8>, capacity: 32)
-try! b.append("n = ")
-try! b.append(42)
-print(b.build())          // n = 42
-print(b.is_truncated())   // false
+```saw
+func main() unsafe {
+    var store: [Int8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var b = StringBuilder(bytes: (&store) as UnsafePointer<Int8>, capacity: 32)
+    try! b.append("n = ")
+    try! b.append(42)
+    print(b.build())          // prints: n = 42
+    print(b.is_truncated())   // prints: false
+}
 ```
 
 The last four bytes of `capacity` are reserved for the marker and the NUL
@@ -3296,7 +3321,10 @@ whether a type is printable without allocating depends on how its `format` is
 written. `append` calls are allocation-free; `"{...}"` interpolation inside a
 `format` body is not.
 
-```saw-fragment
+```saw
+struct Point { x: Int, y: Int }
+struct Other { x: Int }
+
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
         try! into.append("(")        // allocation-free
@@ -3368,7 +3396,8 @@ format(...) {...} }` (format is inherited from `Printable`), or a split
 - Matching `Err(e)` (or a `catch` whose tried calls include an erased box) binds
   `e` as `Box<any Error>`; `"{e}"` / `e.to_string()` render it through the
   vtable. To recover a concrete error (e.g. retry only on `IoErr`), narrow the
-  box with `e.is<IoErr>()` / `e.take<IoErr>()` (see Downcasting above). Catch-side
+  box with `e.is<IoErr>()` / `e.take<IoErr>()` (see Downcasting above; not
+  built in `sawc` yet, SL-745). Catch-side
   `match`-on-concrete sugar over the erased box is still deferred.
 
 ```saw
@@ -3396,13 +3425,14 @@ func parse(ok: Bool) -> Result<Int, Box<any Error>> {
 
 **Status: implemented** for distinct `type` aliases with one-way flow (alias →
 underlying allowed, the reverse requires explicit construction) and function-type
-aliases. Generic type aliases (`type Handler<T> = ...`) are *planned*.
+aliases (not enforced by `sawc` yet, SL-1012). Generic type aliases
+(`type Handler<T> = ...`) are *planned*.
 
-The underlying type may not be an **enum**. An alias exists to be read back to
-what it names, and `as` has no enum reading — so an enum alias would be a name
-with no way out. It is refused at the alias declaration, whether the enum is
-named directly, reached through a chain of aliases, raw-backed, or written with
-a module qualifier:
+The underlying type may not be an **enum** (not enforced by `sawc` yet,
+SL-1012). An alias exists to be read back to what it names, and `as` has no
+enum reading — so an enum alias would be a name with no way out. It is refused
+at the alias declaration, whether the enum is named directly, reached through a
+chain of aliases, raw-backed, or written with a module qualifier:
 
 ```saw-fragment
 enum Level { case High, case Low }
@@ -3483,6 +3513,7 @@ let uid: Int = user as Int
 
 // Type definitions for function signatures
 type Callback = (Int) -> Bool
+// planned: generic aliases
 type Handler<T> = (T) -> Result<(), Error>
 ```
 
@@ -3628,10 +3659,8 @@ An OPTIONAL return is refused on its own terms:
 extension Config {
     init(budget: Int) -> Config? { ... }
 }
-// error: `init` may not return an optional — an optional creation encodes as
+// error: an `init` may not return an optional: an optional creation is
 //        `Result<Config, E>`, because a `None` names no cause
-// hint: write `-> Result<Config, E>` naming the error the absence meant, and
-//       return that error where the `None` was
 ```
 
 A constructor that fails has a reason, and `None` discards it. That is the same
@@ -3675,10 +3704,10 @@ func main() {
 ```
 
 No primitive has an implicit `init()`, and no zero default is inferred for
-one. `Int(5)` with no matching extension `init` is refused, naming this rule.
-A trait that wants a primitive conformer to be constructible declares an init
-requirement, and the primitive's conformance supplies the `init`. The
-construction of a distinct alias, such as `Byte(65)`, is unchanged.
+one. `Int(5)` with no extension `init` its arguments match is refused, naming
+this rule. A trait that wants a primitive conformer to be constructible
+declares an init requirement, and the primitive's conformance supplies the
+`init`. The construction of a distinct alias, such as `Byte(65)`, is unchanged.
 
 ```saw-error
 // error-rule: init.no-implicit
@@ -3810,8 +3839,9 @@ receiver by construction and is already called on the type, as `Bag(...)`.
 
 The type is the only way to call a static, `Bag.make(seed: 5)` and never
 `b.make(seed: 5)`. A static has no receiver for a value to become, so the
-instance spelling is a clean error naming the type spelling, at every way of
-spelling a receiver — a local, `self`, a call result, an element, and a FIELD
+instance spelling is a clean error naming the type spelling (`sawc` refuses it
+without naming the type spelling yet, SL-1015), at every way of spelling a
+receiver — a local, `self`, a call result, an element, and a FIELD
 ACCESS (`outer.inner.make(seed: 5)`), which reads like the qualified
 `module.Type.method()` form and is not one. The two kinds may share a name:
 each call shape picks the one it can mean.
@@ -3836,11 +3866,17 @@ comes first: `public static func make(...)`.
 A `&self` receiver is a shared borrow: the method may read the receiver and may
 not write it. A write into it is refused where it is written:
 
-```saw-fragment
+```saw-error
+// error-rule: mutability.immutable
+// error-contains: a shared borrow
+struct Counter { hits: Int }
+
 extension Counter {
     func peek(&self) -> Int {
-        self.hits = self.hits + 1   // error: cannot assign to storage reached
-        self.hits                   //        through a `&self` receiver
+        self.hits = self.hits + 1
+        // error: this assignment writes `self.hits`, and this method's
+        //        receiver is `&self`, a shared borrow that writes neither ...
+        self.hits
     }
 }
 ```
@@ -3861,12 +3897,20 @@ the one thing `&self` says it will not do. So is the same call on a **field** �
 `self.cells.push(9)` runs against the copy's `Vector` header, so the caller sees
 no new element:
 
-```saw-fragment
+```saw-error
+// error-rule: mutability.immutable
+// error-contains: a shared borrow
+struct Bag { cells: Vector<Int> }
+extension Bag: NoCopy {}
+
 extension Bag {
     func peek(&self) -> Int {
-        self.cells.push(9)      // error: cannot call `&var self` method `push`
-        self.cells.len()        //        on storage reached through a `&self`
-    }                           //        receiver
+        self.cells.push(9)
+        // error: this exclusive borrow of `self.cells` would let it be
+        //        written, and this method's receiver is `&self`, a shared
+        //        borrow ...
+        self.cells.len()
+    }
 }
 ```
 
@@ -3885,9 +3929,11 @@ struct Board {
 
 extension Board {
     func bump(&self) {
-        self.grid[0] += 100   // error: cannot write through a place window
-    }                         //        on storage reached through a `&self`
-}                             //        receiver
+        self.grid[0] += 100
+        // error: this compound assignment writes `self.grid[0]`, and this
+        //        method's receiver is `&self`, a shared borrow ...
+    }
+}
 ```
 
 A shared lend (a read of `self.grid[0]`) is legal when the field's type declares
@@ -3903,14 +3949,21 @@ another holder of the same `&x` may be reading that buffer while the write lands
 or a push reallocates it. So every spelling that reaches the buffer is refused,
 whatever accessor it goes through and whether the write is plain or compound:
 
-```saw-fragment
+```saw-error
+// error-rule: mutability.immutable
+// error-contains: a shared borrow
 struct Sheet { rows: Vector<Vector<Int>> }
+extension Sheet: NoCopy {}
 
 extension Sheet {
     func touch(&self) {
-        self.rows[0][0] += 100   // error: a write through a `&self` receiver
-        self.rows[0].push(9)     // error: `&var self` method `push` on storage
-    }                            //        reached through a `&self` receiver
+        self.rows[0][0] += 100
+        // error: this compound assignment writes `self.rows[0][0]`, and
+        //        this method's receiver is `&self`, a shared borrow ...
+        self.rows[0].push(9)
+        // error: this exclusive borrow of `self.rows[0]` would let it be
+        //        written, and this method's receiver is `&self` ...
+    }
 }
 ```
 
