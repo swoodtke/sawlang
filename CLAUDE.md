@@ -191,8 +191,8 @@ Stage 0 snapshot's regeneration run it.
   (a coverage or a fix): it records the new baseline before submitting, or
   the server's gate fails it. Before a commit or a submission, run the
   change's pins and the battery lanes that touch the change's subject and
-  that the server does not run: `docverify` for spec prose, `citations` for
-  `compiler/`, `patchgate` for the gate. **The server always runs
+  that the server does not run: `citations` for `compiler/`, `patchgate` for
+  the gate. **The server always runs
   `compiler/tests/run.py` (user, Oct 14),** so a `compiler/` change runs only
   the steps for the stages it touches, `compiler/tests/run.py --only
   NAME[,NAME]` (e.g. `mir`, `typechecker`, `programs`), never the whole of it
@@ -253,7 +253,7 @@ Stage 0 snapshot's regeneration run it.
   change for review), `corpusdiff` (the gate form, above),
   `citations` (DF-248c, Aug 24: stale XFAIL citations against the
   tracker's closed set + committed conflict markers over tracked files —
-  the gate for the files nothing compiles), `docverify`, `toolchain` (design
+  the gate for the files nothing compiles), `toolchain` (design
   238 unit 4: the sawlang-artifact resolver — four steps, the pin's version
   check, the refusal), `suitelock` (`tools/suite_lock.sh`'s holder line,
   heartbeat and wait, build.sh handing the wait to the gate, and a TERMed
@@ -271,10 +271,9 @@ Stage 0 snapshot's regeneration run it.
   tools), then the slow two: `gmgate` (the ownership and
   concurrency oracles, built by sawc, under Guard Malloc, after a self-test
   that a dropped retain still faults; SL-697) and the opt-in `linux` (the run
-  lane in the Linux VM, both arches; see "Linux"). `docverify` checks every
-  doc example with `sawc coro --check` (a `saw-pending SL-NNN` block cites the
-  open issue it waits on). Every stage RUNS even after one fails; the exit code
-  is the number of failing stages. Adding a lane means editing `STAGES`.
+  lane in the Linux VM, both arches; see "Linux"). Every stage RUNS even after
+  one fails; the exit code is the number of failing stages. Adding a lane
+  means editing `STAGES`.
 
 ## Scratch compilations
 For throwaway experiments do NOT write .saw files to /tmp or via

@@ -49,7 +49,9 @@ which holds the growth of a build in one long construct under a ceiling per
 shape; and checks that the Stage 0
 snapshot in `coro/stage0/` is whole and prints the coroutine census, which
 gates nothing; and checks that a serial and a parallel run print the same
-(`parallel_order.py`); and checks LANGUAGE_SPEC.md's std module table against
+(`parallel_order.py`); checks every Saw example in README.md, CLAUDE.md,
+LANGUAGE_SPEC.md and the saw-lang skill as its fence and output pins claim
+(`tools/docverify.py`); and checks LANGUAGE_SPEC.md's std module table against
 resolve's prelude list, with its fixtures (`prelude_doc/`). The lanes' oracles are Stage 0's recorded snapshots
 (`oracle.py`); no step runs Stage 0 over the compiler's own source.
 The inventory of Stage 0 workaround markers prints first, then each failure as
@@ -716,6 +718,26 @@ def run_census(run):
     run.inventory += lines
 
 
+def run_docs(run):
+    """Every Saw example in the docs, checked as its fence and output pins claim (`tools/docverify.py`)."""
+    jobs = os.environ.get("SAW_GATE_JOBS", "2")
+    proc = subprocess.run([sys.executable, os.path.join(REPO, "tools", "docverify.py"), "--self-test",
+                           "--jobs", jobs], cwd=REPO, capture_output=True, text=True)
+    lines = (proc.stdout + proc.stderr).splitlines()
+    if proc.returncode != 0:
+        failed = [line for line in lines if line.startswith("FAIL ")]
+        for line in failed or lines[-20:]:
+            run.fail(line)
+        run.fail("docs: tools/docverify.py exited %d" % proc.returncode)
+        return
+    for line in lines:
+        found = re.match(r"docverify: (\d+) blocks OK", line)
+        if found:
+            run.count("doc blocks checked", int(found.group(1)))
+            return
+    run.fail("docs: tools/docverify.py printed no `docverify: N blocks OK` line")
+
+
 def run_prelude_doc(run):
     """The spec's std module table against resolve's prelude list, and the
     checker against its agreeing and disagreeing fixtures."""
@@ -770,6 +792,7 @@ STEPS = (
     Step("mir", "built"),
     Step("eval", "built"),
     Step("std", "built", calls_overlap=True),
+    Step("docs", "built", width=4),
     Step("borrowck", "built"),
     Step("drops", "built"),
     Step("mono", "built"),
@@ -786,7 +809,7 @@ STEP_BY_NAME = {step.name: step for step in STEPS}
 # The longest steps start first, so that the short ones fill in around them;
 # the rest start in `STEPS` order. Only the wall time depends on this.
 LONG_STEPS = ("units", "subset", "drops", "borrowck", "grammar_parse", "eval", "programs",
-              "std", "typechecker", "parser", "parallel_order")
+              "std", "docs", "typechecker", "parser", "parallel_order")
 
 STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 

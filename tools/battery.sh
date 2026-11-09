@@ -52,7 +52,6 @@ STAGES=(
     "grammarcorpus|no|every tracked .saw against GRAMMAR.md: its recorded verdict, one tree when accepted|$PY compiler/tests/grammar/corpus.py"
     "corpusdiff|no|every tests/corpus program through sawc against v0.18.0's recorded snapshot: no verdict moved from the baseline|$PY compiler/tests/corpusdiff/corpusdiff.py gate"
     "citations|no|the files nothing compiles: stale DF/SL citations, committed conflict markers|$PY tools/check_citations.py"
-    "docverify|no|every Saw example in README/CLAUDE/spec/skill compiles as its marker claims and prints what its pins say, checked by sawc|$PY tools/docverify.py --self-test"
     "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"
     "suitelock|no|the suite lock names its holder, heartbeats, reports its wait; build.sh hands the wait to the gate and gives the lock back on a TERM|$PY tools/test_suite_lock.py"
     "patchgate|no|the per-patch gate's decision per changed path, and the corpusdiff baseline's regression rule|$PY tools/test_patch_gate.py"

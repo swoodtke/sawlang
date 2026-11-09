@@ -651,8 +651,9 @@ against what its fence claims:
 - `saw-fragment` is exempt but counted: every run prints each source's exempt
   fraction.
 
-The battery runs it as `tools/docverify.py --self-test`, which first runs
-`tools/test_docverify.py`, the checks of those rules.
+`compiler/tests/run.py`'s `docs` step runs it on every patch as
+`tools/docverify.py --self-test`, which first runs `tools/test_docverify.py`,
+the checks of those rules.
 
 The interpreter comes from `$SAW_PYTHON`, else `./.venv/bin/python`, else
 `python3`. A worktree has no venv of its own, so point it at the main
