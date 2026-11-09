@@ -7860,24 +7860,31 @@ allocation is `Result<Void, AllocError>`, and `AllocError` carries the `size` an
 
 **A compound domain enum carries payloads, and exists only where the sources
 genuinely mix.** `ChannelError` is the worked example. A channel operation can
-fail because the channel is closed, because the waiting task was cancelled, or
-because the allocator refused a queue node, and those are three unrelated
-sources. The generic one CARRIES the leaf rather than restating its vocabulary:
+fail because the channel is closed, because the waiting task was cancelled,
+because the allocator refused a queue node, or because the operating system
+refused the lock a blocked thread waits on, and those are unrelated sources.
+The generic one CARRIES the leaf rather than restating its vocabulary:
 
 ```saw
+import std.systemerror.{SystemError}
+
 public enum ChannelError {
     case Closed,
     case Cancelled,
-    case Alloc(e: AllocError)      // the leaf itself, not a copy of its fields
+    case Alloc(e: AllocError),     // the leaf itself, not a copy of its fields
+    // a thread blocked in `receive` waits on an OS lock
+    case System(e: SystemError)
 }
 ```
 
 A domain that cannot time out has no `TimedOut` case; a domain that allocates
 nothing has no `Alloc` case. Signatures stay exact. Case NAMES and payload TYPES
 are shared across domains — every `Alloc` case carries an `AllocError` and is
-spelled `Alloc` — but the wrapper enums are not. A `ChannelError.Sys` carrying
-an OS refusal would claim that a purely in-process channel can fail because the
-operating system said no, and every match on it would go two levels deep.
+spelled `Alloc` — but the wrapper enums are not. Each domain's enum has exactly
+the cases that domain can produce: a channel carries `System` because a thread
+blocked in `receive` waits on an OS mutex and condition variable, so the
+operating system can refuse it, and a domain with no such wait has no `System`
+case.
 
 **`Box<any Error>` is the application aggregation tier, and std never produces
 one.** The erased `Result<T, Box<any Error>>` is for a caller that does not care
@@ -9646,13 +9653,12 @@ runtime.
 **Status: implemented.** Saw's concurrency is **colorless** (designs/18 Axis
 B′): there is NO `async`/`await` keyword and there never will be — any call may
 suspend, and the marked side is the rare negative effect `sync` (a checked
-suspension-free context). The model is task-only: no user-facing thread API, no
-thread identity ever exposed — the engine is a swappable implementation detail.
-Two engines ship and coexist (they are not unified): the design-21b
-OS-thread engine (`Thread.spawn`/`Thread<T>`, below) and the cooperative
-executor — single-threaded by default, with `TaskGroup(threads: N)` opting into
-multiple threads (design 75) — carrying the coroutine transform, suspending
-`main`, and the multi-task `TaskGroup` (designs 44/45/52/52b, below).
+suspension-free context). Two engines ship and coexist (they are not unified;
+design 242): `Thread.spawn`/`Thread<T>` (below), which is OS threads and
+blocking, and `Task.spawn`/`TaskGroup`, the cooperative executor —
+single-threaded by default, with `TaskGroup(threads: N)` opting into multiple
+threads (design 75) — carrying the coroutine transform, suspending `main`, and
+the multi-task `TaskGroup` (designs 44/45/52/52b, below).
 
 **Landed in stage 1:**
 
@@ -9690,8 +9696,45 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   acquire fence + free). This is the two-phase protocol of the String section.
 - **Reference-typed closure parameters** — `{ &var data in ... }` receives a
   pointer and mutates the referent in place. A closure whose signature has
-  reference parameters is **non-storable** (legal only as a direct call
-  argument) — the conservative gate ahead of full non-escaping closures.
+  reference parameters is an ordinary function value: it can be bound,
+  stored in a field, returned, and escape. Each call borrows its reference
+  argument for that call only, so storing the closure stores code, not a
+  reference. What stays refused is capturing a reference in an escaping closure
+  (`capture.escaping-borrow`) and a function type that returns a reference
+  (`type.reference-position`).
+
+  ```saw-body
+  let c = { &var d: Int in d += 1 }
+  var x = 1
+  c(&var x)
+  print(x)    // prints: 2
+  ```
+
+  ```saw
+  struct Holder { f: (&var Int) -> Void }
+
+  func make() -> (&var Int) -> Void {
+      { &var d: Int in d += 1 }
+  }
+
+  func main() {
+      let c = { &var d: Int in d += 1 }
+      let h = Holder(f: c)
+      var x = 1
+      h.f(&var x)
+      print(x)    // prints: 2
+  }
+  ```
+
+  ```saw-error
+  // error-rule: capture.escaping-borrow
+  // error-contains: an escaping closure cannot capture `x` by borrow
+  struct Holder { f: () -> Void }
+
+  func capture_ref(x: &var Int) -> Holder {
+      Holder(f: { [&var x] in x += 1 })
+  }
+  ```
 - **`Mutex<T>`** — `NoCopy`, an inline lock word and owner word beside its
   payload, zero when unlocked. `lock()` is a `borrows(sync)` accessor that
   lends the payload under the lock for the lend's window, and the lock is
@@ -9744,7 +9787,9 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   limit. Storing it anywhere else is refused, and the fix is to mark the
   parameter `escaping`:
 
-  ```saw-fragment
+  ```saw-error
+  // error-rule: escaping.stored
+  // error-contains: a non-escaping function value
   struct Handler { run: () -> Int }               // an escaping slot
   func run(body: () -> Int) -> Int { body() }     // a non-escaping parameter
 
@@ -9766,7 +9811,10 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   made through one is an ordinary move inside the lend's window, so it
   consumes `h` once, on the path that runs it:
 
-  ```saw-fragment
+  ```saw-body
+  struct Res { id: Int }
+  extension Res: NoCopy {}
+  var slots: Vector<Vector<Res>> = [[]]
   let h = Res(id: 1)
   try! slots[0].push(move h)     // `h` is the container's now
   ```
@@ -9796,7 +9844,9 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   escaping closure share one environment, so a write through a `Vector` capture
   would be seen by every copy:
 
-  ```saw-fragment
+  ```saw-error
+  // error-rule: mutability.immutable
+  // error-contains: `v` is captured by value
   func make() -> () -> Int {
       var v: Vector<Int> = [1]
       return { [move v] in
@@ -9836,7 +9886,13 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   consumes it, and an inner closure's `[move x]` of it. The rule holds at every
   copy tier; for a `Copy` capture, drop the `move`, since reading it copies.
 
-  ```saw-fragment
+  ```saw-error
+  // error-rule: capture.escaping-consume
+  // error-contains: out of an escaping closure's environment
+  struct Res { id: Int }
+  extension Res: NoCopy {}
+  func sink(r: Res) -> Int { r.id }
+
   func later(r: Res) -> () -> Int {
       return { [move r] in sink(move r) }
       // error: this `move` takes `r` out of an escaping closure's environment
@@ -9892,7 +9948,8 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   cell-carrying `&self` accessor, so one binding covers both calls of the
   chain (see [Writing through a place](#writing-through-a-place)):
 
-  ```saw-fragment
+  ```saw-body
+  import std.mutex.{Mutex}
   let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
   borrow var c = shared.value().lock() { c += 1 }
   ```
@@ -9958,11 +10015,7 @@ multi-threaded execution `TaskGroup(threads: N)` with a Send-on-frames gate
 (design 75).**
 There is NO `async`/`await` keyword and there never will be: Saw is
 COLORLESS (designs/18 Axis B′). Any call may suspend; the marked side is
-the rare one — `sync` contexts are checked suspension-free. Tasks are the
-ONLY concurrency
-primitive: no user-facing threads, no thread identity, ever. The stage-1
-engine happens to run one OS thread per task; that is invisible and will
-change.
+the rare one — `sync` contexts are checked suspension-free.
 
 ### Suspension and the coroutine transform
 
@@ -10019,8 +10072,8 @@ Observable rules:
   branch merge is a state transition, a suspension inside a construct just
   terminates its block, and the counter/binding it carries is frame-resident so
   counted iterations survive across resumes. `break`/`continue` in a
-  suspension-spanning loop are supported; a `for` is over a range (a non-range
-  iterable inside a suspending loop is a diagnostic, not a miscompile). A nested
+  suspension-spanning loop are supported, and a `for` over a range or an
+  iterator spans a suspension like any other loop. A nested
   suspending call — free function OR method (design 84) — embeds as a driven
   sub-frame in **every** control-flow position: a plain statement, an `if`/`else`
   branch, a `match` arm (literal/range patterns included), a nested `if`/loop, and a
@@ -10116,23 +10169,31 @@ Observable rules:
   **A suspending conformance body may not be reached through `any Trait`.** A
   suspending call embeds the callee's frame by value, so the caller must know at
   compile time which body it is embedding, and an erased receiver carries a
-  vtable word instead. Dispatching through `any Trait` to a trait method that
-  some type implements with a suspending body is a compile error at the
-  dispatch:
+  vtable word instead. A type whose implementation of a trait method suspends
+  cannot be converted to `any Trait`: the conversion is refused where it
+  happens, with `effect.any-suspends`, not at the dispatch:
 
-  ```saw-fragment
+  ```saw-error
+  // error-rule: effect.any-suspends
+  // error-contains: a dispatch through `any` to a suspending implementation
+  import std.task.{yield_now}
+  struct Person { n: String }
   trait Greeter { func greet(&self) -> String }
 
   extension Person: Greeter {
       func greet(&self) -> String { yield_now(); self.n }
   }
 
-  func shout(g: &any Greeter) -> String {
-      g.greet()
-      // error: cannot dispatch through `any Greeter` to `greet`: `Person`
-      //   implements it with a SUSPENDING body, and a suspending call needs
-      //   the callee's frame at compile time — dynamic dispatch has only a
-      //   vtable word, so there is no frame to embed and nothing to drive
+  func shout(g: &any Greeter) -> String { g.greet() }
+
+  func main() {
+      let p = Person(n: "hi")
+      print(shout(&p))
+      // error: `Person` becomes `any Greeter` here, and its implementation
+      //   of `Greeter.greet`, `Person.greet`, may suspend: a dispatch
+      //   through `any` to a suspending implementation is refused, so call
+      //   it on the concrete type, or take it as a generic parameter
+      //   bounded by the trait
   }
   ```
 
@@ -10157,7 +10218,12 @@ Observable rules:
   `sync` body is refused for either, and neither builds a frame. So an ordinary
   erased-parameter helper is callable from a driven body:
 
-  ```saw-fragment
+  ```saw
+  import std.task.{yield_now}
+  trait Greeter { func greet(&self) -> Int }
+  struct A { n: Int }
+  extension A: Greeter { func greet(&self) -> Int { self.n } }
+
   func via_existential(g: &any Greeter) -> Int { g.greet() }   // no frame
 
   func root() -> Int {
@@ -10174,7 +10240,10 @@ Observable rules:
   `&any Trait` or `&var any Trait` parameter and dispatch through it on both
   sides of a suspension:
 
-  ```saw-fragment
+  ```saw
+  import std.task.{yield_now}
+  trait Shape { func area(&self) -> Int }
+
   func spanning(s: &any Shape) -> Int {
       let before = s.area()
       yield_now()
@@ -10247,7 +10316,12 @@ Observable rules:
   Two more positions belong to that list and were refused until Aug 21. A
   destructuring `let`'s right-hand side takes the rewrite in both spellings, a
   tuple literal of suspending calls and a suspending call returning a tuple:
-  ```saw-fragment
+  ```saw-body
+  import std.channel.{Channel}
+  import std.task.{yield_now}
+  func measure() -> (Int, Int) { yield_now(); (3, 4) }
+  let ch = try! Channel<Int>()
+  let tally = try! Channel<Int>()
   let (head, rest) = (try! ch.receive(), try! tally.receive())
   let (width, height) = measure()          // `measure` suspends
   ```
@@ -10372,12 +10446,12 @@ Observable rules:
   means, so both spellings take the same CFG split.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a value-producing `break` out of a suspension-spanning
-  loop; a chained assignment through MORE THAN ONE optional hop whose RHS
-  suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
-  optional with `if let` first); and a suspending `try { … } catch { … }` block
-  whose try body raises TWO OR MORE distinct error types, where the catch would
-  bind a union the split lowering cannot build (write one block per error type,
-  or handle each call with an inline `try <call> catch { … }`).
+  loop (not built in `sawc` yet, SL-674); and a suspending
+  `try { … } catch { … }` block whose try body raises TWO OR MORE distinct error
+  types, where the catch would bind a union the split lowering cannot build
+  (write one block per error type, or handle each call with an inline
+  `try <call> catch { … }`) (the union itself is not built in `sawc` yet,
+  SL-680).
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
@@ -10388,7 +10462,7 @@ task loop needs; a task doing I/O yields implicitly when it parks, so most code
 never names it. Write `import std.task.*` (or `import std.task.{yield_now}`) to
 call it bare, or `import std.task` and write `task.yield_now()`. The bare name
 is otherwise a stdlib-internal intrinsic, and calling it without the import is a
-clean error naming the three forms.
+clean error naming the selecting import (`import std.task.{yield_now}`).
 (`sleep` stays in the prelude, and so does the `Duration` it takes.) When `main`
 transitively reaches one, the compiler infers
 `main` suspending and auto-wraps it in an **entry executor** with no user-visible
@@ -10399,7 +10473,8 @@ and resuming at once for each `yield_now`.
 **Multi-task cooperative concurrency — `TaskGroup` (design 52b).** The
 heterogeneous run queue is now built on `any Trait` erasure (design 51): every
 coroutine frame is compiler-synthesized to conform to the `Resumable`
-trait (`std.compiler.frame`, below) — `resume(&var self) sync -> Poll`
+trait (`std.compiler.frame`, below) (`std.compiler.frame` is not in `sawc`'s
+std yet, SL-704) — `resume(&var self) sync -> Poll`
 (advance one step; `resume` is the
 anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
 (the wake surface: `0` = ready/yield, `>0` = sleep that many nanoseconds) and
@@ -10424,11 +10499,12 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   `var` binding is required.
   A group joins its children where its OWNER drops, and the owner may live on
   the heap: `NoMove` forbids relocating an established group, not constructing
-  one directly into a `Box` (`Box<TaskGroup>.make(TaskGroup())`), and a
-  `Box`- or `Arc`-owned group is intended — the scope a group defines for its
-  tasks is its ownership extent, not a lexical block. The join point is
-  deterministic in every case (deinit at the final owner's release, on the
-  owning thread), but for a heap-owned group it is dataflow-determined: the
+  one directly into a `Box` (`try! Box<TaskGroup>.make(TaskGroup())`), and a
+  `Box`- or `Arc`-owned group is intended — the scope
+  a group defines for its tasks is its ownership extent, not a lexical block.
+  The join point is deterministic in every case (deinit at the final owner's
+  release, on the owning thread), but for a heap-owned group it is
+  dataflow-determined: the
   function releasing the last handle drives the group's remaining tasks to
   completion there, whether or not its text mentions the group. A task that
   never completes blocks that join wherever it is — the same property a
@@ -10492,11 +10568,14 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   multi-threaded group's pool is already running it, so there it WAITS instead)
   then TAKES the result exactly once, and the caller owns that value outright:
   it stays valid after the task is gone. A task yields its result once, so a
-  second `join()`, or a `join()` after `detach()`, panics. The cell keeps the
-  result while the handle that could join it lives. Dropping an unjoined handle
-  gives the result up: a finished task's result is dropped at the handle's
-  drop, and an unfinished task's when the task completes. Either way it is
-  dropped exactly once.
+  second `join()`, or a `join()` after `detach()`, panics. `detach()` belongs to
+  a `Task.spawn` handle; a handle
+  from `group.spawn` panics at `detach()` ("Task.detach: this handle came from
+  `group.spawn`, ..."), because its fate is its group's scope. The cell keeps
+  the result while the handle that could join it lives. Dropping an unjoined
+  handle gives the result up: a finished task's result is dropped at the
+  handle's drop, and an unfinished task's when the task completes. Either way
+  it is dropped exactly once.
 - **Eager per-task destruction (design 124).** A task's owned values are released
   when THE TASK completes, not when its group is torn down — and an owned value
   whose SCOPE ends earlier is released there, exactly as in a sync body (see
@@ -10647,7 +10726,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   handle keeps any refcount nonzero forever. Saying so is the mechanism:
 
   ```saw-fragment
-  public func close(&self) -> Result<Void, ChannelError>
+  public func close(&self) unsafe -> Result<Void, ChannelError>
   public func send(&self, v: T) -> Result<Void, ChannelError>
   public func receive(&self) -> Result<T, ChannelError>
 
@@ -10676,7 +10755,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   `ChannelError` is an enum because a receive TIMEOUT is the other legitimate way
   one of these calls can fail to deliver; that case is reserved, not yet built.
 
-  ```saw-fragment
+  ```saw
+  import std.channel.{Channel}
+  struct Order { id: Int }
+  func fulfil(o: Order) {}
+
   func consume(orders: Channel<Order>) -> Int {
       var handled = 0
       var going = true
@@ -10707,7 +10790,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   panic line so the parked-on-what is visible:
 
   ```
-  panic at taskgroup.saw:1977: deadlock: every task is waiting to receive from a
+  panic at taskgroup.saw:LINE: deadlock: every task is waiting to receive from a
   channel, and nothing in this program can send. ...
   saw tasks: 1 live (as-of panic, unsynchronized)
     task group 1 slot 0 gen 1 channel-parked
