@@ -16429,7 +16429,8 @@ only thing that marks one.
 **Unsafety is not transitive.** A `Vector<T>` holds an `UnsafePointer<T>` field
 and is itself a safe type: safe to name, hold, pass and store. Only the
 *functions* that reach through to the pointer are unsafe. That is what lets
-`Vector.pop` and `Vector.push` differ, and it is the whole point of putting the
+`Vector.len` (`public func len(&self) -> Int`) and `Vector.pop` (`public func
+pop(&var self) unsafe -> T?`) differ, and it is the whole point of putting the
 marker on functions rather than on the types that contain them.
 
 #### The trigger rule
@@ -16438,8 +16439,9 @@ A function is `unsafe` when its body or signature **names, binds, receives or
 returns** a value of an unsafe type — including a reference to one
 (`&UnsafePointer<T>` counts). Reading `self.buffer` to test it against `None` is
 contact, and the marker is simply true there. The rule is deliberately broader
-than "performs a deref": `Vector.iter()` only reads `self.buffer` and hands it to
-an iterator struct, and that narrow reading is what hid two use-after-free bugs
+than "performs a deref": `Data.spare_count` (`public(package) func
+spare_count(&self) unsafe -> Int`) only binds `self.block` and hands it to a
+header helper, and that narrow reading is what hid two use-after-free bugs
 under the previous model.
 
 **Binds** covers a binding that is never read: a `match` arm that names an
@@ -16457,13 +16459,13 @@ to every function that touches the state.
 Failing to declare it is a clean error naming the type and the fix:
 
 ```
-error: method `Vector.push` is not declared `unsafe`, but its body names a value
-       of unsafe type (`UnsafePointer<T>`)
-  hint: write `func push(...) unsafe` — the unsafety belongs in the signature
-        where every caller can see it
+error: `Vector.push` is not declared `unsafe`, but its body names a value of
+       unsafe type (`UnsafePointer<T>`) at …: write `unsafe` after its
+       parameter list, where every caller can see it
 
-error: function `peek_owner` is not declared `unsafe`, but its body names an
-       unsafe static (`TABLE`)
+error: `peek_owner` is not declared `unsafe`, but its body names an unsafe
+       static (`TABLE`): write `unsafe` after its parameter list, where every
+       caller can see it
 ```
 
 **Derivation does not propagate.** A value or reference of a *safe* type produced
@@ -16475,13 +16477,16 @@ Declaring `unsafe` where the rule would not require it is allowed. The marker is
 a promise about the contract, and a conformer of an `unsafe` trait requirement
 must make it — checked since design 188:
 
-```saw-fragment
+```saw-error
+// error-rule: conformance.signature
+// error-contains: the requirement declares `unsafe`
+struct Plain { n: Int }
 trait Raw { func peek(&self) unsafe -> Int }
 
 extension Plain: Raw {
     func peek(&self) -> Int { self.n }
-    // error: method `peek` must declare `unsafe` to conform to trait `Raw`,
-    //        whose requirement declares it
+    // error: `Plain.peek` does not meet `Raw.peek`: the requirement declares
+    //        `unsafe`, so the implementation must too
 }
 ```
 
@@ -16523,13 +16528,14 @@ trigger rule carries to every function that names it.
 Writing `unsafe` in front of a `func` or an `init` names the slot instead:
 
 ```
-error: `unsafe` goes after the parameter list, not before `func` — write
-       `func name(...) unsafe -> T` (the effect slot, before `sync`)
+error: a function's effects are written after its parameters: move the word
+       into the effect slot: `func f(…) unsafe -> T`, `func f(…) blocking -> T`,
+       or `constexpr` for `const`
 ```
 
-Reversing the order (`sync unsafe`) is rejected the same way. `--emit-docs`
-renders the slot in the `signature` field and prefixes the `effect` field with
-`unsafe`.
+Reversing the order (`sync unsafe`) is rejected too, as
+`syntax.rule.effect-slot`. `--emit-docs` renders the slot in the `signature`
+field and prefixes the `effect` field with `unsafe`.
 
 #### The effect on a function type
 
@@ -16590,9 +16596,9 @@ inside the enclosing body. So the compiler charges that contact to the enclosing
 declaration, and the same "not declared `unsafe`" error names it:
 
 ```
-error: function `read_byte` is not declared `unsafe`, but its body names a value
-       of unsafe type (`UnsafePointer<Int8>`)
-  hint: write `func read_byte(...) unsafe`
+error: `read_first` is not declared `unsafe`, but its body names a value of
+       unsafe type (`UnsafePointer<Int8>`) at 2:12: write `unsafe` after its
+       parameter list, where every caller can see it
 ```
 
 The two honest spellings for an unsafe closure in a safe function are declaring
@@ -16652,9 +16658,10 @@ through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
 (`Vector.[]`, `Vector.set`, `Vector.swap`, `Vector.swap_out`, `Data.[]`,
 `Data.set`, `FixedBuf.set`, `String.byte_at`, `String.substring`, a slice's
 `s[i]` and `swap`) or yields `None`/`Err` for a `get`-shaped one
-(`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`, a slice's `get`). Never a silent
-no-op, never a clamp to a plausible-looking result, and never a status flag a
-caller can ignore. The two halves are a rule about the NAME, so a member on
+(`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`, a slice's `get`).
+(`std.fixedbuf` is not in `sawc`'s std yet, SL-596.) Never a silent no-op,
+never a clamp to a plausible-looking result, and never a status flag a caller
+can ignore. The two halves are a rule about the NAME, so a member on
 either list is on it whatever type declares it: `FixedBuf.get` answered a
 panicking `Byte` until DF-294a, which is the one divergence the enumeration
 ever had.
@@ -16668,11 +16675,13 @@ prologue in the standard library alike:
 ```
 
 so `v[5]` on a three-element vector is
-`panic at v.saw:9: Vector.[]: index out of range: 5 (len 3)`, and `a[i]` on a
+`panic at v.saw:9: Vector.[]: index out of range: 5 (len 3)` (`sawc` reports
+std's own line yet; the caller's location is SL-1054), and `a[i]` on a
 `[Int; 3]` is `array: index out of range: 5 (len 3)`, and through a slice
-`slice: index out of range: 5 (len 3)`. A range accessor spells both bounds: `String.substring: range out of range: 5..2 (len 5)`. The
-index is reported at its own signedness, so a negative one reads `-1` rather
-than the huge unsigned value the check folds it to.
+`slice: index out of range: 5 (len 3)`. A range accessor spells both bounds:
+`String.substring: range out of range: 5..2 (len 5)`. The index is reported
+at its own signedness, so a negative one reads `-1` rather than the huge
+unsigned value the check folds it to.
 
 Both numbers are already in hand where the check fails, and the message is
 assembled through the allocation-free format path (the `{}` arguments of
@@ -16691,7 +16700,11 @@ without minting a raw pointer at all, use a lend:
 place, with the whole vector held borrowed for the block (reallocation- and
 invalidation-proof; see [Lends and their windows](#lends-and-their-windows)).
 
-```saw-fragment
+```saw
+struct UartRegs { data: UInt32 }
+static REGISTER_COUNT: Int = 4
+static UART_BASE: Int = 0x1800_0000
+
 // The obligation rides the type; the function that touches it says so.
 static UART0: UnsafeMemory<UartRegs, Device> = UnsafeMemory(0x1800_0000)
 
@@ -16770,7 +16783,8 @@ public func pop(&var self) unsafe -> T? {
 
 - **`move` is required for an `ExplicitCopy` or `NoCopy` element.** An unspelled
   read is refused, and the diagnostic names the spelling:
-  ``this read transfers ownership — spell it `move buf[index]` ``. An
+  ``this read transfers ownership — spell it `move buf[index]` `` (the message
+  does not name it yet, SL-1020). An
   `ExplicitCopy` element has a second answer, `ptr[i].copy()`, which duplicates
   the element and leaves the slot occupied. A trivial or `Copy` element
   reads as a copy with no spelling, exactly as it does elsewhere.
@@ -16785,7 +16799,8 @@ public func pop(&var self) unsafe -> T? {
   enclosing `unsafe` declaration is what marks it.
 - **Safe places are unaffected.** `move` out of a `Vector` element, a struct
   field or a tuple element stays a compile error (``cannot move out of element
-  `[0]` of `v` ``). The language tracks occupancy for those places, so a
+  `[0]` of `v` ``) (the message does not name the index yet, SL-1020). The
+  language tracks occupancy for those places, so a
   move-out would leave a hole their `deinit` drops a second time.
 
 The move-out family, and what keeps each one's occupancy true:
@@ -16805,9 +16820,10 @@ transfer points.
 
 ### Prefix `*` — the pointer place, spelled
 
-**Status: implemented (design 219).** `*p` names the same place as `p[0]`. It is
-parser sugar: the two spellings produce one production, so everything the index
-form supports the prefix form supports, and neither the typechecker nor codegen
+**Status: implemented (design 219), except `move *p`, which is not built in
+`sawc` yet (SL-1051).** `*p` names the same place as `p[0]`. It is parser
+sugar: the two spellings produce one production, so everything the index form
+supports the prefix form supports, and neither the typechecker nor codegen
 knows there are two.
 
 ```saw-fragment
@@ -16887,7 +16903,8 @@ promise). Two markers exist today:
 - **`Normal`** — bootstrap or DMA-visible RAM (the initial stack, an early
   heap). Plain (non-volatile) loads/stores; whole-struct and element access are
   allowed; and it carries the region accessors **`ptr() -> UnsafePointer<Int8>`**,
-  **`len() -> Int`** (region byte length), and **`end() -> UnsafePointer<Int8>`**
+  **`len() -> Int`** (region byte length) (`sawc` refuses `len()` on a view of a
+  struct yet, SL-1053), and **`end() -> UnsafePointer<Int8>`**
   (one-past-the-end — a stack top or slab handoff).
 
 **Field markers (both intents).** Within the viewed struct, the field markers
@@ -17035,10 +17052,10 @@ The operations are `Vector.push`/`reserve`/`append`/`map`, `Map.insert`/`keys`/`
 `reserve`/`detached`, `StringBuilder.append`,
 `Box.make`, `String.split`/`to_data`, `Command.arg`/`env`
 (`Command.output` reports a capture that cannot grow, and `Env.args` a vector
-that cannot grow, as `ResourcesExhausted`, inside its `SystemError`), and the constructors `Vector(capacity:)`, `Data(capacity:)`,
-`StringBuilder(capacity:)`, `Arc(value:)`, `Channel()` and
-`TaskGroup(threads:)`. A constructor reports through the `Result<Self, E>` init
-form, so the call keeps its spelling and the caller gains one word.
+that cannot grow, as `ResourcesExhausted`, inside its `SystemError`), and the
+constructors `Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`, `Channel()`
+and `TaskGroup(threads:)`. A constructor reports through the `Result<Self, E>`
+init form, so the call keeps its spelling and the caller gains one word.
 `Mutex(value:)` is not in the list: it allocates nothing.
 
 Each is **all-or-nothing**: on `Err` the container is exactly as it was, with
@@ -17272,7 +17289,10 @@ head is `NoCopy` — a copy would be a second set of bookkeeping over the same
 region) and the `slab_alloc` / `slab_dealloc` free functions. A user allocator
 is a zero-field unit struct wiring its own statics in ~10 lines:
 
-```saw-fragment
+```saw
+import std.slab.*
+
+struct Job { n: Int }
 static JOB_REGION: [Int8; 64]                                  // 4 chunks × 16B, .bss
 static JOB_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
 
@@ -17319,11 +17339,14 @@ which `compiler/tools/build.py` builds from its own source, and which `bin/sawc`
 builds on first use.
 
 ```
-sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-c] [--std-root DIR] [--target TRIPLE]
-           [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
-           [--codegen-units=1|module] [--lto=thin|full|none] [--no-object-cache]
-           [--no-front-cache] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR]
+           [--target TRIPLE] [--target-features FEATURES] [--sanitize address]
+           [--freestanding] [--runtime] [--no-hidden-alloc] [-W borrow-prefix]
+           [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]
+           [--no-object-cache] [--no-front-cache] [--module-path NAME=DIR]...
+           (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
+sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)
 sawc lex | parse | resolve | typecheck | mir | eval | borrowck | drops | mono | coro ...
@@ -17333,14 +17356,16 @@ sawc --version
 - `--version` prints the release: a plain semver, and the only thing a
   consumer that pinned a toolchain can check an installed compiler against, so
   a change to user-visible behaviour bumps it.
-- `-o` names the executable (default: `.build/<source>`); `--emit-ll` writes the
-  program's LLVM IR instead and links nothing.
+- `-o` names the executable (default: `.build/<source>`) (`sawc` doesn't create
+  the directory yet, SL-1052); `--emit-ll` writes the program's LLVM IR
+  instead and links nothing.
 - `-c` compiles to an object and links nothing. `.o` is appended to an `-o`
   name that lacks it, and the object keeps an executable's linkage (see [Link
   symbols and linkage](#link-symbols-and-linkage)).
-- `--target` cross-compiles for a triple (default: the host): `arm64-apple-darwin`,
-  `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, or the bare-metal
-  `aarch64-unknown-none-elf`. A bare-metal triple has no C library or runtime
+- `--target` cross-compiles for a triple (default: the host):
+  `arm64-apple-darwin`, `x86_64-unknown-linux-gnu`,
+  `aarch64-unknown-linux-gnu`, or the bare-metal `aarch64-unknown-none-elf` and
+  `riscv32-unknown-none-elf`. A bare-metal triple has no C library or runtime
   to link against, so it builds only with `-c` or `--freestanding`; a link for
   it is refused.
 - `--target-features FEATURES` names the LLVM subtarget features every
@@ -17351,8 +17376,9 @@ sawc --version
   Repeatable; this is how the package manager wires dependencies, and how a
   package names itself (DIR is the package's `src/`; see Package Structure).
 - `--sanitize address` builds under AddressSanitizer.
-- `--freestanding` compiles under the freestanding profile to an ELF object,
-  as `-c` does, `.o` appended to an `-o` name that lacks it (see Profiles).
+- `--freestanding` compiles under the freestanding profile to an ELF object
+  for an ELF triple, as `-c` does; a macOS host names one with `--target`.
+  `.o` is appended to an `-o` name that lacks it (see Profiles).
 - `--runtime` (v0.18.0's `--runtime-provider` is accepted for it) builds a
   runtime provider: its `@export`s may be the frozen seams, each checked
   against `runtime/ABI.md`, and a hosted one links with none of sawc's runtime
@@ -17392,8 +17418,9 @@ sawc --version
   needed. `sawc --help` lists every form and flag.
 
 **Not yet in `sawc`.** The spec documents several flags of v0.18.0's compiler,
-`sawc0`, that `sawc` does not take yet: the
-`-W` warning categories (SL-879); and `--emit-docs` (SL-880). Code that needs them, and the
+`sawc0`, that `sawc` does not take yet: the design-150 warning categories
+(`-W all`, `-W shadowed-qualifier`; SL-879); and `--emit-docs` (SL-880).
+`-W borrow-prefix` is accepted. Code that needs them, and the
 sources frozen in v0.18.0's language (Blade, `libs/`), build with `sawc0`,
 which `bin/sawc0` runs from a v0.18.0 checkout (`SAWLANG_V0_ROOT`, else the tag
 fetched and cached). Its full option list is that release's Appendix 0.
@@ -17459,20 +17486,26 @@ name.
 
 ```text
 Reserved (lexer keywords — never usable as identifiers):
-as       borrows  break    case     catch    continue else     enum
-extension         extern   false    for      func     guard    if
-in       init     lend     let      match    move     None     not
-public   return   self     static   struct   trait    true     try
-unsafe   var      while
+as       borrow   borrows  break    case     catch    continue else
+enum     extension         extern   false    for      func     guard
+if       in       init     lend     let      match    move     None
+not      public   return   self     static   struct   trait    true
+try      unsafe   var      while
 
 Contextual (parser- or typechecker-recognized in one position; still valid
 identifiers):
-any      const    deinit   escaping export   import   module   package
-parent   Self     sync     type
+import   export   module   package  parent   private  type     const
+any      sync     consumes escaping sendable constexpr blocking copy
+lends    static_assert     sizeof   alignof  section  synthesize align
+test     shared   panics   refuses  warns    text     at       none
+end
 
 Planned / reserved:
 and  defer  do  generic  macro  none  or  some  where
 ```
+
+`deinit`, `Self`, `Void`, `Never` and the primitive type names are ordinary
+identifiers (GRAMMAR.md §2.2).
 
 `const` joined the contextual list with const generics (design 148). It is
 recognized only in a generic parameter position, so `let const = 3` still
@@ -17483,7 +17516,7 @@ word followed by a NAME, at module level or as a trait/extension member —
 and is an ordinary identifier everywhere else, so `clock_get(type: .Monotonic)`,
 `struct Event { type: Int }`, `e.type` and `let type = 7` all compile. A type
 alias inside a function body is still refused, by a message naming the three
-places an alias is allowed.
+places an alias is allowed (the message names two yet, SL-1020).
 
 `async` and `await` are deliberately **absent** — Saw is colorless and will
 never have them (see §6 Concurrency).
@@ -17520,7 +17553,11 @@ rows below it). C-family: shifts sit above comparison, and `&` above `^` above
 `|`. So `a | b & c` parses as `a | (b & c)`, and `x << 2 + 1` as `x << (2 + 1)`.
 
 ```
-  unary            - x    not x    ~ x    &x  &var x   (prefix)
+  postfix          call `(…)`, trailing closure, subscript `[…]`, member
+                   `.name`, tuple index `.0`, optional member `?.name`,
+                   force `!`
+  unary            prefix `-` `not` `~` `*` `&` `&var` `move` `try` `try?`
+                   `try!` `lends` `borrow` `borrow var`
   cast             as
   multiplicative   *  /  %  &*
   additive         +  -  &+  &-
@@ -17534,6 +17571,10 @@ rows below it). C-family: shifts sit above comparison, and `&` above `^` above
   logical OR       ||
   nil-coalesce     ??
 ```
+
+- `??` groups right to left: `a ?? b ?? c` is `a ?? (b ?? c)`.
+- A comparison chain (`a < b < c`) is refused.
+- A range may omit its lower bound (`..b`, `..=b`, `..`).
 
 The four meanings of `&` are disambiguated purely by position: a *prefix* `&x` /
 `&var x` is a call-site reference; the *single tokens* `&+ &- &*` are the

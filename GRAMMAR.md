@@ -2284,13 +2284,6 @@ spelling holds. The spec still:
   Appendix A are valid as written;
 - does not say, under "Re-export", that an `export` declaration is refused in
   favour of `public import` (syntax.decl.refused-export);
-- leaves `try`, `try?` and `try!` out of Appendix B's precedence table. They sit
-  at the prefix tier, above `as`, which is how "Error routing at `try`" reads
-  `try parse_id() as UserId` (syntax.rule.try-extent);
-- does not say in Appendix B that `??` groups right to left, that a comparison
-  chain is refused, or that a range may omit its lower bound, as in `..b`,
-  `..=b` and `..` (syntax.rule.coalesce-grouping, syntax.rule.compare-chain,
-  syntax.expr.range-upto);
 - does not give the one-element tuple type's spelling, `(T,)`, or say that `(T)`
   in a type groups (syntax.rule.paren-type);
 - does not give the one-element tuple pattern's spelling, `(p,)`, or say that
