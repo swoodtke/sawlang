@@ -6,15 +6,15 @@
 //   replace           -> self    (with NO replacements performed)
 //   Vector.join       -> ""      (a non-empty vector joined to nothing)
 //   Path.join         -> self    (the UN-joined parent path)
-//   String.fromBytes  -> Ok("")  (a Result reporting SUCCESS on failure)
+//   Data.to_string    -> Ok("")  (a Result reporting SUCCESS on failure)
 // Every one collides with a completely legal result, so no caller could detect
-// it. They all panic through `__saw_string_alloc` now.
+// it. They all panic on a refused allocation now.
 //
 // This test drives one of them end to end (`Path.join`, the one whose wrong
 // answer gets a caller to unlink the wrong thing) and asserts the rest still
 // produce correct answers with allocation available.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: string allocation failed
+// EXPECT-PANIC-CONTAINS: allocation of 16 bytes (align 1) failed
 
 import std.path.*
 
@@ -31,10 +31,10 @@ func main() {
     print(parts.join("/"))                  // usr/local
 
     let base = Path(s: "/tmp")
-    print(base.join("data.db").as_str())    // /tmp/data.db
+    print(base.join("data.db").as_string())    // /tmp/data.db
 
     // Now refuse the allocation the join needs. The old code handed back
     // `/tmp` — the directory — as if it were the file path.
     __saw_rt_alloc_deny_after(0)
-    print(base.join("data.db").as_str())
+    print(base.join("data.db").as_string())
 }

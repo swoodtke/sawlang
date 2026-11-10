@@ -13,10 +13,10 @@ func main() {
 
     try! sb.append("Hello")
     print(sb.len())  // 5
-    print(sb.as_str())  // Hello
+    print(sb.build())  // Hello
 
     try! sb.append(", ")
     try! sb.append("World!")
     print(sb.len())  // 13
-    print(sb.as_str())  // Hello, World!
+    print(sb.build())  // Hello, World!
 }

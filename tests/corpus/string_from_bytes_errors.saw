@@ -1,5 +1,5 @@
-// String.fromBytes UTF-8 rejection classes (brief 38 items 1/2). Each crafted
-// byte sequence exercises one class of malformed UTF-8; fromBytes returns
+// Data.to_string UTF-8 rejection classes (brief 38 items 1/2). Each crafted
+// byte sequence exercises one class of malformed UTF-8; to_string returns
 // Err(Utf8Error) whose `offset` is the byte index where the bad sequence begins
 // (Rust valid_up_to() semantics: bytes before it decoded cleanly).
 // EXPECT: success
@@ -16,7 +16,7 @@
 // 0
 
 // Build Data from a Vector<Int> of byte values and return the error offset
-// (or -1 if fromBytes unexpectedly succeeds).
+// (or -1 if to_string unexpectedly succeeds).
 import std.data.{Data}
 func offsetOf(bytes: Vector<Int>) -> Int {
     var d = Data()
@@ -27,7 +27,7 @@ func offsetOf(bytes: Vector<Int>) -> Int {
         }
         i = i + 1
     }
-    match String.fromBytes(&d) {
+    match d.to_string() {
         case Ok(s) -> -1,
         case Err(e) -> e.offset
     }

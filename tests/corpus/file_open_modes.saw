@@ -16,6 +16,7 @@
 // append does not truncate: 6
 // append content: BBBCCC
 
+import std.data.*
 import std.file.{File}
 import std.path.{Path}
 import std.directory.{Directory}

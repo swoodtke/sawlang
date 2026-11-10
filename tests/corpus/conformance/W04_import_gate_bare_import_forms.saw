@@ -29,6 +29,6 @@ func main() {
     try! d.push(65)
     try! d.push(66)
     let h = Holder(p: Path(s: "/tmp"), d: move d)
-    print(takes(&h).as_str())
+    print(takes(&h).as_string())
     print(size(&h.d))
 }

@@ -31,7 +31,7 @@ extern "C" {
 /// Writes `text` through the C `printf` the compiler declared, and answers with
 /// the byte count it reports.
 func shout(text: String) unsafe -> Int32 {
-    text.withCString({ p in printf(p) })
+    printf(text.c_string()! as UnsafeConstPointer<Int8>)
 }
 
 func main() {

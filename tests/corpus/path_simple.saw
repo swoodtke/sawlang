@@ -11,10 +11,10 @@ import std.path.{Path}
 func main() {
     let p = Path(s: "/home/user/docs/file.txt")
 
-    print("Path: {p.as_str()}")
+    print("Path: {p.as_string()}")
 
     if let parent = p.parent() {
-        print("Parent: {parent.as_str()}")
+        print("Parent: {parent.as_string()}")
     }
 
     if let name = p.file_name() {
@@ -25,7 +25,7 @@ func main() {
         print("Stem: {stem}")
     }
 
-    if let ext = p.ext() {
+    if let ext = p.file_extension() {
         print("Extension: {ext}")
     }
 
@@ -38,6 +38,6 @@ func main() {
     // Test join
     if let parent = p.parent() {
         let joined = parent.join("subdir")
-        print("Joined: {joined.as_str()}")
+        print("Joined: {joined.as_string()}")
     }
 }

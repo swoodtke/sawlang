@@ -21,7 +21,7 @@ import std.path.*
 static MAX_BYTES: Int = 160_000
 
 func main() {
-    let exe = Env.arg(0)!
+    let exe = (try! Env.argument(index: 0))!
     let f = try! File.open(Path(s: exe))
     let size = try! f.seek_end(0)
 

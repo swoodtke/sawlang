@@ -17,7 +17,7 @@ alloc_map_insert_forced_panics_named.saw	pass	-	-
 alloc_map_set_reports_oom.saw	pass	-	-
 alloc_panic_under_full_denial.saw	pass	-	-
 alloc_set_copy_panics.saw	wrong	stderr differs	line 1: sawc "panic at <std>: Map.copy: allocation of 192 bytes (align 8) failed", Stage 0 "panic at <std>: Map.copy: allocation of 128 bytes (align 8) failed"
-alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
+alloc_string_no_degradation.saw	pass	judged by its own directives (edited since its oracle)	-
 alloc_string_oom_panic.saw	wrong	stderr differs	line 1: sawc "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
@@ -579,7 +579,7 @@ conformance/V98_driven_generic_judges_each_instance.saw	pass	-	-
 conformance/V99_every_payload_read_retains_once.saw	pass	-	-
 conformance/W02_import_gate_annotation_positions.saw	pass	-	name.not-in-prelude: `Path` is not in the prelude and must be imported: `import std.path.{Path}` selects it
 conformance/W03_import_gate_qualified_annotation.saw	pass	-	-
-conformance/W04_import_gate_bare_import_forms.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
+conformance/W04_import_gate_bare_import_forms.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/W06_binop_mixed_width_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
 conformance/W07_binop_sign_mix_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `UInt`; convert one with `as`
 conformance/W08_comparison_mixed_width.saw	pass	-	type.mismatch: expected `Int`, the type of the other operand, and found `Int16`; an operator's operands agree, and only a transfer widens an integer, so convert one with `as`
@@ -914,10 +914,10 @@ df3_generic_no_wrap_error.saw	pass	-	-
 df3_move_nocopy_wrap.saw	pass	-	-
 df3_no_double_wrap.saw	pass	-	-
 df3_overload_exact_wins.saw	pass	-	-
-directory_current_long_path.saw	refused	typecheck member.unknown	`std.directory.Directory` has no method `set_current` this module can see
+directory_current_long_path.saw	pass	judged by its own directives (edited since its oracle)	-
 directory_error_surfaced.saw	pass	-	-
-directory_list_names_exact.saw	refused	typecheck member.unknown	`String` has no method `to_data` this module can see
-directory_simple.saw	refused	typecheck member.unknown	`std.directory.Directory` has no method `current` this module can see
+directory_list_names_exact.saw	pass	judged by its own directives (edited since its oracle)	-
+directory_simple.saw	pass	judged by its own directives (edited since its oracle)	-
 discard_forms_release_matrix.saw	stage0-wrong	annotated SL-513	sawc meets its directives
 discard_let_deinit_immediate.saw	pass	-	-
 discard_let_read_error.saw	refused	resolve name.undefined	cannot find `_` in scope
@@ -1547,7 +1547,7 @@ extension_mutable.saw	pass	-	-
 extension_of_imported_type_with_spawn.saw	pass	-	-
 extension_simple.saw	pass	-	-
 extension_specialized.saw	pass	-	-
-extern_c_compiler_declared_symbol.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+extern_c_compiler_declared_symbol.saw	pass	judged by its own directives (edited since its oracle)	-
 ffi/alignof_test.saw	pass	-	-
 ffi/casting.saw	pass	-	-
 ffi/extern_simple.saw	pass	-	-
@@ -1561,7 +1561,7 @@ ffi/sizeof_test.saw	pass	-	-
 field_assign_through_ref_param.saw	pass	-	-
 field_call_indirect.saw	pass	-	-
 file_error_surfaced.saw	pass	-	-
-file_open_modes.saw	refused	typecheck member.unknown	`String` has no method `to_data` this module can see
+file_open_modes.saw	pass	judged by its own directives (edited since its oracle)	-
 file_open_read_write_surfaced.saw	pass	-	-
 file_simple.saw	pass	-	-
 fixed_string_builder.saw	pass	-	-
@@ -1799,7 +1799,7 @@ let_tuple_destructure_owning_move.saw	pass	-	-
 let_tuple_destructure_use_after_move_error.saw	pass	-	move.use-after: `pair` is used after it may have been moved (moved at 13:5); a moved value is gone until it is assigned again
 let_var_self_method_error.saw	pass	-	mutability.immutable: this exclusive borrow of `c` would let it be written, and `c` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
 lexer_unterminated_interpolation.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/lexer_unterminated_interpolation.saw` (syntax.lex.unterminated-string), so its declarations are not available
-link_dead_strip.saw	refused	typecheck member.unknown	`std.env.Env` has no method `arg` this module can see
+link_dead_strip.saw	pass	judged by its own directives (edited since its oracle)	-
 literal_coercion_positions.saw	pass	-	-
 literal_suffix_basic.saw	pass	-	-
 literal_suffix_out_of_range_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/literal_suffix_out_of_range_error.saw` (syntax.lex.int-range), so its declarations are not available
@@ -2131,7 +2131,7 @@ panic_never_diverges.saw	pass	-	-
 panic_non_string_error.saw	wrong	accepts a refusal test	`panic` expects a String message, got `Int`
 panic_source_location.saw	pass	-	-
 parse_recovery_two_errors.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/parse_recovery_two_errors.saw` (parse-error), so its declarations are not available
-path_simple.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
+path_simple.saw	pass	judged by its own directives (edited since its oracle)	-
 payload_derived_binding_fills_default_type_args.saw	refused	mir slice.not-yet	a `for` over an iterator place is not lowered to MIR in the bootstrap slice yet
 place_abstract_value_read.saw	pass	-	-
 place_assignment_targets.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -2378,8 +2378,8 @@ string_byte_at_oob_panic.saw	pass	-	-
 string_bytes_iter.saw	pass	-	-
 string_escaped_brace_keeps_control_byte.saw	pass	-	-
 string_escapes.saw	pass	-	-
-string_from_bytes.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
-string_from_bytes_errors.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
+string_from_bytes.saw	pass	judged by its own directives (edited since its oracle)	-
+string_from_bytes_errors.saw	pass	judged by its own directives (edited since its oracle)	-
 string_implicit_copy.saw	pass	-	-
 string_interp_owned.saw	pass	-	-
 string_interpolation.saw	pass	-	-
@@ -2400,13 +2400,13 @@ string_substring_reversed_panic.saw	pass	-	-
 string_to_float.saw	pass	-	-
 string_to_int.saw	pass	-	-
 string_to_int_radix.saw	pass	-	-
-string_withcstring.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+string_withcstring.saw	pass	judged by its own directives (edited since its oracle)	-
 stringbuilder_append_int_alloc_free.saw	pass	-	-
 stringbuilder_append_scalar.saw	pass	-	-
 stringbuilder_build_append.saw	pass	-	-
 stringbuilder_fixed.saw	pass	-	-
 stringbuilder_independence.saw	pass	-	-
-stringbuilder_simple.saw	refused	typecheck member.unknown	`std.stringbuilder.StringBuilder` has no method `as_str` this module can see
+stringbuilder_simple.saw	pass	judged by its own directives (edited since its oracle)	-
 struct_field_deinit.saw	pass	-	-
 struct_field_deinit_nested.saw	pass	-	-
 struct_fixed_width_field_literals.saw	pass	-	-

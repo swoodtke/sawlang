@@ -12,6 +12,7 @@
 // entries: 1
 // name: needle_file.txt
 
+import std.data.*
 import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}
@@ -54,7 +55,7 @@ func main() {
     print("entries: {entries.len()}")
     if let first = entries.get(0) {
         // `list` joins onto the directory path, so compare the trailing name.
-        let full = first.as_str()
+        let full = first.as_string()
         let cut = full.len() - "needle_file.txt".len()
         print("name: {full.substring(cut, full.len())}")
     }
