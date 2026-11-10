@@ -15562,7 +15562,6 @@ need one of the three [import forms](#imports).
 | `std.serialize` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | `Serialize`, `Deserialize` |
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
 | `std.json` | `JsonEncoder`, `JsonDecoder`, `JsonValue`, `encode` | no |
-| `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
 The `std.serialize`, `std.json` and `std.cbor` rows are implemented:
 `std/serialize.saw` declares the four traits, the four error types and the
@@ -15577,11 +15576,11 @@ Concurrency has no module of its own beyond those: it is colorless, with no
 cooperative one. See [§6 Concurrency](#6-concurrency) for the real API.
 
 `Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
-and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
-`Atomic<Int>` is likewise a builtin, not a module: prelude-bare, nothing to
-import, and so is [`Byte`](#byte) — every byte API in std names it, so there is
-no module it could sensibly be imported from. There is no `Deque`, no `RwLock`,
-and no `UdpSocket` yet.
+and `Sync` are prelude traits declared in `std/prelude.saw`, not module
+contents. `Atomic<Int>` is likewise a builtin, not a module: prelude-bare,
+nothing to import, and so is [`Byte`](#byte) — every byte API in std names it,
+so there is no module it could sensibly be imported from. There is no `Deque`,
+no `RwLock`, and no `UdpSocket` yet.
 
 `std.slab` and `std.spinlock` were the two rows this table got wrong: both
 documented as gated, and neither listed in the compiler's set, so `SlabHead` and
@@ -15590,7 +15589,7 @@ checked against the compiler's list by `compiler/tests/run.py`'s `prelude_doc`
 step on every patch, so a
 future row and the behaviour behind it cannot drift apart in silence.
 
-**`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`) and works in both
+**`std.fixedbuf`** is not in `sawc`'s std yet (SL-596). It works in both
 profiles: it allocates nothing. `FixedBuf<N>` is `N` bytes of zeroed storage held
 inline, sized by a const generic parameter, with `capacity()`, `get`/`set`
 (bounds-checked, panicking out of range), and `ptr()` for the unsafe paths that
@@ -15629,8 +15628,7 @@ would scale past that range panics naming itself:
 
 ```saw-body
 let d = Duration.secs(18446744074)
-// panic at duration.saw:79: Duration.secs: 18446744074 seconds is past the
-// representable span
+// panics: Duration.secs: 18446744074 seconds is past the representable span
 ```
 
 **`std.time`** is **implemented** (`designs/57`, `std/time.saw`) and
@@ -15643,80 +15641,13 @@ span methods panic rather than report a negative one: `elapsed` if the monotonic
 clock stepped backward, `duration_since` if `earlier` is in fact the later of
 the two.
 
-**`std.compiler.frame`** is the frame vocabulary the coroutine transform
-compiles against: `Slot<T>`, `UnsafeRef<T>`, and the `Resumable` trait every
-generated frame conforms to with its `Poll` signal enum. It is import-gated and it is not written for
-everyday code — reach for a plain `let` in ordinary Saw — but it is PUBLIC, and
-that is a decision rather than an accident. Generated code is held to the
-ordinary ownership rules, so the transform may emit only code a programmer
-could have written; a vocabulary the compiler could reach and you could not
-would be a second set of rules with nothing checking it.
-
-`Slot<T>` is storage that either holds a `T` or is empty. It is where a frame
-keeps a local across a suspension, and its occupancy is part of the type:
-
-```saw-fragment
-import std.compiler.frame.{Slot}
-
-var s = Slot<String>.empty()
-s.put("payload")
-print(s.value().len())          // prints: 7
-let owned = s.take()            // the slot is empty again
-```
-
-`put` installs a value and drops the previous occupant if there was one.
-`take` moves the occupant out and panics on an empty slot — the caller's state
-machine is the proof that it is not empty, and a wrong proof reports itself
-rather than handing back a husk. `clear` drops the occupant if there is one and
-is idempotent, which is what a frame's teardown runs per field. `value()` is a
-`borrows` accessor, so reads, writes and method calls through it reach the
-payload where it sits. It has a `@synthesize(shared)` accessor beside the
-exclusive one, so a read works on a `let` slot. `is_occupied` answers
-the tag.
-
-The field is private, which is the whole guarantee: a payload leaves a slot by
-exactly four operations — `take`, `clear`, a `put` onto an occupied slot, and
-the synthesized deinit — and each of them updates the tag in the same body that
-moves or drops the payload. Released exactly once is therefore a property of
-the type. A slot is `NoCopy`, and a `NoMove` `T` does not belong in one: `put`
-and `take` are moves, and a pinned value's storage is a plain field.
-
-`UnsafeRef<T>` is a pointer to a `T` that something else owns — a frame's
-method receiver, and the reference parameters it carries across a suspension.
-It owns nothing and is never dropped. `deref()` lends the referent as a place.
-It is declared `(&var self) unsafe borrows -> &var T` with a
-`@synthesize(shared)` accessor beside it, so a read through a `let`-bound
-handle uses the shared accessor and a write needs a `var`-bound one: a
-`&self` receiver and a `&var self` receiver each get the window they allow from
-one written body. `copy()`
-returns a second handle to the same referent; the type is `NoCopy` so that
-duplication is written where it happens.
-
-The validity contract is the part the compiler does not check: every `deref`
-must happen while the referent is alive, and the referent must not have moved.
-A handle over storage that outlives it by construction satisfies that; a handle
-over anything else does not, and nothing will say so. The obligation has a
-carrier rather than a proof — `UnsafeRef` is an `unsafe struct`, so every
-function that mints, holds or dereferences one is `unsafe`-declared and is
-reviewed as the unit that owns the argument.
-
-`Resumable` is the protocol a frame answers to: `resume` (advance one step,
-returning `Poll.Pending` or `Poll.Done`), `wake_reason`, `is_cancelled`,
-`bt_desc`, and `release` (drop what the
-frame still owns). `Poll` is the signal enum, published in the same module so
-that the trait's whole signature — types and names both — is one a reader can
-write down. Conforming by hand grants nothing — spawning and enqueuing
-are lowered by the compiler against frames it built itself, and THAT gate is
-what keeps a user conformance inert, not any unspellability in the signature.
-`release` carries the contract eager teardown needs: it may run before
-the frame's deinit, and the deinit is a no-op afterwards.
-
 ### Profiles (hosted and freestanding)
 
-**Status: implemented.** `sawc build --freestanding` writes an ELF object for
-the host's ELF triple, for `aarch64-unknown-none-elf` or for
-`riscv32-unknown-none-elf`, and `--runtime` builds a runtime provider. Saw
-compiles under two profiles.
+**Status: implemented.** `sawc build --freestanding` writes an ELF object: for
+the host's own triple on an ELF host, or for `aarch64-unknown-none-elf` or
+`riscv32-unknown-none-elf` given as `--target`. A macOS host has no ELF triple
+of its own, so it names one with `--target`. `--runtime` builds a runtime
+provider. Saw compiles under two profiles.
 The default **hosted** profile links libc and provides everything above. The
 **freestanding** profile (`--freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
@@ -15885,7 +15816,7 @@ spelling is `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 
 ### C FFI
 
-```saw-fragment
+```saw-body
 // Declare external C functions
 extern "C" {
     func puts(s: UnsafeConstPointer<Int8>) -> Int
@@ -15979,7 +15910,8 @@ only when the declaration says `sync`, or is an `extern "C"` function that is
 not `blocking` (an extern promises promptness), and a `sync` function also
 fits the type without the word. A generic function is no value, since nothing picks its
 type arguments (nor is a generic type's `static` method), a method with a
-receiver is none, and neither is a function that may suspend or block (see
+receiver is none (`sawc` refuses a method with a generic message yet, SL-1045),
+and neither is a function that may suspend or block (see
 [Where `blocking` is written](#where-blocking-is-written)).
 
 ```saw
@@ -16091,7 +16023,14 @@ Calling one is an ordinary call expression. Arguments are positional (a
 function type carries no parameter names), and the call needs no ceremony. A
 pointer held in a field is called in place:
 
-```saw-fragment
+```saw-body
+struct Handler {
+    code: Int32,
+    run: FuncPointer<(Int) sync -> Int>,
+}
+
+static TABLE: Handler = Handler(code: 7, run: { n in n + 1 })
+
 func apply(p: FuncPointer<(Int) sync -> Int>, n: Int) -> Int { p(n) }
 
 let t = TABLE
@@ -16148,8 +16087,10 @@ legal on top-level `func` and `static` declarations (`@export`, `@section`), on
 `extension` declarations (`@synthesize`), and on a local `let`/`var`
 (`@align`, which a `static` also takes). An attribute on a struct, enum, trait,
 type alias, extern block, method, struct field, or parameter is a clean
-"attributes are not supported on X" error; an attribute in the wrong one of the
-accepting positions names what is legal there instead. An unknown attribute
+"attributes are not supported on X" error (`sawc` refuses each at the parser,
+but the message does not name the position yet, and a method, field or
+parameter gets a generic parse error, SL-1020); an attribute in the wrong one of
+the accepting positions names what is legal there instead. An unknown attribute
 name, a repeated attribute, or the wrong argument shape is a compile error. The
 set is `@export`, `@section`, `@synthesize` and `@align`; `@inline` is reserved
 for a later design.
@@ -16184,7 +16125,8 @@ Restrictions on an exported **function** (each a clean error):
 
 An exported **static** relaxes the whitelist (data has no calling convention):
 fixed-width integers, `Int`/`UInt`, `Float`, **arrays** thereof, and **structs**
-whose fields are all whitelisted. Statics are already immortal and `Sync`-only
+whose fields are all whitelisted (a `Float` static is not built in `sawc` yet,
+SL-722). Statics are already immortal and `Sync`-only
 (see [Statics](#module-level-statics)); `@export` only names the symbol and keeps
 it alive.
 
@@ -16224,7 +16166,7 @@ func kernel_entry() -> Int32 { 0 }
 //       `@section("__DATA,vector_table")` for data. ...
 ```
 
-```saw-fragment
+```saw-body
 // The freestanding vector-table idiom (design 58 Part 3):
 @export("_vectors")
 @section(".vector_table")
@@ -16237,27 +16179,26 @@ static VECTORS: [UInt32; 64]        // externally-visible, kept alive, in-sectio
 linker. Every other definition a compile produces is emitted with a decorated
 symbol and **internal linkage**, so nothing outside the module can bind to it.
 
-A free function's symbol is its name plus the module that defines it: `read` in a
-dependency called `wire` is emitted as `read$m$wire`. The entry module has no
-path, so it renders as the EMPTY tag — `read` at the top of the program you are
-compiling is `read$m$`. That is not a cosmetic choice: every real module path
-renders at least one character, so the empty tag is the one spelling no module
-can take, and a module literally named `root` (`read$m$root`) stays a different
-module from the entry one. A NESTED path joins its components with `_`, and a
-component that contains a `_` escapes it as `_0`, so `read` in `pkg.sub` is
-`read$m$pkg_sub` while `read` in a module named `pkg_sub` is `read$m$pkg_0sub` —
-two modules, two symbols, for the same reason. An overload set appends its
-design-55 signature suffix to the base (`read$m$$OL$Int`) and a generic's
-instantiations append their type arguments (`read$m$$1$Int`). Two modules may declare one free-function name, and
-the symbols differ by construction rather than by a check.
+A definition's symbol carries the module that defines it, plus an overload's
+signature and a generic instantiation's type arguments, so two distinct
+definitions never share a symbol: two modules may declare one free-function
+name, and the symbols differ by construction rather than by a check. The entry
+module's identity is one no other module can take, so a dependency named like
+the entry file stays a different module (`sawc` doesn't hold that yet: an entry
+file named like a dependency takes its identity, SL-1046). The spelling is not
+part of the language. Today `sawc` writes `read` in a module `wire` as
+`saw wire.read(n: Int)`, and an instantiation of a generic `gen` as
+`saw wire.gen(x: T) inst Int`, which is what a symbol listing or a debugger
+shows.
 
 The entry module's `main` is the single exemption: it is the C entry, emitted
 under that name with external linkage. A dependency that declares `main` gets an
-ordinary free function with an ordinary tag.
+ordinary free function with an ordinary symbol.
 
-An `@export`ed function is tagged like any other. `@export` decides the emitted C
-symbol and the linkage, not the name the compiler knows the function by, so two
-modules may export distinct C names from one Saw name:
+An `@export`ed function keeps its module identity like any other.
+`@export` decides the emitted C symbol and the linkage, not the name the
+compiler knows the function by, so two modules may export distinct C names from
+one Saw name:
 
 ```saw-pending SL-802
 module first {
@@ -16372,7 +16313,7 @@ then enforce, is a separate design and is not yet spellable.
 
 **`@synthesize`** goes on an `extension` and asks the compiler to derive the
 conformance's method from the type's fields. On an extension it takes no
-argument. Its one argument form, `@synthesize(shared)` (planned), goes on a
+argument. Its one argument form, `@synthesize(shared)`, goes on a
 `(&var self) borrows -> &var T` accessor instead and derives that accessor's
 `(&self) borrows -> &T` form (`syntax.attr.synthesize-shared`; see
 [Shared and exclusive accessors](#shared-and-exclusive-accessors)).
@@ -16418,7 +16359,7 @@ Two things the marker does **not** reach:
 A derivation that cannot be written is reported against the member that blocks
 it: `@synthesize` on a copy policy for a struct with a `NoCopy` field names that
 field, as do `Equatable`/`Comparable`/`Hashable` over a member that does not
-itself conform.
+itself conform (not checked by `sawc` for a copy policy yet, SL-1018).
 
 Destruction is not on this list. A `deinit` is synthesized for every type that
 owns something, with no marker and no declaration; see
