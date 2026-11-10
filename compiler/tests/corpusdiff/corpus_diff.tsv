@@ -125,8 +125,8 @@ box_make_reports_oom.saw	pass	judged by its own directives (edited since its ora
 box_string.saw	pass	judged by its own directives (edited since its oracle)	-
 box_value_lends_the_payload.saw	pass	judged by its own directives (edited since its oracle)	-
 box_wrapper_tier_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>`, which is NoCopy, by value: only a Copy type copies silently; write `move
-byte_append_discrimination.saw	crash	INVARIANT	66:32 an expression has no type
-byte_data_reads.saw	crash	INVARIANT	77:24 an expression has no type
+byte_append_discrimination.saw	pass	-	-
+byte_data_reads.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
 byte_type_flow.saw	pass	-	-
 capture_exclusivity_disjoint.saw	pass	-	-
 capture_write_allowed_forms.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -635,7 +635,7 @@ const_length_grammar_bool_error.saw	refused	typecheck slice.not-yet	`syntax.expr
 const_length_grammar_unified.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_qualified_length.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_sizeof_agrees_across_phases.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
-const_static_generic_arg.saw	crash	INVARIANT	47:39 an expression has no type
+const_static_generic_arg.saw	pass	-	-
 const_static_leaf_at_struct_type.saw	refused	llvm backend.not-yet	a static whose initializer the constant evaluator does not hold is not in the backend slice yet
 const_static_length.saw	pass	-	-
 const_static_length_crossmodule.saw	pass	-	-
@@ -1129,6 +1129,7 @@ errors/existential_arg_wrong_trait.saw	pass	-	type.mismatch: expected `&var any 
 errors/explicit_copy_containment.saw	pass	-	copy.undeclared-policy: `Container` holds `Container.data` of type `explicit_copy_containment.Buf`, which is ExplicitCopy, so it declares its own policy: `extension Container: NoCopy {}`, or `@synthes
 errors/extern_c_compiler_symbol_mismatch_error.saw	wrong	accepts a refusal test	`printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
 errors/fixed_width_arith_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
+errors/fixedstringbuilder_below_five_bytes.saw	pass	judged by its own directives (no oracle)	static_assert.failed: static assertion failed: FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four, at `std.fixedbuf.FixedStringBuilder.init() args 4`
 errors/for_head_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 errors/for_iter_body_mutates_the_collection.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `iter` opened at 22:14 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is
 errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`forwarded_lend_cannot_upgrade_an_inner_shared_lend.Inner` declares or derives no such role)
@@ -1293,14 +1294,14 @@ errors/send_bound_not_satisfied.saw	pass	-	type.bound: `send_bound_not_satisfied
 errors/send_explicit_conformance.saw	pass	-	conformance.derived-only: cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler, so `Foo` is `Send` exactly when its members are; where an unsafe-typed member b
 errors/serde169_deserialize_not_any.saw	pass	-	name.not-in-prelude: `Decoder` is not in the prelude and must be imported: `import std.serialize.{Decoder}` selects it
 errors/serde169_underivable_field.saw	pass	-	synthesize.member: cannot derive `serialize` for `Config`: field `limits` of type `std.map.Map<String, Int, std.alloc.GlobalAllocator>`, which does not conform to `Serialize`, and the derived body rea
-errors/shadow_closure_param.saw	pass	-	name.shadowing: `total` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
-errors/shadow_for_nested_loop.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
-errors/shadow_for_nonderived.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
+errors/shadow_closure_param.saw	pass	-	name.shadowing: `total` shadows the binding declared at tests/corpus/errors/shadow_closure_param.saw:12:9, which a pattern, a parameter or a closure parameter may not do; pick another name
+errors/shadow_for_nested_loop.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_for_nested_loop.saw:9:9 without deriving from it; pick another name, or mention `x` in the initializer
+errors/shadow_for_nonderived.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_for_nonderived.saw:10:9 without deriving from it; pick another name, or mention `x` in the initializer
 errors/shadow_for_tuple_pattern.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/shadow_for_tuple_pattern.saw` (syntax.expr.refused-for-tuple), so its declarations are not available
-errors/shadow_inner_let.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
-errors/shadow_match_pattern.saw	pass	-	name.shadowing: `x` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
-errors/shadow_param.saw	pass	-	name.shadowing: `count` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
-errors/shadow_redef_nonderived.saw	pass	-	name.shadowing: `data` is already defined in this scope; a redefinition must derive from it, as `let data = f(data)` does
+errors/shadow_inner_let.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_inner_let.saw:12:9 without deriving from it; pick another name, or mention `x` in the initializer
+errors/shadow_match_pattern.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_match_pattern.saw:12:9, which a pattern, a parameter or a closure parameter may not do; pick another name
+errors/shadow_param.saw	pass	-	name.shadowing: `count` shadows the binding declared at tests/corpus/errors/shadow_param.saw:9:8, which a pattern, a parameter or a closure parameter may not do; pick another name
+errors/shadow_redef_nonderived.saw	pass	-	name.shadowing: `data` is already defined in this scope, at tests/corpus/errors/shadow_redef_nonderived.saw:13:9; a redefinition must derive from it, as `let data = f(data)` does
 errors/shared_lend_write_refused_at_every_opener.saw	pass	judged by its own directives (edited since its oracle)	subscript.role: this subscript is used as a setitem: it declares no `[]=`, and its `[]` lends no writable place (`shared_lend_write_refused_at_every_opener.View` declares or derives no such role)
 errors/shared_self_borrows_epilogue_write.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/shared_self_borrows_field_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self.gate` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reache
@@ -1420,7 +1421,7 @@ errors/use_after_move_field_init.saw	pass	-	move.use-after: `f.fd` is used after
 errors/use_after_move_loop.saw	pass	-	move.use-after: `f` is used after it may have been moved (moved at 22:9); a moved value is gone until it is assigned again
 errors/use_after_move_loop_body_always_breaks.saw	pass	-	move.use-after: `head` is used after it may have been moved (moved at 47:11); a moved value is gone until it is assigned again
 errors/use_after_move_reference.saw	pass	-	move.use-after: `f` is used after it may have been moved (moved at 21:13); a moved value is gone until it is assigned again
-errors/use_after_move_shadow_outer.saw	pass	-	name.shadowing: `f` shadows an enclosing binding without deriving from it; pick another name, or mention `f` in the initializer
+errors/use_after_move_shadow_outer.saw	pass	-	name.shadowing: `f` shadows the binding declared at tests/corpus/errors/use_after_move_shadow_outer.saw:18:9 without deriving from it; pick another name, or mention `f` in the initializer
 errors/value_if_branch_without_value.saw	pass	-	type.mismatch: this branch produces no value, and the branches merge into `Int`
 errors/value_match_arm_without_value.saw	pass	-	type.mismatch: this branch produces no value, and the branches merge into `Int`
 errors/var_ref_into_shared_self.saw	pass	-	mutability.immutable: this exclusive borrow of `self.slot` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reache
@@ -1563,8 +1564,8 @@ file_error_surfaced.saw	pass	-	-
 file_open_modes.saw	refused	typecheck member.unknown	`String` has no method `to_data` this module can see
 file_open_read_write_surfaced.saw	pass	-	-
 file_simple.saw	pass	-	-
-fixed_string_builder.saw	crash	INVARIANT	23:24 an expression has no type
-fixed_string_builder_too_small_error.saw	crash	INVARIANT	13:34 an expression has no type
+fixed_string_builder.saw	pass	-	-
+fixed_string_builder_too_small_error.saw	pass	-	static_assert.failed: static assertion failed: FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four, at `std.fixedbuf.FixedStringBuilder.init() args 4`
 fixed_width_arith_literal.saw	pass	-	-
 fixed_width_enum_payload_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_let_narrow.saw	pass	-	-
@@ -1572,8 +1573,8 @@ fixed_width_let_negate_panic.saw	pass	-	-
 fixed_width_param_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_return_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_value_positions.saw	pass	-	-
-fixedbuf_get_out_of_range_none.saw	crash	INVARIANT	20:22 an expression has no type
-fixedbuf_set_oob_panic.saw	crash	INVARIANT	21:22 an expression has no type
+fixedbuf_get_out_of_range_none.saw	pass	-	-
+fixedbuf_set_oob_panic.saw	pass	-	-
 flag_enum_const.saw	refused	typecheck slice.not-yet	`syntax.expr.bitand` is not in the bootstrap slice yet
 flat_and_nested_module_paths_are_distinct.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 flat_and_nested_modules_declare_distinct_types.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -2661,7 +2662,7 @@ while_let_move_scrutinee.saw	pass	-	move.use-after: `slot` is used after it may 
 while_let_no_else_clause.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/while_let_no_else_clause.saw` (syntax.expr.refused-while-let-else), so its declarations are not available
 while_let_non_optional_scrutinee.saw	pass	-	operator.undefined: an optional binding unwraps an Optional, and this is `Int`
 while_let_payload_read_tier.saw	pass	-	transfer.implicit-copy: this reads a place of type `while_let_payload_read_tier.Token`, which is NoCopy, by value: only a Copy type copies silently; match a `move` of the value when its binding owns i
-while_let_shadow_rules.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
+while_let_shadow_rules.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/while_let_shadow_rules.saw:14:9 without deriving from it; pick another name, or mention `x` in the initializer
 while_let_suspending.saw	pass	-	-
 while_let_suspending_mt.saw	pass	-	-
 while_let_suspending_try_catch.saw	pass	-	-

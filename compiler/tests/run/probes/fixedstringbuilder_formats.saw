@@ -1,0 +1,66 @@
+// probe: stated
+// about: `FixedStringBuilder<N>` appends each kind, fills exactly, cuts on a UTF-8 boundary with `…`, and `clear` resets it (SL-596)
+// stage 0: its std's `FixedStringBuilder` is a different module; the new std is what this pins
+// speeds: -O0 -O2
+// prints: n = 42 -7 18446744073709551615 A|32|false
+// prints: abcdefgh|8|false
+// prints: abcdefgh|8|false
+// prints: abcdefgh…|11|true
+// prints: abcde…|8|true
+// prints: abcé|5|false
+// prints: abcé…|8|true
+// prints: abcd…|7|true
+// prints: ab|2|false
+// prints: -9223372036854775808
+// prints: 40 12
+import std.fixedbuf.*
+
+func show<const N: Int>(b: &var FixedStringBuilder<N>) {
+    print("{b.as_string()}|{b.len()}|{b.is_truncated()}")
+}
+
+func main() {
+    var out = FixedStringBuilder<64>()
+    out.append("n = ")
+    out.append(42)
+    out.append(" ")
+    out.append(-7)
+    out.append(" ")
+    out.append(UInt.max)
+    out.append(" ")
+    out.append(Byte(65))
+    print("{out.as_string()}|{out.len()}|{out.is_truncated()}")
+
+    // N = 12 holds 8 bytes of text; the ninth byte cuts.
+    var full = FixedStringBuilder<12>()
+    full.append("abcdefgh")
+    show(&var full)
+    full.append("")
+    show(&var full)
+    full.append("i")
+    show(&var full)
+
+    // N = 9 holds 5 bytes of text.
+    var cut = FixedStringBuilder<9>()
+    cut.append("abcdefgh")
+    show(&var cut)
+    cut.clear()
+    cut.append("abc")
+    cut.append("é")
+    show(&var cut)
+    cut.append("éé")
+    show(&var cut)
+    // The cut falls inside the 2-byte `é`, so it backs up to before it.
+    cut.clear()
+    cut.append("abcd")
+    cut.append("éx")
+    show(&var cut)
+    cut.clear()
+    cut.append("ab")
+    show(&var cut)
+
+    var wide = FixedStringBuilder<40>()
+    wide.append(Int.min)
+    print(wide.as_string())
+    print("{wide.capacity()} {FixedStringBuilder<16>().capacity() - 4}")
+}

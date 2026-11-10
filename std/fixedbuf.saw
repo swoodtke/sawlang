@@ -1,0 +1,261 @@
+//! Inline fixed-size buffers, sized by a const generic parameter.
+//!
+//! `FixedBuf<N>` is `N` bytes of storage held inline, in a local, a field, or a
+//! static, with no allocator anywhere in the story. `FixedStringBuilder<N>`
+//! formats into one, so a message can be assembled on a kernel stack or with the
+//! allocator refusing every request.
+
+import std.string.{string_from_bytes}
+
+// The truncation marker a full builder stamps: `…` (U+2026), whose UTF-8
+// encoding is these three bytes.
+static MARKER_LEN: Int = 3
+static MARKER_BYTE_0: UInt8 = 226
+static MARKER_BYTE_1: UInt8 = 128
+static MARKER_BYTE_2: UInt8 = 166
+
+// The marker and the NUL terminator, which the text never reaches into.
+static RESERVED_TAIL: Int = 4
+
+// UTF-8's continuation bytes (0b10xxxxxx).
+static CONTINUATION_FIRST: Int = 128
+static CONTINUATION_END: Int = 192
+
+static ASCII_ZERO: Int = 48
+static MINUS_SIGN: Int = 45
+static DECIMAL_DIGITS: Int = 10
+
+/// `N` bytes of zeroed storage, held inline.
+///
+/// The size is part of the type, so a `FixedBuf<16>` and a `FixedBuf<256>` are
+/// different types and neither can be passed where the other is expected. The
+/// bytes live wherever the buffer does: a local puts them on the stack, a field
+/// puts them in the enclosing value, a `static` puts them in `.bss`.
+public struct FixedBuf<const N: Int> {
+    private data: [Byte; N]
+}
+
+extension FixedBuf<N> {
+    /// Creates a buffer of `N` zero bytes.
+    public init() -> FixedBuf<N> {
+        FixedBuf<N>(data: [Byte(0); N])
+    }
+
+    /// The number of bytes this buffer holds.
+    ///
+    /// A compile-time constant per instantiation: it reads the type's own
+    /// parameter, so nothing is stored and nothing is loaded.
+    public func capacity(&self) -> Int {
+        N
+    }
+
+    /// The address of the first byte.
+    ///
+    /// The receiver is `&var self` because the pointer is a write capability
+    /// into the buffer, and the call site should say so: an exclusive borrow
+    /// makes a write through the returned pointer visible to the reader and to
+    /// the Law of Exclusivity.
+    ///
+    /// The pointer is valid only while the buffer stays where it is. Storing one
+    /// across a move of the owner leaves it addressing the old bytes, so take it
+    /// where you use it rather than keeping it in a field.
+    ///
+    /// The element type is `Byte` but the pointer is C's `char`, because that
+    /// is how the runtime's byte boundary is spelled: `UnsafePointer<Int8>`.
+    /// The reinterpret is free.
+    public func ptr(&var self) unsafe -> UnsafePointer<Int8> {
+        (&self.data) as UnsafePointer<Int8>
+    }
+
+    /// Reads the byte at `i`, or `None` when `i` is outside `0..<N`.
+    ///
+    /// Like `Data.get`, this answers the absence; `set` panics instead.
+    public func get(&self, i: Int) -> Byte? {
+        if i < 0 || i >= N {
+            return None
+        }
+        self.data[i]
+    }
+
+    /// Writes `b` at `i`. Panics if `i` is out of range.
+    ///
+    /// `b` is a `UInt8`, as in `Data.set`, so a `Byte`, a `UInt8` and a bare
+    /// literal all pass.
+    public func set(&var self, i: Int, b: UInt8) {
+        if i < 0 || i >= N {
+            panic("FixedBuf.set: index out of range: {} (len {})", i, N)
+        }
+        self.data[i] = Byte(b)
+    }
+}
+
+/// A string builder over `N` bytes of inline storage.
+///
+/// Formatting that never allocates and never grows: content that does not fit
+/// is cut on a UTF-8 boundary and marked with `…`, the way
+/// `StringBuilder(bytes:capacity:)` cuts it. Reach for it where the allocator
+/// may be gone or absent: a panic path, a kernel, anything built under
+/// `--no-hidden-alloc`.
+///
+/// `N` counts the whole buffer, of which the last four bytes are held back for
+/// the truncation marker and the terminator. `FixedStringBuilder<64>` therefore
+/// holds 60 bytes of text. `N` below 5 leaves no room to say anything and is a
+/// compile-time error.
+///
+/// ```saw
+/// import std.fixedbuf.{FixedStringBuilder}
+///
+/// var out = FixedStringBuilder<64>()
+/// out.append("n = ")
+/// out.append(42)
+/// print(out.as_string())
+/// ```
+public struct FixedStringBuilder<const N: Int> {
+    private storage: FixedBuf<N>
+    private length: Int
+    private truncated: Bool
+}
+
+extension FixedStringBuilder<N> {
+    /// Creates an empty builder over `N` bytes of inline storage.
+    public init() -> FixedStringBuilder<N> {
+        // The marker, the terminator and one byte of text.
+        static_assert(N >= 5,
+                      "FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four")
+        FixedStringBuilder<N>(storage: FixedBuf<N>(), length: 0, truncated: false)
+    }
+
+    /// The buffer size, `N`.
+    public func capacity(&self) -> Int {
+        N
+    }
+
+    // The appends return `Void`: a fixed builder never allocates (content that
+    // does not fit is cut and marked, and `is_truncated()` reports it), so a
+    // `Result` would name a failure that cannot happen.
+
+    /// Appends the bytes of `s`, cutting and marking if they do not fit.
+    public func append(&var self, s: String) {
+        if self.truncated {
+            return
+        }
+        let n = s.len()
+        var fits = N - RESERVED_TAIL - self.length
+        if fits >= n {
+            fits = n
+        } else {
+            // Cut back to a UTF-8 boundary: never leave half a character.
+            while fits > 0 && self.is_continuation(s.byte_at(fits) as Int) {
+                fits = fits - 1
+            }
+        }
+        var i = 0
+        while i < fits {
+            self.storage.data[self.length + i] = s.byte_at(i)
+            i = i + 1
+        }
+        self.length = self.length + fits
+        self.storage.data[self.length] = Byte(0)
+        if fits < n {
+            self.mark_truncated()
+        }
+    }
+
+    /// Appends the decimal rendering of `value`.
+    public func append(&var self, value: Int) {
+        // The magnitude is carried on the negative side, where `Int.min` fits.
+        let n = if value < 0 { value } else { 0 - value }
+        var scale = 1
+        var probe = n
+        while probe <= -10 {
+            probe = probe / 10
+            scale = scale * 10
+        }
+        if value < 0 {
+            self.place(MINUS_SIGN)
+        }
+        while scale > 0 {
+            let digit = 0 - ((n / scale) % 10)
+            self.place(ASCII_ZERO + digit)
+            scale = scale / 10
+        }
+    }
+
+    /// Appends the decimal rendering of `value`.
+    public func append(&var self, value: UInt) {
+        let wide = (Int.max as UInt)
+        if value <= wide {
+            self.append(value as Int)
+            return
+        }
+        self.append((value / 10) as Int)
+        self.append((value % 10) as Int)
+    }
+
+    /// Appends one raw byte.
+    ///
+    /// The `Byte` parameter is the discrimination against the `Int`/`UInt`
+    /// siblings above, which render digits: `append(65)` writes `65` and
+    /// `append(Byte(65))` writes `A`.
+    public func append(&var self, b: Byte) {
+        self.place(b as Int)
+    }
+
+    /// The number of bytes written so far, the `…` marker included once the
+    /// text has been cut.
+    public func len(&self) -> Int {
+        self.length
+    }
+
+    /// Whether content has been cut to fit. Once true it stays true until
+    /// `clear`, and the text ends in `…`.
+    public func is_truncated(&self) -> Bool {
+        self.truncated
+    }
+
+    /// Empties the buffer and clears any truncation.
+    public func clear(&var self) {
+        self.length = 0
+        self.truncated = false
+        self.storage.data[0] = Byte(0)
+    }
+
+    /// Copies what has been built into an owned `String`.
+    ///
+    /// This is the one operation here that allocates; the builder itself never
+    /// does. On a path that must not allocate at all, write the bytes out
+    /// through the buffer instead of building a String from them.
+    public func as_string(&var self) unsafe -> String {
+        string_from_bytes(self.storage.ptr(), self.length)
+    }
+
+    // Writes one byte at the end, or seals the builder when the text limit is
+    // reached: a number that does not fit keeps the digits that do.
+    func place(&var self, b: Int) {
+        if self.length + 1 > N - RESERVED_TAIL {
+            self.mark_truncated()
+            return
+        }
+        self.storage.data[self.length] = Byte(UInt8.from(truncating: b))
+        self.length = self.length + 1
+        self.storage.data[self.length] = Byte(0)
+    }
+
+    // Stamps `…` after the text and seals the builder: its length then sits at
+    // the text limit, so every later append returns early.
+    func mark_truncated(&var self) {
+        if self.truncated {
+            return
+        }
+        self.truncated = true
+        self.storage.data[self.length] = Byte(MARKER_BYTE_0)
+        self.storage.data[self.length + 1] = Byte(MARKER_BYTE_1)
+        self.storage.data[self.length + 2] = Byte(MARKER_BYTE_2)
+        self.length = self.length + MARKER_LEN
+        self.storage.data[self.length] = Byte(0)
+    }
+
+    func is_continuation(&self, b: Int) -> Bool {
+        b >= CONTINUATION_FIRST && b < CONTINUATION_END
+    }
+}

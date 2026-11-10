@@ -2497,16 +2497,19 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   or above 2^63 (SL-931), `where N > 0` (use `static_assert(N > 0, ...)` in the body), variadics.
 - **The fixed-buffer idiom (std.fixedbuf).** For formatting or scratch bytes
   with no allocator, reach for the std types rather than rolling a buffer:
-  ```saw-pending SL-596
+  ```saw
   import std.fixedbuf.*
-  var out = FixedStringBuilder<64>()   // 64 bytes inline; holds 60 of text
-  out.append("n = ")
-  out.append(42)
-  print(out.as_string())               // prints: n = 42
+  func main() {
+      var out = FixedStringBuilder<64>()   // 64 bytes inline; holds 60 of text
+      out.append("n = ")
+      out.append(42)
+      print(out.as_string())               // prints: n = 42
+  }
   ```
-  `FixedStringBuilder<N>` is `StringBuilder`'s fixed mode with the storage
-  question answered — same `append` surface, same cut-and-mark-with-`…`
-  truncation (`is_truncated()` reports it), nothing allocated. `FixedBuf<N>` is
+  `FixedStringBuilder<N>` holds its bytes inline and truncates by the same
+  rule as `StringBuilder`'s fixed mode — same `append` surface, same
+  cut-and-mark-with-`…` truncation (`is_truncated()` reports it), nothing
+  allocated. `FixedBuf<N>` is
   the raw buffer under it (`capacity()`, a `get` answering `Byte?` and a
   panicking `set` — the accessor rule's two halves — and `ptr()`
   for unsafe paths).

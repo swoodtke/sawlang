@@ -1,0 +1,15 @@
+// probe: panics
+// about: `FixedBuf.set` panics out of range, naming the index and the length, where `get` answers None (SL-596)
+// stage 0: its std's `FixedBuf` is a different module; the new std is what this pins
+// speeds: -O0 -O2
+// prints: in range
+// panics: FixedBuf.set: index out of range: 8 (len 8)
+import std.fixedbuf.*
+
+func main() {
+    var b = FixedBuf<8>()
+    b.set(7, 1)
+    print("in range")
+    b.set(8, 1)
+    print("unreachable")
+}

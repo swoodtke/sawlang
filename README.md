@@ -635,7 +635,7 @@ and `Atomic<Int>`, `SpinLock<T>`, `Mutex<T>` and `Once<T>` declare as a bare
 drifts, and `@export("name")` gives a function an unmangled C symbol.
 `@section("name")` places a definition in a named section, and `@align(N)`
 sets the alignment of a local or a `static`. A generic parameter can carry a
-value (`FixedBuf<const N: Int>`, not in `sawc`'s std yet, SL-596), and `[0; N]`
+value (`FixedBuf<const N: Int>`), and `[0; N]`
 spells a zeroed buffer.
 
 The `{}` form of `print`, `panic` and `assert` allocates nothing, so a panic

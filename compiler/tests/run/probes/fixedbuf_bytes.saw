@@ -1,0 +1,34 @@
+// probe: stated
+// about: `FixedBuf<N>` holds N zeroed bytes inline, `get` answers None out of range, `set` writes, and two sizes are two types (SL-596)
+// stage 0: its std's `FixedBuf` is a different module; the new std is what this pins
+// speeds: -O0 -O2
+// prints: 16 256
+// prints: 0 0
+// prints: 7 255
+// prints: none none
+// prints: 9 5
+import std.fixedbuf.*
+
+func first_byte16(b: &FixedBuf<16>) -> Int {
+    (b.get(0) ?? Byte(99)) as Int
+}
+
+func first_byte256(b: &FixedBuf<256>) -> Int {
+    (b.get(0) ?? Byte(99)) as Int
+}
+
+func main() {
+    var small = FixedBuf<16>()
+    var large = FixedBuf<256>()
+    print("{small.capacity()} {large.capacity()}")
+    print("{first_byte16(&small)} {first_byte256(&large)}")
+    small.set(0, Byte(7))
+    large.set(255, 255)
+    print("{first_byte16(&small)} {(large.get(255) ?? Byte(0)) as Int}")
+    let low = small.get(-1)
+    let high = small.get(16)
+    print("{if low == None { "none" } else { "some" }} {if high == None { "none" } else { "some" }}")
+    small.set(15, 9)
+    large.set(0, 5)
+    print("{(small.get(15) ?? Byte(0)) as Int} {first_byte256(&large)}")
+}

@@ -15589,7 +15589,7 @@ checked against the compiler's list by `compiler/tests/run.py`'s `prelude_doc`
 step on every patch, so a
 future row and the behaviour behind it cannot drift apart in silence.
 
-**`std.fixedbuf`** is not in `sawc`'s std yet (SL-596). It works in both
+**`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`). It works in both
 profiles: it allocates nothing. `FixedBuf<N>` is `N` bytes of zeroed storage held
 inline, sized by a const generic parameter, with `capacity()`, `get`/`set`
 (bounds-checked, panicking out of range), and `ptr()` for the unsafe paths that
@@ -15601,13 +15601,15 @@ which four bytes are held back for the marker and terminator, so
 `FixedStringBuilder<64>` holds 60 bytes of text; an `N` below 5 is a compile
 error.
 
-```saw-pending SL-596
+```saw
 import std.fixedbuf.*
 
-var out = FixedStringBuilder<64>()
-out.append("n = ")
-out.append(42)
-print(out.as_string())      // prints: n = 42
+func main() {
+    var out = FixedStringBuilder<64>()
+    out.append("n = ")
+    out.append(42)
+    print(out.as_string())      // prints: n = 42
+}
 ```
 
 **`Duration`** is a span of time, `UInt64` whole nanoseconds, and is in the
@@ -16659,7 +16661,7 @@ through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
 `Data.set`, `FixedBuf.set`, `String.byte_at`, `String.substring`, a slice's
 `s[i]` and `swap`) or yields `None`/`Err` for a `get`-shaped one
 (`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`, a slice's `get`).
-(`std.fixedbuf` is not in `sawc`'s std yet, SL-596.) Never a silent no-op,
+Never a silent no-op,
 never a clamp to a plausible-looking result, and never a status flag a caller
 can ignore. The two halves are a rule about the NAME, so a member on
 either list is on it whatever type declares it: `FixedBuf.get` answered a

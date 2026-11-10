@@ -788,7 +788,7 @@ public func res_std_modules(new_std: Bool) -> Vector<String> {
         res_push_all(&var out, "prelude alloc mem box arc panic scalar string stringbuilder vector utf8 data")
         res_push_all(&var out, "systemerror path env file directory process duration map set thread task")
         res_push_all(&var out, "taskgroup")
-        res_push_all(&var out, "channel net signal time spinlock mutex once numeric float slab serialize json cbor")
+        res_push_all(&var out, "channel net signal time spinlock mutex once numeric float slab serialize json cbor fixedbuf")
     } else {
         res_push_all(&var out, "alloc arc box cbor channel data directory duration env file fixedbuf float json")
         res_push_all(&var out, "map mutex net numeric once path process scalar serde set signal slab spinlock")

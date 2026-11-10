@@ -1,0 +1,12 @@
+// SL-596: `FixedStringBuilder<N>` needs N >= 5, the truncation marker and terminator
+// taking four of its bytes, so a smaller N is a compile error rather than a builder
+// that cannot say anything.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: FixedStringBuilder needs at least 5 bytes
+import std.fixedbuf.*
+
+func main() {
+    var out = FixedStringBuilder<4>()
+    out.append("x")
+    print(out.len())
+}

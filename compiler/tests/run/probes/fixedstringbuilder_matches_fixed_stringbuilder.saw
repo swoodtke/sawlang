@@ -1,0 +1,81 @@
+// probe: stated
+// about: `FixedStringBuilder<N>` truncates exactly as `StringBuilder(bytes:capacity:)` of the same capacity: the same text, length and `is_truncated()` for each append kind (SL-596)
+// stage 0: its std's `FixedStringBuilder` is a different module; the new std is what this pins
+// speeds: -O0 -O2
+// prints: abé…|7|true == abé…|7|true same
+// prints: abcd1…|8|true == abcd1…|8|true same
+// prints: ab-12…|8|true == ab-12…|8|true same
+// prints: 18446…|8|true == 18446…|8|true same
+// prints: abcA|4|false == abcA|4|false same
+// prints: abcd…|7|true == abcd…|7|true same
+import std.fixedbuf.*
+
+// Both builders have 9 bytes of storage: 5 bytes of text, then the marker.
+func report(fixed: String, fixed_len: Int, fixed_cut: Bool, plain: String, plain_len: Int, plain_cut: Bool) {
+    let same = fixed == plain && fixed_len == plain_len && fixed_cut == plain_cut
+    let verdict = if same { "same" } else { "DIFFERENT" }
+    print("{fixed}|{fixed_len}|{fixed_cut} == {plain}|{plain_len}|{plain_cut} {verdict}")
+}
+
+// `unsafe` because the fixed `StringBuilder` takes an `UnsafePointer<Int8>`.
+func main() unsafe {
+    // A multi-byte character at the cut backs up to before it.
+    var f1 = FixedStringBuilder<9>()
+    var s1 = FixedBuf<9>()
+    var b1 = StringBuilder(bytes: s1.ptr(), capacity: 9)
+    f1.append("ab")
+    f1.append("ééé")
+    try! b1.append("ab")
+    try! b1.append("ééé")
+    report(f1.as_string(), f1.len(), f1.is_truncated(), b1.build(), b1.len(), b1.is_truncated())
+
+    // An Int that overflows the space keeps the digits that fit.
+    var f2 = FixedStringBuilder<9>()
+    var s2 = FixedBuf<9>()
+    var b2 = StringBuilder(bytes: s2.ptr(), capacity: 9)
+    f2.append("abcd")
+    f2.append(1234567890)
+    try! b2.append("abcd")
+    try! b2.append(1234567890)
+    report(f2.as_string(), f2.len(), f2.is_truncated(), b2.build(), b2.len(), b2.is_truncated())
+
+    // So does the sign, and a Byte after the cut is dropped.
+    var f3 = FixedStringBuilder<9>()
+    var s3 = FixedBuf<9>()
+    var b3 = StringBuilder(bytes: s3.ptr(), capacity: 9)
+    f3.append("ab")
+    f3.append(-123456)
+    f3.append(Byte(65))
+    try! b3.append("ab")
+    try! b3.append(-123456)
+    try! b3.append(Byte(65))
+    report(f3.as_string(), f3.len(), f3.is_truncated(), b3.build(), b3.len(), b3.is_truncated())
+
+    // A UInt above Int.max.
+    var f4 = FixedStringBuilder<9>()
+    var s4 = FixedBuf<9>()
+    var b4 = StringBuilder(bytes: s4.ptr(), capacity: 9)
+    f4.append(UInt.max)
+    try! b4.append(UInt.max)
+    report(f4.as_string(), f4.len(), f4.is_truncated(), b4.build(), b4.len(), b4.is_truncated())
+
+    // A Byte that fits.
+    var f5 = FixedStringBuilder<9>()
+    var s5 = FixedBuf<9>()
+    var b5 = StringBuilder(bytes: s5.ptr(), capacity: 9)
+    f5.append("abc")
+    f5.append(Byte(65))
+    try! b5.append("abc")
+    try! b5.append(Byte(65))
+    report(f5.as_string(), f5.len(), f5.is_truncated(), b5.build(), b5.len(), b5.is_truncated())
+
+    // A character that straddles the limit by one byte is left out whole.
+    var f6 = FixedStringBuilder<9>()
+    var s6 = FixedBuf<9>()
+    var b6 = StringBuilder(bytes: s6.ptr(), capacity: 9)
+    f6.append("abcd")
+    f6.append("éx")
+    try! b6.append("abcd")
+    try! b6.append("éx")
+    report(f6.as_string(), f6.len(), f6.is_truncated(), b6.build(), b6.len(), b6.is_truncated())
+}
