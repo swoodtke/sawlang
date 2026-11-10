@@ -1,58 +1,44 @@
 # Saw
 
-[![CI](https://github.com/swoodtke/sawlang/actions/workflows/ci.yml/badge.svg)](https://github.com/swoodtke/sawlang/actions/workflows/ci.yml)
-
 A systems programming language with Rust-style memory safety and Swift-style
 syntax. It has no garbage collector and no lifetimes, and it compiles for bare
-metal as readily as for a hosted target.
+metal as well as for a hosted target.
 
-This README is the starting point. For the full language rules, see
-[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md). For testing and contribution workflows,
-see [TESTING.md](TESTING.md).
+[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the language reference. For testing and
+contribution workflows, see [TESTING.md](TESTING.md).
 
-## What Saw gives you
+## Design
 
+- **Memory safety without a garbage collector or lifetimes.** There are no
+  null pointers. Ownership is checked where a value is transferred, and the Law
+  of Exclusivity allows many readers or one writer, never both.
+- **Deterministic destruction.** Values are destroyed last-in-first-out as they
+  leave scope, and the `deinit` is written for you from the type's fields. A
+  local that lives across a suspension still dies at the end of its own scope.
+- **Checked integers.** Overflow, a bounds violation and a shift out of range
+  panic rather than wrap. A conversion between integer types is written
+  wherever the value lands.
+- **Visible allocation.** Containers carry their allocator as a type parameter,
+  and an allocation that fails returns `Result<_, AllocError>`.
+  `--no-hidden-alloc` rejects every allocation the source does not name.
+- **Errors are values.** A function that can fail returns `Result<T, E>`, and a
+  `Result` cannot be dropped by accident. There are no exceptions.
+- **Colorless concurrency.** There is no `async`/`await`. Any function may
+  suspend, and the one that must not is marked `sync`. Cooperative tasks share
+  one scheduler, and `Thread.spawn` starts an OS thread.
+- **A declared unsafe surface.** A raw pointer or a typed view of a fixed
+  address is an `Unsafe*` type, and a function that names one is declared
+  `unsafe`. There are no `unsafe` blocks.
 - **Bare metal is a first-class target.** The freestanding profile links no
-  libc and uses a small, fixed set of functions the host environment provides.
-  Allocators are a type parameter, memory-mapped registers get a typed view,
-  and `@export` gives a function an exact C symbol. SawOS, a capability-based
-  microkernel written in Saw, is built this way and boots under QEMU on
-  riscv32 and arm64 (it lives in its own repository since design 238).
-- **Memory safety without a garbage collector or lifetimes.** There are no null
-  pointers. Ownership is checked where a value is transferred, and mutable
-  aliasing is caught at compile time: many readers or one writer, never both at
-  once (Saw calls this the Law of Exclusivity). There is nothing to annotate.
-  Saw has no lifetime parameters.
-- **No integer conversion is silent.** Overflow, a bounds violation and a shift
-  out of range panic rather than wrap. A conversion between integer types is
-  written, wherever the value lands — a `let`, an argument, a `return`, a field,
-  an element — and the spelling says what an unrepresentable value means there:
-  `x as UInt8` panics, `UInt8.from(x)` answers `None`, and
-  `UInt8.from(truncating: x)` keeps the low bits on purpose. A widening that
-  cannot lose anything stays implicit.
-- **Allocation is visible in the type.** The allocating containers carry their
-  allocator as a type parameter, and the only implicit copies are cheap ones: a
-  bitwise copy or a refcount bump. No assignment is secretly O(n). Duplicating
-  a `Vector` is a visible `.copy()`. `--no-hidden-alloc` turns this into a
-  check: every allocation must be named by code you wrote, and the compiler
-  allocating on its own authority is a compile error (not yet in `sawc`,
-  SL-865). An allocation that fails
-  is reported, not survived: `push`, `insert`, `append` and the allocating
-  constructors return `Result<_, AllocError>`.
-- **Destruction is deterministic.** Values are destroyed last-in-first-out as
-  they leave scope, and the `deinit` is written for you from the type's fields.
-  A suspending function is no exception: a local that lives across a suspension
-  is held in a heap frame, but it still dies at the end of its own scope, so a
-  connection opened inside a task's loop closes at the end of the iteration
-  that opened it.
+  libc. SawOS, a capability-based microkernel written in Saw, is built this way
+  and lives in its own repository. It builds with `sawc` v0.21.0 and boots
+  under QEMU on riscv32 and arm64.
 - **A binary carries the program, not the standard library.** An import makes a
-  module available to type-check against. It does not put the module in your
-  output. Code generation walks out from `main` and the `@export`s and emits
-  only what it reaches, and the link then strips whatever is left over. A
-  four-line program links at about 63 KB.
-- **Swift-style syntax, specialized generics.** `let`/`var` bindings,
-  `extension` blocks, `T?` optionals, trailing closures, over generics and
-  traits that compile to specialized machine code.
+  module available to type-check against. Code generation emits only what
+  `main` and the `@export`s reach, and the link strips the rest.
+- **Swift-style syntax, specialized generics.** `let`/`var`, `extension`
+  blocks, `T?` optionals, `guard let`, trailing closures and `{}` interpolation.
+  Generics and traits compile to specialized machine code.
 
 ## Quick example
 
@@ -79,24 +65,22 @@ extension Point {
 
 func main() {
     var p = Point(x: 3, y: 4)
-    print(p.magnitude())  // 25
+    print(p.magnitude())  // prints: 25
 
     p.translate(1, 1)
-    print(p.x)  // 4
+    print(p.x)  // prints: 4
 
-    print(Point.origin().magnitude())  // 0
+    print(Point.origin().magnitude())  // prints: 0
 }
 ```
 
 ## A tour of the language
 
-The sections below show how each feature reads at the keyboard. Each one links
-to the spec for the full rules and the edge cases.
+Each section links to the spec for the rules and the edge cases.
 
 ### Optionals instead of null
 
-There are no null pointers. An absent value is `T?`, and `None` is the way to
-spell one.
+An absent value is `T?`, and `None` spells one.
 
 ```saw-fragment
 let maybe: Int? = None
@@ -124,9 +108,8 @@ See [Optionals](LANGUAGE_SPEC.md#optionals) in the spec.
 
 ### Error handling with Result
 
-Failures are values, not exceptions. A function that can fail returns
-`Result<T, E>`, and you handle it with `try`, `try!`, `try?`, a `match`, or an
-inline `catch`.
+A function that can fail returns `Result<T, E>`. You handle it with `try`,
+`try!`, `try?`, a `match`, or an inline `catch`.
 
 ```saw
 struct ParseError { message: String }
@@ -143,27 +126,22 @@ func load_data() -> Result<Int, ParseError> {
 
 func main() {
     let n = try! parse(false)        // panic on error
-    print(n)                         // 42
+    print(n)                         // prints: 42
 
     let value = try parse(true) catch { 0 }   // fallback on error
-    print(value)                              // 0
+    print(value)                              // prints: 0
 
     match parse(false) {
-        case Ok(parsed) -> print(parsed),
+        case Ok(parsed) -> print(parsed),     // prints: 42
         case Err(e) -> print(e.message)
     }
 }
 ```
 
-A bare `try` propagates the error to the caller. The enclosing function must
-return a `Result`, and an `Err` becomes an early return, so `load_data` above
-hands `ParseError` back to whoever called it. `try!` panics instead, printing
-the error it was handed (`panic at cfg.saw:12: try! failed: no such file`), and
-`try?` turns the `Result` into an `Optional` (`None` on error). You can also
-`match` on a `Result` directly, or handle it inline with `catch`.
-
-When the callee fails with a different type than your signature names, say
-where it goes:
+A bare `try` propagates the error. `try!` panics with it, and `try?` gives an
+`Optional`. When the callee fails with a different type than your signature
+names, a routing clause (not built in `sawc` yet, SL-884) says where the error
+goes:
 
 ```saw-fragment
 enum ConfigError {
@@ -178,28 +156,24 @@ func build() -> Result<Config, ConfigError> {
 }
 ```
 
-The named case must carry exactly one payload the callee's error fits. There
-is no lifting trait and no candidate search, so editing the enum never changes
-what a distant `try` does, and every conversion is visible where it happens.
+Writing a fallible call as a bare statement is a compile error. Handle the
+`Result`, or write `let _ =` to discard it explicitly.
 
-A `Result` cannot be dropped by accident. Writing a fallible call as a bare
-statement is a compile error, because the failure it reports would go nowhere:
+```saw-error
+// error-rule: result.discarded
+// error-contains: silently discarded
+func write(body: String) -> Result<Void, String> { return }
 
-```saw-fragment
-stream.write(body)
-// error: result of `write` is `Result<Void, IoError>` and is silently
-//        discarded
-// hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or
-//       write `let _ = ...` to discard it explicitly
+func main() {
+    write("body")
+    // error: the result of `write` is `Result<Void, String>` and is silently
+    //        discarded: handle it (`match` it, `try` or `try!` it, or return
+    //        it), or write `let _ = ...` to discard it explicitly
+}
 ```
 
-Handle it, or say you meant to drop it with `let _ = stream.write(body)`.
-Optionals and every other type stay freely discardable. The rule is about
-failures, and a `Result` a caller may always ignore should not have been a
-`Result`.
-
-A constructor can fail the same way. An `init` declares either the type it
-builds or `Result<Type, E>`, and the construction then carries the `Result`:
+A constructor fails the same way. An `init` declares either the type it builds
+or `Result<Type, E>`:
 
 ```saw-fragment
 extension Config {
@@ -212,23 +186,8 @@ extension Config {
 let cfg = try Config(budget: n, ceiling: 4096)
 ```
 
-`Config(budget:ceiling:)` has type `Result<Config, ConfigError>`, so `try`,
-`try!`, `try?`, `match`, the routing clause and the discard rule all apply with
-nothing extra written. An optional return is refused: a failed creation has a
-cause, and `None` throws it away.
-
-The standard library always names its error type, and every operation that can
-run out of memory has one: `push`, `insert`, `append`, `Box.make`,
-`Vector(capacity:)` and the rest return `Result<_, AllocError>`, all-or-nothing,
-with the refused request's size and alignment in the error. There is no
-panicking twin and, with one exception, no `try_`-prefixed one: `copy()` is a
-trait hook that cannot return a `Result`, so `Vector`, `Map` and `Set` each keep
-a reporting `try_copy()` beside it. `try!` is how a caller says it would rather
-die than handle the refusal, and it panics naming the error.
-
-An operation with one failure mode returns that failure. One whose sources
-genuinely mix returns an enum with a case per source, each carrying the
-underlying error rather than restating it:
+An operation whose failures have mixed sources returns an enum with a case per
+source:
 
 ```saw-fragment
 public enum ChannelError {
@@ -239,19 +198,12 @@ public enum ChannelError {
 }
 ```
 
-There is no library-wide error enum, because a signature listing failures the
-operation cannot produce is a signature that lies. `Result<T, Box<any Error>>`
-exists for application code that does not care which error arrived; std never
-produces one, so a caller that does care can always match.
-
 See [Error Handling](LANGUAGE_SPEC.md#5-error-handling) in the spec.
 
 ### main returns the exit status
 
-`main` may return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, and
-nothing else. `Void` exits 0, an `Int` is the status, an `Ok` payload is the
-status (0 for `Ok(())`), and an `Err` writes the error on standard error and
-exits 1:
+`main` may return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`. An
+`Err` writes the error on standard error and exits 1.
 
 ```saw
 import std.file
@@ -267,12 +219,6 @@ func main() -> Result<Void, SystemError> {
 // With no saw.toml: writes `error: open "saw.toml" failed (not found)` on
 // standard error, exits 1.
 ```
-
-A command-line program reports failure by returning it, with no `exit()` call
-and no status constant to keep in sync. A shell sees eight bits of status, so
-a status outside 0...255 is a panic at `main`'s declaration rather than a
-narrowed value that could read as success. `main` may suspend whatever it
-returns.
 
 See [The entry point](LANGUAGE_SPEC.md#the-entry-point) in the spec.
 
@@ -294,8 +240,7 @@ func handle(msg: Message) {
 }
 ```
 
-`match` is exhaustive: every case must be covered. To handle the rest at
-once, use `case _`:
+`match` is exhaustive. To handle the rest at once, use `case _`:
 
 ```saw-fragment
 match msg {
@@ -304,11 +249,8 @@ match msg {
 }
 ```
 
-An enum can also carry a raw integer backing (see the spec), which pins its
-representation to one byte and lets it cross an ABI boundary.
-
-A type may name itself as long as the cycle passes through a heap indirection,
-so a tree or a list is written directly:
+A type may name itself when the cycle passes through a heap indirection
+(`Vector`, `Box`, `Map`), so a tree is written directly:
 
 ```saw
 enum Json {
@@ -319,32 +261,31 @@ enum Json {
 extension Json: NoCopy {}
 ```
 
-`Vector`, `Box` and `Map` all break the cycle, because each stores a pointer.
-A cycle with no indirection on it has no finite size and is refused where it is
-written, naming the path.
-
 See [Enums](LANGUAGE_SPEC.md#enums-algebraic-data-types) and
 [Recursive types](LANGUAGE_SPEC.md#recursive-types) in the spec.
 
 ### Traits, generics, and dynamic dispatch
 
-Conform a type to a trait with `extension Type: Trait`. Trait methods may carry
-a default body, so a conforming type only implements what is unique to it.
+Conform a type to a trait with `extension Type: Trait`. A trait method may
+carry a default body.
 
-```saw-fragment
+```saw
 trait Greeter {
     func name(&self) -> String
     func greet(&self) -> String { "Hello, {self.name()}!" }  // default body
 }
 
+struct Robot { id: Int }
+
 extension Robot: Greeter {
     func name(&self) -> String { "R2" }
-    // greet() inherited from the default; prints "Hello, R2!"
+    // greet() inherited from the default
 }
+
+func main() { print(Robot(id: 1).greet()) }  // prints: Hello, R2!
 ```
 
-A trait can also be used as a boxed, dynamically-dispatched value with `any
-Trait`:
+`any Trait` is a dynamically dispatched value:
 
 ```saw
 trait Shape { func area(&self) -> Int }
@@ -363,8 +304,8 @@ let n = first(&names)                       // T = String, inferred
 let lengths = try! names.map({ s in s.len() })  // map<Int> solved from the closure
 ```
 
-Constructors infer the same way, and a declared type annotation is one of the
-things they infer from — so a generic type is named once, not twice:
+Constructors infer the same way, and a type annotation is one of the things
+they infer from:
 
 ```saw-body
 struct Pair<A, B> { a: A, b: B }
@@ -373,9 +314,7 @@ let p = Pair(a: 1, b: "port")     // Pair<Int, String>
 let v: Vector<Int> = Vector()     // the element type, written once
 ```
 
-A trait can require a constructor. A generic then builds `T(...)` through
-that requirement, and nothing else: a construction no bound declares is a
-compile error in the generic body.
+A trait can require a constructor, and a generic builds `T(...)` through it:
 
 ```saw
 trait Make { init(seed: Int) -> Self }
@@ -388,24 +327,23 @@ func build<T: Make>(n: Int) -> T { T(seed: n) }
 func main() { print(build<Tally>(3).seed) }   // prints: 3
 ```
 
-`Equatable`, `Comparable`, `Hashable`, and the copy policies can have their
-bodies derived from the type's fields. Ask for it with `@synthesize`:
+`@synthesize` derives `Equatable`, `Comparable`, `Hashable` and the copy
+policies from the type's fields:
 
-```saw-fragment
+```saw
+struct Version { major: Int, minor: Int }
+
+@synthesize
+extension Version: Equatable {}
+
 @synthesize
 extension Version: Comparable {}   // lexicographic over the fields
+
+func main() {
+    print(Version(major: 1, minor: 2) < Version(major: 1, minor: 3))
+    // prints: true
+}
 ```
-
-A function, method, or `init` name can be overloaded, and a call resolves by
-exact argument types. Type inference works across the overloads: a unique
-match is picked, and a genuine tie is a compile error that lists the
-candidates instead of guessing.
-
-Names belong to modules. A free function is identified by its defining module
-and its name, so two modules may declare the same one and no module reserves a
-name from any other. A qualified call takes the named module's declarations;
-a bare call merges what you declared with what you imported bare, and a tie
-between two modules is reported at the call, naming both.
 
 See [Traits](LANGUAGE_SPEC.md#traits),
 [Generics](LANGUAGE_SPEC.md#7-metaprogramming), and
@@ -413,9 +351,9 @@ See [Traits](LANGUAGE_SPEC.md#traits),
 
 ### Concurrency without async/await
 
-There is no `async`/`await` keyword. Any function may suspend, and the rare
-function that must not is marked `sync`, which the compiler checks. A
-`TaskGroup` owns its child tasks and joins them when it goes out of scope.
+Any function may suspend, and the rare function that must not is marked
+`sync`. A `TaskGroup` owns its child tasks and joins them when it goes out of
+scope.
 
 ```saw
 import std.task.*        // yield_now lives in std.task
@@ -429,30 +367,13 @@ func main() {
     var group = TaskGroup()
     let a = group.spawn(work(3))
     let b = group.spawn(work(4))
-    print(a.join() + b.join())   // 25
+    print(a.join() + b.join())   // prints: 25
 }
 ```
 
-`group.spawn` hands back a `Task<T>`, a `Task<Void>` when the function
-returns nothing. `join()` takes the result once, and a second `join()` panics.
-A group's handle may also be dropped unjoined: the task still runs to its end
-inside the group, and its result is dropped when it finishes, so an accept loop
-that keeps no handles holds only the tasks still running.
-
-A suspending call works in any position: an operand, an argument, a receiver,
-an interpolation, a `return` value. The compiler rewrites the statement into
-evaluation-ordered steps, so left-to-right order and short-circuiting hold as
-written. Where a position cannot host one, the compiler says so at the call —
-a suspension inside a closure body is refused, because a closure is reached
-through a function value and its body is not a frame. There is no third
-outcome: a suspending call is driven, or it is a compile error. A single cooperative scheduler runs spawned tasks eagerly, backed by
-an I/O reactor (kqueue or epoll). Every spawned task's frame must be `Send`,
-whatever its group, so a spawn that compiles into one group compiles into any.
-`TaskGroup(threads: N)` opts into multiple threads; the default stays
-single-threaded.
-That constructor starts a worker pool, so it allocates and reports: write
-`var pool = try TaskGroup(threads: 4)`, or `try!` where a refusal should end the
-program. The single-threaded `TaskGroup()` is infallible and needs neither.
+`group.spawn` hands back a `Task<T>`, and `join()` takes the result once. A
+suspending call works in any expression position, with evaluation order and
+short-circuiting kept:
 
 ```saw-fragment
 func report() -> Int {
@@ -462,22 +383,10 @@ func report() -> Int {
 }
 ```
 
-`Channel<T>` closes explicitly. Any holder may close, and a receive drains
-the queue before reporting `Err(Closed)`, so closing mid-flight loses no
-messages. When every live task is parked on a channel and nothing in the
-program can ever send, the scheduler reports the deadlock and aborts with a
-task dump instead of hanging. The dump is available on demand too:
-`dump_tasks()` prints every live task with the `file:line` of each suspending
-call between its entry point and where it is parked. It reads tables the
-compiler links into the binary and allocates nothing, so it works in a
-kernel and inside a panic handler.
-
-For a dedicated OS thread — a long blocking C call, work that must not share
-the executor's thread — there is a second engine, and the namespace is which
-one you are on. `Thread.spawn` starts a real thread and `join()` blocks for
-its result. The operating system may refuse a thread, so the form hands back
-a `Result<Thread<T>, SystemError>`; `try!` says this program cannot go on
-without one:
+`TaskGroup(threads: N)` opts into multiple threads. When every live task is
+parked and nothing can send, the scheduler aborts with a task dump instead of
+hanging. For a dedicated OS thread, such as a long blocking C call,
+`Thread.spawn` returns a `Result<Thread<T>, SystemError>`, and `join()` blocks:
 
 ```saw
 extern "C" {
@@ -490,19 +399,9 @@ func main() {
 }
 ```
 
-A thread's body is a `sync` context, since a spawned thread runs no executor;
-a `blocking` extern is the one suspension source it may reach, which is the
-reason to spawn one. And a spawned brace captures nothing implicitly: the
-capture list is the body's parameter list, so everything crossing to the
-thread is written at the crossing (`Thread.spawn { [job] in compress(job) }`).
-
-A Saw function whose body blocks its thread in a way the compiler cannot
-offload, such as a wait on a condition variable, says `blocking` in its effect
-slot. It runs in thread context only: a `Thread.spawn` body, a `main` that
-never suspends, and what they call. Callers write nothing, and a task that
-reaches one is refused where it is spawned, with the path to the block. One
-operation can also have two bodies, a default for tasks and a `blocking` twin
-for threads, and each compiled copy of a caller gets the one its context needs:
+A thread's body is a `sync` context, and a spawned brace captures nothing
+implicitly. One operation can have a default body for tasks and a `blocking`
+twin for threads:
 
 ```saw-fragment
 extension Mailbox {
@@ -512,22 +411,9 @@ extension Mailbox {
 }
 ```
 
-`Channel.receive` and `Thread.join` are such pairs, so one name serves both
-engines: a task parks until a message arrives or the thread finishes, and a
-`Thread.spawn` body blocks its thread.
-
-A `deinit` may be `blocking` too, as a worker pool's that joins its threads
-is. A value of that type, or one holding it, may then be dropped only in
-thread context: a task that drops one, even inside `Vector.clear`, is refused
-with the path to the drop, and hands the value to a thread instead.
-
-A unit of concurrent work has a written fate, never an inferred one. The
-handle must reach `join()` or `detach()` on every path, so neither a bare
-`Thread.spawn { ... }` statement nor a `let _ =` of one compiles. `detach()` gives
-the work to the process and gives up its result — the same statement `let _ =`
-makes about a `Result`, at the scale of a whole task.
-
-A cooperative task can outlive its spawner too, without a group:
+Every handle has a written fate: a `Thread.spawn` handle must reach `join()` or
+`detach()` on every path, and a `Task.spawn` handle `join()`, `detach()` or
+`cancel()`. A task spawned without a group can outlive its spawner:
 
 ```saw-fragment
 func reindex(catalog: Catalog) -> Int { ... }
@@ -539,15 +425,7 @@ func main() {
 }
 ```
 
-`Task.spawn` runs on the same cooperative scheduler, in a group the program
-never declares. At `main`'s return that group cancels every task still live
-and joins it, so a detached background task ends there and the values it owns
-are released on the way out.
-
-Reach for them in this order: `TaskGroup` for structured concurrency,
-`Task.spawn` when a task genuinely outlives its spawner,
-`TaskGroup(threads: N)` for parallelism, and `Thread.spawn` when one thread
-must block.
+At `main`'s return, every task still live is cancelled and joined.
 
 See [Concurrency](LANGUAGE_SPEC.md#6-concurrency),
 [Tasks and Channels](LANGUAGE_SPEC.md#tasks-and-channels), and
@@ -555,49 +433,37 @@ See [Concurrency](LANGUAGE_SPEC.md#6-concurrency),
 
 ### Memory and ownership
 
-Saw has three words for what happens when a value is transferred:
+A transfer is one of three things:
 
-- **Copy** — the compiler may duplicate it with nothing written at the site.
-  Trivial types (copied bitwise) and the refcounted ones (`String`, `Arc`,
-  `Data`) are both `Copy`.
-- **NoCopy** — can only be moved (`File`, `Mutex`, and a `Map`/`Set`/
-  `Vector` whose key, value, or element cannot be duplicated at all).
-- **ExplicitCopy** — can be duplicated, but only with a spelled `.copy()`
-  (`Vector`, and `Map`/`Set` when their key/value or element type is too).
+- **Copy**: the compiler duplicates it with nothing written at the site
+  (trivial types, and refcounted ones such as `String`).
+- **NoCopy**: it can only be moved (`File`, `Mutex`).
+- **ExplicitCopy**: it can be duplicated, but only with a spelled `.copy()`
+  (`Vector`).
 
-```saw-fragment
+```saw-body
+struct Point { x: Int, y: Int }
+
 let a = Point(x: 1, y: 2)
 let b = a              // trivial type: implicit copy, both valid
+print(b.x + a.y)       // prints: 3
 
 var v: Vector<Int> = [1, 2, 3]
 var w = move v         // owning type: ownership transferred, v invalid
 var u = w.copy()       // explicit, independent duplicate
+print(u.len())         // prints: 3
 
 let s1 = "hi"
 let s2 = s1            // String: cheap refcount bump, both valid
+print("{s1}{s2}")      // prints: hihi
 ```
-
-A struct whose owning members are all `Copy` is `Copy` itself, with no
-declaration needed. Values are destroyed last-in-first-out as they leave scope,
-and a `deinit` is synthesized from the fields. You write one by hand only for a
-raw resource such as a file descriptor.
 
 References (`&T` for shared, `&var T` for exclusive) are parameters only, and
 the compiler checks that an exclusive reference does not overlap any other
-reference reaching the same value. References stay valid across suspension
-points, and a reference you receive can be passed on to another function.
-
-A method can also hand out storage, not just a value: a `borrows` accessor
-gives the caller direct access to an element or field inside the receiver,
-which is how `v[i] += 1` writes a `Vector` element where it sits. The spec
-calls these places, and every call of an accessor is a lend whose window ends
-where the reader can see it: an unnamed lend lasts for its statement, and a
-named one (`if var e = m.find(&k) { e.count += 1 }`,
-`borrow var cell = grid[r][c] { … }`) for the block its binding opens. A `let`
-copies the value out, so it never holds a lend. The signature says what
-a caller may do with one — `borrows -> &var T` lends a place a use site may
-read or write, `borrows -> &T` lends a view — and the use site narrows within
-what the declaration allows:
+reference to the same value. A `borrows` method lends storage instead of a
+value, which is how `v[i] += 1` writes a `Vector` element where it sits. An
+unnamed lend lasts for its statement, and a named one
+(`if var e = m.find(&k) { e.count += 1 }`) for the block its binding opens.
 
 ```saw-fragment
 extension Document {
@@ -613,12 +479,10 @@ extension Document {
 }
 ```
 
-v0.18.0 wrote a `borrow` prefix on every unnamed lend (`borrow var v[i] += 1`).
-v0.19.0 still accepts it, `-W borrow-prefix` warns where it is redundant, and
-`sawc fix FILE...` drops it.
-
-A type can hold a lent place too. `borrows struct` declares one, and its value
-lives for exactly one `for` statement — which is how iteration is safe:
+`sawc` still accepts the `borrow` prefix v0.18.0 wrote on every unnamed lend.
+`-W borrow-prefix` warns where it is redundant, and `sawc fix FILE...` drops
+it. A `borrows struct` holds a lent place for exactly one `for` statement, so
+the loop borrows the collection for its whole run:
 
 ```saw-error
 // error-rule: loan.window-root
@@ -638,39 +502,25 @@ func main() {
 //        window's binding
 ```
 
-`Vector.iter()` hands back a `VectorIterator` holding `&Vector<T, A>`, so the
-loop borrows the collection for its whole run and the body may read it but not
-grow it, replace it, move it or swap its elements. The iterator reads the
-vector's length and buffer through the reference on every step, so a growth
-that reallocated the buffer cannot leave it pointing at freed storage. The
-borrow is tracked by the ordinary Law of Exclusivity, not by a lifetime
-annotation: the value cannot be bound to a name, stored in a field, passed as
-an argument or wrapped in a generic, so there is one place it can be and the
-compiler knows where that is.
-
-Such a loop may suspend. The iterator becomes part of the task's frame and the
-loop head re-enters through `next()`, so a `for` over a collection can await
-I/O in its body like any other statement.
-
-A method can also END its receiver. `consumes` says so at the declaration, and
+A method can also end its receiver. `consumes` says so at the declaration, and
 `move` says so at the call:
 
-```saw-fragment
+```saw
+struct Builder { items: Vector<Int> }
+extension Builder: NoCopy {}
+
 extension Builder {
     func finish(&var self) consumes -> Vector<Int> {
         move self.items
     }
 }
 
-let items = (move b).finish()   // `b` is moved-from past this expression
+func main() {
+    var b = Builder(items: [1, 2, 3])
+    let items = (move b).finish()   // `b` is moved-from past this expression
+    print(items.len())              // prints: 3
+}
 ```
-
-The callee releases whatever remains of the value, so the caller's binding
-releases nothing. Inside a consuming body a field can be moved out — every path
-or none, decided at compile time, with the fields that stay released at the end
-of the body. A consuming method takes the place of a hand-written `deinit` for
-that one endpoint, which is why it may only be declared in the module that
-defines the type.
 
 See [Memory Management](LANGUAGE_SPEC.md#4-memory-management),
 [Consuming method receivers](LANGUAGE_SPEC.md#consuming-method-receivers-consumes)
@@ -679,7 +529,8 @@ and [Places](LANGUAGE_SPEC.md#places-borrows-and-lend) in the spec.
 ### Modules and imports
 
 There are three import forms, and the standard library takes the same three as
-any other module:
+any other module. Each binds exactly what it names, so write both the first
+and the second or third line when you want the qualifier and the bare name.
 
 ```saw
 import std.time                    // binds the qualifier: time.Instant.now()
@@ -687,28 +538,10 @@ import std.time.*                  // every public name, bare: Instant.now()
 import std.time.{Instant}          // Instant bare, and only Instant
 ```
 
-Each form binds exactly what it names, so the qualifier comes from the
-whole-module line and nowhere else. Write both when you want both — they are
-complementary, and the bare and qualified spellings are then the same type
-everywhere.
-
-Imports are private: what an import binds is the file's, not its callers'. A
-module's surface is what it declares `public` — importing `parser` reaches
-`parser`'s own public declarations and nothing `parser` imported. `public
-import` hands a name on, on every form: `public import wire` re-exports the
-qualifier, `public import wire.{Header}` re-exports that one name, and
-`public import wire.*` re-exports the module's whole vocabulary. A re-export
-also hands on extension scope, so a file that imports your facade sees the
-extension methods of the modules you publish, without importing them itself.
-
-Visibility is scoped: besides `public` and the private default, a declaration
-can be `public(package)` — visible to the other files of its package and
-nobody else — or `public(parent)`, visible to the enclosing module. Members are
-gated outside their defining module only; inside it, everything is reachable
-with nothing marked.
-
-A struct's fields take the struct's visibility. The tier is written once, on
-the type, and `private` narrows an individual field back down:
+Imports are private, and a module's surface is what it declares `public`.
+`public import` re-exports a name on every form. A declaration can also be
+`public(package)` or `public(parent)`. A struct's fields take the struct's
+visibility, and `private` narrows one field back down:
 
 ```saw
 public struct Account {
@@ -717,97 +550,41 @@ public struct Account {
 }
 ```
 
-`private` is contextual, so it stays an ordinary identifier everywhere but
-directly ahead of a field name. Extension methods are the deliberate exception:
-a method is a declaration in its own right, so a bare one is module-private
-whatever its receiver's tier, and `public` marks the ones you mean to publish.
-
-A public API needs public types. A declaration may not name a type less
-visible than itself, so a `public` function's parameters and return type are
-`public` and a `public(package)` one's are at least `public(package)`. A field
-is judged at the tier it inherits, which is why an internal field of a public
-struct is marked `private` rather than left bare. The refusal is at the
-declaration and names its fixes; a private declaration may name anything.
-Otherwise a caller ends up holding a value with no name it can write.
-
-Type identity is the defining module plus the name, so a dependency's private
-`struct Header` reserves nothing in your program, and two packages' public
-`Header`s coexist; import one under an alias
-(`import wire.{Header as WireHeader}`) to use both in one file.
-
-A curated core is available without an import (primitives, `Vector`/`Map`/`Set`,
-`Optional`/`Result`/`Box`/`Arc`, the trait vocabulary, `print`/`panic`/`assert`,
-the concurrency primitives, `StringBuilder`). Everything else (`File`, `Data`,
-`Channel`, `Mutex`, `TcpStream`, and so on) needs an import, which also means
-your own type named `File` or `IoError` never collides with the standard
-library's — whether you declare it or import it from a module of your own. A
-gated name is the weakest bare name there is: name your own and the merged one
-steps aside, while `file.File` still reaches the standard library's in the same
-file. Prelude names are reserved, so `Vector` and `Duration` are not yours to
-redeclare.
+A curated core (primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/
+`Arc`, `print`/`panic`/`assert`, the concurrency primitives and
+`StringBuilder`) needs no import. Everything else, such as `File` and
+`Channel`, does.
 
 See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
 
 ### Five smaller rules
 
-- **A newline separates two statements, and so does `;`.** Saw has no
-  statement terminators. A `;` joins the statement on its left to the one on
-  its right, which is what a one-line body needs: `if done { print("ok"); return }`.
-  A `;` that separates nothing — before a newline, before `}`, at the end of
-  the file, doubled, at the start of a line — is a compile error, and so is
-  running two statements together on one line with nothing between them: the
-  separator would be invisible, so `let a = b (c)` reads as one statement and
-  is two. See
-  [Statement boundaries](LANGUAGE_SPEC.md#statement-boundaries).
-- **A method's kind is declared.** A method with no receiver is written
-  `static func` and called on its type, `Point.origin()`. Leaving the keyword
-  off is a compile error whose fixit names both readings, because a forgotten
-  `&self` and an intended static look the same to the compiler and produce
-  very different methods. See
-  [Static methods](LANGUAGE_SPEC.md#static-methods).
-- **Shadowing must be earned.** Reusing a name from an enclosing scope is a
-  compile error unless the new binding is visibly derived from the one it
-  shadows — the initializer mentions it. `if let x = x` and
-  `let data = parse(move data)` compile; an accidental `let x = compute()`
-  under an outer `x` does not. See
-  [Variables and Mutability](LANGUAGE_SPEC.md#variables-and-mutability).
-- **Source locations are literals.** `#file`, `#line`, and `#function` are
-  filled in at compile time, and panics and asserts already carry a
-  `panic at FILE:LINE:` prefix. A panic's message goes to standard error,
-  apart from the program's `print` output on standard output. A `print` line
-  is never split by another thread's `print`, and a `print` whose write fails
-  (a closed standard output, a full disk) panics with the cause rather than
-  losing the line. See
-  [Source-location literals](LANGUAGE_SPEC.md#source-location-literals) and
-  [Built-in Functions](LANGUAGE_SPEC.md#built-in-functions).
+- **A newline separates statements, and so does `;`.** A `;` that separates
+  nothing is an error ([spec](LANGUAGE_SPEC.md#statement-boundaries)).
+- **A method's kind is declared.** A method with no receiver is `static func`,
+  called on its type, `Point.origin()`
+  ([spec](LANGUAGE_SPEC.md#static-methods)).
+- **Shadowing must be earned.** Reusing an enclosing name is an error unless
+  the initializer mentions it: `if let x = x` compiles
+  ([spec](LANGUAGE_SPEC.md#variables-and-mutability)).
+- **Source locations are literals.** `#file`, `#line` and `#function` are
+  filled in at compile time, and panics carry a `panic at FILE:LINE:` prefix
+  ([spec](LANGUAGE_SPEC.md#source-location-literals)).
 - **Doc comments are checked.** `///` documents the declaration that follows,
-  `//!` the file; one that documents nothing is a compile error rather than a
-  silent drop. `--emit-docs` writes the program's documentation as JSON,
-  signatures and bounds included (not yet in `sawc`, SL-880). See
-  [Doc comments](LANGUAGE_SPEC.md#doc-comments).
+  `//!` the file. `--emit-docs` writes them as JSON (not yet in `sawc`,
+  SL-880) ([spec](LANGUAGE_SPEC.md#doc-comments)).
 
 ## Standard library
 
-The standard library lives in `std/` and includes:
+The standard library lives in `std/`. The prelude needs no import; the other
+modules do.
 
-- **String** — immutable, reference-counted, always valid UTF-8.
-- **StringBuilder** — growable builder; a fixed-capacity mode allocates
-  nothing.
-- **Byte** — the type of a byte value, `type Byte = UInt8`. It is in the
-  prelude, and every byte a std API hands back has it: `String.byte_at` and
-  `bytes()`, `Data`'s `get`/`pop`/iteration, `FixedBuf.get`. Being a distinct
-  alias, it reads as its `UInt8` with nothing written (`b == 0x0A`, `b < 0x80`,
-  `b & 0x1F`, a `UInt8` parameter) while a plain integer never becomes one
-  implicitly.
-  That is what lets `StringBuilder.append(65)` render the digits `65` and
-  `append(Byte(65))` write the byte `A` under one name.
-- **Scalar** — the type of a Unicode scalar value, also in the prelude. It
-  carries the invariant (`0..0x10FFFF`, no UTF-16 surrogates) and checks it in
-  one place, its fallible constructor, so an invalid scalar is unrepresentable
-  rather than a status flag every caller has to test. `String.scalars()` yields
-  them and `StringBuilder.append` writes them back as UTF-8. A `Scalar` prints
-  as the character it stands for, where the bare integer it replaced printed
-  the number:
+- **String**, **StringBuilder**: immutable, reference-counted UTF-8 text, and a
+  growable builder whose fixed-capacity mode allocates nothing.
+- **Byte**: `type Byte = UInt8`, the type of every byte a std API hands back.
+  It reads as its `UInt8`, and a plain integer never becomes one implicitly
+  (not enforced by `sawc` yet, SL-1012).
+- **Scalar**: a Unicode scalar value, checked at construction:
 
   ```saw-body
   for ch in "héllo".scalars() {
@@ -821,105 +598,50 @@ The standard library lives in `std/` and includes:
   // prints: o 111
   ```
 
-  There is no grapheme type. Segmenting a combining accent or a flag emoji
-  needs Unicode tables the standard library does not carry.
-- **Float ↔ text** — shortest round-trip formatting and correctly-rounded
-  parsing, both without an import. `f.to_string()` gives the shortest decimal
-  that reads back as `f`, and `s.to_float()` gives the nearest `Float` to the
-  whole string. Every position that shows a float — `print(f)`, `"{f}"`,
-  `print("{}", f)`, a `panic` argument — produces the same bytes, so
-  `print(0.1 + 0.2)` writes `0.30000000000000004`. Pure Saw, so it works
-  freestanding.
-- **Vector / Map / Set** — the collection types, with `[...]`, `{k: v}`, and
-  `{a, b}` literals.
-- **Arc / Box** — atomic reference counting and owned heap allocation.
-- **TaskGroup** — cooperative task groups (available without an import). The
-  rest of the concurrency surface — `Channel`, `Mutex`, `Once` — needs an
-  import: `std.channel`, `std.mutex`, `std.once`.
-- **std.data** — `Data`, copy-on-write byte buffer.
-- **std.net** — `TcpListener` / `TcpStream`, owning and cooperative. `accept`,
-  `read`, `read_into` and `connect` each take an optional `timeout: Duration`
-  and answer `Timed<T>`, so a server can drop an idle connection instead of
-  waiting for a peer that never speaks. Socket options are labelled parameters
-  with defaults rather than an options object; `reuse_address` and `no_delay`
-  are on by default, and a write to a peer that has hung up returns a
-  `BrokenPipe` error instead of ending the process.
-- **The filesystem** — `File` (std.file), `Directory` (std.directory), `Path`
-  (std.path) and `Env` (std.env), one module each; every fallible operation
-  returns a `Result`.
-- **std.signal** — OS signals as suspending events. `watch(.Terminate)` gives a
-  handle whose `next()` suspends until the signal arrives, so graceful shutdown
-  is a task that waits, cancels the work and lets deinits run. No callbacks and
-  no exit registry.
-- **std.process** — run child processes cooperatively.
-- **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` needs no
-  import because `sleep` takes one.
-- **std.cbor** — pending SL-596, not implemented yet. The target is CBOR
-  (RFC 8949) in its deterministic encoding profile.
-- **std.json** — `JsonValue`, a parsed tree with `parse` and `to_json_string`
-  (RFC 8259). The `JsonEncoder`/`JsonDecoder` half over the serialization seam
-  is pending SL-596.
-- **Serialize / Deserialize** — pending SL-596, not implemented yet. The
-  target is an `Encoder` / `Decoder` seam with `@synthesize` derivation.
+- **Float and text**: `f.to_string()` gives the shortest decimal that reads
+  back as `f`, and `s.to_float()` the nearest `Float` to the string. Both are
+  pure Saw, so they work freestanding.
+- **Vector / Map / Set**, **Arc / Box**: the collections, with `[...]`,
+  `{k: v}` and `{a, b}` literals, and atomic reference counting.
+- **TaskGroup** (prelude), **std.channel**, **std.mutex**, **std.once**:
+  cooperative task groups, channels, and the synchronization primitives.
+- **std.data**: `Data`, a copy-on-write byte buffer.
+- **std.net**: `TcpListener` and `TcpStream`. `accept`, `read`, `read_into` and
+  `connect` take an optional `timeout: Duration` and answer `Timed<T>`.
+  `listen` takes a labelled `reuse_address` (on by default), and `no_delay` is
+  on by default with `set_no_delay(on:)` to change it.
+- **std.file**, **std.directory**, **std.path**, **std.env**: the filesystem
+  and environment; every fallible operation returns a `Result`.
+- **std.signal**: OS signals as suspending events. `SignalWatch.watch(which:)`
+  takes a `Signal` case such as `.Terminate` and returns a `Result` holding a
+  watch whose `next()` suspends until the signal arrives.
+- **std.process**, **std.time**: child processes, and `Instant` and
+  `unix_timestamp`.
+- **std.json**, **std.cbor**, **std.serialize**: `JsonValue` with `parse` and
+  `to_json_string`, deterministic CBOR (RFC 8949), and the `Serialize` /
+  `Deserialize` seam with `@synthesize` derivation.
 
 See [Standard Library Overview](LANGUAGE_SPEC.md#9-standard-library-overview)
 in the spec for the full surface.
 
 ## Kernels and embedded
 
-Saw is freestanding: the same language targets bare metal.
+The same language targets bare metal under the freestanding profile. The
+allocator is a default type parameter on the allocating containers
+(`Vector<T, A = GlobalAllocator>`), `UnsafeMemory<T, Use>` is a typed view of
+memory at a fixed address (a `Device` view's reads and writes are volatile),
+and `Atomic<Int>`, `SpinLock<T>`, `Mutex<T>` and `Once<T>` declare as a bare
+`static`. `static_assert` fails the build when a register block's layout
+drifts, and `@export("name")` gives a function an unmangled C symbol.
+`@section("name")` places a definition in a named section, and `@align(N)`
+sets the alignment of a local or a `static`. A generic parameter can carry a
+value (`FixedBuf<const N: Int>`, not in `sawc`'s std yet, SL-596), and `[0; N]`
+spells a zeroed buffer.
 
-- **Pluggable allocation**: the allocator is a default type parameter on the
-  allocating containers (`Vector<T, A = GlobalAllocator>`). A custom zero-sized
-  allocator produces a distinct type that routes through its own allocator.
-- **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a typed view of memory at a
-  fixed address. A `Device` view's `read()`/`write(v)` are volatile; a
-  `Normal` view's are plain loads and stores. The viewed type is trivially
-  copyable and holds no enum, which the compiler checks at the type.
-- **No hidden allocations, enforced**: `--no-hidden-alloc` rejects the
-  allocations the compiler would insert on its own authority, and names the
-  spelling that does not allocate (not yet in `sawc`, SL-865).
-- **Global state**: `Atomic<Int>`, `SpinLock<T>`, `Mutex<T>`, and `Once<T>`
-  cover the common shapes, all declarable as a bare `static`. Compound state
-  whose consistency comes from a serialization argument uses
-  `unsafe static var`, which makes every function that touches it declare
-  `unsafe` too.
-- **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 8, "...")`
-  fails the build when a register block's layout drifts.
-- **Sizes in the type**: a generic parameter can carry a value
-  (`FixedBuf<const N: Int>`), `[0; N]` spells a zeroed buffer, and an
-  integer `static` works anywhere the compiler needs a constant: an array
-  length, a repeat count, a shift, a `static_assert`. `sizeof<T>()` and
-  `alignof<T>()` are constants in those positions too, so a count is derived
-  from a size rather than restated as a literal:
-  `static PIPE_STAGE_WORDS: Int = PIPE_BODY_BYTES / sizeof<UInt>()`. A size is
-  written once and derived everywhere else, with the arithmetic done at compile
-  time in the target's integer widths; a shift count the width does not allow
-  is a compile error, not a surprise value. See
-  [Generics](LANGUAGE_SPEC.md#generics) and
-  [Module-level statics](LANGUAGE_SPEC.md#module-level-statics) in the spec.
-- **Formatting without allocating**: the `{}` form of `print` allocates
-  nothing. Literal pieces of the format string are constants, an integer is
-  formatted in a small stack buffer, and a `Printable` value streams into a
-  fixed-capacity builder. `panic` and `assert` take the same arguments, so a
-  panic can still say what happened when the allocator is what failed. See
-  [the allocation-free path](LANGUAGE_SPEC.md#format-arguments-and-the-allocation-free-path)
-  in the spec.
-- **C-ABI exports**: `@export("name")` gives a function an exact, unmangled
-  symbol with the C calling convention, and it is the only way a Saw
-  declaration reaches the linker. Every other definition is emitted with a
-  module-mangled symbol and internal linkage, so a top-level `func read(...)`
-  cannot capture libc's `read` for the rest of the program. `@export` on a
-  `static` publishes data the same way. `@section("name")` places a function
-  or a static in a named object-file section without publishing it; on a
-  Mach-O target the name must be the two-part `SEGMENT,section` form. See
-  [link symbols and linkage](LANGUAGE_SPEC.md#link-symbols-and-linkage).
-- **Stated alignment**: `@align(N)` on a local or a `static` emits the slot at
-  an alignment of at least `N` bytes. A `[UInt8; N]` is 1-aligned by ABI, so a
-  buffer that an ABI needs word-aligned has no way to say so otherwise, and the
-  requirement fails as a fault rather than a diagnostic. `N` is a compile-time
-  constant, a power of two, at most 4096. Fields, parameters and types cannot
-  state an alignment yet.
+The `{}` form of `print`, `panic` and `assert` allocates nothing, so a panic
+can still say what happened when the allocator is what failed.
+`--no-hidden-alloc` rejects the allocations the compiler would insert on its
+own authority and names the spelling that does not allocate.
 
 ```saw
 import std.spinlock.*
@@ -946,30 +668,22 @@ func boot() {
 }
 ```
 
-Cross-compiling to a bare-metal target takes a triple and, where the part has
-optional extensions, a feature list. `sawc build --freestanding` writes a
-freestanding object for `aarch64-unknown-none-elf` and for
-`riscv32-unknown-none-elf`, whose word is 32 bits. A riscv32 build reads:
+`sawc build --freestanding` writes a freestanding object for
+`aarch64-unknown-none-elf` and for `riscv32-unknown-none-elf`. A riscv32 build
+reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
     --target riscv32-unknown-none-elf --target-features +m,+a,+c
 ```
 
-Base rv32i has no divide instruction, so `+m` is what keeps integer
-formatting from calling a library routine the freestanding profile has no
-library to provide. Without `+a`, every atomic operation becomes a call to
-one of five `__atomic_*` routines your kernel supplies (the spec lists them),
-and `SpinLock` is refused. On aarch64 the freestanding profile defaults to
-`-neon,-fp-armv8`: a core traps Advanced SIMD at EL1 out of reset, and LLVM
-reaches for `q` registers to move a struct, so a kernel would fault on its
-first block copy — before the exception vectors that would report it were
-installed. Pass
-`+neon,+fp-armv8` to get SIMD back once your boot code enables
-`CPACR_EL1.FPEN`; you then own saving those registers across a context
-switch.
+Without `+m`, integer formatting would call a library routine; without `+a`,
+atomics call `__atomic_*` routines your kernel supplies, and `SpinLock` is
+refused. On aarch64 the profile defaults to `-neon,-fp-armv8`; pass
+`+neon,+fp-armv8` once your boot code enables `CPACR_EL1.FPEN`.
 
-See [Interoperability](LANGUAGE_SPEC.md#10-interoperability) and
+See [Interoperability](LANGUAGE_SPEC.md#10-interoperability),
+[Module-level statics](LANGUAGE_SPEC.md#module-level-statics) and
 [Profiles](LANGUAGE_SPEC.md#profiles-hosted-and-freestanding) in the spec.
 
 ## Getting started
@@ -995,40 +709,29 @@ bin/sawc tests/corpus/hello.saw -o hello
 
 ### Putting `sawc` and `blade` on your PATH
 
-`make install` builds Blade (with `sawc`) and symlinks three shims,
-`sawc`, `sawc0` and `blade`, onto a prefix (`~/.local/bin` by default):
+`make install` builds Blade (with `sawc`) and symlinks three shims, `sawc`,
+`sawc0` and `blade`, onto a prefix (`~/.local/bin` by default):
 
 ```bash
 make install                        # -> ~/.local/bin
 make install PREFIX=/usr/local/bin  # -> somewhere else
 ```
 
-The shims exec this checkout. `sawc` is the self-hosted compiler: before each
-run it has `compiler/tools/build.py` bring its build up to date, so the first
-run builds it (which needs clang, and HTTPS to the seed's blob host) and an edit or a `git pull` changes what the name means with no
-reinstall. A tree whose compiler does not build makes `sawc` fail with
-build.py's reason. `sawc0` is v0.18.0's compiler, the Python Stage 0 this tree
-no longer holds: the shim forwards to a v0.18.0 checkout, the one
-`SAWLANG_V0_ROOT` names or else one fetched and cached. `blade` runs the
-`sawc` beside it unless `SAWC` names another compiler. If you would rather install nothing, put `<checkout>/bin` on
-your `PATH` instead; the shims work either way.
+The shims exec this checkout. Before each run `sawc` has
+`compiler/tools/build.py` bring its build up to date, so an edit or a `git pull`
+changes what the name means with no reinstall. `sawc0` is v0.18.0's compiler,
+the Python Stage 0 this tree no longer holds: the shim forwards to a v0.18.0
+checkout, the one `SAWLANG_V0_ROOT` names or else one fetched and cached.
+`blade` runs the `sawc` beside it unless `SAWC` names another compiler. To
+install nothing, put `<checkout>/bin` on your `PATH`.
 
-`sawc --version` prints the release. Bumping it is part of shipping a
-user-visible change, because a consumer that pins a toolchain has only this
-string to check an installed compiler against.
-
-A consumer that builds Stage 0's language through this repository (sawos, or
-any `SAWLANG_ROOT` user that needs `sawc0`'s command line) builds through a
-pin at or before v0.18.0 until its sources build under `sawc`. The command
-line itself builds, for riscv32 and arm64 alike (SL-865).
-sawos's copy of the toolchain resolver follows this one when its work resumes.
+`sawc --version` prints the release.
 
 ### Linux
 
-The self-hosted compiler, `sawc`, builds and runs on Linux aarch64, and it
-cross-builds for Linux x86_64. On a Mac the Linux builds run in a Debian 12
-Lima VM. `tools/lima/sawlang-linux.yaml` pins its image and toolchain, and
-`tools/linux.py` drives it:
+`sawc` builds and runs on Linux aarch64, and it cross-builds for Linux x86_64.
+On a Mac the Linux builds run in a Debian 12 Lima VM that
+`tools/lima/sawlang-linux.yaml` pins and `tools/linux.py` drives:
 
 ```bash
 limactl start --name=sawlang-linux tools/lima/sawlang-linux.yaml   # once
@@ -1036,79 +739,56 @@ limactl start --name=sawlang-linux tools/lima/sawlang-linux.yaml   # once
 ./.venv/bin/python tools/linux.py run-lane --arch aarch64   # or x86_64, under Rosetta
 ```
 
-`sawc`'s LLVM IR needs a clang with opaque pointers (LLVM 15 or later).
-`compiler/tools/build.py` picks `SAWC_CLANG` if it is set. Otherwise it takes
-the first clang that compiles a test module for the target, trying each
-`clang-NN` on `PATH` (newest first), then `clang`, then Homebrew's LLVM
-clang, and it refuses by name a clang that cannot. Apple's clang has no
-RISC-V backend, so on a Mac the riscv32 target needs `brew install llvm`.
+`SAWC_CLANG` names the clang to use; otherwise `compiler/tools/build.py` tries
+each `clang-NN` on `PATH` (newest first), then `clang`, then Homebrew's LLVM.
+Apple's clang has no RISC-V backend, so a Mac needs `brew install llvm` for
+riscv32.
 
 ### Compiler options
 
-`sawc FILE.saw -o OUT` is `sawc build`; `sawc --help` lists every subcommand,
-one per compiler stage (`lex`, `parse`, `resolve`, `typecheck`, `mir`, `eval`,
-`borrowck`, `drops`, `mono`, `coro`), each with `--dump` or `--check`.
+`sawc FILE.saw -o OUT` is `sawc build`. `sawc --help` lists every subcommand
+and flag, including one subcommand per compiler stage (`lex`, `parse`,
+`resolve`, `typecheck`, `mir`, `eval`, `borrowck`, `drops`, `mono`, `coro`).
 
 ```bash
-sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]
-           [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
-           [-W borrow-prefix] [--module-path NAME=DIR]... [--time-stages]
-           (FILE [-o OUT] | --emit-ll FILE)
-sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
-sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
-             (--out DIR | --emit-ll FILE)
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--target TRIPLE]
+           [--target-features FEATURES] [--freestanding] [--runtime]
+           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+sawc fix [--check] FILE...
+sawc runtime (--out DIR | --emit-ll FILE)
 sawc --version
 ```
 
-The `-O` level is handed to clang, and is `-O0` when none is given; `-Os` and
-`-Oz` also mark every function `optsize`, and `-Oz` `minsize`. `-c` writes an
-object (`.o` appended to the `-o` name when it lacks one) and links nothing.
-`--target` cross-compiles for a triple (the host by default; the bare-metal
-`aarch64-unknown-none-elf` builds only with `-c` or `--freestanding`),
-`--target-features` names the LLVM subtarget features the code may use (such
-as `+m,+a,+c`), and `--module-path` maps a package name to its source
-directory. `--freestanding` writes an ELF object under the freestanding
-profile, rooted at its `@export`s. `--runtime` builds a program that is its
-own runtime: it may export the `__saw_rt_*` seams, each checked against
-`runtime/ABI.md`, and links with none of sawc's runtime objects, so it defines
-every seam it reaches. `sawc runtime` builds the hosted runtime from
-`runtime/`.
-
-The spec documents some compiler flags that `sawc` does not take yet: the
-`-W` warning categories other than `borrow-prefix` (SL-879) and
-`--emit-docs` (SL-880).
+The `-O` level goes to clang and is `-O0` when none is given. `-c` writes an
+object and links nothing. `--freestanding` writes an ELF object under the
+freestanding profile, rooted at its `@export`s. `--runtime` builds a program
+that is its own runtime, defining every `__saw_rt_*` seam it reaches (checked
+against `runtime/ABI.md`). `sawc runtime` builds the hosted runtime from
+`runtime/`. The spec documents some flags `sawc` does not take yet: the `-W`
+categories other than `borrow-prefix` (SL-879) and `--emit-docs` (SL-880).
 
 ## Running tests
 
-`./build.sh test` runs the per-patch gate, the same entry point the merge
-server runs: the compiler's own tests (`compiler/tests/run.py`) always, and the
-fixpoint, grammar-corpus and corpus-differential parts when a change reaches
-their inputs (`--changed-since REV` names the change; with none, every part
-runs).
+`./build.sh test` runs the per-patch gate, the entry point the merge server
+runs. [TESTING.md](TESTING.md) describes the gate's parts and the test
+directives.
 
 ```bash
 ./build.sh test                                  # every part
 ./build.sh test --changed-since main             # what a branch's change needs
 ./.venv/bin/python compiler/tests/run.py --only units,parser   # named steps
-tools/battery.sh --list                          # the full battery's stages
 ```
-
-See [TESTING.md](TESTING.md) for the test directives, the conformance suite, the
-battery, and application-level testing with `blade test`.
 
 ## Blade package manager
 
-Saw includes Blade, a package manager written in Saw itself. It has a TOML
-parser, a manifest model, a dependency resolver, a deterministic lockfile, git
-fetching, and incremental builds. Blade and its `libs/` packages build with
-`sawc` (blade/README.md).
+Blade is the Saw package manager, written in Saw. It has a TOML parser, a
+manifest model, a dependency resolver, a deterministic lockfile, git fetching,
+and incremental builds. Blade and its `libs/` packages build with `sawc`
+(blade/README.md).
 
 ```bash
-# Build the package manager with v0.18.0's compiler: bin/sawc0 runs the
-# checkout SAWLANG_V0_ROOT names, or one it fetches and caches when it is unset
-SAWLANG_V0_ROOT=/path/to/sawlang-v0.18.0 make blade     # -> .build/blade
+make blade                     # builds with bin/sawc -> .build/blade
 
-# Use it
 ./.build/blade new myproject   # scaffold a new project
 ./.build/blade build           # resolve deps + compile (incremental; --force to rebuild)
 ./.build/blade update          # re-resolve dependencies and rewrite Saw.lock
@@ -1120,8 +800,6 @@ SAWLANG_V0_ROOT=/path/to/sawlang-v0.18.0 make blade     # -> .build/blade
 ./.build/blade add bar --git <url> --version ^1.0.0   # add a git dependency
 ```
 
-### Dependencies
-
 A project declares dependencies in its `Saw.toml`:
 
 ```toml
@@ -1131,41 +809,9 @@ jsonx = { git = "https://github.com/u/jsonx", version = "^1.2.0" }
 tiny  = "0.3.1"          # bare = EXACT pin (ranges need ^, ~, or >=)
 ```
 
-`Saw.lock` is deterministic (packages sorted, no timestamps) and records
-version, source, and git rev. An application commits it; a library does not,
-because a library's resolution belongs to whoever depends on it. The source
-layout decides which a package is: `src/main.saw` (or a root `main.saw`) builds
-a program, `src/lib.saw` alone is a library.
-
-`blade test` discovers `tests/*.saw` files, compiles and runs each, and reports
-per-test timing. A test fails via `assert`/`panic` or a nonzero exit.
-
-The version-requirement logic also lives as a standalone library package,
-`libs/semver`, with its own `blade test` suite. So does `libs/imgformat`, the
-image layout Blade's `emit = "sosimg"` target writes and an SOS kernel reads —
-one definition, two consumers, so the two cannot drift.
-
-## Design philosophy
-
-### Key differences from Rust
-
-| Aspect | Rust | Saw |
-|--------|------|-----|
-| Transfer default | Move everything | `Copy` types duplicate silently (POD, `String`, `Arc`, `Data`, and any struct whose members are all `Copy`); everything else moves |
-| Mutability | `let mut` | `var` |
-| Optionals | `Option<T>` | `T?` (postfix) |
-| References | `&T`, `&mut T` | `&T`, `&var T` |
-| Initialization | `Type::new()` | `Type()` |
-| Type extensions | Traits (impl blocks) | `extension` blocks |
-| Modules | `mod`, `pub`, `use` | `module`, `public`, `import` |
-| Error handling | `?` operator | `try`/`try?`/`try!` |
-| Concurrency | `async`/`await` (colored) | colorless tasks (no keyword) |
-
-### Key similarities to Swift
-
-`let`/`var`, `guard let`, postfix `T?`, `extension` blocks, custom `init`s,
-trailing closures, and `{}` string interpolation all mean what a Swift reader
-expects. The divergences are ownership and effects, not surface syntax.
+`Saw.lock` is deterministic and records version, source, and git rev. An
+application commits it; a library does not. `libs/semver` and `libs/imgformat`
+are standalone library packages with their own `blade test` suites.
 
 ## Project structure
 
@@ -1190,30 +836,22 @@ TESTING.md             # Test suite documentation
 
 Saw is in active development. Implemented so far:
 
-- **Types and generics** — algebraic data types with exhaustive `match`, enums
-  that carry methods and an integer wire backing, generics with trait bounds
-  and call-site type inference, const generic parameters, traits with default
-  bodies and `any Trait` objects, overloading, and the `Printable` / `Error` /
-  `Equatable` / `Comparable` / `Hashable` traits with `@synthesize` derivation.
-- **Ownership** — the Copy trait family, synthesized destruction, places
-  (`borrows` accessors that lend storage), whole-referent replacement through
-  `&var`, and a `Result` that cannot be dropped by accident.
-- **Concurrency** — colorless, with a cooperative scheduler over a precise I/O
-  reactor, multi-threaded task groups, blocking-FFI offload, suspending calls
-  in any expression position, and the whole error surface inside a task body.
-- **Modules** — three import forms, member visibility over a curated core
-  that needs no import, import-scoped extensions, per-module type identity,
-  and earned shadowing.
-- **Systems work** — pluggable allocators, memory-mapped I/O, `static_assert`,
-  C-ABI exports, `SpinLock<T>` and `unsafe static var` for global state,
-  allocation-free formatting, and `--no-hidden-alloc`.
-- **Tooling** — source-location literals, checked doc comments,
-  reachability-scoped code generation with a dead-stripped link, and the Blade
-  package manager, which is self-hosting. `--emit-docs` extraction and opt-in
-  compiler warnings are v0.18.0's and not yet in `sawc` (SL-880, SL-879).
+- **Types and generics**: algebraic data types, enums with an integer wire
+  backing, generics with trait bounds and inference, const generics, traits with
+  default bodies and `any Trait`, overloading, `@synthesize`.
+- **Ownership**: the Copy trait family, synthesized destruction, places, and a
+  `Result` that cannot be dropped by accident.
+- **Concurrency**: a cooperative scheduler over an I/O reactor, multi-threaded
+  task groups, `Thread.spawn`, blocking-FFI offload.
+- **Modules**: three import forms, member visibility, import-scoped extensions.
+- **Systems work**: pluggable allocators, memory-mapped I/O, `static_assert`,
+  C-ABI exports, `--no-hidden-alloc`.
+- **Tooling**: checked doc comments, a dead-stripped link, and the self-hosting
+  Blade package manager. `--emit-docs` and the `-W` warning categories other
+  than `borrow-prefix` are not yet in `sawc` (SL-880, SL-879).
 
-[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the authoritative language reference.
-When it and the compiler disagree, the compiler wins and the spec is the bug.
+LANGUAGE_SPEC.md is the authoritative language reference. Where `sawc` doesn't
+yet do what it says, the spec marks the gap with its tracker issue.
 
 ## Contributing
 
