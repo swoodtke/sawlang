@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 381 declarations in 25 modules
+# 382 declarations in 25 modules
 
 std.alloc: 9
   extern __saw_rt_alloc
@@ -90,15 +90,18 @@ std.data: 32
   method String.to_data
   struct Data
 
-std.directory: 12
+std.directory: 15
   extern __saw_rt_fs_dirent_name
+  extern __saw_rt_fs_getcwd
   extern __saw_rt_fs_mkdir
   extern __saw_rt_fs_opendir
   extern __saw_rt_fs_rmdir
   extern closedir
+  extern free
   extern readdir
   func is_dot_entry
   method Directory.create
+  method Directory.current
   method Directory.exists
   method Directory.list
   method Directory.remove
@@ -110,10 +113,9 @@ std.duration: 4
   method Duration.ns
   struct Duration
 
-std.env: 14
+std.env: 12
   extern __saw_rt_env_get
   extern __saw_rt_executable_path
-  extern __saw_rt_fs_getcwd
   extern __saw_rt_get_argc
   extern __saw_rt_get_argv
   extern free
@@ -121,7 +123,6 @@ std.env: 14
   method Env.args
   method Env.argument
   method Env.argument_count
-  method Env.cwd
   method Env.executable_path
   method Env.get
   struct Env

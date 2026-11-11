@@ -48,7 +48,7 @@ func main() {
     show(File.open(open_path))
     show(File.remove(gone))
     show(Directory.create(sub))
-    show(Env.set_cwd(missing_dir))
+    show(Directory.set_current(missing_dir))
     show(Env.set("A=B", "1"))
     match TcpListener.listen(0, host: host) {
         case Ok(_) -> print("UNEXPECTED ok"),

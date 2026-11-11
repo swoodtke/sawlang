@@ -227,8 +227,8 @@ extension SystemError {
     //     Env.get
     //     Env.set
     //     Env.unset
-    //     Env.cwd
-    //     Env.set_cwd
+    //     Directory.current
+    //     Directory.set_current
     //     Env.executable_path
     //     File.opened
     //     File.read

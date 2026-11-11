@@ -6,11 +6,10 @@
 // Test basic directory operations using Path
 
 import std.directory.{Directory}
-import std.env.{Env}
 import std.path.{Path}
 func main() {
     // Get and display current directory
-    match Env.cwd() {
+    match Directory.current() {
         case Ok(_) -> print("Current directory exists"),
         case Err(_) -> print("Could not get current directory")
     }

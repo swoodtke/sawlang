@@ -1,4 +1,4 @@
-// `Env.cwd` grows its buffer and retries until the working directory
+// `Directory.current` grows its buffer and retries until the working directory
 // fits (design 132 unit F / review M15). It used to offer getcwd(2) a single
 // fixed 1024-byte buffer, so a longer path came back as `None` — the same
 // answer a real getcwd failure gives, and a silent wrong answer besides.
@@ -19,7 +19,6 @@
 // cleaned up: true
 
 import std.directory.*
-import std.env.*
 import std.path.*
 
 static COMPONENT_LENGTH: Int = 200
@@ -52,7 +51,7 @@ func make_dir(p: Path) -> Bool {
 }
 
 func enter_dir(p: Path) -> Bool {
-    match Env.set_cwd(p) {
+    match Directory.set_current(p) {
         case Ok(_) -> true,
         case Err(e) -> {
             print("chdir failed: {e}")
@@ -72,7 +71,7 @@ func drop_dir(p: Path) -> Bool {
 }
 
 func main() {
-    guard let start = try? Env.cwd() else {
+    guard let start = try? Directory.current() else {
         print("no starting directory")
         return
     }
@@ -95,7 +94,7 @@ func main() {
     print("descended {made}")
 
     // The measurement: the whole path, not a truncated one and not `None`.
-    if let deep = try? Env.cwd() {
+    if let deep = try? Directory.current() {
         let s = deep.as_string()
         let long_enough = s.len() > OLD_FIXED_BUFFER
         let rooted = s.contains(test_root_name())

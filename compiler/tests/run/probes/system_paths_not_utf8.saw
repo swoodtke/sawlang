@@ -1,5 +1,5 @@
 // probe: stated
-// about: a path the system gives that is not UTF-8 is the Err of kind InvalidUtf8 of Env.cwd, Path.canonical, Directory.list and Env.executable_path, never a panic, beside each one's Ok on UTF-8 paths (SL-895)
+// about: a path the system gives that is not UTF-8 is the Err of kind InvalidUtf8 of Directory.current, Path.canonical, Directory.list and Env.executable_path, never a panic, beside each one's Ok on UTF-8 paths (SL-895)
 // stage 0: its frozen std panics on each of these paths
 // speeds: -O0 -O2
 // leaks: none
@@ -84,9 +84,9 @@ func main() unsafe {
     let base = Path(s: binary).parent() ?? Path(s: ".")
     let work = base.join("paths_not_utf8_{getpid()}")
     try! Directory.create(work)
-    try! Env.set_cwd(work)
+    try! Directory.set_current(work)
 
-    match Env.cwd() {
+    match Directory.current() {
         case Ok(p) -> print("cwd Ok {}", p.is_absolute()),
         case Err(e) -> print("cwd UNEXPECTED {}", e)
     }
@@ -118,7 +118,7 @@ func main() unsafe {
         assert(linked, "link refused")
         assert(chdir((&name) as UnsafePointer<Int8>) == 0, "chdir refused")
     }
-    match Env.cwd() {
+    match Directory.current() {
         case Ok(_) -> print("cwd InvalidUtf8 {}", not nameable),
         case Err(e) -> print("cwd InvalidUtf8 {}", nameable && is_invalid_utf8(&e))
     }
@@ -137,7 +137,7 @@ func main() unsafe {
         print("executable_path InvalidUtf8 true")
     }
 
-    try! Env.set_cwd(work)
+    try! Directory.set_current(work)
     var cleaned = true
     if nameable {
         var copy: [Int8; 4096] = [0; 4096]
@@ -145,7 +145,7 @@ func main() unsafe {
         cleaned = unlink((&copy) as UnsafePointer<Int8>) == 0
         cleaned = cleaned && rmdir((&name) as UnsafePointer<Int8>) == 0
     }
-    try! Env.set_cwd(base)
+    try! Directory.set_current(base)
     match Directory.remove(work) {
         case Ok(_) -> {},
         case Err(_) -> cleaned = false

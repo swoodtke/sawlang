@@ -1,6 +1,6 @@
 // probe: stated
-// about: Path.file_extension, stem beside it, and Env.cwd after Env.set_cwd (SL-720)
-// stage 0: names the accessor `ext` and returns `Path?` from Env.cwd, where the new std names `file_extension` and returns a Result
+// about: Path.file_extension, stem beside it, and Directory.current after Directory.set_current (SL-720)
+// stage 0: names the accessor `ext` and returns `Path?` from Directory.current, where the new std names `file_extension` and returns a Result
 // speeds: -O0 -O2
 // prints: dir/file.txt -> [txt] stem [file]
 // prints: archive.tar.gz -> [gz] stem [archive.tar]
@@ -17,7 +17,7 @@
 // starts with its only dot (`.gitignore`), ends in a dot, or has no dot has
 // none, and a dot in a directory's name does not count. The expectations are
 // Stage 0's `ext` answers for the same paths, recorded by hand.
-import std.env.{Env}
+import std.directory.{Directory}
 import std.path.{Path}
 
 func word(text: String?) -> String {
@@ -47,9 +47,9 @@ func main() {
     report("a/b/")
     report("")
 
-    let here = try! Env.cwd()
+    let here = try! Directory.current()
     print("cwd absolute {}", here.is_absolute())
-    try! Env.set_cwd(Path(s: "/"))
-    let root = try! Env.cwd()
+    try! Directory.set_current(Path(s: "/"))
+    let root = try! Directory.current()
     print("cwd after set_cwd root is absolute {}, named {}", root.is_absolute(), word(root.file_name()))
 }

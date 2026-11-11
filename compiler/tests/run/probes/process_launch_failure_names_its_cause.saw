@@ -57,7 +57,7 @@ func main() {
     let root = Path(s: (try! Env.get("TMPDIR")) ?? "/tmp")
     let dir = root.join("saw_probe_launch_{getpid()}")
     try! Directory.create(dir)
-    try! Env.set_cwd(dir)
+    try! Directory.set_current(dir)
     put("plain", "#!/bin/sh\nexit 0\n")
     try! Directory.create(Path(s: "adir"))
     put("script", "exit 3\n")
@@ -125,6 +125,6 @@ func main() {
     try! here.env("PATH", "./d1:")
     print("an empty PATH entry is the working directory: {}", waited(move here))
 
-    try! Env.set_cwd(root)
+    try! Directory.set_current(root)
     run_shell("rm -rf '{dir.as_string()}'")
 }

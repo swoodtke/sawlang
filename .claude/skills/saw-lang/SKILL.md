@@ -1942,7 +1942,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   NEVER a sentinel that collides with a valid value (an empty `Data` must not mean
   BOTH EOF and error). A genuine boolean QUESTION (`exists`, `contains`) stays
   `Bool`. std follows this: `File.remove/rename`, `Directory.create/remove`,
-  `Env.set/unset/set_cwd` → `Result<Void, SystemError>` (`import
+  `Directory.set_current`, `Env.set/unset` → `Result<Void, SystemError>` (`import
   std.systemerror.{SystemError}`; `e.kind()` is the branchable
   `SystemErrorKind`); net read/write/accept → `Result<_, IoError>` (see the net
   section). **An error NAMES WHAT ITS OP WAS GIVEN** (SL-898): a path, program,
@@ -1979,16 +1979,16 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   ```
   Reach for `match` when both arms are peer control flow; the inline catch
   reads better when the Err path handles and leaves.
-  The working directory is `Env.cwd() -> Result<Path, SystemError>`, carrying
-  the cause getcwd(3) gave (`NotFound` once the directory is removed), and
-  `Env.set_cwd(path)` changes it. There is no `Directory.current`.
+  The working directory is `Directory.current() -> Result<Path, SystemError>`,
+  carrying the cause getcwd(3) gave (`NotFound` once the directory is removed),
+  and `Directory.set_current(path)` changes it (`std.directory`).
   TEXT FROM THE OS IS CHECKED, NEVER A PANIC: bytes that are not UTF-8 are the
   op's `Err` of kind `SystemErrorKind.InvalidUtf8` — `Env.get(name) ->
   Result<String?, SystemError>` (`Ok(None)` = unset, so a default is
   `(try! Env.get("TMPDIR")) ?? "/tmp"` or a `match`; `??` and `if let` do not
   take the Result itself), `Env.argument(i) -> Result<String?, SystemError>`,
   `Env.args() -> Result<Vector<String>, SystemError>` (growth refused =
-  `ResourcesExhausted`), and `Env.cwd`/`executable_path`, `Path.canonical`,
+  `ResourcesExhausted`), and `Directory.current`, `Env.executable_path`, `Path.canonical`,
   `Directory.list` (one bad entry fails the WHOLE listing until a `Path` can
   hold non-UTF-8 bytes, SL-902), `Command.output`.
 

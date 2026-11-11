@@ -49,7 +49,7 @@ func main() {
     show(Directory.list(Path(s: "/nonexistent_saw_probe")))
     show(Directory.create(Path(s: "/nonexistent_saw_probe/sub")))
     show(Directory.remove(Path(s: "/nonexistent_saw_probe/sub")))
-    show(Env.set_cwd(Path(s: "/nonexistent_saw_probe")))
+    show(Directory.set_current(Path(s: "/nonexistent_saw_probe")))
     show(Env.set("A=B", "1"))
     show(Env.unset("A=B"))
     match Path(s: "/nonexistent_saw_probe/x").canonical() {

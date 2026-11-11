@@ -26,7 +26,6 @@
 // relative spelling.
 
 import std.directory.{Directory}
-import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
 import std.process.{Command}
@@ -66,11 +65,11 @@ func answers(label: String, relative: String, absolute: String) {
 }
 
 func main() {
-    let home = try! Env.cwd()
+    let home = try! Directory.current()
     let name = "path_canonical_relative_{process_id()}"
     try! Directory.create(Path(s: name))
-    try! Env.set_cwd(Path(s: name))
-    let root = (try! Env.cwd()).as_string()
+    try! Directory.set_current(Path(s: name))
+    let root = (try! Directory.current()).as_string()
     try! Directory.create(Path(s: "sub"))
     try! Directory.create(Path(s: "gone"))
     var made = try! File.create(Path(s: "sub/file.txt"))
@@ -92,15 +91,15 @@ func main() {
     print(canonical_text("path_canonical_relative_missing.txt"))
     print(canonical_text(""))
 
-    try! Env.set_cwd(Path(s: "link"))
+    try! Directory.set_current(Path(s: "link"))
     resolves("symlinked working directory", "file.txt", "{root}/sub/file.txt")
     resolves("`..` from a symlinked working directory", "..", root)
 
-    try! Env.set_cwd(Path(s: "{root}/gone"))
+    try! Directory.set_current(Path(s: "{root}/gone"))
     let removed_gone = succeeded(Directory.remove(Path(s: "{root}/gone")))
     print("removed working directory: {}", canonical_text("file.txt"))
 
-    try! Env.set_cwd(home)
+    try! Directory.set_current(home)
     let removed_link = succeeded(File.remove(Path(s: "{name}/link")))
     let removed_file = succeeded(File.remove(Path(s: "{name}/sub/file.txt")))
     let removed_sub = succeeded(Directory.remove(Path(s: "{name}/sub")))

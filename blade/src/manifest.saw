@@ -4,7 +4,6 @@
 import toml
 import std.data.{Data}
 import std.directory.{Directory}
-import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
 
@@ -163,7 +162,7 @@ extension Manifest {
         let runtime = (doc.section_at(pkg).get("runtime") ?? "false") == "true"
 
         // Get current directory as root
-        let root = match Env.cwd() {
+        let root = match Directory.current() {
             case Ok(cwd) -> cwd,
             case Err(_) -> Path(s: ".")
         }

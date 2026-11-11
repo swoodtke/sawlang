@@ -1,7 +1,7 @@
 // The resolver's real paths, each asked of the system once per process
 // (SL-955 unit 4b).
 
-import std.env.{Env}
+import std.directory.{Directory}
 import std.path.{Path}
 import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
 
@@ -53,7 +53,7 @@ extension ResRealMemo {
         }
         if not self.asked {
             self.asked = true
-            match Env.cwd() {
+            match Directory.current() {
                 case Ok(dir) -> { self.cwd = dir.as_string() },
                 case Err(_) -> {}
             }

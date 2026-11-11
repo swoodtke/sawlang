@@ -15490,10 +15490,14 @@ replacement. The operations are `Env.get(name) -> Result<String?,
 SystemError>` (`Ok(None)`: not set), `Env.argument(index) -> Result<String?,
 SystemError>` (`Ok(None)`: out of range), `Env.args() -> Result<Vector<String>,
 SystemError>` (a vector that cannot grow is `ResourcesExhausted`),
-`Env.cwd()`, `Env.executable_path()`, `Path.canonical()`, `Directory.list` and
-`Command.output()`. A `Path` holds only UTF-8 for now (SL-902), so a directory
-holding one entry whose name is not UTF-8 fails `Directory.list` whole, and
-such a working directory fails `Env.cwd()`. A file's contents stay bytes:
+`Directory.current()`, `Env.executable_path()`, `Path.canonical()`,
+`Directory.list` and `Command.output()`. A `Path` holds only UTF-8 for now
+(SL-902), so a directory holding one entry whose name is not UTF-8 fails
+`Directory.list` whole, and such a working directory fails
+`Directory.current()`. The working directory is `Directory.current() ->
+Result<Path, SystemError>` and `Directory.set_current(path) -> Result<Void,
+SystemError>`; the cause of a failure is getcwd(3)'s or chdir(2)'s, so a removed
+working directory is `NotFound`. A file's contents stay bytes:
 `File.read` returns `Data`, and `Data.to_string()` reports its own
 `Utf8Error`.
 

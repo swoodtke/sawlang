@@ -3,7 +3,7 @@
 // into .blade/deps/, and record (version, git source, rev). No network.
 import blade.resolver.*
 import blade.manifest.*
-import std.env.{Env}
+import std.directory.{Directory}
 import std.path.{Path}
 
 extern "C" {
@@ -27,7 +27,7 @@ func main() {
     assert(sh("cd {repo} && echo '[package]' > Saw.toml && echo 'name = \"libdep\"' >> Saw.toml && echo 'version = \"1.0.0\"' >> Saw.toml"), "dep manifest")
     assert(sh("cd {repo} && git add -A && git commit -q -m init && git tag v1.0.0"), "commit + tag")
 
-    let cwd = try! Env.cwd()
+    let cwd = try! Directory.current()
     let url = "file://{cwd.as_string()}/{repo}"
 
     // A root package that depends on it by git.

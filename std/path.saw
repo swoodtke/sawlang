@@ -9,7 +9,7 @@ extern "C" {
     // frees, or NULL with the positive tag stored through `status_out`
     // (runtime/ABI.md).
     func __saw_rt_fs_realpath(path: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
-    // `Env.cwd`'s seam, declared here because std.env imports this module.
+    // `Directory.current`'s seam, declared here because std.directory imports this module.
     func __saw_rt_fs_getcwd(status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
 }
@@ -218,7 +218,7 @@ extension Path {
 //     Env.executable_path
 //     Env.argument
 //     Env.get
-//     Env.cwd
+//     Directory.current
 //     Directory.list
 public(package) func system_text(operation: String, bytes: UnsafePointer<Int8>, count: Int) unsafe -> Result<String, SystemError> {
     if utf8_error_offset(bytes, count).is_some() {

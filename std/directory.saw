@@ -22,6 +22,12 @@ extern "C" {
     // Each returns 0, or a negated portable tag.
     func __saw_rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int
     func __saw_rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int
+    // Returns 0, or a negated portable tag.
+    func __saw_rt_fs_chdir(path: UnsafePointer<Int8>) -> Int
+    // The working directory in a buffer the caller frees, or NULL with the
+    // positive tag stored through `status_out` (runtime/ABI.md).
+    func __saw_rt_fs_getcwd(status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
 }
 
 // mkdir(2)'s mode, 0755: a directory needs its search bit to be entered,
@@ -123,6 +129,40 @@ extension Directory {
             return
         } else {
             return SystemError.raised("rmdir", SystemErrorKind.InvalidArgument, text)
+        }
+    }
+
+    /// Returns the process's current working directory.
+    ///
+    /// Returns `Err(SystemError)` with the reason getcwd(3) failed, such as
+    /// `NotFound` when the directory was removed or `PermissionDenied` when a
+    /// directory above it cannot be read, and `InvalidUtf8` when the path is
+    /// not valid UTF-8, which no `Path` can hold yet (SL-902).
+    public static func current() unsafe -> Result<Path, SystemError> {
+        var status = 0
+        guard let found = __saw_rt_fs_getcwd((&status) as UnsafePointer<Int>) else {
+            return SystemError.of("getcwd", status)
+        }
+        let decoded = system_text("getcwd", found, c_string_length(found))
+        free(found)
+        return Path(s: try decoded)
+    }
+
+    /// Makes `path` the process's current working directory.
+    ///
+    /// Returns `Err(SystemError)` with the reason chdir(2) refused, such as
+    /// `NotFound` or `PermissionDenied`; text holding a NUL byte is
+    /// `InvalidArgument`.
+    public static func set_current(path: Path) unsafe -> Result<Void, SystemError> {
+        let text = path.as_string()
+        if borrow let name = text.c_string() {
+            let status = __saw_rt_fs_chdir(name)
+            if status != 0 {
+                return SystemError.of("chdir", 0 - status, text)
+            }
+            return
+        } else {
+            return SystemError.raised("chdir", SystemErrorKind.InvalidArgument, text)
         }
     }
 

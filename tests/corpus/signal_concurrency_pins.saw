@@ -45,7 +45,6 @@ import std.process.{Command}
 import std.path.{Path}
 import std.file.{File}
 import std.directory.{Directory}
-import std.env
 
 // How far up to look before giving up. A worktree is never this deep below the
 // place a test binary runs from.
@@ -56,7 +55,7 @@ static MAX_DEPTH: Int = 16
 // directory is what makes this work whether the suite runs the binary from the
 // repo root, from `.build`, or from anywhere else.
 func find_root() -> Path? {
-    let start = match env.Env.cwd() {
+    let start = match Directory.current() {
         case Ok(p) -> p,
         case Err(_) -> {
             return None
