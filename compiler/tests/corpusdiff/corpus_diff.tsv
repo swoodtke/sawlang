@@ -1738,7 +1738,7 @@ interp_escapes_scope.saw	pass	-	-
 interp_hot_loop.saw	pass	-	-
 interp_large_string.saw	pass	-	-
 interp_string_escaped_braces_and_control_bytes.saw	pass	-	-
-io_error_kind_and_raw_code.saw	refused	typecheck format.argument	`std.systemerror.SystemErrorKind` is formatted here, and it is neither `Printable` nor a primitive
+io_error_kind_and_raw_code.saw	pass	judged by its own directives (edited since its oracle)	-
 iterator_custom.saw	pass	-	-
 iterator_for_loop.saw	pass	-	-
 iterator_generic.saw	pass	-	-

@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 382 declarations in 25 modules
+# 384 declarations in 25 modules
 
 std.alloc: 9
   extern __saw_rt_alloc
@@ -363,13 +363,15 @@ std.stringbuilder: 17
   method StringBuilder.reserve_bytes
   struct StringBuilder
 
-std.systemerror: 7
+std.systemerror: 9
   enum SystemErrorKind
   extern __saw_rt_last_raw_code
   func system_error_kind
   method SystemError.kind
   method SystemError.of
   method SystemError.raised
+  method SystemErrorKind.describe
+  method SystemErrorKind.format
   struct SystemError
 
 std.thread: 18

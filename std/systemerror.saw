@@ -193,6 +193,13 @@ extension SystemErrorKind {
     }
 }
 
+extension SystemErrorKind: Printable {
+    /// Writes the description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.describe())
+    }
+}
+
 /// An operating-system operation that failed: which one, what it was given,
 /// and its kind.
 ///
