@@ -13,8 +13,8 @@ rows and records as they are, and refuses a list that names it.
 The programs are the rows of `index.tsv` and the refusal tests the rows of
 `refusals.tsv`; `--programs` and `--refusals` name other lists, one corpus
 path per line, for a first or a widened snapshot. Stage 0 compiles each
-program's `examples/` twin, since a migrated corpus file need not be in its
-grammar, and `twin` says whether the two files are the same. `--reuse` takes
+program's `examples/` twin from the v0 checkout, since a migrated corpus file
+need not be in its grammar, and `twin` says whether the two files are the same. `--reuse` takes
 Stage 0's raw results from the last write's `.build/coro-stage0/` instead of
 recompiling, to change the format alone.
 
@@ -48,7 +48,6 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORO = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(CORO)))
-EXAMPLES = os.path.join(REPO, "examples")
 INDEX = os.path.join(HERE, "index.tsv")
 REFUSALS = os.path.join(HERE, "refusals.tsv")
 RAW = os.path.join(REPO, ".build", "coro-stage0")
@@ -209,24 +208,18 @@ def summary(rec):
 
 def stale_twin(row):
     """The failures of a row whose twin changed since its record was written:
-    the twin's bytes (`twin_sha`), which `examples/` being frozen keeps, and
-    the relation `oracle.twin_state` gives, both recomputed from the files,
-    never taken from the record. A detached program is no failure: its record
-    stays, and only its own directives judge it."""
+    the twin's bytes (`twin_sha`), which the v0 checkout's frozen `examples/`
+    keeps, checked when that checkout is on this machine (`oracle.twin_sha`).
+    A detached program is no failure: its record stays, and only its own
+    directives judge it."""
     path = row["path"]
     try:
-        sha = corpusdiff.twin_sha(path)
-        relation = oracle.twin_state(path, row["frozen_sha"])
+        sha = oracle.twin_sha(path)
     except OSError as e:
         return ["stage0 snapshot %s: its examples/ twin cannot be read: %s" % (path, e)]
-    if row["twin_sha"] != sha:
-        return ["stage0 snapshot %s: examples/%s has changed since its record was written, and examples/ is "
-                "frozen" % (path, path)]
-    if relation == "detached":
-        return []
-    if row["twin"] != relation:
-        return ["stage0 snapshot %s: the twin is %s now, %s in its record: run `%s --write`"
-                % (path, relation, row["twin"], WRITE_COMMAND)]
+    if sha is not None and row["twin_sha"] != sha:
+        return ["stage0 snapshot %s: its twin in the v0 checkout is not the one its record was written from"
+                % path]
     return []
 
 
@@ -336,7 +329,7 @@ def refusal_row(raw):
     `EXPECT-ERROR-CONTAINS` text of the twin, as test_runner.py asks of
     them, and the error that holds the first of them, or Stage 0's first
     error when none does."""
-    d = expect.read(os.path.join(EXAMPLES, raw["path"]))
+    d = expect.read(oracle.v0_twin(raw["path"]))
     found = raw["errors"]
     meets = oracle.refusal_meets_expect(d, raw["exit"], raw["log"])
     named = [e for e in found if d.error_contains and d.error_contains[0] in e]
@@ -362,7 +355,7 @@ def read_refusal_log(path):
 
 def detect_host():
     """compiler/target's name for the triple Stage 0 builds for here."""
-    hello = os.path.join(EXAMPLES, "hello.saw")
+    hello = oracle.v0_twin("hello.saw")
     out = os.path.join(RAW, "host.json")
     os.makedirs(RAW, exist_ok=True)
     code, log = oracle.stage0(hello, out, ["--emit-frame-layout"])
@@ -428,9 +421,9 @@ def write(args):
     # no twin of its bytes to compile.
     index_rows = read_index() if os.path.exists(INDEX) else []
     refusal_rows = {r["path"]: r for r in read_refusals()} if os.path.exists(REFUSALS) else {}
-    frozen = {r["path"]: r["frozen_sha"] for r in index_rows}
-    frozen.update({p: r["frozen_sha"] for p, r in refusal_rows.items()})
-    state = {p: oracle.twin_state(p, frozen.get(p)) for p in set(program_list) | set(refusal_list)}
+    named_rows = {r["path"]: r for r in index_rows}
+    named_rows.update(refusal_rows)
+    state = {p: oracle.writer_state(p, named_rows.get(p)) for p in set(program_list) | set(refusal_list)}
     named = [p for p in (program_list if args.programs else []) + (refusal_list if args.refusals else [])
              if state[p] in oracle.UNJUDGED]
     if named:
@@ -484,7 +477,7 @@ def write(args):
                 rows.append(kept_rows[(path, triple)])
             continue
         raw = raws["programs"][path]
-        d = expect.read(os.path.join(EXAMPLES, path))
+        d = expect.read(oracle.v0_twin(path))
         raw["meets_expect"] = oracle.meets_expect(d, raw["build"] == "ok", raw["runs"])
         host_body = None
         for triple in (host,) + others:

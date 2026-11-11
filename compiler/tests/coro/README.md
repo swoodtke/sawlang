@@ -881,11 +881,12 @@ builds and passes and the refusal tests it refuses by the plan's rule.
 `stage0/snapshot.py --write` regenerates the snapshot with the v0 compiler,
 which `oracle.v0_compiler` finds; nothing else does.
 
-Every row of `index.tsv` and `refusals.tsv` carries the `twin_sha` of its
-program's `examples/` twin, computed by `corpusdiff.twin_sha`, and the
-program's own bytes at the freeze, `frozen_sha`; the check recomputes both,
-and the relation `oracle.twin_state` gives, from the files. `examples/` is
-frozen, so a twin that changed fails the check (and so the census). A program
+Every row of `index.tsv` and `refusals.tsv` carries the `twin` relation, the
+`twin_sha` of its program's `examples/` twin in the v0 checkout, and the
+program's own bytes at the freeze, `frozen_sha`; `oracle.twin_state` answers
+from the row, and the check compares `twin_sha` with the checkout's file when
+the checkout is on the machine (`oracle.twin_sha`). The checkout's `examples/`
+is frozen, so a twin that changed fails the check (and so the census). A program
 edited since the freeze is detached: no failure, its rows and records stay as
 they are, unused, and `--write` keeps them so and refuses a list naming it.
 `--write --reuse` keeps only the raw results whose twin and program are

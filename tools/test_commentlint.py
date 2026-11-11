@@ -186,7 +186,7 @@ def check_selection():
     except cl.ScanError:
         pass
     for path in (
-        "examples/x.py",
+        "devtools/x.py",
         "compiler/prototypes/x.py",
         "std/tests/x.saw",
         "compiler/tests/grammar/x.saw",

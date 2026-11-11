@@ -1,4 +1,0 @@
-// Design 249 fixture: the other half of the d249_pair pair. Not a standalone
-// test.
-
-public func tag(s: String) sync -> String { "B:{s}" }

@@ -1,4 +1,0 @@
-// Imports `deep`, but importers of `mid` must NOT inherit deep's extensions.
-import deep.*
-
-public func mid_seed() -> Int { deep_seed() }

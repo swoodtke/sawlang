@@ -51,8 +51,6 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # The parser corpus derived from the grammar (the canonical
                    # AST dump, a snippet per alternative, the coverage lane)
                    # arrives as tests/parse/ in SL-406 phase 2.
-examples/          # FROZEN: the Stage 0 snapshots' key (Testing); the live
-                   # programs are tests/corpus/
 blade/             # Blade package manager (written in Saw, built by sawc;
                    # the `blade` gate part, tools/blade_lane.py)
 libs/              # Real Saw library packages (semver, toml, imgformat), built
@@ -75,9 +73,8 @@ SawOS left this repository (design 238 unit 5, Aug 28 2026): the kernel,
 HALs, runtime, root server and their tests live in the sawos repo
 (`../sawos` locally), flattened to its root, building against a sawlang
 checkout through the resolver (`SAWLANG_ROOT` is the everyday spelling).
-sawlang references sawos nowhere. sawos builds through a pin at or before
-v0.18.0 until its sources build under `sawc`; the kernel command line itself
-builds, riscv32 objects included (SL-865).
+sawlang references sawos nowhere. sawos builds with `sawc` through its pin
+(v0.21.0 as of Nov 2026), riscv32 objects included.
 
 ## Python environment
 The tools use the standard library alone; `.venv/` (Python 3.14) pins the
@@ -117,10 +114,13 @@ bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
 bin/sawc fix [--check] FILE...  # drops `borrow` prefixes SL:borrowing §12 makes redundant
 bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...
 bin/sawc runtime ...       # `bin/sawc --help` lists every form
-bin/sawc --version         # `sawc 0.19.0`: driver_version, held equal to
+bin/sawc --version         # `sawc X.Y.Z`: driver_version, held equal to
                            # .sawtracker/version by run.py
 ```
-With no `--std-root`, it compiles against the checkout's `std/`. The lanes
+With no `--std-root`, it compiles against the checkout's `std/`. A sandboxed
+agent can't write `~/.cache/sawc`, so it exports `SAWC_CACHE_DIR=<worktree>/
+.build/cache` in the same shell call as every sawc, build or lane command, and
+it can't reach v0.18.0's cached checkout (`~/.cache/saw-toolchain`). The lanes
 run the stage binaries directly (`build.SAWC`; `SAWC_STAGE=1` selects Stage
 1, `SAWC_BINARY` hands a chosen binary down, `SAWC_CLANG` names the clang); a
 `SAWC2_*` spelling is refused, naming its new name.
@@ -137,9 +137,10 @@ Stage 0 snapshot's regeneration run it.
 
 ## Testing
 - **The frozen dirs gate nothing but their own bytes.** `prototypes/`,
-  `devtools/bench/`, `devtools/dogfood/` and `examples/` are v0.18.0's sources
-  until their port (SL-661); nothing builds them, and run.py's `frozen` step fails a patch that
-  changes one (the tree `tools/frozen_trees.tsv` records, nothing uncommitted).
+  `devtools/bench/` and `devtools/dogfood/` are v0.18.0's sources, kept until
+  what is worth keeping is pulled out (SL-1059, SL-1060); nothing builds them,
+  and run.py's `frozen` step fails a patch that changes one (the tree
+  `tools/frozen_trees.tsv` records, nothing uncommitted).
 - `./build.sh test` — the sawtracker patch gate's entry point
   (`.sawtracker/tests.json` runs `./build.sh test --changed-since HEAD^`
   on every submitted patch): bootstraps `.venv` if absent (or uses
@@ -163,7 +164,7 @@ Stage 0 snapshot's regeneration run it.
   gate's workers) over what
   sawc is built from (each stage's `src/`, `compiler/driver/`,
   `compiler/seed/`, `build.py`, `std/`, `runtime/`) and what it measures
-  (`tests/corpus/`, the vector files, `examples/`, the corpusdiff directory,
+  (`tests/corpus/`, the vector files, the corpusdiff directory,
   `compiler/tests/oracle.py`). It measures every corpus program and FAILS when
   any verdict moved from `corpus_diff.tsv`: a new bucket or key, an
   improvement included, or a new detail inside `stage0-wrong`. A patch that
@@ -218,16 +219,16 @@ Stage 0 snapshot's regeneration run it.
   already covers, which is what makes the ledger auditable. Its programs are
   measured by the corpusdiff gate, and a brief touching a safety guarantee
   updates its rows FIRST (obligation 3).
-- **`examples/` is FROZEN (SL-667): never edit it.** It is the key of the
-  Stage 0 snapshots, which recorded v0.18.0 compiling each corpus program's
-  `examples/` twin; `examples/conformance/INDEX.md` there is the ledger as it
-  stood then, not the live one. The live programs are `tests/corpus/`. A
-  corpus program edited after the freeze is DETACHED (`oracle.twin_state`,
-  the snapshots' `frozen_sha`) and judged by its own directives, a new
-  program with no twin is NATIVE and judged the same way, and either one's
-  verdict move is recorded with `corpusdiff.py run --baseline`. Regenerating a
-  snapshot runs v0.18.0's checkout (`SAWLANG_V0_ROOT`, else fetched and
-  cached; `tools/toolchain.py v0-root`).
+- **The corpus programs are `tests/corpus/`.** The Stage 0 snapshots recorded
+  v0.18.0 compiling each program's twin in v0.18.0's `examples/`, which lives
+  only in that release's checkout (`tools/toolchain.py v0-root`). Each snapshot
+  row records the program's relation to its twin, so `oracle.twin_state(path,
+  row)` judges with no checkout. A program edited after the freeze is
+  DETACHED (its sha differs from the row's `frozen_sha`) and judged by its own
+  directives, a program with no row is NATIVE and judged the same way, and
+  either one's verdict move is recorded with `corpusdiff.py run --baseline`.
+  Every test is moving to judgment by its own directives alone (user, Nov 11;
+  SL-1061).
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
   placeholder), and — for warnings, which are reported on the SUCCESS
@@ -571,9 +572,9 @@ constructor since 234) + channels +
 precise reactor wakeup (91) + cancel wakes even an io-parked task
 (102) + `extern blocking` calls RUN via thread offload (103). The
 Thread/Task SPLIT (242, Aug 22-25): the namespace is the engine —
-`Thread.spawn { }` is OS threads and blocking (`Thread<T>`/`VoidThread`,
+`Thread.spawn { }` is OS threads and blocking (`Thread<T>`, `Thread<Void>`,
 body is `sync`, may call blocking externs), `Task.spawn(call())` is the
-cooperative engine without a group (`Task<T>`/`VoidTask`, background
+cooperative engine without a group (`Task<T>`, `Task<Void>`, background
 singleton, exit cancel-then-join); every non-group handle's FATE is
 written (`join`/`detach`/`cancel` — discard is a compile error, backed
 by a provenance-keyed drop panic), `detach()` exists on both engines,
@@ -600,7 +601,7 @@ too — design 82 makes each std FILE its own module). Prelude
 discipline (design 82): only a curated core is auto-visible
 (primitives, Vector/Map/Set, Optional/Result/Box/Arc/Allocator, the
 trait vocabulary incl. serde's Serialize/Deserialize/Encoder/Decoder,
-the builtins + concurrency primitives — TaskGroup/`Task<T>`/VoidTask/
+the builtins + concurrency primitives — TaskGroup/`Task<T>`/
 sleep/cancelled/Atomic, with `Thread.spawn`/`Task.spawn` as FORMS, not
 importable names — StringBuilder, Duration); File/Data/Channel/Mutex/
 SpinLock (std.spinlock)/Once (std.once)/slab (std.slab)/net (IoError/
@@ -648,13 +649,12 @@ function with all-safe parameters must be sound for every input (a precondition
 is spelled as an unsafe-typed parameter). The line-level `unsafe` expression
 marker is GONE (writing one is a parse error). Accessor rule: on a safe type
 every indexed accessor is checked — direct accessors panic out of range
-(`Vector.set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `Data.set`,
+(`Vector.set`/`swap`/`swap_out`, `Data.set`,
 `FixedBuf.set`, `String.byte_at`/`substring`), `get`-shaped ones return
 `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get` — the
 last since DF-294a, which was the enumeration's one divergence); no silent
-no-ops, no clamps, no ignorable status flags.
-`Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
-replaced `ref_at`. The Aug-5 batch (122-131): every runtime-check panic
+no-ops, no clamps, no ignorable status flags. An element borrow is a place
+(`v[i]`, a `borrows` lend), not a `with_ref` closure. The Aug-5 batch (122-131): every runtime-check panic
 carries `panic at FILE:LINE:` (122); ONE allocator-failure policy —
 every allocating std op returns `Result<_, AllocError>` all-or-nothing,
 design 123's panic tier and its `try_` twins RETIRED by design 234

@@ -1,6 +1,0 @@
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: `assert` expects a Bool condition
-
-func main() {
-    assert("not a bool", "message")
-}

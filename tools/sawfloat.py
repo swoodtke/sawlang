@@ -12,7 +12,8 @@ itself.
   tools/sawfloat.py verify    check the committed vectors against CPython
 
 `verify` is the gate (the `floatvectors` battery lane runs it, and
-`examples/float_text_vectors.saw` runs the Saw side over the same files). It
+`tests/corpus/float_text_parse_vectors.saw` and `float_text_shortest_vectors.saw`
+run the Saw side over the same files). It
 regenerates every row from the case table and byte-compares — so a hand-edited
 vector, a stale file, or a generator change nobody re-ran all fail here.
 

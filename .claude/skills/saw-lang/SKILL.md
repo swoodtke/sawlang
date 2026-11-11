@@ -1002,8 +1002,6 @@ var u = w.copy()       // explicit duplicate
   `lend`s while a `borrows(sync)` borrow is open (forwarding a lock's place, or
   lending its own buffer while holding a lock) must itself be `borrows(sync)`,
   else that `lend` is refused.
-  The frozen dir `examples/` is Stage 0's language,
-  which writes these places inline too; nothing here is written in it.
   docverify checks doc examples with sawc, so a block that lends is a `saw` or
   `saw-body` block like any other.
   **THE ARROW NAMES THE LENT REFERENCE AND ITS MODE** (SL-333): four spellings,
@@ -5127,7 +5125,7 @@ construct in the owner and lend `&driver` down.
   generic, an unsigned struct FIELD or enum PAYLOAD compared memberwise, and a
   raw-backed `enum E: UInt8` whose case value passes 127. All of it answers
   unsigned now, and `b as Int < 128` is no longer the workaround it was.
-  `examples/unsigned_ordered_comparison.saw` is the regression test.
+  `tests/corpus/unsigned_ordered_comparison.saw` is the regression test.
   SINKS keep `UInt8` parameters (`Data.set`/`push`, `FixedBuf.set`,
   `String.index_of`'s needle, `Encoder.write_byte`, `Data`'s `d[i]` place) —
   one declaration takes a `Byte`, a `UInt8` and a literal. A `Byte`-TYPED

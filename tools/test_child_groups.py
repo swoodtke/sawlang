@@ -114,7 +114,7 @@ def drive(runner, work, pidfile):
             oracle.run_binary(hang)
         else:
             oracle.build.SAWC = hang
-            oracle.sawc_build(os.path.join(REPO, "examples", "hello.saw"), os.path.join(work, "hello"), [])
+            oracle.sawc_build(os.path.join(REPO, "tests", "corpus", "hello.saw"), os.path.join(work, "hello"), [])
 
 
 # --- the cases -------------------------------------------------------------

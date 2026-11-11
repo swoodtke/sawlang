@@ -97,10 +97,6 @@ DONE_GLOB = "done_*.md"
 
 # Directories with nothing tracked in them.
 SKIP_DIRS = {".git", ".build", ".venv", "__pycache__", "node_modules"}
-# The migrated corpus keeps each XFAIL marker verbatim, and the pairing check
-# in compiler/tests/run.py holds every twin's markers to its original's, so a
-# finding is policed once, on the original under examples/ (SL-418).
-MIGRATED_CORPUS = "tests/corpus/"
 
 # A conflict block git wrote and somebody committed. The PAIR is the test — see
 # the module docstring. No file in this repo legitimately carries the shape
@@ -225,8 +221,8 @@ def find_conflict_markers() -> list[tuple[str, int, int, str]]:
             elif CONFLICT_CLOSE_RE.match(line) and opens:
                 # Pair each closer with the OUTERMOST opener still unclosed, so
                 # a NESTED block — git writes one when a resolution is itself
-                # conflicted, which is what `examples/conformance/INDEX.md`
-                # carried — reports both of its pairs rather than one. An
+                # conflicted, which a committed INDEX.md once carried
+                # — reports both of its pairs rather than one. An
                 # opener nothing ever closes is not the shape git writes and is
                 # left alone.
                 at, text = opens.pop(0)
@@ -260,7 +256,7 @@ def collect_citations() -> list[Citation]:
     # tree's citations; found live at integration, lead fix Aug 24).
     saw_paths = sorted(
         REPO_ROOT / name for name in tracked_files()
-        if name.endswith(".saw") and not name.startswith(MIGRATED_CORPUS)
+        if name.endswith(".saw")
     )
     for path in saw_paths:
         if any(part in SKIP_DIRS for part in path.parts):

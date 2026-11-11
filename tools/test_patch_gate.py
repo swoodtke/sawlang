@@ -90,7 +90,6 @@ CASES = (
     ({"runtime/common/os_ops.saw"}, BACKEND),
     ({"runtime/ABI.md"}, ("compiler tests", "fixpoint", "corpusdiff", "blade", "freestanding")),
     ({"tests/corpus/hello.saw"}, ("compiler tests", "fixpoint", "corpusdiff", GRAMMAR_FILES)),
-    ({"examples/hello.saw"}, ("compiler tests", "corpusdiff", GRAMMAR_FILES)),
     ({"tests/float_vectors/shortest.tsv"}, ("compiler tests", "corpusdiff")),
     ({"compiler/tests/corpusdiff/corpus_diff.tsv"}, ("compiler tests", "fixpoint", "corpusdiff")),
     ({"compiler/tests/oracle.py"}, ("compiler tests", "fixpoint", "corpusdiff")),

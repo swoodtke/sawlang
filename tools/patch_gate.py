@@ -65,7 +65,6 @@ SUITE_INPUTS = {
         "tests/corpus/",                 # the programs it measures
         "tests/cbor_vectors/",           # vector files the programs read at run time
         "tests/float_vectors/",
-        "examples/",                     # their twins, which the snapshot must be current with
         "compiler/tests/corpusdiff/",    # the tool, the snapshot, the baseline, the annotations
         "compiler/tests/oracle.py",      # the build, the run and the refusal judgement
         "compiler/tests/coro/expect.py", # the directives

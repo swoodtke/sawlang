@@ -976,7 +976,7 @@ pollers would share one registration, and the first delivery would remove it
 for all of them. Reaching every poller is a cascade over a per-instance count
 of the threads at the blocking call: a poller that consumed the wake re-posts
 it while that count is positive, and the chain stops when a consumer reads
-zero. `examples/reactor_cross_thread_wake.saw` is the seam-level test.
+zero. `tests/corpus/reactor_cross_thread_wake.saw` is the seam-level test.
 
 ### `__saw_rt_reactor_create(r_out: word*) -> word  (0/-tag)`
 Create a reactor instance: a kqueue (macOS) / epoll (Linux) fd + its wake source

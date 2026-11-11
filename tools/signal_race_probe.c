@@ -13,7 +13,7 @@
  * proved here, and only the genuinely unreachable interleavings pay for a
  * generated build.
  *
- * `examples/signal_concurrency_pins.saw` builds and runs BOTH, so they gate in
+ * `tests/corpus/signal_concurrency_pins.saw` builds and runs BOTH, so they gate in
  * the ordinary suite rather than living as files somebody has to remember.
  *
  * Run with no arguments. Exit 0 = every cell holds.

@@ -25,8 +25,10 @@ corpus_diff.tsv's. `snapshot` and `run` measure one program at a time unless
 `--jobs` says otherwise, and none of the three takes the suite lock. README.md
 has the buckets and the gate's rule.
 
-`examples/` is frozen, and each row's `frozen_sha` holds its corpus program's
-bytes at the freeze (`oracle.twin_state`). A program edited since is detached:
+The twins are the v0 checkout's `examples/`, which is frozen; each row holds
+the relation (`twin`) and its corpus program's bytes at the freeze
+(`frozen_sha`), and `oracle.twin_state` answers from them. `snapshot` reads
+the twins from that checkout. A program edited since is detached:
 its record stays, unused, and its own directives judge it under a key of its
 own, so the move fails the gate until the baseline records it. A program with
 no twin is native, needs no record, and is judged the same way. `snapshot`
@@ -57,7 +59,6 @@ import patch_gate  # noqa: E402
 
 REPO = oracle.REPO
 CORPUS = oracle.CORPUS
-EXAMPLES = oracle.EXAMPLES
 SNAPSHOT = os.path.join(HERE, "stage0")
 INDEX = os.path.join(SNAPSHOT, "index.tsv")
 BASELINE = os.path.join(HERE, "corpus_diff.tsv")
@@ -120,7 +121,9 @@ def programs():
 
 
 def twin_sha(path):
-    return oracle.file_sha(os.path.join(EXAMPLES, path))
+    """`path`'s twin's `twin_sha` from the v0 checkout; a writer's, which
+    needs the checkout."""
+    return oracle.file_sha(oracle.v0_twin(path))
 
 
 def corpus_sha(path):
@@ -131,7 +134,7 @@ def states(paths, rows=None):
     """{path: `oracle.twin_state`} for `paths`, by the index's rows."""
     if rows is None:
         rows = {r["path"]: r for r in read_index()} if os.path.exists(INDEX) else {}
-    return {p: oracle.twin_state(p, rows[p]["frozen_sha"] if p in rows else None) for p in paths}
+    return {p: oracle.twin_state(p, rows.get(p)) for p in paths}
 
 
 def record_path(path, triple):
@@ -163,9 +166,10 @@ def summary(rec):
 # --- the wholeness check ------------------------------------------------------
 
 def check():
-    """(failures, counts): one row and one record per corpus program with a
-    twin, each record the row it is in, and each row's twin unchanged since
-    (a program edited since is detached, which is no failure)."""
+    """(failures, counts): one record per row, each record the row it is in,
+    and each row's twin the one its record was written from, when the v0
+    checkout is here to say (a program edited since is detached, which is no
+    failure)."""
     failures = []
     try:
         rows = read_index()
@@ -175,13 +179,9 @@ def check():
     if len(set(paths)) != len(paths):
         failures.append("corpusdiff snapshot: index.tsv names a program twice")
     corpus = programs()
-    native = 0
-    for path in sorted(set(corpus) - set(paths)):
-        if oracle.twin_state(path, None) == "native":
-            native += 1
-            continue
-        failures.append("corpusdiff snapshot: corpus program %s has no record: run `corpusdiff.py snapshot "
-                        "--reuse %s`" % (path, path))
+    # A program no row names is native: the twins are frozen, so none can be
+    # new, and a program with a twin keeps its row.
+    native = len(set(corpus) - set(paths))
     for path in sorted(set(paths) - set(corpus)):
         failures.append("corpusdiff snapshot: %s is no corpus program" % path)
     expected = set()
@@ -199,16 +199,13 @@ def check():
             if column not in FILE_COLUMNS and row[column] != got[column]:
                 failures.append("corpusdiff snapshot %s: index.tsv has %s %s, the record %s"
                                 % (row["path"], column, row[column], got[column]))
-        if row["twin_sha"] != twin_sha(row["path"]):
-            failures.append("corpusdiff snapshot %s: examples/%s has changed since its record was written, "
-                            "and examples/ is frozen" % (row["path"], row["path"]))
+        sha = oracle.twin_sha(row["path"])
+        if sha is not None and row["twin_sha"] != sha:
+            failures.append("corpusdiff snapshot %s: its twin in the v0 checkout is not the one its record was "
+                            "written from" % row["path"])
             continue
-        state = oracle.twin_state(row["path"], row["frozen_sha"])
-        if state == "detached":
+        if oracle.twin_state(row["path"], row) == "detached":
             detached += 1
-        elif row["twin"] != state:
-            failures.append("corpusdiff snapshot %s: the twin is %s now, %s in its record"
-                            % (row["path"], state, row["twin"]))
     files = [INDEX, BASELINE, ANNOTATIONS]
     for root, _, names in os.walk(SNAPSHOT):
         for name in names:
@@ -291,7 +288,7 @@ def cached(path):
 
 def render(raw, triple):
     """The record's lines for one program's raw results."""
-    d = expect.read(os.path.join(EXAMPLES, raw["path"]))
+    d = expect.read(oracle.v0_twin(raw["path"]))
     lines = ["program\t" + raw["path"], "triple\t" + triple, "twin\t" + raw["twin"], "expect\t" + raw["expect"]]
     code, log, kind = raw["build_exit"], raw["log"], raw["expect"]
     if code is None:
@@ -325,7 +322,8 @@ def write_snapshot(args):
     unknown = [p for p in args.paths if p not in corpus]
     if unknown:
         raise SystemExit("corpusdiff: no corpus program %s" % ", ".join(unknown))
-    state = states(corpus)
+    named = {r["path"]: r for r in read_index()} if os.path.exists(INDEX) else {}
+    state = {p: oracle.writer_state(p, named.get(p)) for p in corpus}
     unjudged = [p for p in args.paths if state[p] in oracle.UNJUDGED]
     if unjudged:
         raise SystemExit("corpusdiff: %s %s no twin Stage 0 compiles as its oracle, so it has no record to "
@@ -731,8 +729,7 @@ def measure_all(args):
     elif args.paths:
         rows = {r["path"]: r for r in read_index()}
         failures = ["corpusdiff snapshot %s: no current record" % p for p in args.paths
-                    if (p not in rows and oracle.twin_state(p, None) != "native")
-                    or (p in rows and rows[p]["twin_sha"] != twin_sha(p))]
+                    if p in rows and oracle.twin_sha(p) not in (None, rows[p]["twin_sha"])]
     else:
         failures, _ = check()
     if failures:

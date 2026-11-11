@@ -113,7 +113,7 @@ the builtins pre-check — see `_write`'s doc comment in v0.18.0's `sawc/std/jso
 for the full mechanism and this unit's landing report for the repro.
 
 Everything — `parse`, every accessor, the full round trip, the whole seam
-above — works and is tested (`examples/json_value_*.saw`).
+above — works and is tested (`tests/corpus/json_value_*.saw`).
 
 ## What a `Serialize` value becomes
 
@@ -140,7 +140,7 @@ format-specific path the `Serialize`/`Deserialize` pair does not carry.
 does not cover it, in either format (see v0.18.0's `sawc/std/serde.saw`'s doc
 comment on `Serialize` for the exact list). Encode one by writing
 `serialize`/`deserialize` by hand over `begin_map`/`begin_array` and the
-scalar `write_*`/`read_*` calls; `examples/json_map_keys.saw` is the
+scalar `write_*`/`read_*` calls; `tests/corpus/json_map_keys.saw` is the
 worked example. A JSON object key is always a string by grammar, so a map
 keyed by anything else has no representation: `EncodeFault.Unsupported`
 on encode (reported the moment a non-`write_text` call lands at a key
@@ -236,8 +236,9 @@ item-count budget on top is deferred.
   `std.cbor`'s "one spelling per value" discipline, though JSON's own
   history leans toward wanting one).
 - Duplicate-key policy: pinned to last-wins above; needs ratification.
-  Observed through `JsonValue` too now (`examples/json_value_structural_
-  reject.saw`'s `duplicate_key_last_wins`).
+  Observed through `JsonValue` too now
+  (`tests/corpus/json_value_structural_reject.saw`'s
+  `duplicate_key_last_wins`).
 - A combined `JsonValue.as_number() -> Float?` reading either number case,
   which needs an `Int` -> `Float` conversion the language does not have in
   any spelling. (`JsonValue.Number`'s `Float` half itself is CLOSED —

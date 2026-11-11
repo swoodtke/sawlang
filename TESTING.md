@@ -8,7 +8,7 @@ Saw's tests come in three kinds:
   comment directives state what the compiler and the program must do. The
   corpus differential (`compiler/tests/corpusdiff/`) builds and runs each with
   `sawc` and judges it by its directives and by the run v0.18.0's compiler
-  recorded for its frozen `examples/` twin.
+  recorded for its twin, the same program in v0.18.0's `examples/`.
 - **The compiler's own tests** under `compiler/tests/`, run by
   `compiler/tests/run.py`: unit programs, golden dumps and refusal fixtures for
   every compiler stage, and the checks over the compiler's source.
@@ -330,11 +330,13 @@ tests/corpus/
     └── modules/           # Helper modules, excluded from discovery
 ```
 
-`examples/` is the same tree as it stood at v0.18.0, frozen: it is the key of
-the recorded Stage 0 snapshots and is never edited. A corpus program edited
-since is judged by its own directives alone (detached), and a new program with
-no `examples/` twin is judged the same way (native); either one's verdict move
-is recorded with `corpusdiff.py run --baseline` in the same patch.
+The recorded Stage 0 snapshots are keyed by each program's twin in v0.18.0's
+`examples/`, which lives in that release's checkout (`tools/toolchain.py
+v0-root`), not in this tree. Each snapshot row records the program's relation to
+its twin, so judging needs no checkout. A corpus program edited since is judged
+by its own directives alone (detached), and a new program with no snapshot row
+is judged the same way (native); either one's verdict move is recorded with
+`corpusdiff.py run --baseline` in the same patch.
 
 ### The conformance suite and its INDEX
 
@@ -393,8 +395,8 @@ full; in short, the runner:
 - requires one release number everywhere it is written (the `version` step):
   the driver's `driver_version`, what `sawc --version` prints and the release
   tag in `.sawtracker/version`, so a release bump edits both files;
-- holds each frozen directory (`examples/`, `prototypes/`,
-  `devtools/bench/`, `devtools/dogfood/`) to the
+- holds each frozen directory (`prototypes/`, `devtools/bench/`,
+  `devtools/dogfood/`) to the
   git tree `tools/frozen_trees.tsv` records, with nothing in it uncommitted
   (the `frozen` step). Nothing builds those sources, so this is what keeps
   their v0.18.0 recipes true;
@@ -493,7 +495,6 @@ decision is `tools/patch_gate.py`'s. Every part builds and runs sawc:
   changes (each stage's `src/`, `compiler/driver/`, `compiler/seed/`,
   `compiler/tools/build.py`, `std/`, `runtime/`), or what it measures or judges
   by (`tests/corpus/`, the vector files under `tests/` the programs read,
-  `examples/`, whose files the snapshot must be current with,
   `compiler/tests/corpusdiff/`, `compiler/tests/oracle.py` and the modules it
   imports). It measures the whole corpus and fails when any program's verdict
   moved from `corpus_diff.tsv`, an improvement included, so a patch that moves
@@ -964,8 +965,7 @@ and new bucket and key, and the detail. To look closer:
 
 ## Adding New Tests
 
-1. Create a new `.saw` file in `tests/corpus/` (never in `examples/`, which is
-   frozen)
+1. Create a new `.saw` file in `tests/corpus/`
 2. Add test directives at the top
 3. Run `corpusdiff.py run PATH` (relative to `tests/corpus/`) to see its
    verdict; a new program is native,

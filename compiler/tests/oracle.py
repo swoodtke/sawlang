@@ -10,7 +10,7 @@ A record is one file of tab-separated lines, each led by its kind:
     program       PATH                   the corpus path, or the repository path
     triple        TRIPLE                 compiler/target's name for it
     source        SHA                    the program's bytes the record was made from
-    twin          same | differs         examples/PATH against tests/corpus/PATH
+    twin          same | differs         the v0 checkout's examples/PATH against tests/corpus/PATH
     expect        KIND                   the twin's `EXPECT:` directive
     build         ok | refused [ERROR] | timeout | not-run
     exit          N | timeout | varies   the run, for a build that is run
@@ -55,7 +55,6 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 CORPUS = os.path.join(REPO, "tests", "corpus")
-EXAMPLES = os.path.join(REPO, "examples")
 for _path in (os.path.join(TESTS, "coro"), os.path.join(TESTS, "fixpoint"), os.path.join(COMPILER, "tools")):
     if _path not in sys.path:
         sys.path.insert(0, _path)
@@ -118,11 +117,11 @@ def unrooted(text):
 
 # --- the twin relation ----------------------------------------------------------
 
-# A corpus program's relation to its oracle, Stage 0's record of the frozen
-# `examples/` twin: `same` or `differs` while the program keeps the bytes it
-# had when the snapshots froze; `detached` once it is edited after, so it is
-# judged by its own directives; `native` for a program with no twin, which
-# only its directives judge (SL-667).
+# A corpus program's relation to its oracle, Stage 0's record of its
+# `examples/` twin in the v0 checkout: `same` or `differs` while the program
+# keeps the bytes it had when the snapshots froze; `detached` once it is
+# edited after, so it is judged by its own directives; `native` for a program
+# with no row, which only its directives judge (SL-667).
 TWIN_STATES = ("same", "differs", "detached", "native")
 UNJUDGED = ("detached", "native")
 
@@ -134,34 +133,81 @@ def file_sha(path):
         return hashlib.sha256(fh.read()).hexdigest()[:12]
 
 
-def twin_state(path, frozen_sha):
+def twin_state(path, row):
     """The twin relation of corpus program `path` (one of `TWIN_STATES`),
-    `frozen_sha` its row's `frozen_sha`, or None for a program no snapshot row
-    names. A row's relation is the one its record was made under, so editing
-    either side of it detaches the program or, for `examples/`, which is
-    frozen, fails the snapshot's check (`twin_sha`).
+    `row` its snapshot row (a dict with `twin` and `frozen_sha`), or None for
+    a program no row names. The row holds the relation its record was made
+    under, and the tree it names is frozen, so nothing opens a twin: editing
+    the program detaches it (`frozen_sha`).
 
     ENTRY POINTS
-        twin_of
-        corpusdiff.check, corpusdiff.measure_all, corpusdiff.write_snapshot
-        coro/stage0/snapshot.stale_twin, snapshot.write
+        writer_state
+        corpusdiff.check, corpusdiff.measure_all
+        coro/stage0/snapshot.write
         compare_run
     """
-    original = os.path.join(EXAMPLES, path)
-    if frozen_sha is None and not os.path.exists(original):
+    if row is None:
         return "native"
-    if frozen_sha is not None and file_sha(os.path.join(CORPUS, path)) != frozen_sha:
+    if file_sha(os.path.join(CORPUS, path)) != row["frozen_sha"]:
         return "detached"
-    with open(original, "rb") as a, open(os.path.join(CORPUS, path), "rb") as b:
-        return "same" if a.read() == b.read() else "differs"
+    return row["twin"]
+
+
+def v0_twin(path):
+    """The path of corpus program `path`'s `examples/` twin in the v0
+    checkout, which `v0_root` resolves, fetching it when it is not cached."""
+    return os.path.join(v0_root(), "examples", path)
 
 
 def twin_of(path):
-    """(the examples/ twin's path, or None; its relation, `twin_state`'s for
-    a program no row names yet) for corpus `path`."""
-    src = os.path.join(EXAMPLES, path)
-    state = twin_state(path, None)
-    return (None if state == "native" else src), state
+    """(the twin's path in the v0 checkout, or None; its relation to the
+    corpus file, `same`, `differs`, or `native` for no twin), the values a
+    re-snapshot records. A reader of a row asks `twin_state`."""
+    src = v0_twin(path)
+    if not os.path.exists(src):
+        return None, "native"
+    with open(src, "rb") as a, open(os.path.join(CORPUS, path), "rb") as b:
+        return src, "same" if a.read() == b.read() else "differs"
+
+
+def writer_state(path, row):
+    """`twin_state` for a re-snapshot, which may name a program no row does
+    yet: its twin in the v0 checkout decides it (`twin_of`), so a first or a
+    widened snapshot can record it."""
+    return twin_state(path, row) if row is not None else twin_of(path)[1]
+
+
+_NOTED = []
+
+
+def twin_sha(path):
+    """The `twin_sha` of corpus program `path`'s twin, read from the v0
+    checkout when one is on this machine (`SAWLANG_V0_ROOT`, or v0.18.0
+    already cached; nothing is fetched), else None, with one printed note per
+    process: a check without the checkout trusts the rows' recorded
+    `twin_sha`, and only a re-snapshot, which needs the checkout, writes one."""
+    root = _v0_present()
+    if root is None:
+        if not _NOTED:
+            _NOTED.append(True)
+            print("oracle: no v0 checkout here, so the twins' recorded twin_sha columns are not re-checked "
+                  "(a re-snapshot needs one)", flush=True)
+        return None
+    return file_sha(os.path.join(root, "examples", path))
+
+
+def _v0_present():
+    """The v0 checkout's root when it is on this machine, else None; unlike
+    `v0_root`, it never fetches."""
+    import toolchain
+    if os.environ.get(toolchain.V0_ENV):
+        try:
+            return toolchain.v0_root()
+        except toolchain.ToolchainError:
+            return None
+    cache = os.path.expanduser(os.environ.get(toolchain.CACHE_ENV) or toolchain.DEFAULT_CACHE)
+    root = os.path.join(cache, toolchain.V0_SHA)
+    return root if os.path.isdir(os.path.join(root, "examples")) else None
 
 
 # --- Stage 0 -----------------------------------------------------------------
@@ -210,7 +256,10 @@ def v0_python():
 
 def stage0(src, out, args, timeout=STAGE0_TIMEOUT, cwd=REPO):
     """Stage 0 on `src`: (exit status, or None on a timeout; what it printed,
-    colours removed)."""
+    colours removed). A source in the v0 checkout is compiled from its root,
+    so its diagnostics name it `examples/PATH` as the records do."""
+    if cwd == REPO and os.path.abspath(src).startswith(v0_root() + os.sep):
+        cwd = v0_root()
     try:
         r = subprocess.run(v0_compiler() + [os.path.relpath(src, cwd), "-o", out] + list(args), cwd=cwd,
                            capture_output=True, text=True, timeout=timeout)

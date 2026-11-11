@@ -9620,8 +9620,8 @@ nothing at all, so a `panic` message may name a float.
 The vectors under `tests/float_vectors/` are the correctness ledger — 2897
 round-trip rows and 175 parse rows, generated from CPython's own conversions
 by `tools/sawfloat.py` and asserted BIT-EXACT by
-`examples/float_text_shortest_vectors.saw` and
-`examples/float_text_parse_vectors.saw`.
+`tests/corpus/float_text_shortest_vectors.saw` and
+`tests/corpus/float_text_parse_vectors.saw`.
 
 #### Conformances on primitives
 

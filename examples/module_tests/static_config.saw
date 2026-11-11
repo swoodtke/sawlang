@@ -1,5 +1,0 @@
-// Library module exposing public statics for cross-module access (design 41).
-// EXPECT: skip
-
-public static VERSION: Int = 7
-public static LIMITS: [Int; 3] = [10, 20, 30]

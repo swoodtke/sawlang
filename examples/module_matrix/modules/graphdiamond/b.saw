@@ -1,6 +1,0 @@
-//! Fixture for the graph-shapes grid's diamond row (design 235).
-// EXPECT: skip
-
-import modules.graphdiamond.d.{delta}
-
-public func beta() -> Int { delta() + 10 }

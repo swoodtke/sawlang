@@ -42,7 +42,7 @@ INCLUDE = (
 )
 
 # Prefixes that stay out even when INCLUDE matches.
-FROZEN_PREFIXES = ("prototypes/", "devtools/", "examples/", "compiler/prototypes/")
+FROZEN_PREFIXES = ("prototypes/", "devtools/", "compiler/prototypes/")
 
 RULES = (
     "date",

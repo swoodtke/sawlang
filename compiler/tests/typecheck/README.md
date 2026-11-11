@@ -1570,7 +1570,7 @@ projection. `t.` abbreviates `refuse/memory.trivial.`, `e.`
 
 ## The conformance rows
 
-The rows of `examples/conformance/INDEX.md`'s Mutability and References
+The rows of `tests/corpus/conformance/INDEX.md`'s Mutability and References
 sections, and V03–V05, V31, V49, V60–V62, V68, V70 and V124, V126–V128, V131 and V150–V153 of its Moves section, each
 with what covers it here; `compiler/tests/borrowck/CONFORMANCE.md` names the
 same fixtures. `m.` abbreviates `refuse/mutability.immutable.`, `r.`

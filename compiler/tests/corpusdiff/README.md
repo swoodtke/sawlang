@@ -28,12 +28,16 @@ tools/battery.sh corpusdiff
 
 The corpus programs are every `.saw` below `tests/corpus/` outside a
 `modules` directory, but those marked `EXPECT: skip`. Each is paired with the file of
-the same path below `examples/` (SL:architecture §5), its twin.
+the same path below `examples/` in the v0 checkout (SL:architecture §5), its
+twin.
 
-**The twin relation** (`oracle.twin_state`, SL-667). `examples/` is frozen:
-it is the key of the snapshot, never edited. Each row of `stage0/index.tsv`
-holds the twin's bytes (`twin_sha`) and the corpus program's bytes at the
-freeze (`frozen_sha`), so a program is in one of four states:
+**The twin relation** (`oracle.twin_state`, SL-667). The twins are the v0
+checkout's `examples/`, frozen: the key of the snapshot, which this tree does
+not hold. Each row of `stage0/index.tsv` holds the relation (`twin`), the
+twin's bytes (`twin_sha`) and the corpus program's bytes at the freeze
+(`frozen_sha`), and `twin_state` answers from the row without opening a twin;
+`check` compares `twin_sha` with the checkout's file when the checkout is on
+the machine, and says so when it is not. A program is in one of four states:
 
 - `same` or `differs`: unchanged since the freeze, and judged against its
   record as below;
@@ -238,8 +242,7 @@ the file and fails with the moved programs named.
 
 The per-patch gate (`tools/patch_gate.py`) runs it when what sawc is built
 from changes, or what the measurement reads: `tests/corpus/`, the vector
-files the programs read, `examples/` (the twins the snapshot must be current
-with), this directory, and `compiler/tests/oracle.py` with the modules it
+files the programs read, this directory, and `compiler/tests/oracle.py` with the modules it
 imports. It runs in full there, never in the quick form: one program per
 bucket and key cannot see a passing program regress, and the whole run's
 builds spread over the gate's workers. The battery's `corpusdiff`

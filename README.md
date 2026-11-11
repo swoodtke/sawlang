@@ -823,7 +823,6 @@ std/                   # Standard library (.saw files)
 runtime/               # The runtime, authored in Saw (ABI.md is its contract)
 bin/                   # `sawc`, `sawc0` and `blade` shims (see `make install`)
 tests/corpus/          # The corpus programs, measured on every patch
-examples/              # Frozen: the key of v0.18.0's recorded snapshots
 blade/                 # Blade package manager (written in Saw)
 libs/                  # Real Saw library packages (semver, toml, imgformat)
 designs/               # Design briefs and the project tracker
