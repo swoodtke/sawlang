@@ -29,7 +29,7 @@ run of every program must meet its oracle: a fault, a signal or wrong output
 fails. A blocked program is still built, and fails the lane once sawc builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
-COVERAGE: ownership runs a program in 6 of its 6 categories, and 24 of its 26
+COVERAGE: ownership runs a program in 6 of its 6 categories, and 25 of its 26
 Stage 0 programs build; concurrency runs a program in 8 of its 8 categories,
 and 24 of its 25 Stage 0 programs build.
 
@@ -215,12 +215,10 @@ OWNERSHIP = (
             CORPUS + "data_cow_slice.saw",
             CORPUS + "data_cow_value_semantics.saw",
             CORPUS + "data_cow_self_append.saw",
+            CORPUS + "data_iter_outlives_source.saw",
         ),
         stand_ins=(),
-        blocked=(
-            Blocked(CORPUS + "data_iter_outlives_source.saw", "name.undefined", "SL-596",
-                    "DataIterator is not in the new std"),
-        )),
+        blocked=()),
 )
 
 CONCURRENCY = (

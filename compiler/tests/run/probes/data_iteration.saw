@@ -1,0 +1,79 @@
+// probe: stated
+// about: `Data.iter()` yields each byte as a `Byte`, owns a retain that outlives its source and keeps the bytes it was made over, and heads a `for` (SL-1009)
+// stage 0: its std has `DataIterator`, but these retain and `Byte` pins are stated for the current std
+// speeds: -O0 -O2
+// prints: several 10
+// prints: several 20
+// prints: several 30
+// prints: empty done
+// prints: kept 7
+// prints: kept 8
+// prints: kept done
+// prints: old 1
+// prints: old 2
+// prints: old 3
+// prints: new 1
+// prints: new 2
+// prints: new 3
+// prints: new 4
+// prints: loop 5
+// prints: loop 6
+// prints: loop 7
+// prints: sum 18
+import std.data.{Data, DataIterator}
+
+func make_iter() -> DataIterator {
+    var d = Data()
+    try! d.push(7)
+    try! d.push(8)
+    d.iter()
+}
+
+func main() {
+    var d = Data()
+    try! d.push(10)
+    try! d.push(20)
+    try! d.push(30)
+    var it = d.iter()
+    while let b = it.next() {
+        print("several {}", b as UInt8)
+    }
+
+    let e = Data()
+    var eit = e.iter()
+    if eit.next() == None {
+        print("empty done")
+    }
+
+    // The source binding is gone; the iterator still reads its bytes.
+    var kept = make_iter()
+    while let b = kept.next() {
+        print("kept {}", b as UInt8)
+    }
+    print("kept done")
+
+    // A write after `iter()` separates the shared block.
+    var s = Data()
+    try! s.push(1)
+    try! s.push(2)
+    try! s.push(3)
+    var old = s.iter()
+    try! s.push(4)
+    while let b = old.next() {
+        print("old {}", b as UInt8)
+    }
+    for b in s.iter() {
+        print("new {}", b as UInt8)
+    }
+
+    var f = Data()
+    try! f.push(5)
+    try! f.push(6)
+    try! f.push(7)
+    var total = 0
+    for b in f.iter() {
+        print("loop {}", b as UInt8)
+        total = total + ((b as UInt8) as Int)
+    }
+    print("sum {}", total)
+}

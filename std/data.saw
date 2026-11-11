@@ -517,6 +517,15 @@ extension Data {
         fresh
     }
 
+    /// Returns an iterator over these bytes, each a `Byte`.
+    ///
+    /// The iterator holds a retain on the bytes, so one returned from a
+    /// function outlives the binding it was made from, and a later write to
+    /// this `Data` separates the block rather than reaching the iterator.
+    public func iter(&self) -> DataIterator {
+        DataIterator(source: self.copy(), index: 0)
+    }
+
     // Whether this `Data` is the sole owner of its block; an empty one owns
     // none. The acquire fence pairs with a departing owner's release subtract.
     func is_unique(&self) unsafe -> Bool {
@@ -677,6 +686,34 @@ extension Data: Copy {
             let total = DATA_HEADER_WORDS * sizeof<Int>() + data_capacity(block)
             GlobalAllocator().dealloc(block, total, DATA_BLOCK_ALIGN)
         }
+    }
+}
+
+/// The iterator `Data.iter()` returns.
+///
+/// It owns a retained `Data`, so it reads the bytes as they were when it was
+/// made.
+public struct DataIterator {
+    private source: Data
+    private index: Int
+}
+
+// A copy retains the same bytes and keeps its own position, the tier its
+// `Data` field already carries.
+@synthesize
+extension DataIterator: Copy {}
+
+extension DataIterator: Iterator {
+    type Item = Byte
+
+    /// Returns the next byte, or `None` past the last one.
+    public func next(&var self) -> Byte? {
+        if self.index >= self.source.len() {
+            return None
+        }
+        let value = self.source.get(self.index)
+        self.index = self.index + 1
+        value
     }
 }
 

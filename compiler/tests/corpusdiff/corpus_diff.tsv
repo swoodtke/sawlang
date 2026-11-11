@@ -126,7 +126,7 @@ box_string.saw	pass	judged by its own directives (edited since its oracle)	-
 box_value_lends_the_payload.saw	pass	judged by its own directives (edited since its oracle)	-
 box_wrapper_tier_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>`, which is NoCopy, by value: only a Copy type copies silently; write `move
 byte_append_discrimination.saw	pass	-	-
-byte_data_reads.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
+byte_data_reads.saw	pass	-	-
 byte_type_flow.saw	pass	-	-
 capture_exclusivity_disjoint.saw	pass	-	-
 capture_write_allowed_forms.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -841,11 +841,11 @@ d249_selective_import_binds_whole_overload_set.saw	pass	-	-
 d249_selective_import_of_one_twin.saw	pass	-	-
 d249_std_json_and_cbor_both_name_encode.saw	pass	-	-
 d249_std_selective_import_of_a_two_owner_name.saw	pass	-	-
-data_advanced.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
+data_advanced.saw	pass	-	-
 data_cow_self_append.saw	pass	-	-
 data_cow_slice.saw	pass	-	-
 data_cow_value_semantics.saw	pass	-	-
-data_iter_outlives_source.saw	refused	resolve name.undefined	cannot find `DataIterator` in scope
+data_iter_outlives_source.saw	pass	-	-
 data_place_shared_read.saw	pass	-	-
 data_set_oob_panic.saw	pass	-	-
 data_simple.saw	pass	-	-

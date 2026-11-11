@@ -1628,8 +1628,7 @@ shared until written.
   `UInt8` and a bare literal from one declaration — `Data` deals in nothing but
   bytes, so a number arriving at one has no second reading. `d[i]` is the
   exception on the read side: a place has one type for reading and writing, and
-  it is `UInt8` so that `d[i] = 42` stays writable. (`iter()` is not built in
-  std yet, SL-1009)
+  it is `UInt8` so that `d[i] = 42` stays writable.
 - **Reading `d[i]` costs nothing.** A read, the getitem `d[i]` or a shared
   lend such as `&d[i]`, reaches the `&self` accessor, so it works on a `let`
   binding, a `&Data` parameter, or a slice several `Data`s share. A write, the
@@ -1641,7 +1640,7 @@ shared until written.
   is the optional copy beside a panicking `[]`, not a different kind of read.
 - **Iterating holds a retain.** `iter()` returns a `DataIterator` that owns a
   `Data`, so an iterator outliving the binding it came from still reads live
-  bytes. (not built in std yet, SL-1009)
+  bytes.
 
 Out of range, `set`/`d[i]` panic and `get`/`slice` answer
 `None` — design 130's accessor rule, the same split `Vector` uses. A refused
