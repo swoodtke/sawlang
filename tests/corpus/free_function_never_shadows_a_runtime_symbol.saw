@@ -30,7 +30,7 @@
 import std.file.{File}
 import std.path.{Path}
 import std.data.{Data}
-import std.net.{IoError}
+import std.systemerror.{SystemError}
 
 // The collision. Not a plausible API — a plausible ACCIDENT: `read` is an
 // obvious name for a helper, and nothing about writing one says the program has
@@ -47,13 +47,13 @@ func sixteen_bytes() -> Data {
     move data
 }
 
-func seed(p: Path) -> Result<Void, IoError> {
+func seed(p: Path) -> Result<Void, SystemError> {
     var out = try File.create(p)
     let _ = try out.write(sixteen_bytes())
     return
 }
 
-func main() -> Result<Void, IoError> {
+func main() -> Result<Void, SystemError> {
     let p = Path(s: "/tmp/saw_sl274_read_shadow.bin")
     try seed(p)
 

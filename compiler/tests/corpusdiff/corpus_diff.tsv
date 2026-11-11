@@ -1581,8 +1581,8 @@ flat_and_nested_modules_declare_distinct_types.saw	refused	resolve slice.not-yet
 float_integer_operand_mix.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Float`; convert one with `as`
 float_methods.saw	pass	-	-
 float_text_format.saw	pass	-	-
-float_text_parse_vectors.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
-float_text_shortest_vectors.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
+float_text_parse_vectors.saw	pass	judged by its own directives (edited since its oracle)	-
+float_text_shortest_vectors.saw	pass	judged by its own directives (edited since its oracle)	-
 for_head_transfer_accepts.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 for_loop_break.saw	pass	-	-
 for_loop_continue.saw	pass	-	-
@@ -1603,7 +1603,7 @@ format_args_too_many_error.saw	pass	-	format.slot-count: the format string has 1
 format_into_builtin_alloc_free.saw	pass	-	-
 forwarding_nonescaping_ok.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 forwarding_transfer_drops_once_driven.saw	pass	-	-
-free_function_never_shadows_a_runtime_symbol.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
+free_function_never_shadows_a_runtime_symbol.saw	pass	judged by its own directives (edited since its oracle)	-
 freestanding_aarch64_no_simd.saw	pass	-	built
 freestanding_seams_extern_no_runtime.saw	pass	-	built
 funcpointer226_call.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet

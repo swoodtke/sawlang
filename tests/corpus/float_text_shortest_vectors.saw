@@ -23,9 +23,9 @@
 
 import std.file.{File}
 import std.path.{Path}
-import std.net.{IoError}
+import std.systemerror.{SystemError}
 
-func read_text(p: Path) -> Result<String, IoError> {
+func read_text(p: Path) -> Result<String, SystemError> {
     var f = try File.open(p)
     let bytes = try f.read()
     // The vector file is generated ASCII, so a UTF-8 fault in it is a broken
@@ -43,7 +43,7 @@ func bits_of(hex: String) -> UInt64? {
     return v as UInt64
 }
 
-func main() -> Result<Void, IoError> {
+func main() -> Result<Void, SystemError> {
     let text = try read_text(Path(s: "tests/float_vectors/shortest.tsv"))
     let lines = try! text.split("\n")
     var checked = 0

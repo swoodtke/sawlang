@@ -25,9 +25,9 @@
 
 import std.file.{File}
 import std.path.{Path}
-import std.net.{IoError}
+import std.systemerror.{SystemError}
 
-func read_text(p: Path) -> Result<String, IoError> {
+func read_text(p: Path) -> Result<String, SystemError> {
     var f = try File.open(p)
     let bytes = try f.read()
     // The vector files are generated ASCII, so a UTF-8 fault in one is a broken
@@ -84,7 +84,7 @@ func check_parse(text: String, want_text: String) -> Bool {
     true
 }
 
-func run(path: String, label: String, round_trip: Bool) -> Result<Void, IoError> {
+func run(path: String, label: String, round_trip: Bool) -> Result<Void, SystemError> {
     let text = try read_text(Path(s: path))
     let lines = try! text.split("\n")
     var checked = 0
@@ -116,7 +116,7 @@ func run(path: String, label: String, round_trip: Bool) -> Result<Void, IoError>
     return
 }
 
-func main() -> Result<Void, IoError> {
+func main() -> Result<Void, SystemError> {
     try run("tests/float_vectors/shortest.tsv", "round trip", true)
     try run("tests/float_vectors/parse.tsv", "parse", false)
     return
