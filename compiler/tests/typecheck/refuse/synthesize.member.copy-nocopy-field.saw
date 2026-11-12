@@ -1,0 +1,13 @@
+// refuses: synthesize.member at 13:14
+// a derived `ExplicitCopy` over a `File` field, which is `NoCopy`: the derived
+// `copy()` would duplicate the descriptor and both values would close it
+
+import std.file.{File}
+
+struct W {
+    f: File
+    n: Int
+}
+
+@synthesize
+extension W: ExplicitCopy {}

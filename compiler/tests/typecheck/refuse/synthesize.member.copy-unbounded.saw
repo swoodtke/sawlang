@@ -1,0 +1,9 @@
+// refuses: synthesize.member at 9:20
+// a derived `ExplicitCopy` whose field's type is a parameter the extension does not bound
+
+struct Pair<T> {
+    a: T
+}
+
+@synthesize
+extension Pair<T>: ExplicitCopy {}

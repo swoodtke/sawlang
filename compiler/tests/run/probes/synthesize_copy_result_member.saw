@@ -1,0 +1,42 @@
+// probe: stated
+// about: a `Result<Vector<Int>, String>` copies by duplicating the vector, alone and as a member of a `@synthesize`d `ExplicitCopy` struct, and each copy is released once (SL-1018)
+// stage 0: not run; the probe states the spec's answer (Wrappers carry the tier of what they wrap)
+// speeds: -O0 -O2
+// prints: first 3
+// prints: copy 3
+// prints: held 3
+// prints: held copy 3
+// leaks: none
+
+struct Held {
+    r: Result<Vector<Int>, String>
+}
+
+@synthesize
+extension Held: ExplicitCopy {}
+
+func size(r: &Result<Vector<Int>, String>) -> Int {
+    match r {
+        case Ok(v) -> v.len(),
+        case Err(_) -> -1,
+    }
+}
+
+func make(v: Vector<Int>) -> Result<Vector<Int>, String> {
+    move v
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.push(2)
+    try! v.push(3)
+    let r = make(move v)
+    let c = r.copy()
+    print("first {}", size(&r))
+    print("copy {}", size(&c))
+    let h = Held(r: move r)
+    let hc = h.copy()
+    print("held {}", size(&h.r))
+    print("held copy {}", size(&hc.r))
+}

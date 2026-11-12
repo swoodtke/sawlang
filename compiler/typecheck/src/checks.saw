@@ -14,6 +14,7 @@ import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModuleKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_EFFECT_CONSUMES, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT,
                                TC_FLAG_WRITTEN_RETURN, TcParam, TcReceiver, TcSig, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
@@ -667,16 +668,18 @@ extension TcProgram {
         }
     }
 
-    // THE DERIVATION FUNNEL: a `@synthesize`d `Serialize` or `Deserialize`
-    // is refused at its head when the body MIR lowers for it
-    // (`lower_derived_bodies`) could not be written, rather than where that
-    // body is first reached. A struct's every stored field, private ones
-    // included, must meet the trait with the extension's conditions in
-    // scope; an enum is written as its raw value, so it needs a raw backing
-    // (spec, Serialization). Equatable, Comparable and Hashable stay lazy: a
-    // member that cannot be compared is an error at the comparison (spec,
-    // Equality). A test-only conformance that inherits a production one's
-    // derivation is that one's to check.
+    // THE DERIVATION FUNNEL: a `@synthesize`d `Serialize`, `Deserialize`,
+    // `Copy` or `ExplicitCopy` is refused at its head when the body it
+    // derives could not be written, rather than where that body is first
+    // reached. A struct's every stored field, private ones included, must
+    // meet the trait with the extension's conditions in scope; so must every
+    // case payload of a copy policy's enum, while a serde enum is written as
+    // its raw value and needs a raw backing (spec, Serialization). A copy
+    // policy beside a written `deinit` is refused before its members, since a
+    // memberwise copy makes a second value that `deinit` runs for. Equatable,
+    // Comparable and Hashable stay lazy: a member that cannot be compared is
+    // an error at the comparison (spec, Equality). A test-only conformance
+    // that inherits a production one's derivation is that one's to check.
     // ENTRY POINTS:
     //     tc_check_derivations
     public func check_derivations(&var self, layer: &FrontLayer) {
@@ -693,8 +696,17 @@ extension TcProgram {
     func check_derivation(&var self, at: Int, req: Int) {
         let c = self.conformances[at]
         let d = c.type_decl
+        let copy_policy = self.is_copy_policy_trait(c.trait_decl)
+        if copy_policy && self.has_written_deinit(d, self.res.intern("deinit")) {
+            self.refuse_derived_deinit(at, req)
+            return
+        }
         if self.is_enum_decl(d) {
-            self.check_raw_backing(at, req)
+            if copy_policy {
+                self.check_payloads(at, req)
+            } else {
+                self.check_raw_backing(at, req)
+            }
             return
         }
         let in_test = self.is_test_only_conformance(at)
@@ -708,10 +720,57 @@ extension TcProgram {
             }
             self.build_decl(m)
             let t = self.sigs[m].result
-            if t >= 0 && not self.satisfies(t, c.trait_decl, d, c.ext, c.module, in_test) {
-                self.refuse_underivable(at, req, m, t)
+            // A copy policy judges a cell field by its payload, as the tier
+            // does; serialization judges the field's own type.
+            let judged = if copy_policy { self.member_type(t) } else { t }
+            if t >= 0 && not self.satisfies(judged, c.trait_decl, d, c.ext, c.module, in_test) {
+                self.refuse_underivable(at, req, m, t, -1)
             }
         }
+    }
+
+    // A `Copy` or `ExplicitCopy` enum's derivation: each case's payload
+    // meets the trait, as a struct's fields do.
+    func check_payloads(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        let d = c.type_decl
+        let in_test = self.is_test_only_conformance(at)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            if self.res.decls[m].kind != ResDeclKind.Case {
+                continue
+            }
+            self.build_decl(m)
+            let sig = self.sigs[m]
+            var p = 0
+            while p < sig.param_count {
+                let payload = sig.param_first + p
+                let t = self.params[payload].ty
+                p = p + 1
+                if t >= 0 && not self.satisfies(self.member_type(t), c.trait_decl, d, c.ext, c.module, in_test) {
+                    self.refuse_underivable(at, req, m, t, payload)
+                }
+            }
+        }
+    }
+
+    // A `@synthesize`d copy policy on a type that writes a `deinit`, in the
+    // conformance or any other extension of it.
+    func refuse_derived_deinit(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        let type_name = self.res.decl_path(c.type_decl)
+        var msg = StringBuilder()
+        try! msg.append("cannot derive `")
+        try! msg.append(self.res.name_text(self.res.decls[req].name))
+        try! msg.append("` for `")
+        try! msg.append(type_name)
+        try! msg.append("`: `")
+        try! msg.append(type_name)
+        try! msg.append("` writes a `deinit`, and a member-by-member copy would make a second value that `deinit` runs for; write `copy()` beside it, where what the `deinit` releases can be duplicated or shared, or remove the `deinit`")
+        self.refuse_in(c.module, c.node, "synthesize.deinit", msg.build())
     }
 
     // A `Serialize` or `Deserialize` enum's derivation: out through its raw
@@ -766,9 +825,10 @@ extension TcProgram {
         return -1
     }
 
-    // Field `m` of conformance `at`'s type, whose type `t` does not meet the
-    // trait.
-    func refuse_underivable(&var self, at: Int, req: Int, m: Int, t: Int) {
+    // Member `m` of conformance `at`'s type, a field or an enum case, whose
+    // type `t` does not meet the trait; `payload` is the case's parameter
+    // that carries `t`, or -1 for a field.
+    func refuse_underivable(&var self, at: Int, req: Int, m: Int, t: Int, payload: Int) {
         let c = self.conformances[at]
         let trait_name = self.res.decl_path(c.trait_decl)
         let req_name = self.res.name_text(self.res.decls[req].name)
@@ -777,15 +837,29 @@ extension TcProgram {
         try! msg.append(req_name)
         try! msg.append("` for `")
         try! msg.append(self.res.decl_path(c.type_decl))
-        try! msg.append("`: field `")
-        try! msg.append(self.res.name_text(self.res.decls[m].name))
-        try! msg.append("` of type `")
+        if self.res.decls[m].kind == ResDeclKind.Case {
+            try! msg.append("`: case `")
+            try! msg.append(self.res.name_text(self.res.decls[m].name))
+            try! msg.append("`'s payload `")
+            try! msg.append(self.res.name_text(self.params[payload].name))
+            try! msg.append("` of type `")
+        } else {
+            try! msg.append("`: field `")
+            try! msg.append(self.res.name_text(self.res.decls[m].name))
+            try! msg.append("` of type `")
+        }
         try! msg.append(self.type_text(t))
         try! msg.append("`, which does not conform to `")
         try! msg.append(trait_name)
-        try! msg.append("`, and the derived body reaches every stored field, private ones included: write `")
+        try! msg.append("`, and the derived body reaches every ")
+        if self.is_copy_policy_trait(c.trait_decl) {
+            try! msg.append("member")
+        } else {
+            try! msg.append("stored field, private ones included")
+        }
+        try! msg.append(": write `")
         try! msg.append(req_name)
-        try! msg.append("` by hand, or give the field a type that conforms")
+        try! msg.append("` by hand, or give the member a type that conforms")
         if self.mentions_param(t) {
             try! msg.append(", which a bound on the extension's parameter can promise")
         }

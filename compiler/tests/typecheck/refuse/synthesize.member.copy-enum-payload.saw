@@ -1,0 +1,16 @@
+// refuses: synthesize.member at 16:17
+// a derived `ExplicitCopy` over an enum whose case carries a `NoCopy` payload
+
+struct Token {
+    n: Int
+}
+
+extension Token: NoCopy {}
+
+enum Slot {
+    case Empty
+    case Full(t: Token)
+}
+
+@synthesize
+extension Slot: ExplicitCopy {}

@@ -1063,6 +1063,14 @@ extension TcProgram {
             let inner = self.types.arg(t, 0)
             return self.satisfies_in(inner, tr, env_decl, env_ext, &var run)
         }
+        // A `Result` takes the strongest tier among the values it holds
+        // (spec, Wrappers carry the tier of what they wrap): `ExplicitCopy`
+        // when its payload and its error each meet it. `Copy` is answered by
+        // the tier above.
+        if d == self.known.result && tr == self.known.explicit_copy && info.count == 2 {
+            let ok = self.satisfies_in(self.types.arg(t, 0), tr, env_decl, env_ext, &var run)
+            return ok && self.satisfies_in(self.types.arg(t, 1), tr, env_decl, env_ext, &var run)
+        }
         if tr == self.known.equatable || tr == self.known.hashable {
             return self.is_trivial(t)
         }

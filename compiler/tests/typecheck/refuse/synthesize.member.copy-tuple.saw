@@ -1,0 +1,11 @@
+// refuses: synthesize.member at 11:14
+// a derived `ExplicitCopy` over a tuple field holding a `File`
+
+import std.file.{File}
+
+struct W {
+    pair: (Int, File)
+}
+
+@synthesize
+extension W: ExplicitCopy {}

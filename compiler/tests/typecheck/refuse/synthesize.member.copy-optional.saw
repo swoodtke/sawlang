@@ -1,0 +1,11 @@
+// refuses: synthesize.member at 11:14
+// a derived `ExplicitCopy` over an optional `File` field
+
+import std.file.{File}
+
+struct W {
+    maybe: File?
+}
+
+@synthesize
+extension W: ExplicitCopy {}

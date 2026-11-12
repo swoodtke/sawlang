@@ -1,0 +1,100 @@
+// A `@synthesize`d copy policy is accepted when every member supplies the
+// copy, whatever owns it: `ExplicitCopy` over `Vector` and `String`, `Copy`
+// over `Int`, `String` and `Arc`, a parameter bounded on the extension, an enum
+// whose payloads are `Vector`s. A hand-written `copy()` over a `File` is the
+// author's and is not checked, a written `deinit` is legal beside it, a
+// `@synthesize` with no `deinit` takes the synthesized one, and a `NoCopy`
+// conformance with a written `deinit` derives nothing.
+
+import std.file.{File}
+
+struct Snapshot {
+    names: Vector<Int>
+    label: String
+}
+
+@synthesize
+extension Snapshot: ExplicitCopy {}
+
+struct Label {
+    n: Int
+    text: String
+    shared: Arc<Int>
+}
+
+@synthesize
+extension Label: Copy {}
+
+struct Pair<T> {
+    a: T
+    b: T
+}
+
+@synthesize
+extension Pair<T: ExplicitCopy>: ExplicitCopy {}
+
+enum Rows {
+    case Empty
+    case Full(v: Vector<Int>)
+    case Two(a: Vector<Int>, b: Vector<Int>)
+}
+
+@synthesize
+extension Rows: ExplicitCopy {}
+
+struct Handle {
+    f: File
+}
+
+extension Handle: ExplicitCopy {
+    func copy(&self) -> Handle {
+        panic("a handle is not duplicated")
+    }
+
+    func deinit(&var self) {
+        print("release")
+    }
+}
+
+struct Plain {
+    id: Int
+}
+
+@synthesize
+extension Plain: ExplicitCopy {}
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {
+    func deinit(&var self) {
+        print("release {}", self.id)
+    }
+}
+
+struct Outcome {
+    r: Result<Vector<Int>, String>
+}
+
+@synthesize
+extension Outcome: ExplicitCopy {}
+
+func duplicable<T: ExplicitCopy>(value: &T) {}
+
+func silent<T: Copy>(value: &T) {}
+
+func answer() -> Result<Vector<Int>, String> {
+    Vector<Int>()
+}
+
+func number() -> Result<Int, String> {
+    1
+}
+
+func check_bounds() {
+    let r = answer()
+    duplicable(&r)
+    let n = number()
+    silent(&n)
+}

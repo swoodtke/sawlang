@@ -1,0 +1,13 @@
+// refuses: synthesize.deinit at 9:16
+// the same under `Copy`
+
+struct Res {
+    id: Int
+}
+
+@synthesize
+extension Res: Copy {
+    func deinit(&var self) {
+        print("release {}", self.id)
+    }
+}

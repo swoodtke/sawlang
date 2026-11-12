@@ -1,0 +1,12 @@
+// refuses: synthesize.member at 12:14
+// a derived `ExplicitCopy` over a `Result` whose payload is a `File`: a `Result`
+// meets the copy traits only when both its payload and its error do
+
+import std.file.{File}
+
+struct W {
+    r: Result<File, String>
+}
+
+@synthesize
+extension W: ExplicitCopy {}

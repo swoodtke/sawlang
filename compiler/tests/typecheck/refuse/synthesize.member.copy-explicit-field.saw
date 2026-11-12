@@ -1,0 +1,10 @@
+// refuses: synthesize.member at 10:16
+// a derived `Copy` over a `Vector<Int>` field: the copy would be silent, and a
+// `Vector`'s is a deep copy, so only `ExplicitCopy` can derive it
+
+struct Bad {
+    v: Vector<Int>
+}
+
+@synthesize
+extension Bad: Copy {}

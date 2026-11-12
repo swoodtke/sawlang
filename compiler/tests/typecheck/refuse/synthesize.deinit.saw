@@ -1,0 +1,14 @@
+// refuses: synthesize.deinit at 10:16
+// a derived `ExplicitCopy` beside a written `deinit`: the memberwise copy would
+// make a second value that the `deinit` runs for
+
+struct Res {
+    id: Int
+}
+
+@synthesize
+extension Res: ExplicitCopy {
+    func deinit(&var self) {
+        print("release {}", self.id)
+    }
+}

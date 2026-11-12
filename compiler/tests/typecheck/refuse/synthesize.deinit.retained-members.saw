@@ -1,0 +1,15 @@
+// refuses: synthesize.deinit at 11:16
+// members that are all retained (`String`, `Arc`) make no exception: a derived
+// copy beside a written `deinit` is refused
+
+struct Res {
+    name: String
+    shared: Arc<Int>
+}
+
+@synthesize
+extension Res: ExplicitCopy {
+    func deinit(&var self) {
+        print("release {}", self.name)
+    }
+}

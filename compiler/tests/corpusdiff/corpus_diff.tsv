@@ -1362,7 +1362,7 @@ errors/sync_nonliteral_function_value.saw	pass	-	type.mismatch: expected `(Int) 
 errors/sync_static_method_call.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `Reader.load`, which may suspend (`Reader.load` → `__saw_test_suspend`)
 errors/sync_transitive_path.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `f`, which may suspend (`f` → `g` → `__saw_test_suspend`)
 errors/sync_via_function_value.saw	pass	-	effect.sync: `run` is declared `sync`, and it calls a function value whose type is not `sync`, which is not sync-callable
-errors/synthesize_copy_nocopy_field.saw	wrong	accepts a refusal test	cannot derive copy() for `Holder`: field `f` of type `File` implements NoCopy and cannot be copied
+errors/synthesize_copy_nocopy_field.saw	pass	-	synthesize.member: cannot derive `copy` for `Holder`: field `f` of type `std.file.File`, which does not conform to `ExplicitCopy`, and the derived body reaches every member: write `copy` by hand, or g
 errors/synthesize_derives_nothing.saw	pass	-	synthesize.inert: `@synthesize` derives nothing here: `Point` conforms to `Printable`, whose requirements are all written or have defaults, or which derives none
 errors/synthesize_required_comparable.saw	pass	-	synthesize.required: `Point` conforms to `Comparable` with no `Comparable.compare` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_enum.saw	pass	-	synthesize.required: `Shape` conforms to `Equatable` with no `Equatable.equals` written: write it, or mark the extension `@synthesize` to derive it

@@ -614,11 +614,17 @@ extension TcProgram {
         tr >= 0 && (tr == self.known.serialize || tr == self.known.deserialize)
     }
 
-    // The requirement of its own trait a `Serialize` or `Deserialize`
-    // conformance `at` derives, or -1.
+    // Whether trait `tr` is `Copy` or `ExplicitCopy`, whose derivation is
+    // the memberwise `copy()`.
+    public func is_copy_policy_trait(&self, tr: Int) -> Bool {
+        tr >= 0 && (tr == self.known.copy || tr == self.known.explicit_copy)
+    }
+
+    // The requirement of its own trait a `Serialize`, `Deserialize`, `Copy`
+    // or `ExplicitCopy` conformance `at` derives, or -1.
     public func derived_requirement(&self, at: Int) -> Int {
         let c = self.conformances[at]
-        if not self.is_serde_trait(c.trait_decl) {
+        if not self.is_serde_trait(c.trait_decl) && not self.is_copy_policy_trait(c.trait_decl) {
             return -1
         }
         var k = 0

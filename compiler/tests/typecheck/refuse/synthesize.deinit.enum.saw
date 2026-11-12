@@ -1,0 +1,14 @@
+// refuses: synthesize.deinit at 10:16
+// an enum's derived copy beside a written `deinit`
+
+enum Res {
+    case Open(id: Int)
+    case Closed
+}
+
+@synthesize
+extension Res: ExplicitCopy {
+    func deinit(&var self) {
+        print("release")
+    }
+}

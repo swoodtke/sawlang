@@ -1,0 +1,15 @@
+// refuses: synthesize.member at 15:19
+// a derived `ExplicitCopy` over a field whose type declares `NoCopy`
+
+struct Token {
+    n: Int
+}
+
+extension Token: NoCopy {}
+
+struct Holder {
+    t: Token
+}
+
+@synthesize
+extension Holder: ExplicitCopy {}

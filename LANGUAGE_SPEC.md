@@ -4076,7 +4076,7 @@ the type](#policy-conformances-declared-beside-the-type)).
   semantics (see [Data](#data)).
 - **A DECLARED `Copy` conformance has two forms.** The empty one is an
   assertion — `@synthesize extension Point: Copy {}` compiles only while the
-  members qualify (not checked by `sawc` yet, SL-1018), which makes it a
+  members qualify, which makes it a
   type-level API contract. The one with a
   `copy()` body is the retain hook: the compiler calls that body at every silent
   transfer. `Arc` and `Channel` are built on it, in ordinary Saw rather than
@@ -4119,6 +4119,9 @@ the type](#policy-conformances-declared-beside-the-type)).
       func deinit(&var self) { close(self.fd) }
   }
   ```
+
+  A `@synthesize`d copy policy cannot carry a hand-written `deinit`: such a
+  conformance writes its `copy()` too, or declares `NoCopy`.
 
   `T: Deinit` remains legal as a generic bound; only the conformance form is
   gone, along with a user trait that lists `Deinit` as a parent
@@ -4277,8 +4280,7 @@ can have its `copy()` derived memberwise (POD fields bitwise, copy-policy fields
 via their own `copy()`), but the derivation is opt-in: mark the extension
 `@synthesize`, or write `copy()` by hand. See
 [Synthesized conformances](#synthesized-conformances). A `NoCopy` field makes
-derivation impossible and is reported by name (not checked by `sawc` yet,
-SL-1018).
+derivation impossible and is reported by name.
 
 ```saw
 struct Snapshot {
@@ -16388,7 +16390,11 @@ Two things the marker does **not** reach:
 A derivation that cannot be written is reported against the member that blocks
 it: `@synthesize` on a copy policy for a struct with a `NoCopy` field names that
 field, as do `Equatable`/`Comparable`/`Hashable` over a member that does not
-itself conform (not checked by `sawc` for a copy policy yet, SL-1018).
+itself conform.
+
+`@synthesize` on a copy policy is also refused when its conformance writes a `deinit`:
+a member-by-member copy would make a second value that the `deinit` runs for,
+so the author writes `copy()` beside it or removes the `deinit`.
 
 Destruction is not on this list. A `deinit` is synthesized for every type that
 owns something, with no marker and no declaration; see
