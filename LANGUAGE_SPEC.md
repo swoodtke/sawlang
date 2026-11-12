@@ -1910,8 +1910,7 @@ last wins. Each element is consumed exactly as an `insert`/`push` argument
 (moves for owning types). A consequence, made explicit by design 122: **there is
 no bare block statement.** A closure literal alone in statement position would
 build a closure and discard it, so none of its body would run — that is a
-compile error naming the two real spellings (call it, `{ ... }()`, or bind it)
-(not enforced by `sawc` yet, SL-1006).
+compile error naming the two real spellings (call it, `{ ... }()`, or bind it).
 To narrow a value's lifetime, extract a function.
 
 **Binding a `Void` expression** (design 122, refined by design 132). Writing

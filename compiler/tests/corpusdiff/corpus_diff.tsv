@@ -1069,7 +1069,7 @@ errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the 
 errors/cast170_const_out_of_range.saw	pass	-	constant.cast-range: `1000` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)
 errors/cast170_from_bad_label.saw	pass	-	call.label: an integer's `from` takes an unlabeled argument, or `truncating:`
 errors/channel_not_send.saw	pass	-	type.bound: `channel_not_send.Handle` does not satisfy `Send`, the bound on `T` of `Channel`
-errors/closure_statement_never_called.saw	wrong	accepts a refusal test	closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run
+errors/closure_statement_never_called.saw	pass	-	closure.discarded: this closure literal is never called: there is no bare block statement, so a `{ ... }` standing as a statement builds a closure and drops it, and nothing inside it runs; call it, as
 errors/comparison_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 200 does not fit in `Int8` (range -128..=127)
 errors/compound_assign_immutable.saw	pass	-	mutability.immutable: this compound assignment writes `x`, and `x` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/const_builtin_aggregate_length_error.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet

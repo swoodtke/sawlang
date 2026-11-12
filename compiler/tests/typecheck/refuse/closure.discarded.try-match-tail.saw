@@ -1,0 +1,22 @@
+// refuses: closure.discarded at 12:24
+// a statement-position `try` block ending in a `match` whose arm is a literal
+
+func risky(n: Int) -> Result<Int, String> {
+    .Ok(value: n)
+}
+
+func run(n: Int) {
+    try {
+        let a = try risky(n)
+        match a {
+            case 1 -> ({ print(1) })
+            case _ -> {
+                return
+            }
+        }
+    } catch {
+        print(0)
+        return
+    }
+    print(2)
+}

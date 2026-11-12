@@ -1,0 +1,65 @@
+// The positions a closure literal is legal in, next to the refusals in
+// `refuse/closure.discarded*`: called, bound, explicitly discarded, or a value.
+
+func apply(body: () -> Int) -> Int {
+    body()
+}
+
+func make_adder(n: Int) -> (Int) -> Int {
+    { x in x + n }
+}
+
+func make_nested() -> () -> () -> Int {
+    { { 7 } }
+}
+
+func pick(flag: Bool) -> () -> Int {
+    let chosen = if flag { { 1 } } else { { 2 } }
+    chosen
+}
+
+func route(n: Int) -> () -> Int {
+    match n {
+        case 0 -> { { 10 } }
+        case _ -> { { 20 } }
+    }
+}
+
+// A spawn brace's last expression is the thread's result, and a bound
+// closure's last expression is its result: values, not statements.
+func spawned(n: Int) {
+    var t = try! Thread.spawn { [n] in
+        print(n)
+        { print(n) }
+    }
+    t.detach()
+}
+
+func bound_tail() -> () -> Void {
+    let f = {
+        print("bound tail")
+        { print("inner") }
+    }
+    f()
+}
+
+func main() {
+    { print("called") }()
+    let f = { print("bound") }
+    f()
+    let _ = { print("never printed") }
+    print("{}", apply({ 3 }))
+    print("{}", make_adder(n: 2)(5))
+    print("{}", make_nested()()())
+    print("{} {}", pick(flag: true)(), pick(flag: false)())
+    print("{} {}", route(n: 0)(), route(n: 1)())
+    let n = 1
+    match n {
+        case 1 -> {
+            print("block arm")
+        }
+        case _ -> {
+            print("other arm")
+        }
+    }
+}

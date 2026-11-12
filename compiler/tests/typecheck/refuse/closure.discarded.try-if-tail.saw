@@ -1,0 +1,22 @@
+// refuses: closure.discarded at 13:13
+// a statement-position `try` block ending in an `if` whose branch ends in a literal
+
+func risky(n: Int) -> Result<Int, String> {
+    .Ok(value: n)
+}
+
+func run(n: Int, ready: Bool) {
+    try {
+        let a = try risky(n)
+        print(a)
+        if ready {
+            { print(1) }
+        } else {
+            return
+        }
+    } catch {
+        print(0)
+        return
+    }
+    print(2)
+}

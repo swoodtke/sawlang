@@ -274,7 +274,6 @@ compiler/typecheck/src/bodies.saw	refs.position	1	(SL:open-questions D38); no ot
 compiler/typecheck/src/bodies.saw	refs.position	1	(design 131). An optional assignment as the subject, `let _ = a?.b =
 compiler/typecheck/src/bodies.saw	refs.position	1	(design 44). The one argument is the root, a call of a function or a
 compiler/typecheck/src/bodies.saw	refs.position	1	(design 80). A marked field's view keeps its marker, which its
-compiler/typecheck/src/bodies.saw	refs.position	1	A `Result` computed where nothing reads it is refused (design 151): a
 compiler/typecheck/src/bodies.saw	refs.position	1	A `let` or `var` of view `value` (SL:borrowing §6, §12.5): the view is
 compiler/typecheck/src/bodies.saw	refs.position	1	A builtin function (SL:open-questions D12): `print`, `panic` and
 compiler/typecheck/src/bodies.saw	refs.position	1	A lone name: a binding, or, when resolve took it for a case (SL:open-

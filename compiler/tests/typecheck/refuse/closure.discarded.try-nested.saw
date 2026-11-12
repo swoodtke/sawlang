@@ -1,0 +1,23 @@
+// refuses: closure.discarded at 14:13
+// a statement-position `try` block ending in a `try` block whose body ends in a literal
+
+func risky(n: Int) -> Result<Int, String> {
+    .Ok(value: n)
+}
+
+func run(n: Int) {
+    try {
+        let a = try risky(n)
+        try {
+            let b = try risky(a)
+            print(b)
+            { print(1) }
+        } catch {
+            return
+        }
+    } catch {
+        print(0)
+        return
+    }
+    print(2)
+}

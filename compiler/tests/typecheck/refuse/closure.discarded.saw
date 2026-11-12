@@ -1,0 +1,7 @@
+// refuses: closure.discarded at 5:5
+// a closure literal standing as a statement followed by another: built, dropped, never run
+
+func run() {
+    { print(1) }
+    print(2)
+}

@@ -57,7 +57,7 @@ _WARNS = re.compile(r"^// warns: (\d+)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
-                      r'capture|escaping|mutability|nomove|constant|float|static_assert|trait|atomic|lends|'
+                      r'capture|closure|escaping|mutability|nomove|constant|float|static_assert|trait|atomic|lends|'
                       r'export|extern|erasure|spawn|drive|overload|zeroinit|entry|import|alloc|memory|atomics|'
                       r'attribute|funcpointer)\.[a-z-]+)"')
 

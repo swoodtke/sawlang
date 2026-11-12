@@ -6100,7 +6100,8 @@ extension TcProgram {
     // when none does and the catch block cannot run. The two blocks give the
     // construct's value and merge as an `if`'s branches do, the body's type
     // the one the catch block meets; a statement discards that value, and its
-    // blocks agree on it all the same, as Stage 0 has them. More than one
+    // blocks agree on it all the same, as Stage 0 has them. A closure literal
+    // ending either block of a statement is discarded with it. More than one
     // error type forms the error union, which is outside the slice.
     func try_block_expr(&var self, e: Int, want: Int) -> Int {
         let body = self.res.first_node_child(e)
@@ -6127,6 +6128,10 @@ extension TcProgram {
         let ct = self.try_block_arm(handler, slot)
         if slot < 0 && not self.is_never(ct) && not self.has_error(ct) {
             slot = ct
+        }
+        if want == TC_WANT_STMT {
+            self.refuse_discarded_leaves(self.block_tail(body))
+            self.refuse_discarded_leaves(self.block_tail(handler))
         }
         if self.is_never(bt) && self.is_never(ct) {
             let t = self.never_type()
@@ -15454,12 +15459,103 @@ public func tc_closure_mentions(p: &TcProgram, e: Int) -> Vector<Int> {
 
 // The body half's refusals.
 extension TcProgram {
-    // A `Result` computed where nothing reads it is refused (design 151): a
-    // statement, a `Void` body's or a loop body's tail, a statement-position
-    // arm. A statement-position `if` or `match` forwards its arms' values,
-    // which are statements of their own, so the refusal lands on the call
-    // that produced the `Result`. `let _ =` is the explicit out.
+    // A closure literal standing where nothing reads it builds a closure
+    // nothing calls, so nothing inside it runs; answers whether `e` is one.
+    // ENTRY POINTS:
+    //   check_discarded
+    //   refuse_discarded_leaves
+    func refuse_discarded_closure(&var self, e: Int) -> Bool {
+        if e < 0 || not self.has_alt(self.unparen(e), Alt.Expr_Closure) {
+            return false
+        }
+        self.refuse(e, "closure.discarded", "this closure literal is never called: there is no bare block statement, so a `\{ ... \}` standing as a statement builds a closure and drops it, and nothing inside it runs; call it, as `\{ ... \}()`, or bind it, as `let f = \{ ... \}`")
+        return true
+    }
+
+    // The value `tail` ends a statement-position `try` block with is discarded
+    // with the block, so each closure literal ending it is refused: the
+    // tail itself, or the tails of the branches of an `if` with an `else`, of
+    // a `match`'s arms, of a nested `try` block's blocks and of a `borrow`
+    // block, followed down to their leaves. An `if` with no `else` is a
+    // statement, whose branches are checked as ones already.
+    // ENTRY POINTS:
+    //   try_block_expr
+    func refuse_discarded_leaves(&var self, tail: Int) {
+        if tail < 0 {
+            return
+        }
+        let e = self.unparen(tail)
+        if self.has_alt(e, Alt.Expr_If) {
+            var blocks = Vector<Int>()
+            var has_else = false
+            var seen_else = false
+            let n = self.child_count(e)
+            var k = 0
+            while k < n {
+                let c = self.child(e, k)
+                k = k + 1
+                if self.is_leaf(c) {
+                    if self.text(self.current, c).equals("else") {
+                        seen_else = true
+                    }
+                } else if self.has_alt(c, Alt.Stmt_Block) {
+                    try! blocks.push(c)
+                    if seen_else {
+                        has_else = true
+                    }
+                } else if self.has_alt(c, Alt.Expr_ElseIf) {
+                    try! blocks.push(self.arm_block(c))
+                }
+            }
+            if has_else {
+                k = 0
+                while k < blocks.len() {
+                    self.refuse_discarded_leaves(self.block_tail(blocks[k]))
+                    k = k + 1
+                }
+            }
+        } else if self.has_alt(e, Alt.Expr_Match) {
+            let n = self.child_count(e)
+            var k = 0
+            while k < n {
+                let arm = self.child(e, k)
+                k = k + 1
+                if self.has_alt(arm, Alt.Expr_MatchArm) {
+                    self.refuse_discarded_leaves(self.block_tail(self.res.last_node_child(arm)))
+                }
+            }
+        } else if self.has_alt(e, Alt.Expr_TryBlock) {
+            self.refuse_discarded_leaves(self.block_tail(self.res.first_node_child(e)))
+            self.refuse_discarded_leaves(self.block_tail(self.res.last_node_child(e)))
+        } else if self.has_alt(e, Alt.Borrow_Block) {
+            let n = self.child_count(e)
+            var k = 0
+            while k < n {
+                let c = self.child(e, k)
+                k = k + 1
+                if self.has_alt(c, Alt.Stmt_Block) {
+                    self.refuse_discarded_leaves(self.block_tail(c))
+                }
+            }
+        } else {
+            let _ = self.refuse_discarded_closure(e)
+        }
+    }
+
+    // Two things computed where nothing reads them are refused: a closure
+    // literal, which builds a closure nothing calls (there is no bare block
+    // statement), and a `Result`. Both cover a statement, a `Void` body's or
+    // a loop body's tail, and a statement-position arm. A statement-position
+    // `if` or `match` forwards its arms' values, which are statements of
+    // their own, so the refusal lands on the expression that produced the
+    // value. `let _ =` is the explicit out for a `Result`.
+    // ENTRY POINTS:
+    //   check_statement_as
+    //   arm_body
     func check_discarded(&var self, e: Int) {
+        if self.refuse_discarded_closure(e) {
+            return
+        }
         if e < 0 || not self.is_typed(e) {
             return
         }

@@ -1,0 +1,8 @@
+// refuses: closure.discarded at 6:9
+// a statement-position `if` branch's last statement, which nothing reads
+
+func run(ready: Bool) {
+    if ready {
+        { print(1) }
+    }
+}

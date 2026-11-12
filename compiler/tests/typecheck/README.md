@@ -1027,7 +1027,31 @@ and whether it duplicates the local. A function named is one of
 | an arm of a statement-position `match` | result.discarded.arm |
 | an arm of a statement-position `if` | result.discarded.if |
 | a `Void` closure's tail | result.discarded.closure |
+| a statement-position `try` block, refused at the `try` | result.discarded.try |
 | `let _ =`, the out | exhaustive |
+
+**A discarded closure literal** (the `{ }` closure rule; there is no bare
+block statement). The accepted cells (called, bound, `let _ =`, an argument, a
+returned or `if` value, a block `match` arm, a `Thread.spawn` brace's last
+expression, a bound closure's last expression) are golden
+`closure_statement_accepted`. A statement-position `try` block's blocks still
+agree on one type; a literal ending either block is refused as a statement, followed through
+the `if` branches, `match` arms and nested `try` blocks that end it:
+
+| position | covered by |
+|---|---|
+| a bare statement followed by another | closure.discarded |
+| a `Void` body's last statement | closure.discarded.body-tail |
+| a loop body's last statement | closure.discarded.loop |
+| a statement-position `if` branch's last statement | closure.discarded.if |
+| a `Void` closure's tail | closure.discarded.closure |
+| an arm of a statement-position `match` | closure.discarded.arm |
+| a parenthesized literal as a statement | closure.discarded.paren |
+| the body's last statement of a statement-position `try` block | closure.discarded.try-body |
+| its catch block's last statement | closure.discarded.try-catch |
+| a branch of an `if` ending either block of a statement-position `try` block | closure.discarded.try-if-tail |
+| an arm of a `match` ending either block | closure.discarded.try-match-tail |
+| a nested `try` block's block ending either block | closure.discarded.try-nested |
 
 **Exhaustiveness**:
 
@@ -1803,6 +1827,7 @@ its fixit.
 | `match.non-exhaustive` | a `match` some value of its scrutinee's type reaches no unguarded arm of, each missing value named as a pattern: enums (`Optional` and `Result` included), `Bool`, tuples, split by their constructors at any depth; any other type, matched by literals and ranges, covered only by a wildcard or a binding |
 | `match.duplicate` | an unguarded arm whose pattern repeats an earlier unguarded arm's exactly, holes alike whatever they are named and literals compared by value, at the second arm, naming the first's line; a guarded arm and a pattern holding a range are never duplicates (spec, Control Flow; the duplicate-arm matrix) |
 | `result.discarded` | a `Result` computed where nothing reads it (design 151): a statement, a `Void` body's or a loop body's tail, an arm of a statement-position `if` or `match`, refused at the expression that produced it; `let _ =` is the out |
+| `closure.discarded` | a closure literal standing as a statement, at every position `result.discarded` covers: it builds a closure nothing calls, so nothing inside it runs; call it or bind it |
 | `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable; a copy whose hook may suspend (`.copy-let`, `-field`, `-getitem`, `-argument`, `-assign`, `-return`, `-payload`, `-element`, `-capture`, `-deinit`, SL-859); a `sync` closure in a `Thread.spawn` body that blocks through a bound (`.thread-closure`, SL-776); a `deinit` calling a pair whose default suspends, `Thread.join`, whose message points at `blocking` on the `deinit` (`.deinit-join`, K186; SL-782) |
 | `effect.format-suspends` | a written `Printable.format` (an `Error` conformance's included, refused once) that suspends at every instantiation, at its declaration, whether or not anything renders it, naming the type and the path to the suspension, a `blocking` extern counting as one since a render cannot offload it: a render calls `format` into stack scratch at positions no source call names (spec, Printable); one that suspends only at some instantiation is coroutine lowering's `coro.format-suspends` (bare, an interpolation in a task; `.unrendered`; `.error`; `.blocking-extern`; `.forwarded`, through a field's `format`; `.to-string`; `.explicit`; messages pinned in golden `format_suspends`) (SL-781) |
 | `copy.requirement` | a call whose type argument is not on the Copy tier where its callee's body copies that parameter with nothing written (design 219), named with the copy's position, or, for a local one path uses twice, both uses; a repeat literal of the parameter's value is such a copy, however often the value is read (SL-612) |

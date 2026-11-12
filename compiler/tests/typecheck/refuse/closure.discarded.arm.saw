@@ -1,0 +1,9 @@
+// refuses: closure.discarded at 6:20
+// an arm of a statement-position `match`, which nothing reads
+
+func run(n: Int) {
+    match n {
+        case 1 -> ({ print(1) })
+        case _ -> print(0)
+    }
+}

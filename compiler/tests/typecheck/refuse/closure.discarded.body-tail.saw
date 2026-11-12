@@ -1,0 +1,7 @@
+// refuses: closure.discarded at 6:5
+// a `Void` body's last statement, which nothing reads
+
+func run() {
+    print(1)
+    { print(2) }
+}

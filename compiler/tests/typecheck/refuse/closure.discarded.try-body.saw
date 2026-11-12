@@ -1,0 +1,18 @@
+// refuses: closure.discarded at 12:9
+// the last statement of a statement-position `try` block's body, which nothing reads
+
+func risky(n: Int) -> Result<Int, String> {
+    .Ok(value: n)
+}
+
+func run(n: Int) {
+    try {
+        let a = try risky(n)
+        print(a)
+        { print(1) }
+    } catch {
+        print(0)
+        return
+    }
+    print(2)
+}

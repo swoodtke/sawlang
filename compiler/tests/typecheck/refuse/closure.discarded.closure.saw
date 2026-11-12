@@ -1,0 +1,10 @@
+// refuses: closure.discarded at 9:12
+// the tail of a closure whose type returns `Void`, which nothing reads
+
+func each(body: () -> Void) {
+    body()
+}
+
+func run() {
+    each({ { print(1) } })
+}

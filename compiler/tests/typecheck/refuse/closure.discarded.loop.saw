@@ -1,0 +1,10 @@
+// refuses: closure.discarded at 8:9
+// a loop body's last statement, which nothing reads
+
+func run(n: Int) {
+    var k = 0
+    while k < n {
+        k = k + 1
+        { print(k) }
+    }
+}

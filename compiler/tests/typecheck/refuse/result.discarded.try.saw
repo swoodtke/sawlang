@@ -1,0 +1,19 @@
+// refuses: result.discarded at 10:5
+// a statement-position `try` block whose value is a `Result`: refused at the
+// `try`, from the whole block's type
+
+func risky(n: Int) -> Result<Int, String> {
+    .Ok(value: n)
+}
+
+func run(n: Int) {
+    try {
+        let a = try risky(n)
+        print(a)
+        risky(a)
+    } catch {
+        print(0)
+        return
+    }
+    print(2)
+}
