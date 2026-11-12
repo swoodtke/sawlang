@@ -48,3 +48,7 @@ native = "../hal/riscv32/boot.S ../hal/support.c"
 [sos.aarch64-unknown-none-elf]
 linker-script = "../hal/arm64/link.ld"
 native = "../hal/arm64/boot.S ../hal/support.c"
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "../hal/xtensa/link.ld"
+native = "../hal/xtensa/boot.S ../hal/support.c"

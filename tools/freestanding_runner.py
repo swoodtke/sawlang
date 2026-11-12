@@ -959,11 +959,8 @@ TEST_CASES = [
                                  "--target-features +a"],
     },
     {
-        # The non-host build path reached through a manifest, on both arches.
+        # The non-host build path reached through a manifest, on every arch.
         "name": "bladepkg",
-        "due": "SL-1073: the package's manifest has no Xtensa section yet",
-        "due_on": ["xtensa"],
-        "due_shows": "no configuration for target `xtensa-esp-unknown-elf`",
         "blade": True,
         "package": "bladepkg",
         "image": "fsblade",
