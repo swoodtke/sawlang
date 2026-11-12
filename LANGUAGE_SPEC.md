@@ -4195,7 +4195,8 @@ the type](#policy-conformances-declared-beside-the-type)).
 - **A hand-written `copy()` may suspend.** The `copy()` body inside a
   copy-policy conformance runs at copies the source never writes as a call:
   a `let` or an assignment from a place, an argument, a return, a field
-  initialiser, a literal's element, a payload read, a closure's capture. Each
+  initialiser, a literal's element, a payload read, an escaping closure's
+  capture. Each
   such copy calls the hook directly, so a hook that suspends makes the copy a
   suspension point of the function it is in, exactly as a call of the hook
   there would be. The effect analysis sees every one, so a function that
@@ -5142,9 +5143,11 @@ those, or take the receiver as an explicit closure parameter
 (`body: (&Counter, Int) sync -> R`, called as `self.run({ c, v in c.n + v })`).
 
 In a `consumes` method the receiver is the callee's to end, not a borrow, so a
-closure that names `self` bare captures it by value under the ordinary transfer
-rules: a `Copy`-tier receiver copies, and a `NoCopy` one is refused
-(`transfer.implicit-copy`). `[&var self]` borrows it for a non-escaping
+closure that names `self` bare captures it under the ordinary transfer rules:
+a `Copy`-tier receiver copies into an escaping closure's env and is read in
+place by a non-escaping one, as any `Copy` value the function owns is, and a
+`NoCopy` one is refused (`transfer.implicit-copy`). `[&var self]` borrows it
+for a non-escaping
 closure, as in any `&var self` method, and so does copying what the body needs
 into locals first.
 
@@ -5288,8 +5291,9 @@ g(&x, &x)             // ok when both parameters are shared `&` (two readers)
 This check is **fully static** and needs no lifetimes or runtime flags.
 References cannot escape in Saw: they are only parameters, never returned or
 stored in fields, and a closure captures by value except where the capture is
-itself a borrow of the enclosing frame — an explicit `[&x]`/`[&var x]`, a
-reference parameter, or `self` — all three of which are confined to non-escaping
+itself a borrow of the enclosing frame: an explicit `[&x]`/`[&var x]`, a
+reference parameter, `self`, or a non-escaping closure's plain capture of a
+`Copy` value, which reads it in place. All four are confined to non-escaping
 closures. Every live
 reference therefore has a statically known extent, and two of them can alias
 only within it. Forwarding is covered by applying the same rule at *every* call
@@ -9769,8 +9773,17 @@ the multi-task `TaskGroup` (designs 44/45/52/52b, below).
   the frame that builds them. That env owns only what its copy captures copied,
   and releases it when the statement that built the closure ends; a closure
   passed straight to the call that runs it cannot outlive that statement.
-  Borrow captures remain non-escaping-only, in all three of their
-  spellings: `[&x]`/`[&var x]`, a reference parameter, and `self` (see
+  A non-escaping closure's plain capture of a `Copy` value its function owns
+  (a local, a by-value parameter, or a `consumes` method's `self`) copies
+  nothing: the body reads the value where it sits, as a shared borrow of it
+  that lasts for the statement. So no copy hook runs for the capture, and no
+  argument of the same call may borrow that value exclusively, whichever
+  comes first. `[copy x]` is how a body asks for a value of its own. (`sawc`
+  still copies the value into the env, and accepts an exclusive borrow of it
+  by a later argument of the call, SL-267.)
+  The borrow captures remain non-escaping-only: that plain read in place, which
+  an escaping closure replaces with a copy into its env, and the three written
+  ones, `[&x]`/`[&var x]`, a reference parameter, and `self` (see
   [Capturing `self` and reference parameters](#capturing-self-and-reference-parameters)). *(This
   closed design 71's residual gap: an owning closure in a copyable struct that is
   then copied now retains the shared env and tears it down once at the last
@@ -12639,9 +12652,10 @@ as `Vector<() -> Int>` or `Channel<(Int) -> Int>`), it says the word or does
 not. Where a closure's type is inferred, it says `sendable` when every capture
 proves both traits:
 
-- an owned capture (`[x]`, `[move x]`, `[copy x]`, or a name the body reads)
-  must be `Send` and `Sync`;
-- a shared borrow, `[&x]` or `&self`, needs `x` to be `Sync`;
+- an owned capture (`[x]`, `[move x]`, `[copy x]`, or a name an escaping
+  closure's body reads) must be `Send` and `Sync`;
+- a shared borrow, `[&x]`, `&self`, or a `Copy` name a non-escaping closure's
+  body reads, needs `x` to be `Sync`;
 - an exclusive borrow, `[&var x]` or `&var self`, needs `x` to be `Send`;
 - a capture of a reference reborrows it in its own mode;
 - a capture of a function value contributes its own word.
