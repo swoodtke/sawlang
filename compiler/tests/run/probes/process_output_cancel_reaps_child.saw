@@ -9,15 +9,19 @@
 // and `output()` waits on the child's exit, and the child then waits on a
 // gate pipe, its standard input, that stays open until every round is over.
 // So each cancel lands while its child runs, which the child says by writing
-// one byte to its standard error, the write end of a second pipe. A child
-// inherits only its standard descriptors, so the program puts that write end
-// at its own standard error while it launches a child, and puts its own back
-// once the byte has come. Closing the gate ends every child, and the second
-// pipe then reads end of file exactly when every child holding it has exited.
-// One more spawn sweeps the orphan list, and `waitpid(-1, WNOHANG)` then
-// counts what no one reaped.
+// its pid and a newline to its standard error, the write end of a second pipe.
+// A child inherits only its standard descriptors, so the program puts that
+// write end at its own standard error while it launches a child, and puts its
+// own back once the line has come. Closing the gate ends every child, and the
+// second pipe then reads end of file once every child holding it has begun to
+// exit. A child's descriptors close before it can be waited on, so the end of
+// file does not mean the children are zombies yet. Each spawn sweeps the orphan
+// list, so the program spawns again until no recorded pid exists: `kill(pid, 0)`
+// answers 0 for a running child and a zombie alike, and -1 once it is reaped.
+// `waitpid(-1, WNOHANG)` then counts what no one reaped.
 
 import std.process.{Command, CommandOutput}
+import std.time.{Instant}
 
 struct PollFd { fd: Int32, events: Int16, revents: Int16 }
 
@@ -30,21 +34,26 @@ extern "C" {
     func read(fd: Int32, bytes: UnsafePointer<UInt8>, count: Int) -> Int
     // `nfds_t` is 32 bits on macOS and 64 on Linux; a word carries either.
     func poll(fds: UnsafePointer<PollFd>, count: UInt, timeout_ms: Int32) -> Int32
+    func kill(pid: Int32, signal: Int32) -> Int32
 }
 
 static ROUNDS: Int = 20
 static POLLIN: Int16 = 1
 static STANDARD_INPUT: Int32 = 0
 static STANDARD_ERROR: Int32 = 2
-// The waits below tick every millisecond for at most 10 s.
+static NEWLINE: UInt8 = 10
+static ZERO: Int = 48
+// Each wait below looks, sleeps a millisecond and looks again, and gives up
+// 10 s after it began by the clock, whatever one round costs: a sweeping round
+// also runs a child, and the run lane ends a program at 20 s.
 static TICK_MS: UInt64 = 1
-static DEADLINE_TICKS: Int = 10_000
+static DEADLINE_MS: UInt64 = 10_000
 static GATE_WRITE: Atomic<Int> = Atomic(-1)
 static ALIVE_READ: Atomic<Int> = Atomic(-1)
 static ALIVE_WRITE: Atomic<Int> = Atomic(-1)
 static SAVED_ERROR: Atomic<Int> = Atomic(-1)
-// The bytes the children have written on the second pipe.
-static STARTED: Atomic<Int> = Atomic(0)
+// The digits of the pid line a read cut short, kept until its newline arrives.
+static PARTIAL: Atomic<Int> = Atomic(0)
 
 func pipe_ends() unsafe -> (Int32, Int32) {
     var ends: [Int32; 2] = [0; 2]
@@ -78,7 +87,8 @@ func restore_error() unsafe {
 // What one look at the second pipe found: bytes, end of file, or nothing yet.
 enum Look { case Bytes, case Ended, case Empty }
 
-func look() unsafe -> Look {
+// Reads what the children wrote, and appends each completed pid line to `pids`.
+func look(pids: &var Vector<Int32>) unsafe -> Look {
     var watched = PollFd(fd: ALIVE_READ.load() as Int32, events: POLLIN, revents: 0)
     if poll((&watched) as UnsafePointer<PollFd>, 1, 0) == 0 {
         return Look.Empty
@@ -88,19 +98,29 @@ func look() unsafe -> Look {
     if n <= 0 {
         return Look.Ended
     }
-    let _ = STARTED.fetch_add(n)
+    var i = 0
+    while i < n {
+        let byte = got[i]
+        if byte == NEWLINE {
+            try! pids.push(PARTIAL.load() as Int32)
+            PARTIAL.store(0)
+        } else {
+            PARTIAL.store(PARTIAL.load() * 10 + (byte as Int) - ZERO)
+        }
+        i = i + 1
+    }
     Look.Bytes
 }
 
 // Waits, a tick at a time, until `count` children have said they run.
-func await_started(count: Int) {
-    var ticks = 0
-    while STARTED.load() < count {
-        if ticks == DEADLINE_TICKS {
+func await_started(count: Int, pids: &var Vector<Int32>) {
+    let start = Instant.now()
+    while pids.len() < count {
+        if start.elapsed().as_millis() >= DEADLINE_MS {
             restore_error()
             panic("child {} never said it runs within 10 s", count)
         }
-        match look() {
+        match look(&var pids) {
             case Ended -> {
                 restore_error()
                 panic("the children's pipe ended while child {} was launching", count)
@@ -108,23 +128,21 @@ func await_started(count: Int) {
             case _ -> {}
         }
         sleep(Duration.ms(TICK_MS))
-        ticks = ticks + 1
     }
 }
 
 // Waits, a tick at a time, for the second pipe's end of file.
-func await_exits() {
-    var ticks = 0
+func await_exits(pids: &var Vector<Int32>) {
+    let start = Instant.now()
     var ended = false
     while not ended {
-        if ticks == DEADLINE_TICKS {
+        if start.elapsed().as_millis() >= DEADLINE_MS {
             panic("the children never all exited within 10 s")
         }
-        match look() {
+        match look(&var pids) {
             case Ended -> { ended = true },
             case _ -> {
                 sleep(Duration.ms(TICK_MS))
-                ticks = ticks + 1
             }
         }
     }
@@ -133,10 +151,43 @@ func await_exits() {
 func interrupted_output() -> Int {
     var c = Command(program: "/bin/sh")
     try! c.arg("-c")
-    try! c.arg("exec 1>&-; printf x >&2; read gate")
+    try! c.arg("exec 1>&-; printf '%s\n' $$ >&2; read gate")
     match c.output() {
         case Ok(_) -> 0,
         case Err(_) -> 1
+    }
+}
+
+// How many of `pids` still exist, running or not yet reaped.
+func existing(pids: &Vector<Int32>) unsafe -> Int {
+    var count = 0
+    var i = 0
+    while i < pids.len() {
+        if kill(pids[i], 0) == 0 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    count
+}
+
+// Spawns a child that exits at once, which sweeps the orphan list, until every
+// recorded pid has been reaped.
+func sweep_until_reaped(pids: &Vector<Int32>) unsafe {
+    let start = Instant.now()
+    while true {
+        var sweeper = Command(program: "/bin/sh")
+        try! sweeper.arg("-c")
+        try! sweeper.arg("exit 0")
+        let _ = try! sweeper.wait()
+        let remaining = existing(&pids)
+        if remaining == 0 {
+            return
+        }
+        if start.elapsed().as_millis() >= DEADLINE_MS {
+            panic("{} children were never reaped within 10 s", remaining)
+        }
+        sleep(Duration.ms(TICK_MS))
     }
 }
 
@@ -151,13 +202,14 @@ func leftovers() unsafe -> Int {
 
 func main() {
     open_pipes()
+    var pids = Vector<Int32>()
     var cancelled = 0
     var round = 0
     while round < ROUNDS {
         var group = TaskGroup()
         divert_error()
         let t = group.spawn(interrupted_output())
-        await_started(round + 1)
+        await_started(round + 1, &var pids)
         restore_error()
         t.cancel()
         cancelled = cancelled + t.join()
@@ -165,12 +217,8 @@ func main() {
     }
     let _ = close(ALIVE_WRITE.load() as Int32)
     let _ = close(GATE_WRITE.load() as Int32)
-    await_exits()
-    // A spawn sweeps the orphans whose children have exited.
-    var sweeper = Command(program: "/bin/sh")
-    try! sweeper.arg("-c")
-    try! sweeper.arg("exit 0")
-    let _ = try! sweeper.wait()
+    await_exits(&var pids)
+    sweep_until_reaped(&pids)
     print("interrupted {cancelled} of 20")
     print("zombies left for nobody: {leftovers()}")
 }
