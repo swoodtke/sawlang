@@ -29,7 +29,7 @@ func sent(orders: Channel<Int>, order: Int) -> Int {
 func fs_main() unsafe {
     var marker = 0
     let at = (&marker) as UnsafePointer<Int> as Int
-    check("ram_reads_negative_on_32_bit", sizeof<Int>() != 4 || at < 0)
+    report("ram_reads_negative", if at < 0 { 1 } else { 0 })
     let orders = try! Channel<Int>()
     var group = TaskGroup()
     let receiver = group.spawn(received(orders.copy()))

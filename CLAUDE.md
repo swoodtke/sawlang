@@ -179,8 +179,14 @@ Stage 0 snapshot's regeneration run it.
   `due` case cites the issue owning its gap) over `tests/freestanding/`, the
   runner, the `src/` of `compiler/` `typecheck/`, `asserts/`, `mir/`, `mono/`
   and `coro/`, `compiler/` `llvm/`, `driver/` and `target/`, `build.py`,
-  `runtime/` and `std/`; it SKIPS (passes) when QEMU, ld.lld or a
-  target clang is known absent and FAILS when it cannot tell. It prints each decision and why;
+  `runtime/` and `std/`; it has a row per architecture (riscv32, arm64 and the
+  ESP32-S3, `xtensa-esp-unknown-elf`, which boots a flash image under
+  Espressif's QEMU and links with the `ld.lld` beside Espressif's clang), each
+  finding its own tools: it SKIPS (passes) an architecture whose QEMU, ld.lld or
+  target clang is known absent, naming it and the tool while the others run, and
+  FAILS when it cannot tell. Espressif's clang and QEMU come from
+  `$IDF_TOOLS_PATH` or `~/.espressif` (`idf_tools.py install esp-clang
+  qemu-xtensa`), never from PATH. It prints each decision and why;
   `./build.sh test --dry-run --diff FILE` shows a patch's decision without
   running anything.
 - **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change

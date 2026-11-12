@@ -14,20 +14,25 @@ diagnostic. A LINK-REFUSAL case links a second sawc object beside its own and
 is judged by ld.lld's error. A case marked `due` is blocked by a sawc gap and cites the issue
 that owns it; it must fail, and passing fails the run so the marker comes off.
 
-QEMU, ld.lld and a clang that compiles for the target are host prerequisites.
-The suite SKIPS, and passes, when one is known absent: not on PATH, or no clang
-`build.pick_clang` would choose. It FAILS when presence cannot be determined:
-no PATH at all, a tool that is found but does not answer `--version`, or a
-`SAWC_CLANG` that names no usable clang (tools/test_freestanding_runner.py).
+Each architecture needs an emulator, ld.lld and a clang that compiles for its
+target, found per architecture (`probe_arch`). An architecture whose tool is
+known absent is SKIPPED, with a line naming it and the tool, and the others
+run; the suite passes as a whole only if one ran or every one was skipped. It
+FAILS when presence cannot be determined: no PATH at all, a tool that is
+found but does not answer `--version`, a `SAWC_CLANG` that names no usable
+clang, or an Espressif emulator that lists no `esp32s3` machine
+(tools/test_freestanding_runner.py).
 
 The suite lock is not taken here: the battery and the patch gate run this
 inside the lock their caller already holds.
 """
 
 import argparse
+import glob
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -88,11 +93,33 @@ SOFT_FLOAT_ROUTINES = (
     "__floatsidf", "__floatdidf", "__floatunsidf", "__floatundidf",
 )
 
+# The Xtensa C half names each feature as a clang cc1 flag, since clang has no
+# driver spelling for them.
+XTENSA_FEATURES = ("-windowed", "-fp", "-loop", "-mac16", "-bool")
+
+
+def xtensa_features(features):
+    return [flag for feature in features for flag in ("-Xclang", "-target-feature", "-Xclang", feature)]
+
+
+# Where each row finds its tools, and how it boots. `qemu_from`: "path" is the
+# `qemu` binary on PATH, "espressif" the newest one under an Espressif tools
+# root (`espressif_qemus`). `lld_from`: "path" is PATH's `ld.lld`, "clang" the
+# one beside the row's clang, which is the only one that links its objects.
+# `boot`: "kernel" hands QEMU the ELF, "flash" a flash image built from its
+# `PT_LOAD` segments (`flash_image`), `flash_base` being where flash executes.
+# `machine` names the board in the report. `ram_reads_negative` is whether a
+# stack address read as an `Int` is below zero: true only where RAM starts above
+# 2^31 on a 32-bit word.
 ARCHES = [
     {
         "name": "riscv32",
         "triple": "riscv32-unknown-none-elf",
         "qemu": "qemu-system-riscv32",
+        "qemu_from": "path",
+        "lld_from": "path",
+        "boot": "kernel",
+        "machine": "virt",
         # `-bios none`: no OpenSBI, the case IS the reset target.
         "qemu_args": ["-M", "virt", "-bios", "none"],
         # Without `+m` the Saw half is built for base rv32i and formatting an
@@ -108,12 +135,17 @@ ARCHES = [
                        "support": os.path.join(HAL_DIR, "riscv32", "atomics.c")},
         "word_bytes": 4,
         "load_base": 0x8000_0000,
+        "ram_reads_negative": True,
         "off": None,
     },
     {
         "name": "arm64",
         "triple": "aarch64-unknown-none-elf",
         "qemu": "qemu-system-aarch64",
+        "qemu_from": "path",
+        "lld_from": "path",
+        "boot": "kernel",
+        "machine": "virt",
         # `-semihosting` is what makes SYS_EXIT carry a status code (see
         # hal/arm64/boot.S for why not PSCI); `gic-version=2` is pinned so a
         # newer emulator changing its default cannot swap the machine.
@@ -128,6 +160,38 @@ ARCHES = [
         "no_atomics": None,
         "word_bytes": 8,
         "load_base": 0x4000_0000,
+        "ram_reads_negative": False,
+        "off": None,
+    },
+    {
+        "name": "xtensa",
+        "triple": "xtensa-esp-unknown-elf",
+        # Espressif's build of QEMU, the only one with an ESP32-S3 machine; it
+        # boots the flash image the runner writes, as the part does, and
+        # `-semihosting` is what makes `simcall` carry an exit status.
+        "qemu": "qemu-system-xtensa",
+        "qemu_from": "espressif",
+        "lld_from": "clang",
+        "boot": "flash",
+        "flash_base": 0x4200_0000,
+        "machine": "esp32s3",
+        "qemu_args": ["-machine", "esp32s3", "-semihosting"],
+        # The C half gets the five features sawc's default for the triple
+        # states: call0 (`-windowed`), no FPU (`-fp`), and the three the
+        # compiler never uses. `-fintegrated-as` is for boot.S: the external
+        # assembler writes compressed debug sections the linker refuses.
+        "cc_args": ["-mcpu=esp32s3"] + xtensa_features(XTENSA_FEATURES) + ["-fintegrated-as"],
+        # None keeps sawc's default for the triple.
+        "features": None,
+        # The part without `s32c1i`: its word atomics are `__atomic_*`
+        # libcalls, which hal/xtensa/atomics.c supplies.
+        "no_atomics": {"features": "-s32c1i",
+                       "cc_args": ["-mcpu=esp32s3"] + xtensa_features(XTENSA_FEATURES + ("-s32c1i",))
+                                  + ["-fintegrated-as"],
+                       "support": os.path.join(HAL_DIR, "xtensa", "atomics.c")},
+        "word_bytes": 4,
+        "load_base": 0x4200_0000,
+        "ram_reads_negative": False,
         "off": None,
     },
 ]
@@ -148,6 +212,7 @@ def expectations(arch):
         "word": str(word),
         "int_max": str(2 ** (word * 8 - 1) - 1),
         "mark_address": str(arch["load_base"] + FSMARK_OFFSET),
+        "ram_reads_negative": "1" if arch["ram_reads_negative"] else "0",
     }
 
 
@@ -196,6 +261,7 @@ ARCH_WORDS = [
     "ns16550", "pl011", "sifive", "semihost", "csr", "m-mode", "u-mode",
     "esr_el", "elr_el", "vbar", "ttbr", "sctlr", "tcr_el", "mair",
     "el0", "el1",
+    "xtensa", "esp32", "simcall", "excsave", "vecbase", "windowbase",
 ]
 
 
@@ -632,7 +698,7 @@ TEST_CASES = [
         # an optimizer's repacking made a missing alignment a fault.
         "name": "align_attribute",
         "extra_flags": ["-Oz"],
-        "arches": ["riscv32"],
+        "arches": ["riscv32", "xtensa"],
         "expect_out": ["fs check local_align_8=1",
                        "fs check local_align_64=1",
                        "fs check local_align_by_ref=1",
@@ -684,7 +750,7 @@ TEST_CASES = [
         # A channel park that wakes: a receiver parked on an empty channel,
         # resumed with a sibling's message.
         "name": "cooperative_channel_park",
-        "expect_out": ["fs check ram_reads_negative_on_32_bit=1",
+        "expect_out": ["fs value ram_reads_negative={ram_reads_negative}",
                        "fs check receiver_took_the_message=1",
                        "fs check sender_sent=1",
                        "fs done cooperative_channel_park ok"],
@@ -694,7 +760,7 @@ TEST_CASES = [
         # A drive point whose frame parks on a channel, resumed once the
         # group's sender sets the channel's word.
         "name": "cooperative_drive",
-        "expect_out": ["fs check ram_reads_negative_on_32_bit=1",
+        "expect_out": ["fs value ram_reads_negative={ram_reads_negative}",
                        "fs check drive_point_received=1",
                        "fs check sender_sent=1",
                        "fs done cooperative_drive ok"],
@@ -725,7 +791,7 @@ TEST_CASES = [
         # A wider-than-word integer renders whole; riscv32 only, since on arm64
         # the word already is 64 bits.
         "name": "wide_value_rendering",
-        "arches": ["riscv32"],
+        "arches": ["riscv32", "xtensa"],
         "expect_out": ["fs value signed=20014547621496",
                        "fs value unsigned=20014547621496",
                        "fs value negative=-20014547621496",
@@ -771,7 +837,7 @@ TEST_CASES = [
         # host-computed rows, at -O0 and, below, at -O2 (SL-948).
         "name": "integer_helpers",
         "extra_flags": ["-O0"],
-        "arches": ["riscv32"],
+        "arches": ["riscv32", "xtensa"],
         "expect_out": INTEGER_HELPER_CHECKS + ["fs done integer_helpers ok"],
         "expect_clean_exit": True,
     },
@@ -779,7 +845,7 @@ TEST_CASES = [
         "name": "integer_helpers_optimized",
         "source": "integer_helpers",
         "extra_flags": ["-O2"],
-        "arches": ["riscv32"],
+        "arches": ["riscv32", "xtensa"],
         "expect_out": INTEGER_HELPER_CHECKS + ["fs done integer_helpers ok"],
         "expect_clean_exit": True,
     },
@@ -812,7 +878,7 @@ TEST_CASES = [
         "name": "int64_operators_size",
         "source": "int64_operators",
         "extra_flags": ["-Oz"],
-        "arches": ["riscv32"],
+        "arches": ["riscv32", "xtensa"],
         "expect_out": INT64_OPERATOR_CHECKS + ["fs done int64_operators ok"],
         "expect_clean_exit": True,
     },
@@ -864,7 +930,7 @@ TEST_CASES = [
         # exactly the spec's five routines, which `hal/riscv32/atomics.c`
         # supplies (the user's ruling: the environment provides them).
         "name": "atomics_libcall",
-        "arches": ["riscv32"],
+        "arches": ["riscv32", "xtensa"],
         "no_atomics": True,
         "expect_out": ["fs check load_after_store=1",
                        "fs check fetch_add_returns_before=1",
@@ -883,6 +949,8 @@ TEST_CASES = [
     {
         # A `SpinLock` stays refused on the part without atomics.
         "name": "spinlock_without_atomics",
+        # The refusal's wording names the target and the flag that restores
+        # atomics, so Xtensa's own wording is pinned by the typechecker's fixture.
         "arches": ["riscv32"],
         "no_atomics": True,
         "expect_compile_error": ["atomics.target", "spinlock_without_atomics.saw:10:",
@@ -893,6 +961,9 @@ TEST_CASES = [
     {
         # The non-host build path reached through a manifest, on both arches.
         "name": "bladepkg",
+        "due": "SL-1073: the package's manifest has no Xtensa section yet",
+        "due_on": ["xtensa"],
+        "due_shows": "no configuration for target `xtensa-esp-unknown-elf`",
         "blade": True,
         "package": "bladepkg",
         "image": "fsblade",
@@ -903,6 +974,8 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
 ]
+
+ESPRESSIF_HINT = "install Espressif's tools: idf_tools.py install esp-clang qemu-xtensa"
 
 INSTALL_HINTS = {
     "qemu-system-riscv32": "brew install qemu (macOS) | apt install qemu-system-misc (Debian/Ubuntu)",
@@ -960,19 +1033,24 @@ class Unknown(Exception):
     """A prerequisite whose presence cannot be determined: the suite fails."""
 
 
+def check_answers(path, name):
+    """`path`, which must answer `--version`."""
+    code, out = run([path, "--version"], PROBE_TIMEOUT_S)
+    if code != 0:
+        why = "timed out" if code is None else "exited %d" % code
+        raise Unknown("%s is found at %s but `%s --version` %s, so whether it runs is unknown: %s"
+                      % (name, path, path, why, out.strip()[:300] or "no output"))
+    return path
+
+
 def find_tool(name):
-    """The absolute path of `name`, which answers `--version`."""
+    """The absolute path of `name` on PATH, which answers `--version`."""
     if os.environ.get("PATH") is None:
         raise Unknown("PATH is not set, so whether %s is installed is unknown" % name)
     path = shutil.which(name)
     if path is None:
         raise Absent("%s is not on PATH (%s)" % (name, INSTALL_HINTS.get(name, "install it")))
-    code, out = run([path, "--version"], PROBE_TIMEOUT_S)
-    if code != 0:
-        why = "timed out" if code is None else "exited %d" % code
-        raise Unknown("%s is on PATH but `%s --version` %s, so whether it runs is unknown: %s"
-                      % (name, path, why, out.strip()[:300] or "no output"))
-    return path
+    return check_answers(path, name)
 
 
 def find_clang(arch):
@@ -985,17 +1063,85 @@ def find_clang(arch):
     if clang is None:
         if os.environ.get("SAWC_CLANG"):
             raise Unknown("SAWC_CLANG names no clang that compiles for %s: %s" % (arch["triple"], why))
-        raise Absent("no clang compiles for %s (%s): %s" % (arch["triple"], INSTALL_HINTS["clang"], why))
+        hint = ESPRESSIF_HINT if arch["triple"].startswith("xtensa-") else INSTALL_HINTS["clang"]
+        raise Absent("no clang compiles for %s (%s): %s" % (arch["triple"], hint, why))
     return clang
 
 
-def probe_tools(arches):
-    """{arch name: (qemu, clang)} and ld.lld, or Absent/Unknown."""
-    lld = find_tool("ld.lld")
+def find_lld(arch, clang):
+    """The linker for the arch: PATH's `ld.lld`, or for a row whose objects
+    only the clang's own LLVM links, the one beside that clang."""
+    if arch["lld_from"] == "path":
+        return find_tool("ld.lld")
+    said = build.clang_tool(clang, "ld.lld")
+    if not os.path.isabs(said) or not os.path.exists(said):
+        raise Absent("ld.lld is not beside %s (%s)" % (clang, ESPRESSIF_HINT))
+    return check_answers(said, "ld.lld")
+
+
+def espressif_qemus():
+    """Every `qemu-system-xtensa` under an Espressif tools root, the newest
+    version of a root first: `$IDF_TOOLS_PATH` when set, then `~/.espressif`.
+    PATH's `qemu-system-xtensa` is never one: Homebrew's has no ESP32 machine."""
+    roots = [os.environ.get("IDF_TOOLS_PATH") or "", os.path.join(os.path.expanduser("~"), ".espressif")]
+    found = []
+    for root in roots:
+        if root:
+            pattern = os.path.join(root, "tools", "qemu-xtensa", "*", "qemu", "bin", "qemu-system-xtensa")
+            found.extend(sorted(glob.glob(pattern), reverse=True))
+    return found
+
+
+def find_qemu(arch):
+    """The emulator for the arch. An Espressif build must list the arch's
+    machine under `-machine help`; one that does not is an install that is not
+    what it claims, which is not an absence."""
+    if arch["qemu_from"] == "path":
+        return find_tool(arch["qemu"])
+    candidates = espressif_qemus()
+    if not candidates:
+        raise Absent("%s is not under $IDF_TOOLS_PATH or ~/.espressif (%s)" % (arch["qemu"], ESPRESSIF_HINT))
+    refused = []
+    for path in candidates:
+        code, out = run([path, "-machine", "help"], PROBE_TIMEOUT_S)
+        if code != 0:
+            why = "timed out" if code is None else "exited %d" % code
+            raise Unknown("%s is found but `-machine help` %s, so whether it runs is unknown: %s"
+                          % (path, why, out.strip()[:300] or "no output"))
+        if arch["machine"] in out.split():
+            return path
+        refused.append(path)
+    raise Unknown("%s lists no `%s` machine, so it is not the Espressif emulator" % (", ".join(refused),
+                                                                                    arch["machine"]))
+
+
+def probe_arch(arch):
+    """{"qemu", "lld", "clang"} for one architecture, or Absent/Unknown. A row
+    whose linker is beside its clang looks for the clang first."""
     found = {}
+    if arch["lld_from"] == "clang":
+        found["clang"] = find_clang(arch)
+        found["lld"] = find_lld(arch, found["clang"])
+        found["qemu"] = find_qemu(arch)
+    else:
+        found["lld"] = find_lld(arch, None)
+        found["qemu"] = find_qemu(arch)
+        found["clang"] = find_clang(arch)
+    return found
+
+
+def probe_tools(arches):
+    """({arch name: tools}, {arch name: why it is skipped}). A known-absent
+    tool skips that architecture alone; a tool whose presence cannot be
+    determined raises Unknown, which fails the suite whatever the others hold."""
+    found = {}
+    skipped = {}
     for arch in arches:
-        found[arch["name"]] = (find_tool(arch["qemu"]), find_clang(arch))
-    return found, lld
+        try:
+            found[arch["name"]] = probe_arch(arch)
+        except Absent as e:
+            skipped[arch["name"]] = str(e)
+    return found, skipped
 
 
 def record_clang(arch):
@@ -1174,7 +1320,59 @@ def build_with_blade(case, arch, lld, clang):
     return elf
 
 
-def check_run(case, arch, shared, lld, qemu, clang):
+FLASH_BYTES = 4 * 1024 * 1024
+# What the ROM looks for at flash offsets 0x400 and 0x404 before it enters
+# the image at 0x408; the boot stub's `.magic` section holds it.
+FLASH_MAGIC = b"\x1d\x04\xdb\xae" * 2
+FLASH_MAGIC_OFFSET = 0x400
+ELF_PT_LOAD = 1
+
+
+def flash_image(elf, arch, path):
+    """Write the flash image the ESP32-S3's ROM boots to `path`: 4 MiB of
+    0xFF with each `PT_LOAD` segment of the 32-bit little-endian `elf` at its
+    load address minus the arch's `flash_base`. A segment loading outside the
+    flash window, or an image without the ROM's magic words, raises ToolError
+    naming what is wrong. An image whose first byte is 0xE9 would read as an
+    esptool header, so that is refused too."""
+    base = arch["flash_base"]
+    with open(elf, "rb") as fh:
+        data = fh.read()
+    if data[:4] != b"\x7fELF" or data[4] != 1 or data[5] != 1:
+        raise ToolError("%s is not a 32-bit little-endian ELF" % elf)
+    phoff, = struct.unpack_from("<I", data, 28)
+    phentsize, phnum = struct.unpack_from("<HH", data, 42)
+    image = bytearray(b"\xff" * FLASH_BYTES)
+    for i in range(phnum):
+        p_type, offset, vaddr, paddr, filesz, _memsz, _flags, _align = struct.unpack_from(
+            "<8I", data, phoff + phentsize * i)
+        if p_type != ELF_PT_LOAD or filesz == 0:
+            continue
+        if not (base <= paddr and paddr + filesz <= base + FLASH_BYTES):
+            raise ToolError("segment %d of %s loads %d bytes at %#x (virtual %#x), outside the flash window "
+                            "%#x..%#x" % (i, elf, filesz, paddr, vaddr, base, base + FLASH_BYTES))
+        image[paddr - base:paddr - base + filesz] = data[offset:offset + filesz]
+    if bytes(image[FLASH_MAGIC_OFFSET:FLASH_MAGIC_OFFSET + 8]) != FLASH_MAGIC:
+        raise ToolError("%s loads nothing at flash offset %#x, where the ROM looks for its magic words"
+                        % (elf, FLASH_MAGIC_OFFSET))
+    if image[0] == 0xE9:
+        raise ToolError("%s puts 0xE9 at flash offset 0, which the ROM reads as an esptool header" % elf)
+    with open(path, "wb") as fh:
+        fh.write(image)
+
+
+def boot_arguments(arch, elf):
+    """The QEMU arguments that boot the linked `elf`: the ELF itself, or the
+    flash image built from it. Raises ToolError."""
+    if arch["boot"] == "kernel":
+        return ["-kernel", elf]
+    image = os.path.splitext(elf)[0] + ".flash.bin"
+    flash_image(elf, arch, image)
+    return ["-drive", "file=%s,if=mtd,format=raw" % image]
+
+
+def check_run(case, arch, shared, tools):
+    lld, qemu, clang = tools["lld"], tools["qemu"], tools["clang"]
     out_dir = build_dir(arch)
     obj = os.path.join(out_dir, case["name"] + ".o")
     elf = os.path.join(out_dir, case["name"] + ".elf")
@@ -1196,7 +1394,11 @@ def check_run(case, arch, shared, lld, qemu, clang):
                     + objects + [obj])
     except ToolError as e:
         return "build error\n%s" % e
-    status, out = run([qemu] + arch["qemu_args"] + ["-nographic", "-kernel", elf], QEMU_TIMEOUT_S)
+    try:
+        booting = boot_arguments(arch, elf)
+    except ToolError as e:
+        return "build error\n%s" % e
+    status, out = run([qemu] + arch["qemu_args"] + ["-nographic"] + booting, QEMU_TIMEOUT_S)
     if status is None:
         return "QEMU hung (> %ds), no exit through the exit device\n%s" % (QEMU_TIMEOUT_S, out)
     fmt = expectations(arch)
@@ -1223,11 +1425,13 @@ def case_due(case, arch):
     return case["due"]
 
 
-def run_arch(arch, cases, qemu, clang, lld):
+def run_arch(arch, cases, tools):
     """(passed, failed, due) for one architecture, each case printed."""
-    print("%s  (%s, %s `virt`)" % (arch["name"], arch["triple"], os.path.basename(qemu)), flush=True)
+    lld = tools["lld"]
+    print("%s  (%s, %s `%s`)" % (arch["name"], arch["triple"], os.path.basename(tools["qemu"]), arch["machine"]),
+          flush=True)
     try:
-        shared = build_shared(arch, clang)
+        shared = build_shared(arch, tools["clang"])
     except ToolError as e:
         print("FAIL: the %s boot stub or C floor does not build\n%s" % (arch["name"], e))
         return 0, len(cases), 0
@@ -1237,7 +1441,7 @@ def run_arch(arch, cases, qemu, clang, lld):
             return check_refusal(case, arch)
         if case.get("expect_link_error"):
             return check_link_refusal(case, arch, shared, lld)
-        return check_run(case, arch, shared, lld, qemu, clang)
+        return check_run(case, arch, shared, tools)
 
     problems = gate_jobs.map_ordered(one, cases)
     passed = failed = due = 0
@@ -1305,18 +1509,25 @@ def main(argv):
         return 1
 
     try:
-        tools, lld = probe_tools(arches)
-    except Absent as e:
-        print("freestanding: SKIPPED, not failed: %s" % e)
-        return 0
+        tools, skipped = probe_tools(arches)
     except Unknown as e:
         print("freestanding: FAIL: %s" % e)
         return EXIT_UNKNOWN
+    for name, why in skipped.items():
+        print("freestanding: SKIPPED %s: %s" % (name, why))
+    arches = [a for a in arches if a["name"] in tools]
+    if not arches:
+        print("freestanding: SKIPPED, not failed: no architecture has its tools")
+        return 0
     for arch in arches:
-        qemu, clang = tools[arch["name"]]
-        print("freestanding: %s: %s, %s, %s" % (arch["name"], qemu, lld, clang))
+        found = tools[arch["name"]]
+        print("freestanding: %s: %s, %s, %s" % (arch["name"], found["qemu"], found["lld"], found["clang"]))
+    skipped_note = "%d ran, %d skipped" % (len(arches), len(skipped))
+    if skipped:
+        skipped_note += " (%s)" % ", ".join(skipped)
     if args.tools:
-        print("freestanding: every prerequisite is present")
+        print("freestanding: every prerequisite is present" if not skipped
+              else "freestanding: %s" % skipped_note)
         return 0
 
     ok, output = (True, "") if build.handed_down() else build.build_sawc()
@@ -1326,20 +1537,19 @@ def main(argv):
     build.configure_bare_metal_targets()
     for arch in arches:
         named = record_clang(arch)
-        if named != tools[arch["name"]][1]:
+        if named != tools[arch["name"]]["clang"]:
             print("freestanding: FAIL: sawc's record for %s names clang %s, and build.choose_clang picks %s"
-                  % (arch["triple"], named, tools[arch["name"]][1]))
+                  % (arch["triple"], named, tools[arch["name"]]["clang"]))
             return 1
 
     passed = failed = due = 0
     for arch in arches:
         cases = [c for c in TEST_CASES if arch["name"] in c.get("arches", (arch["name"],))
                  and (not args.cases or c["name"] in args.cases)]
-        qemu, clang = tools[arch["name"]]
-        p, f, d = run_arch(arch, cases, qemu, clang, lld)
+        p, f, d = run_arch(arch, cases, tools[arch["name"]])
         passed, failed, due = passed + p, failed + f, due + d
     off = ["%s (%s)" % (a["name"], a["off"]) for a in ARCHES if a["off"] and a not in arches]
-    note = "%d passed, %d failed, %d due" % (passed, failed, due)
+    note = "%d passed, %d failed, %d due; architectures: %s" % (passed, failed, due, skipped_note)
     if off:
         note += "; off: " + "; ".join(off)
     if failed:

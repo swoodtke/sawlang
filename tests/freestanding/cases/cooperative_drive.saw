@@ -5,7 +5,8 @@
 //
 // The drive's park word names the readiness word by its address. On riscv32
 // every RAM address lies above 2^31, so `Int` reads it as negative; the case
-// states that first, so a pass shows such an address decodes. A `blocking`
+// reports whether its own does, and the runner holds each row to its memory
+// map, so a pass there shows such an address decodes. A `blocking`
 // receive, the other wait that drives on a word, needs the gate seams, which
 // an environment with no threads defines none of.
 
@@ -32,7 +33,7 @@ func sent(orders: Channel<Int>, order: Int) -> Int {
 func fs_main() unsafe {
     var marker = 0
     let at = (&marker) as UnsafePointer<Int> as Int
-    check("ram_reads_negative_on_32_bit", sizeof<Int>() != 4 || at < 0)
+    report("ram_reads_negative", if at < 0 { 1 } else { 0 })
     let orders = try! Channel<Int>()
     var group = TaskGroup()
     let sender = group.spawn(sent(orders.copy(), 5))
