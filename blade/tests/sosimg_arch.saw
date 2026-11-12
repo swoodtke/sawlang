@@ -1,5 +1,6 @@
 // Test: the per-architecture toolchain answers for an SOS image — the
-// toolchain defaults, the `[sos]` `mcpu` key, and the C half's command line.
+// toolchain defaults, the CPU that is the triple's and never the manifest's,
+// and the C half's command line.
 //
 // The two halves of an image are compiled for one calling convention, so the
 // Xtensa rows pin the CPU and feature list the C half gets; the riscv32 and
@@ -87,10 +88,22 @@ func check_config() {
     let rv = load("tests/fixtures/sosmulti", "riscv32-unknown-none-elf")
     assert(rv.mcpu.is_empty(), "riscv32 has no mcpu")
 
-    // The key stated in the triple's section wins, as `march` does.
+    // A key stated in the triple's section wins, as `march` does; the CPU
+    // stays the triple's.
     let over = load("tests/fixtures/sosxtensa_override", xtensa_triple())
-    assert(over.mcpu.equals("esp32s2"), "an explicit mcpu wins")
+    assert(over.mcpu.equals("esp32s3"), "the cpu is the triple's")
     assert(over.target_features.equals("+fp"), "an explicit target-features wins")
+
+    // A manifest that states a CPU is refused: sawc compiles the Saw half for
+    // the triple's, so a stated one would reach the C half alone.
+    match load_sos_config(Path(s: "tests/fixtures/sosxtensa_mcpu"), xtensa_triple()) {
+        case Ok(_) -> panic("a manifest `mcpu` should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("`mcpu` is not a manifest key"), "the refusal names the rule")
+            assert(said.contains("`esp32s3` for `xtensa-esp-unknown-elf`"), "and the triple's CPU")
+        }
+    }
 }
 
 func check_native_arguments() {
@@ -121,7 +134,7 @@ func check_native_arguments() {
     assert(joined(&over_args).contains(
         "-Xclang -target-feature -Xclang -bool -Xclang -target-feature -Xclang +fp -ffreestanding"),
         "manifest features come after the native list")
-    assert(joined(&over_args).contains("-mcpu=esp32s2"), "the stated cpu")
+    assert(joined(&over_args).contains("-mcpu=esp32s3"), "the triple's cpu")
 }
 
 func main() {

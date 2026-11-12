@@ -153,7 +153,9 @@ public struct SosConfig {
     target_features: String
     /// The CPU the C half is compiled for (`-mcpu=`), or "" for a triple whose
     /// toolchain takes `-march` instead. Espressif's clang selects an Xtensa
-    /// chip this way and refuses `-march` and `-mabi`.
+    /// chip this way and refuses `-march` and `-mabi`. It is the triple's
+    /// (`toolchain_defaults`) and never the manifest's: sawc compiles the Saw
+    /// half for the triple's CPU, so a manifest `mcpu` is refused.
     mcpu: String
     /// Subtarget features the C half is compiled with that sawc applies to the
     /// Saw half by itself (the triple's own default, comma-separated), or "".
@@ -289,6 +291,7 @@ struct ToolchainFields {
     linker_script: String?
     march: String?
     mabi: String?
+    // Read only to refuse it: the CPU is the triple's.
     mcpu: String?
     target_features: String?
     native: String?
@@ -434,13 +437,22 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     }
 
     let toolchain = read_toolchain_fields(&doc, chosen)
+    // sawc takes the CPU from the triple and has no flag for it, so a stated
+    // one could reach the C half alone and split the image's two halves.
+    if toolchain.mcpu != None {
+        let fixed = toolchain_defaults(target).mcpu
+        if fixed.is_empty() {
+            return SosError(msg: "[{section_name}] mcpu: `mcpu` is not a manifest key, and `{target}` names no CPU")
+        }
+        return SosError(msg: "[{section_name}] mcpu: `mcpu` is not a manifest key: the CPU is the target's, `{fixed}` for `{target}`, and both halves of an image are compiled for it")
+    }
     let linker_script = toolchain.linker_script ?? ""
     if linker_script.is_empty() {
         return SosError(msg: "[{section_name}] linker-script is required (an SOS image has a fixed load address)")
     }
 
     // Toolchain flags default from the TRIPLE, so a profile that needs none
-    // gets none. An explicit key always wins.
+    // gets none. An explicit key wins, except the CPU, which is the triple's.
     let defaults = toolchain_defaults(target)
 
     // THE DEVICE WINDOW (design 178's finale constraint 1). Absent for every
@@ -468,7 +480,7 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
         march: toolchain.march ?? defaults.march,
         mabi: toolchain.mabi ?? defaults.mabi,
         target_features: toolchain.target_features ?? defaults.target_features,
-        mcpu: toolchain.mcpu ?? defaults.mcpu,
+        mcpu: defaults.mcpu,
         native_features: defaults.native_features,
         linker_script: linker_script,
         native: toolchain.native ?? "",

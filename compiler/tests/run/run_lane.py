@@ -3748,7 +3748,11 @@ def check_clang_choice(failures, counts):
             or versions != sorted(versions, reverse=True)):
         failures.append("%s: the candidates are %r, not each clang-NN on PATH newest first, then clang, then %s"
                         % (where, candidates, build.homebrew_clang()))
-    counts["run clang choices checked"] = 3
+    xtensa = build.clang_candidates(XTENSA_TARGET)
+    if xtensa != build.espressif_clangs() + candidates:
+        failures.append("%s: the candidates for %s are %r, not Espressif's clangs first, then the usual ones"
+                        % (where, XTENSA_TARGET, xtensa))
+    counts["run clang choices checked"] = 4
 
 
 # The Xtensa target is compiled by Espressif's clang alone, so a machine

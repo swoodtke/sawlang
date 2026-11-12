@@ -304,9 +304,11 @@ def clang_candidates(triple):
     """The clangs tried for `triple` when `SAWC_CLANG` names none, in order:
     every versioned `clang-NN` on `PATH`, the newest first (the names a Linux
     distribution installs beside an older default), then `clang`, then
-    `homebrew_clang()`; for an `xtensa-` triple, every Espressif clang
-    (`espressif_clangs`) follows, the newest version first. Each is a name
-    `shutil.which` resolves, an absolute path included."""
+    `homebrew_clang()`. For an `xtensa-` triple every Espressif clang
+    (`espressif_clangs`), the newest version first, comes before those: a
+    distribution's clang may carry upstream's partial Xtensa backend and pass
+    the capability probe, and the target is described from Espressif's. Each
+    is a name `shutil.which` resolves, an absolute path included."""
     versions = set()
     for directory in (os.environ.get("PATH") or "").split(os.pathsep):
         try:
@@ -318,7 +320,7 @@ def clang_candidates(triple):
             if m and os.access(os.path.join(directory, name), os.X_OK):
                 versions.add(int(m.group(1)))
     usual = ["clang-%d" % v for v in sorted(versions, reverse=True)] + ["clang", homebrew_clang()]
-    return usual + espressif_clangs() if triple.startswith("xtensa-") else usual
+    return espressif_clangs() + usual if triple.startswith("xtensa-") else usual
 
 
 # The capability every clang sawc hands its `.ll` to must have: opaque
