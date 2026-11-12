@@ -33,7 +33,8 @@
 //! error here rather than a silent misparse at boot.
 //!
 //! A big-endian profile would have to byte-assemble instead of overlaying;
-//! riscv32 and arm64 are both little-endian, so neither does today.
+//! riscv32, arm64 and Xtensa (the ESP32-S3) are all little-endian, so none
+//! does today.
 //!
 //! ADDRESSES ARE 64-BIT SINCE VERSION 3 (design 172 unit 8), ON BOTH PROFILES.
 //! v2 spent 32 bits on `entry` and `load_addr` because both M1b boards load
@@ -178,6 +179,7 @@ public func fits_target_word(v: UInt64) -> Bool {
 public enum SosimgArch: UInt8 {
     case Riscv32 = 1,
     case Arm64 = 2,
+    case Xtensa = 3,
 }
 
 extension SosimgArch {
@@ -192,6 +194,7 @@ extension SosimgArch {
         match self {
             case Riscv32 -> "riscv32",
             case Arm64 -> "arm64",
+            case Xtensa -> "xtensa",
         }
     }
 }

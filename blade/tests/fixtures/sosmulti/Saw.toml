@@ -1,0 +1,18 @@
+[package]
+name = "sosmulti"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+
+[sos.riscv32-unknown-none-elf]
+linker-script = "rv.ld"
+native = "rv.c"
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "xt.ld"
+native = "xt.c boot.S"
+
+[sos.aarch64-unknown-none-elf]
+linker-script = "a64.ld"
+native = "a64.c"

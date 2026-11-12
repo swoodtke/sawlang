@@ -1,0 +1,12 @@
+[package]
+name = "sosxtensa_override"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "xt.ld"
+native = "xt.c"
+mcpu = "esp32s2"
+target-features = "+fp"

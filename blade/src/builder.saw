@@ -407,29 +407,14 @@ extension Builder {
             }
             let native_obj = layout.artifact("{name}.native{u}.o")
             var cc = Command(program: sos_clang())
-            try! cc.arg("--target={cfg.target}")
-            // An empty flag is NOT passed. Profile B needs neither `-march` nor
-            // `-mabi`, and `-march=` with nothing after it is a clang error
-            // rather than a no-op.
-            if not cfg.march.is_empty() {
-                try! cc.arg("-march={cfg.march}")
+            // The argument list is `native_compile_arguments`, so a test can
+            // pin it without a toolchain.
+            let cc_args = native_compile_arguments(&cfg, unit, native_obj)
+            var a = 0
+            while a < cc_args.len() {
+                try! cc.arg(cc_args.get(a) ?? "")
+                a = a + 1
             }
-            if not cfg.mabi.is_empty() {
-                try! cc.arg("-mabi={cfg.mabi}")
-            }
-            try! cc.arg("-ffreestanding")
-            // -fno-builtin matters: sos/rt/common_c/support.c DEFINES memcpy,
-            // and without it LLVM may rewrite its byte loop into a call to
-            // itself. See that file's header.
-            try! cc.arg("-fno-builtin")
-            try! cc.arg("-ffunction-sections")
-            try! cc.arg("-fdata-sections")
-            try! cc.arg("-nostdlib")
-            try! cc.arg("-O2")
-            try! cc.arg("-c")
-            try! cc.arg(unit)
-            try! cc.arg("-o")
-            try! cc.arg(native_obj)
             try self.run_tool(&cc, "clang")
             try! objects.push(native_obj)
             u = u + 1

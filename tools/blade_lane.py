@@ -8,7 +8,9 @@ Steps, each printed, the first failure ending the run:
   2. That Blade builds blade/ itself.
   3. The self-built Blade runs `blade test` in blade/ and in each package
      under libs/.
-  4. `blade new` and `blade run` make and run a package in a directory under
+  4. The CPU and feature list Blade gives the C half of an Xtensa image equal
+     the ones sawc writes for the Saw half (`--emit-ll`, no clang needed).
+  5. `blade new` and `blade run` make and run a package in a directory under
      `.build/`.
 
 Every compile goes through `build.SAWC`, handed to Blade as `SAWC`. The suite
@@ -21,6 +23,7 @@ ENTRY POINTS:
   blade_environment
 """
 import os
+import re
 import shutil
 import sys
 import subprocess
@@ -42,6 +45,7 @@ BLADE_BINARY = os.path.join(WORK_DIR, "blade")
 SMOKE_DIR = os.path.join(WORK_DIR, "smoke")
 SELF_BUILT = os.path.join(BLADE_DIR, ".build", "host", "blade")
 SMOKE_PACKAGE = "smoke_app"
+XTENSA_TRIPLE = "xtensa-esp-unknown-elf"
 BUILD_TIMEOUT_S = 900
 TEST_TIMEOUT_S = 900
 SMOKE_TIMEOUT_S = 300
@@ -140,6 +144,41 @@ def tests_passed(title, binary, cwd):
         raise Failure("%s: no passing summary\n%s" % (title, out))
 
 
+def blade_xtensa_defaults():
+    """(CPU, feature list) Blade gives the C half of an Xtensa image, read out of
+    blade/src/sosimg.saw: the `mcpu` of the xtensa branch of `toolchain_defaults`
+    and the literal `xtensa_native_features` returns."""
+    with open(os.path.join(BLADE_DIR, "src", "sosimg.saw"), encoding="utf-8") as f:
+        text = f.read()
+    features = re.search(r'func xtensa_native_features\(\) -> String \{\s*"([^"]*)"\s*\}', text)
+    branch = re.search(r'target\.starts_with\("xtensa"\)\s*\{.*?mcpu:\s*"([^"]*)"', text, re.S)
+    if not features or not branch:
+        raise Failure("blade/src/sosimg.saw no longer states the Xtensa defaults where the lane reads them")
+    return branch.group(1), features.group(1)
+
+
+def check_xtensa_drift():
+    """Blade's CPU and feature list for the C half of an Xtensa image equal the
+    `target-cpu` and `target-features` sawc compiles the Saw half with. `--emit-ll`
+    needs no clang, so this runs everywhere."""
+    cpu, features = blade_xtensa_defaults()
+    os.makedirs(WORK_DIR, exist_ok=True)
+    source = os.path.join(WORK_DIR, "xtensa_drift.saw")
+    with open(source, "w", encoding="utf-8") as f:
+        f.write('@export("drift")\nfunc drift() -> Int { 1 }\n')
+    out = step("Blade's Xtensa C features match sawc's",
+               [build.SAWC, "build", "--freestanding", "--target", XTENSA_TRIPLE, "--emit-ll", source],
+               BUILD_TIMEOUT_S)
+    found = set(re.findall(r'"target-features"="([^"]*)"', out))
+    if found != {features}:
+        raise Failure("sawc compiles the Saw half of an %s image with target-features %s, and Blade gives the C half %r"
+                      % (XTENSA_TRIPLE, sorted(found), features))
+    cpus = set(re.findall(r'"target-cpu"="([^"]*)"', out))
+    if cpus != {cpu}:
+        raise Failure("sawc compiles the Saw half of an %s image for cpu %s, and Blade gives the C half %r"
+                      % (XTENSA_TRIPLE, sorted(cpus), cpu))
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -158,6 +197,7 @@ def lane():
         tests_passed("blade test in blade/", SELF_BUILT, BLADE_DIR)
         for lib in LIBRARIES:
             tests_passed("blade test in libs/%s" % lib, SELF_BUILT, os.path.join(LIBS_DIR, lib))
+        check_xtensa_drift()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

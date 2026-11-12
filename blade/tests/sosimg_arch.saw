@@ -1,0 +1,132 @@
+// Test: the per-architecture toolchain answers for an SOS image — the
+// toolchain defaults, the `[sos]` `mcpu` key, and the C half's command line.
+//
+// The two halves of an image are compiled for one calling convention, so the
+// Xtensa rows pin the CPU and feature list the C half gets; the riscv32 and
+// aarch64 rows pin that nothing they emit moved.
+
+import blade.sosimg.{
+    SosConfig, load_sos_config, toolchain_defaults, native_compile_arguments,
+}
+import std.path.{Path}
+
+func xtensa_triple() -> String {
+    "xtensa-esp-unknown-elf"
+}
+
+func xtensa_features() -> String {
+    "-windowed,-fp,-loop,-mac16,-bool"
+}
+
+func common() -> String {
+    "-ffreestanding -fno-builtin -ffunction-sections -fdata-sections -nostdlib -O2 -c"
+}
+
+func feature_flags() -> String {
+    "-Xclang -target-feature -Xclang -windowed -Xclang -target-feature -Xclang -fp -Xclang -target-feature -Xclang -loop -Xclang -target-feature -Xclang -mac16 -Xclang -target-feature -Xclang -bool"
+}
+
+func joined(args: &Vector<String>) -> String {
+    var out = ""
+    var i = 0
+    while i < args.len() {
+        let word = args.get(i) ?? ""
+        if i == 0 {
+            out = word
+        } else {
+            out = "{out} {word}"
+        }
+        i = i + 1
+    }
+    out
+}
+
+func load(dir: String, requested: String) -> SosConfig {
+    match load_sos_config(Path(s: dir), requested) {
+        case Ok(found) -> {
+            guard let cfg = found else {
+                panic("{dir} declares [sos]")
+            }
+            move cfg
+        },
+        case Err(e) -> panic("{dir} [sos] should parse: {e}")
+    }
+}
+
+func check_defaults() {
+    let riscv = toolchain_defaults("riscv32-unknown-none-elf")
+    assert(riscv.march.equals("rv32imac_zicsr"), "riscv32 march")
+    assert(riscv.mabi.equals("ilp32"), "riscv32 mabi")
+    assert(riscv.target_features.equals("+m,+a,+c"), "riscv32 features")
+    assert(riscv.mcpu.is_empty(), "riscv32 names no cpu")
+    assert(riscv.native_features.is_empty(), "riscv32 has no C-only features")
+
+    let arm = toolchain_defaults("aarch64-unknown-none-elf")
+    assert(arm.march.is_empty() && arm.mabi.is_empty(), "aarch64 march and mabi")
+    assert(arm.target_features.is_empty(), "aarch64 features")
+    assert(arm.mcpu.is_empty(), "aarch64 names no cpu")
+    assert(arm.native_features.is_empty(), "aarch64 has no C-only features")
+
+    let xt = toolchain_defaults(xtensa_triple())
+    assert(xt.march.is_empty(), "esp-clang refuses -march")
+    assert(xt.mabi.is_empty(), "esp-clang refuses -mabi")
+    assert(xt.mcpu.equals("esp32s3"), "the ESP32-S3")
+    assert(xt.target_features.is_empty(), "sawc's own default applies")
+    assert(xt.native_features.equals(xtensa_features()), "call0, no FPU, no loop/mac16/bool")
+}
+
+func check_config() {
+    // The key is absent: the triple's default.
+    let xt = load("tests/fixtures/sosmulti", xtensa_triple())
+    assert(xt.mcpu.equals("esp32s3"), "mcpu defaults from the triple")
+    assert(xt.native_features.equals(xtensa_features()), "native features default")
+    assert(xt.march.is_empty() && xt.mabi.is_empty(), "no march or mabi")
+    assert(xt.target_features.is_empty(), "no --target-features unless stated")
+
+    // Another triple's section in the same manifest says nothing about a cpu.
+    let rv = load("tests/fixtures/sosmulti", "riscv32-unknown-none-elf")
+    assert(rv.mcpu.is_empty(), "riscv32 has no mcpu")
+
+    // The key stated in the triple's section wins, as `march` does.
+    let over = load("tests/fixtures/sosxtensa_override", xtensa_triple())
+    assert(over.mcpu.equals("esp32s2"), "an explicit mcpu wins")
+    assert(over.target_features.equals("+fp"), "an explicit target-features wins")
+}
+
+func check_native_arguments() {
+    let rv = load("tests/fixtures/sosapp", "")
+    let rv_args = native_compile_arguments(&rv, "src/rt.c", "out.o")
+    let rv_want = "--target=riscv32-unknown-none-elf -march=rv32imac_zicsr -mabi=ilp32 {common()} src/rt.c -o out.o"
+    assert(joined(&rv_args).equals(rv_want), "riscv32 command line is unchanged")
+
+    let arm = load("tests/fixtures/sosmulti", "aarch64-unknown-none-elf")
+    let arm_args = native_compile_arguments(&arm, "a64.c", "out.o")
+    let arm_want = "--target=aarch64-unknown-none-elf {common()} a64.c -o out.o"
+    assert(joined(&arm_args).equals(arm_want), "aarch64 command line is unchanged")
+
+    let xt = load("tests/fixtures/sosmulti", xtensa_triple())
+    let xt_args = native_compile_arguments(&xt, "xt.c", "out.o")
+    let xt_want = "--target=xtensa-esp-unknown-elf -mcpu=esp32s3 {feature_flags()} {common()} xt.c -o out.o"
+    assert(joined(&xt_args).equals(xt_want), "xtensa C unit")
+
+    // An assembly unit also asks for the integrated assembler.
+    let xt_asm = native_compile_arguments(&xt, "boot.S", "boot.o")
+    assert(joined(&xt_asm).contains("-fintegrated-as -ffreestanding"),
+           "xtensa .S unit uses the integrated assembler")
+    assert(not joined(&xt_args).contains("-fintegrated-as"), "a C unit does not")
+
+    // The manifest's own features follow the native ones, as sawc appends them.
+    let over = load("tests/fixtures/sosxtensa_override", xtensa_triple())
+    let over_args = native_compile_arguments(&over, "xt.c", "out.o")
+    assert(joined(&over_args).contains(
+        "-Xclang -target-feature -Xclang -bool -Xclang -target-feature -Xclang +fp -ffreestanding"),
+        "manifest features come after the native list")
+    assert(joined(&over_args).contains("-mcpu=esp32s2"), "the stated cpu")
+}
+
+func main() {
+    check_defaults()
+    check_config()
+    check_native_arguments()
+    print("sosimg_arch: ok")
+}

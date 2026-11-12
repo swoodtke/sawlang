@@ -151,6 +151,15 @@ public struct SosConfig {
     /// has no library to satisfy them. Keeping both halves on one subtarget is
     /// the whole job of this field.
     target_features: String
+    /// The CPU the C half is compiled for (`-mcpu=`), or "" for a triple whose
+    /// toolchain takes `-march` instead. Espressif's clang selects an Xtensa
+    /// chip this way and refuses `-march` and `-mabi`.
+    mcpu: String
+    /// Subtarget features the C half is compiled with that sawc applies to the
+    /// Saw half by itself (the triple's own default, comma-separated), or "".
+    /// The two halves of an image must agree on them, `-windowed` above all:
+    /// it is the calling convention.
+    native_features: String
     linker_script: String
     /// C/assembly translation units linked alongside the Saw object, as a
     /// SPACE-SEPARATED list, or "" for none. A freestanding SOS process needs
@@ -193,23 +202,43 @@ static DEFAULT_HIGH: Int = 1
 ///
 /// All fields are plain strings, so this needs no copy policy beyond the
 /// automatic Copy tier.
-struct ToolchainDefaults {
+public struct ToolchainDefaults {
     march: String
     mabi: String
     target_features: String
+    mcpu: String
+    native_features: String
 }
 
-func toolchain_defaults(target: String) -> ToolchainDefaults {
+/// The subtarget features sawc compiles every Saw function for the ESP32-S3
+/// with, before any `--target-features` operand. The C half gets the same list
+/// in the same order, since `-windowed` is the calling convention. The lane
+/// holds this equal to the `"target-features"` sawc writes for the triple.
+func xtensa_native_features() -> String {
+    "-windowed,-fp,-loop,-mac16,-bool"
+}
+
+public func toolchain_defaults(target: String) -> ToolchainDefaults {
     if target.starts_with("riscv32") {
         // The `virt`/ESP32-P4 Profile A baseline. `target-features` restates
         // `march` in LLVM subtarget form because a triple names the
         // architecture but not which optional extensions the part has.
         return ToolchainDefaults(march: "rv32imac_zicsr", mabi: "ilp32",
-                                 target_features: "+m,+a,+c")
+                                 target_features: "+m,+a,+c", mcpu: "",
+                                 native_features: "")
+    }
+    if target.starts_with("xtensa") {
+        // Espressif's clang takes the chip as `-mcpu` and refuses `-march` and
+        // `-mabi`. `target_features` stays empty: sawc's own default for the
+        // triple applies, and a manifest value adds to it.
+        return ToolchainDefaults(march: "", mabi: "", target_features: "",
+                                 mcpu: "esp32s3",
+                                 native_features: xtensa_native_features())
     }
     // Profile B needs none of the three: the base aarch64 triple already has
     // multiply, atomics and the rest, and there is no ABI variant to select.
-    ToolchainDefaults(march: "", mabi: "", target_features: "")
+    ToolchainDefaults(march: "", mabi: "", target_features: "", mcpu: "",
+                      native_features: "")
 }
 
 // Reading a band is *about* a section, so it reads as a method on one. The
@@ -260,6 +289,7 @@ struct ToolchainFields {
     linker_script: String?
     march: String?
     mabi: String?
+    mcpu: String?
     target_features: String?
     native: String?
     device_window: String?
@@ -275,6 +305,7 @@ func toolchain_fields_from(section: &TomlSection) -> ToolchainFields {
         linker_script: section.get("linker-script"),
         march: section.get("march"),
         mabi: section.get("mabi"),
+        mcpu: section.get("mcpu"),
         target_features: section.get("target-features"),
         native: section.get("native"),
         device_window: section.get("device-window"),
@@ -437,6 +468,8 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
         march: toolchain.march ?? defaults.march,
         mabi: toolchain.mabi ?? defaults.mabi,
         target_features: toolchain.target_features ?? defaults.target_features,
+        mcpu: toolchain.mcpu ?? defaults.mcpu,
+        native_features: defaults.native_features,
         linker_script: linker_script,
         native: toolchain.native ?? "",
         prio_map: packed,
@@ -509,6 +542,74 @@ public func sos_clang() -> String {
 /// The linker. `SOS_LD` overrides.
 public func sos_ld() -> String {
     (try! Env.get("SOS_LD")) ?? "ld.lld"
+}
+
+/// The argument list (without the program) for compiling one native
+/// translation unit of an image into `output`.
+///
+/// An empty `march`, `mabi` or `mcpu` is not passed: `-march=` with nothing
+/// after it is a clang error rather than a no-op. A triple with `native_features`
+/// gets each of them, then the manifest's `target-features` (the order sawc
+/// applies them in), as `-Xclang -target-feature -Xclang F`, so the C half is
+/// built for the calling convention the Saw half uses. A triple with none gets
+/// no feature flag at all: its `march` already says it.
+public func native_compile_arguments(cfg: &SosConfig, unit: String,
+                                     output: String) -> Vector<String> {
+    var args = Vector<String>()
+    try! args.push("--target={cfg.target}")
+    if not cfg.march.is_empty() {
+        try! args.push("-march={cfg.march}")
+    }
+    if not cfg.mabi.is_empty() {
+        try! args.push("-mabi={cfg.mabi}")
+    }
+    if not cfg.mcpu.is_empty() {
+        try! args.push("-mcpu={cfg.mcpu}")
+    }
+    if not cfg.native_features.is_empty() {
+        let native = try! cfg.native_features.split(",")
+        var features = Vector<String>()
+        var n = 0
+        while n < native.len() {
+            try! features.push(native.get(n) ?? "")
+            n = n + 1
+        }
+        let stated = try! cfg.target_features.split(",")
+        var s = 0
+        while s < stated.len() {
+            try! features.push(stated.get(s) ?? "")
+            s = s + 1
+        }
+        var f = 0
+        while f < features.len() {
+            let feature = features.get(f) ?? ""
+            if not feature.is_empty() {
+                try! args.push("-Xclang")
+                try! args.push("-target-feature")
+                try! args.push("-Xclang")
+                try! args.push(feature)
+            }
+            f = f + 1
+        }
+    }
+    // The external assembler writes sections Espressif's linker refuses.
+    if not cfg.mcpu.is_empty() && unit.ends_with(".S") {
+        try! args.push("-fintegrated-as")
+    }
+    try! args.push("-ffreestanding")
+    // -fno-builtin matters: a freestanding runtime's C support file DEFINES
+    // memcpy, and without it LLVM may rewrite its byte loop into a call to
+    // itself.
+    try! args.push("-fno-builtin")
+    try! args.push("-ffunction-sections")
+    try! args.push("-fdata-sections")
+    try! args.push("-nostdlib")
+    try! args.push("-O2")
+    try! args.push("-c")
+    try! args.push(unit)
+    try! args.push("-o")
+    try! args.push(output)
+    move args
 }
 
 /// Pack the four band levels into the header's `prio_map` word, low byte first.
@@ -842,6 +943,9 @@ public func arch_for_target(target: String) -> Result<SosimgArch, SosError> {
     }
     if target.starts_with("aarch64") || target.starts_with("arm64") {
         return SosimgArch.Arm64
+    }
+    if target.starts_with("xtensa") {
+        return SosimgArch.Xtensa
     }
     return SosError(msg: "[sos] target: `{target}` is not a profile sosimg has an arch tag for")
 }
