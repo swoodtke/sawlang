@@ -1,0 +1,19 @@
+// flags: --std-root std --target xtensa-esp-unknown-elf
+// The target-atomics rule at xtensa: `s32c1i` is on by default, so a word's
+// compare-and-swap is an instruction and naming a `SpinLock` checks clean
+// (refuse/atomics.target.xtensa.saw is the same program with it off).
+
+import std.spinlock.*
+
+static COUNT: SpinLock<Int>
+
+func bump() -> Int {
+    borrow var n = COUNT.lock() {
+        n = n + 1
+        n
+    }
+}
+
+func main() {
+    print("{}", bump())
+}

@@ -113,12 +113,12 @@ public struct Target {
 extension Target: NoCopy {}
 
 // THE TRIPLE SET: the triples this description answers for, the default
-// first. All are LP64 but riscv32, which is ILP32 (`target_word_bytes`);
+// first. All are LP64 but riscv32 and xtensa, which are ILP32 (`target_word_bytes`);
 // they differ besides only in how an aggregate crosses the C convention,
 // which this slice refuses, in whether a narrow integer crosses it extended
 // (`c_extends_narrow`), and in whether an operating system is there to link
 // a program against (`target_bare_metal`). compiler/tools/build.py's
-// `BARE_METAL_TARGETS` and `clang_triple` mirror it.
+// `BARE_METAL_TARGETS` mirrors the bare-metal part.
 // ENTRY POINTS:
 //     target_known
 //     target_bare_metal
@@ -129,6 +129,7 @@ public func target_triples() -> Vector<String> {
     try! out.push("aarch64-unknown-linux-gnu")
     try! out.push("aarch64-unknown-none-elf")
     try! out.push("riscv32-unknown-none-elf")
+    try! out.push("xtensa-esp-unknown-elf")
     move out
 }
 
@@ -137,17 +138,18 @@ public func target_triples() -> Vector<String> {
 // object and never linked by sawc. Its layouts and C convention are its
 // architecture's.
 public func target_bare_metal(triple: String) -> Bool {
-    triple.equals("aarch64-unknown-none-elf") || triple.equals("riscv32-unknown-none-elf")
+    triple.equals("aarch64-unknown-none-elf") || triple.equals("riscv32-unknown-none-elf") ||
+        triple.equals("xtensa-esp-unknown-elf")
 }
 
 // THE WORD: the width in bytes of `triple`'s word, which `Int`, `UInt`, a
 // pointer and every length are (spec, `Int`/`UInt` are pointer-width): 4 on
-// riscv32, 8 on every other triple.
+// riscv32 and xtensa, 8 on every other triple.
 // ENTRY POINTS:
 //     Target.init
 //     target_front_end
 public func target_word_bytes(triple: String) -> Int {
-    if triple.starts_with("riscv32") {
+    if triple.starts_with("riscv32") || triple.starts_with("xtensa") {
         return 4
     }
     8
@@ -155,11 +157,16 @@ public func target_word_bytes(triple: String) -> Int {
 
 // Whether `triple`, compiled with subtarget features `features`, lowers a
 // word's compare-and-swap to an instruction rather than an `__atomic_*`
-// libcall. RISC-V is the one architecture here whose base ISA omits atomics,
-// so `+a` answers it there, the last mention in the list winning as LLVM
-// reads it, and an ISA string in the arch field (`riscv32imac`, `G` meaning
-// `IMAFD`) counts as well; every other architecture has them.
+// libcall. RISC-V and Xtensa are the two architectures here whose answer is a
+// feature. RISC-V's base ISA omits atomics, so `+a` answers it there, the last
+// mention in the list winning as LLVM reads it, and an ISA string in the arch
+// field (`riscv32imac`, `G` meaning `IMAFD`) counts as well. Xtensa has the
+// word compare-and-swap (`s32c1i`) unless the list turns it off. Every other
+// architecture has them.
 public func target_native_atomics(triple: String, features: String) -> Bool {
+    if triple.starts_with("xtensa") {
+        return target_feature_state(features, "s32c1i") != TargetFeatureState.Off
+    }
     if not triple.starts_with("riscv") {
         return true
     }
@@ -335,20 +342,49 @@ public func target_mach_o(triple: String) -> Bool {
 }
 
 // THE FEATURE FUNNEL: the subtarget feature list a compile for `triple`
-// runs with. `explicit`, the `--target-features` operand, wins outright when
-// given; else a `freestanding` aarch64 build gets the profile's default,
-// Advanced SIMD and the FP unit off, since an AArch64 core traps both at EL1
-// until its boot code enables them and LLVM moves a struct through `q`
-// registers (spec, Profiles); else none, since which extensions a part has
-// is a fact about the part.
+// runs with. Two rules, by architecture. On aarch64 `explicit`, the
+// `--target-features` operand, replaces the default outright; a `freestanding`
+// build with none gets the profile's default, Advanced SIMD and the FP unit
+// off, since an AArch64 core traps both at EL1 until its boot code enables
+// them and LLVM moves a struct through `q` registers (spec, Profiles). On
+// xtensa `explicit` ADDS to the default, which applies to every build,
+// freestanding or not: `-windowed` is the calling convention, so two objects
+// of one image must agree on it, and a later mention wins as LLVM reads the
+// list (`+fp` gives call0 with the FPU, `+windowed` windowed code). The
+// default is call0, no FPU, and no loop, MAC16 or boolean-register option, so
+// the special registers generated code touches are SAR and SCOMPARE1 by
+// construction. Every other triple gets none, since which extensions a part
+// has is a fact about the part.
 // ENTRY POINTS:
 //     driver_build
 public func target_effective_features(triple: String, explicit: String, freestanding: Bool) -> String {
+    if triple.starts_with("xtensa") {
+        var list = StringBuilder()
+        try! list.append("-windowed,-fp,-loop,-mac16,-bool")
+        if explicit.len() > 0 {
+            try! list.append(",")
+            try! list.append(explicit)
+        }
+        return list.build()
+    }
     if explicit.len() > 0 {
         return explicit
     }
     if freestanding && triple.starts_with("aarch64") {
         return "-neon,-fp-armv8"
+    }
+    ""
+}
+
+// The CPU a function of a module for `triple` is compiled for, written as its
+// `"target-cpu"` attribute, or "" when the triple names none. clang takes no
+// CPU flag for IR input, so the attribute is the only selector; `xtensa`
+// means the ESP32-S3.
+// ENTRY POINTS:
+//     ll_function_attribute_group
+public func target_cpu(triple: String) -> String {
+    if triple.equals("xtensa-esp-unknown-elf") {
+        return "esp32s3"
     }
     ""
 }

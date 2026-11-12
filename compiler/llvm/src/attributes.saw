@@ -5,7 +5,7 @@
 import sawmir.model.{MirFuncKind, MirTermKind}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.model.{ResModuleKind}
-import sawtarget.layout.{Target}
+import sawtarget.layout.{Target, target_cpu}
 import sawtypecheck.program.{TcProgram}
 // For the extension writing `is_cell_carrying`.
 import sawtypecheck.tier.{tc_max}
@@ -183,9 +183,10 @@ public func ll_function_attributes(extra: String, builtin: Bool = false) -> Stri
 }
 
 // The attribute group every define names, the module's last line. It carries
-// `features`, the `--target-features` string, as `"target-features"`, since
+// `features`, the `--target-features` string, as `"target-features"`, and the
+// target's CPU (`target_cpu`) as `"target-cpu"` when it names one, since
 // clang compiles an IR function for the subtarget its attributes name and
-// takes no feature flag for IR input. The speed flag `speed` adds `optsize`
+// takes no feature or CPU flag for IR input. The speed flag `speed` adds `optsize`
 // for `-Os` and `optsize minsize` for `-Oz`: clang adds neither to a module
 // it is handed as IR, and `minsize` is what turns on the machine outliner.
 // Under `--sanitize address` (`sanitize`) it carries `sanitize_address`, the
@@ -207,6 +208,12 @@ public func ll_function_attribute_group(target: &Target, sanitize: Bool, speed: 
     try! body.append(" = \{ \"frame-pointer\"=\"")
     try! body.append(policy)
     try! body.append("\"")
+    let cpu = target_cpu(target.triple)
+    if cpu.len() > 0 {
+        try! body.append(" \"target-cpu\"=\"")
+        try! body.append(cpu)
+        try! body.append("\"")
+    }
     if features.len() > 0 {
         try! body.append(" \"target-features\"=\"")
         try! body.append(features)

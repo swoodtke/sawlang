@@ -3741,7 +3741,7 @@ def check_clang_choice(failures, counts):
     if objcopy_lines != (["objcopy %s" % objcopy] if objcopy else []) or (objcopy and not os.path.exists(objcopy)):
         failures.append("%s: the record's llvm-objcopy lines are %r, not the one `choose_objcopy` finds (%s)"
                         % (where, objcopy_lines, objcopy))
-    candidates = build.clang_candidates()
+    candidates = build.clang_candidates(BARE_METAL_TARGET)
     versioned = [re.match(r"^clang-(\d+)$", c) for c in candidates[:-2]]
     versions = [int(m.group(1)) for m in versioned if m]
     if (candidates[-2:] != ["clang", build.homebrew_clang()] or not all(versioned)
@@ -3749,6 +3749,70 @@ def check_clang_choice(failures, counts):
         failures.append("%s: the candidates are %r, not each clang-NN on PATH newest first, then clang, then %s"
                         % (where, candidates, build.homebrew_clang()))
     counts["run clang choices checked"] = 3
+
+
+# The Xtensa target is compiled by Espressif's clang alone, so a machine
+# without one has no record and the build is refused, which the lane counts as
+# a visible skip (SL-1067).
+XTENSA_PROBE = "xtensa_object.saw"
+XTENSA_TARGET = "xtensa-esp-unknown-elf"
+XTENSA_EXPORT = "probe_xtensa_answer"
+ELF_XTENSA = 94
+XTENSA_GROUP = '"target-cpu"="esp32s3" "target-features"="-windowed,-fp,-loop,-mac16,-bool"'
+XTENSA_SKIPPED = "run xtensa object skipped: no Espressif clang"
+
+
+def check_xtensa_object(failures, counts):
+    """`sawc build --freestanding --target xtensa-esp-unknown-elf` when the
+    stage build recorded a clang for it: an ELF32 Xtensa relocatable object
+    (`e_machine` 94) defining the export, and an `.ll` with the triple and the
+    one attribute group naming `esp32s3` and the default features. With no
+    record the build is refused with the "has no clang configured" text, and
+    the lane says it skipped the rest."""
+    probe = os.path.join(PROBES, XTENSA_PROBE)
+    where = "run %s" % rel(probe)
+    if not os.path.exists(build.runtime_manifest(XTENSA_TARGET)):
+        obj = os.path.join(OUT, "xtensa_refused.o")
+        r = subprocess.run([build.SAWC, "build", "--freestanding", "--std-root", "std", "--target", XTENSA_TARGET,
+                            rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode == 0 or "has no clang configured" not in said or os.path.exists(obj):
+            failures.append("%s: with no record for %s the build exits %d: %s"
+                            % (where, XTENSA_TARGET, r.returncode, said[:300]))
+        counts[XTENSA_SKIPPED] = 1
+        return
+    obj = os.path.join(OUT, "xtensa.o")
+    if os.path.exists(obj):
+        os.remove(obj)
+    r = subprocess.run([build.SAWC, "build", "--freestanding", "--std-root", "std", "--target", XTENSA_TARGET,
+                        rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or said or not os.path.exists(obj):
+        failures.append("%s: sawc build --freestanding --target %s exits %d: %s"
+                        % (where, XTENSA_TARGET, r.returncode, said[:300]))
+        return
+    with open(obj, "rb") as fh:
+        head = fh.read(20)
+    machine = int.from_bytes(head[18:20], "little")
+    if head[:4] != b"\x7fELF" or head[4] != 1 or head[5] != 1 or machine != ELF_XTENSA:
+        failures.append("%s: the object is not a little-endian ELF32 Xtensa file (class %d, machine %d)"
+                        % (where, head[4] if len(head) > 4 else -1, machine))
+        return
+    symbols, why = object_symbols(obj, False)
+    if symbols is None or symbols.get(XTENSA_EXPORT) != "T":
+        failures.append("%s: `%s` is %s, not defined and external (T): %s"
+                        % (where, XTENSA_EXPORT, (symbols or {}).get(XTENSA_EXPORT, "absent"), why))
+        return
+    r = subprocess.run([build.SAWC, "build", "--freestanding", "-g0", "--emit-ll", "--std-root", "std", "--target",
+                        XTENSA_TARGET, rel(probe)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    lines = r.stdout.split("\n")
+    groups = [line for line in lines if line.startswith("attributes #")]
+    if (r.returncode != 0 or ('target triple = "%s"' % XTENSA_TARGET) not in lines or not groups
+            or XTENSA_GROUP not in groups[0]):
+        failures.append("%s --emit-ll: exit %d, attribute groups %r, not one holding %s"
+                        % (where, r.returncode, groups, XTENSA_GROUP))
+        return
+    counts["run xtensa objects"] = 1
 
 
 # The attribute group `probes/attribute_group_levels.saw`'s `.ll` ends with,
@@ -3903,6 +3967,7 @@ CUSTOM_PROBES = {
     ATTRIBUTE_PROBE: check_attribute_groups,
     VOLATILE_PROBE: check_volatile_accesses,
     BARE_METAL_PROBE: check_bare_metal_object,
+    XTENSA_PROBE: check_xtensa_object,
     FREESTANDING_PROBE: check_freestanding_object,
     PROVIDER_PROBE: check_runtime_provider,
     PROVIDER_MISSING_PROBE: check_provider_missing_seam,

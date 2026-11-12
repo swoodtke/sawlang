@@ -37,6 +37,7 @@ func main() {
     row("aarch64-unknown-linux-gnu", "", false, "")
     row("aarch64-unknown-none-elf", "", false, "")
     row("riscv32-unknown-none-elf", "", false, "")
+    row("xtensa-esp-unknown-elf", "", false, "")
     // aarch64: the freestanding default turns `fp-armv8` off; a part whose
     // boot code enables the FP unit names it.
     row("aarch64-unknown-none-elf", "", true, "builtins.memory builtins.float")
@@ -49,6 +50,10 @@ func main() {
     row("riscv32-unknown-none-elf", "+m,+a,+c,+f,+d", true, "builtins.memory builtins.integer")
     row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-f", true, "builtins.memory builtins.integer builtins.float")
     row("riscv32-unknown-none-elf", "+m,+a,+c,+f", true, "builtins.memory builtins.integer builtins.float")
+    // xtensa: a 32-bit word, and no FP unit for `Float` whatever the features
+    // (every double operation is a libcall), so all three load.
+    row("xtensa-esp-unknown-elf", "", true, "builtins.memory builtins.integer builtins.float")
+    row("xtensa-esp-unknown-elf", "+fp", true, "builtins.memory builtins.integer builtins.float")
     // The FPU funnel itself, beside the front end's copy of its answer.
     unit("arm64-apple-darwin", "", true)
     unit("x86_64-unknown-linux-gnu", "", true)
@@ -57,5 +62,7 @@ func main() {
     unit("riscv32-unknown-none-elf", "+d", true)
     unit("riscv32-unknown-none-elf", "+d,-f", false)
     unit("riscv32-unknown-none-elf", "+m", false)
-    print("builtins modules: 13 rows, 7 float-unit rows")
+    unit("xtensa-esp-unknown-elf", "-windowed,-fp,-loop,-mac16,-bool", false)
+    unit("xtensa-esp-unknown-elf", "-windowed,-fp,-loop,-mac16,-bool,+fp", false)
+    print("builtins modules: 16 rows, 9 float-unit rows")
 }

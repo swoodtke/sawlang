@@ -1,0 +1,11 @@
+// probe: custom
+// about: `sawc build --freestanding --target xtensa-esp-unknown-elf` writes an ESP32-S3 object, call0 with no FPU by default (SL-1067)
+// Built with `--freestanding --target xtensa-esp-unknown-elf`: the object must
+// be an ELF32 Xtensa relocatable file defining the export, and the `.ll` must
+// carry the triple, the CPU and the default feature list. A machine with no
+// Espressif clang has no record for the target, and the build is refused.
+
+@export("probe_xtensa_answer")
+func answer(n: Int64) -> Int64 {
+    n * 2 + 1
+}

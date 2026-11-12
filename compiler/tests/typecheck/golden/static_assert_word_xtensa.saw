@@ -1,0 +1,19 @@
+// flags: --std-root std --target xtensa-esp-unknown-elf
+// A `static_assert` measures a layout on the program's target: at xtensa the
+// word, and so `Int`, `UInt`, a pointer and a record of words, is four bytes,
+// while `Int64` stays eight bytes aligned to eight (ILP32).
+
+struct Frame {
+    pc: UInt,
+    sp: UnsafePointer<UInt8>,
+    flags: UInt8
+}
+
+static_assert(sizeof<Int>() == 4, "an xtensa word is four bytes")
+static_assert(sizeof<UInt>() == sizeof<UnsafePointer<UInt8>>(), "a word is pointer-wide")
+static_assert(sizeof<Int64>() == 8 && alignof<Int64>() == 8, "Int64 keeps its own width")
+static_assert(sizeof<Frame>() == 12 && alignof<Frame>() == 4, "a record of words packs at four")
+
+func main() {
+    print("{}", sizeof<Frame>())
+}

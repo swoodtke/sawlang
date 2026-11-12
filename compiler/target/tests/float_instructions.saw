@@ -3,8 +3,9 @@
 // intrinsic, every other one being std's Saw body (SL-944). The run lane's
 // float-instruction check compiles each cell's intrinsics with the clang
 // build.py chooses and refuses a libcall where a row here says instruction.
-import sawtarget.layout.{TargetFeatureState, TargetFloatMethod, target_feature_state, target_float_instruction,
-                         target_native_atomics}
+import sawtarget.layout.{TargetFeatureState, TargetFloatMethod, target_bare_metal, target_cpu,
+                         target_effective_features, target_feature_state, target_float_instruction, target_known,
+                         target_native_atomics, target_word_bytes}
 
 // Each method's answer for one cell, as seven letters in `abs floor ceil
 // round sqrt min max` order: `i` for the intrinsic, `s` for the Saw body.
@@ -51,6 +52,10 @@ func main() {
     row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-f", "issssss")
     row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-d", "issssss")
 
+    // xtensa: no FP unit for `Float` under any feature list, so only `abs`.
+    row("xtensa-esp-unknown-elf", "-windowed,-fp,-loop,-mac16,-bool", "issssss")
+    row("xtensa-esp-unknown-elf", "-windowed,-fp,-loop,-mac16,-bool,+fp", "issssss")
+
     // x86_64: the square root everywhere; ROUNDSD with SSE4.1.
     row("x86_64-unknown-linux-gnu", "", "isssiss")
     row("x86_64-unknown-linux-gnu", "+sse4.1", "iiiiiss")
@@ -67,5 +72,30 @@ func main() {
     assert(not target_native_atomics("riscv32-unknown-none-elf", "+m,+c"), "riscv32 without +a has none")
     assert(not target_native_atomics("riscv32-unknown-none-elf", "+a,-a"), "a later -a wins")
     assert(target_native_atomics("aarch64-unknown-none-elf", "-neon,-fp-armv8"), "aarch64 always has atomics")
+
+    // xtensa: known, bare metal, a 32-bit word, and word atomics unless
+    // `s32c1i` is turned off, the last mention winning.
+    let xt = "xtensa-esp-unknown-elf"
+    assert(target_known(xt), "xtensa is a known triple")
+    assert(target_bare_metal(xt), "xtensa has no operating system")
+    assert(target_word_bytes(xt) == 4, "an xtensa word is four bytes")
+    assert(target_native_atomics(xt, ""), "xtensa has s32c1i by default")
+    assert(target_native_atomics(xt, "-windowed,-fp,-loop,-mac16,-bool"), "the default list keeps s32c1i")
+    assert(not target_native_atomics(xt, "-s32c1i"), "-s32c1i has no atomics")
+    assert(target_native_atomics(xt, "-s32c1i,+s32c1i"), "a later +s32c1i wins")
+    // The CPU the triple implies, and the feature funnel's two rules.
+    assert(target_cpu(xt).equals("esp32s3"), "the triple implies the ESP32-S3")
+    assert(target_cpu("riscv32-unknown-none-elf").equals(""), "riscv32 names no CPU")
+    assert(target_cpu("arm64-apple-darwin").equals(""), "a hosted triple names no CPU")
+    let default_list = "-windowed,-fp,-loop,-mac16,-bool"
+    assert(target_effective_features(xt, "", true).equals(default_list), "freestanding default")
+    assert(target_effective_features(xt, "", false).equals(default_list), "the default applies to every build")
+    assert(target_effective_features(xt, "+fp", true).equals("-windowed,-fp,-loop,-mac16,-bool,+fp"),
+           "an operand adds to the default")
+    assert(target_effective_features(xt, "+windowed", false).equals("-windowed,-fp,-loop,-mac16,-bool,+windowed"),
+           "windowed code is an explicit +windowed")
+    assert(target_effective_features("aarch64-unknown-none-elf", "+neon", true).equals("+neon"),
+           "on aarch64 an operand replaces the default")
+    assert(target_effective_features("riscv32-unknown-none-elf", "", true).equals(""), "riscv32 has no default")
     print("float instructions: ok")
 }

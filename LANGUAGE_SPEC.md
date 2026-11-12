@@ -15663,8 +15663,8 @@ the two.
 ### Profiles (hosted and freestanding)
 
 **Status: implemented.** `sawc build --freestanding` writes an ELF object: for
-the host's own triple on an ELF host, or for `aarch64-unknown-none-elf` or
-`riscv32-unknown-none-elf` given as `--target`. A macOS host has no ELF triple
+the host's own triple on an ELF host, or for `aarch64-unknown-none-elf`,
+`riscv32-unknown-none-elf` or `xtensa-esp-unknown-elf` given as `--target`. A macOS host has no ELF triple
 of its own, so it names one with `--target`. `--runtime` builds a runtime
 provider. Saw compiles under two profiles.
 The default **hosted** profile links libc and provides everything above. The
@@ -15809,6 +15809,16 @@ sawc kernel.saw -o kernel.o --freestanding --target aarch64-unknown-none-elf \
 
 Note what such a kernel takes on with them: SIMD registers are live state, so
 every context switch has to save and restore them.
+
+`xtensa-esp-unknown-elf` is the ESP32-S3. Every function is compiled for
+`esp32s3` in the call0 convention, with no floating-point, zero-overhead loop,
+MAC16 or boolean-register instruction (`-windowed,-fp,-loop,-mac16,-bool`),
+whether the build is freestanding or not, since two objects of one image must
+agree on the calling convention. Word atomics are inline (`s32c1i`).
+`--target-features` ADDS to that default rather than replacing it, and a later
+mention wins: `+fp` gives call0 with the FPU, and windowed code takes an
+explicit `+windowed`. Only Espressif's clang compiles for this triple, found
+under `~/.espressif` or `$IDF_TOOLS_PATH`.
 
 Other targets get no default of their own — riscv32 still needs an explicit
 `--target-features +m,+a,+c`, because *which* extensions a RISC-V part has is a
@@ -17383,8 +17393,10 @@ sawc --version
   symbols and linkage](#link-symbols-and-linkage)).
 - `--target` cross-compiles for a triple (default: the host):
   `arm64-apple-darwin`, `x86_64-unknown-linux-gnu`,
-  `aarch64-unknown-linux-gnu`, or the bare-metal `aarch64-unknown-none-elf` and
-  `riscv32-unknown-none-elf`. A bare-metal triple has no C library or runtime
+  `aarch64-unknown-linux-gnu`, or the bare-metal `aarch64-unknown-none-elf`,
+  `riscv32-unknown-none-elf` and `xtensa-esp-unknown-elf` (the ESP32-S3: call0,
+  with no FPU, loop, MAC16 or boolean-register instruction by default;
+  `--target-features` adds to that default). A bare-metal triple has no C library or runtime
   to link against, so it builds only with `-c` or `--freestanding`; a link for
   it is refused.
 - `--target-features FEATURES` names the LLVM subtarget features every

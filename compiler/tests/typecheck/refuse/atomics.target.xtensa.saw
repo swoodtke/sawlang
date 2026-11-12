@@ -1,0 +1,21 @@
+// refuses: atomics.target at 10:15
+// flags: --std-root std --target xtensa-esp-unknown-elf --target-features -s32c1i
+// The target-atomics rule at xtensa: with `-s32c1i` a word's compare-and-swap
+// is an `__atomic_*` libcall, and naming a `SpinLock` is refused once, at the
+// first written type that names it, saying the option is off
+// (golden/atomics_target_xtensa.saw is the same program with it on).
+
+import std.spinlock.*
+
+static COUNT: SpinLock<Int>
+
+func bump() -> Int {
+    borrow var n = COUNT.lock() {
+        n = n + 1
+        n
+    }
+}
+
+func main() {
+    print("{}", bump())
+}

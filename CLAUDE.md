@@ -97,7 +97,8 @@ The battery's `linux` lane (`tools/linux.py lane`) runs both arches and SKIPS
 (passes) only when the VM is known down or Lima is absent; a limactl that
 cannot report Lima's state (exit 4) FAILS it (`tools/test_linux.py`). sawc learns its host from the runtime manifest beside it, and
 `build.py`'s `choose_clang` funnel (`SAWC_CLANG`, else each clang-NN on PATH
-newest first, clang, Homebrew's LLVM clang) picks the clang per target, which
+newest first, clang, Homebrew's LLVM clang, and for an `xtensa` triple Espressif's
+clang under `~/.espressif` or `$IDF_TOOLS_PATH`) picks the clang per target, which
 must compile opaque-pointer IR for it; Debian's default clang 14 cannot, and
 Apple's has no RISC-V. `build.py --runtime TRIPLE` configures another target's runtime.
 

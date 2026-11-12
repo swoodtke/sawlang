@@ -37,6 +37,7 @@ registered here once.
 """
 import argparse
 import fcntl
+import glob
 import hashlib
 import http.client
 import os
@@ -285,11 +286,27 @@ def homebrew_clang():
     return os.path.join(os.environ.get("HOMEBREW_PREFIX") or HOMEBREW_DEFAULT_PREFIX, "opt", "llvm", "bin", "clang")
 
 
-def clang_candidates():
-    """The clangs tried when `SAWC_CLANG` names none, in order: every
-    versioned `clang-NN` on `PATH`, the newest first (the names a Linux
+# Espressif's clang, the only one with a working Xtensa backend: its tools sit
+# under `ROOT/tools/esp-clang/VERSION/esp-clang/bin`, ROOT being
+# `$IDF_TOOLS_PATH` when set and `~/.espressif` (the installer's default).
+def espressif_clangs():
+    roots = [os.environ.get("IDF_TOOLS_PATH") or "", os.path.join(os.path.expanduser("~"), ".espressif")]
+    found = []
+    for root in roots:
+        if not root:
+            continue
+        pattern = os.path.join(root, "tools", "esp-clang", "*", "esp-clang", "bin", "clang")
+        found.extend(sorted(glob.glob(pattern), reverse=True))
+    return found
+
+
+def clang_candidates(triple):
+    """The clangs tried for `triple` when `SAWC_CLANG` names none, in order:
+    every versioned `clang-NN` on `PATH`, the newest first (the names a Linux
     distribution installs beside an older default), then `clang`, then
-    `homebrew_clang()`. Each is a name `shutil.which` resolves."""
+    `homebrew_clang()`; for an `xtensa-` triple, every Espressif clang
+    (`espressif_clangs`) follows, the newest version first. Each is a name
+    `shutil.which` resolves, an absolute path included."""
     versions = set()
     for directory in (os.environ.get("PATH") or "").split(os.pathsep):
         try:
@@ -300,7 +317,8 @@ def clang_candidates():
             m = _VERSIONED_CLANG.match(name)
             if m and os.access(os.path.join(directory, name), os.X_OK):
                 versions.add(int(m.group(1)))
-    return ["clang-%d" % v for v in sorted(versions, reverse=True)] + ["clang", homebrew_clang()]
+    usual = ["clang-%d" % v for v in sorted(versions, reverse=True)] + ["clang", homebrew_clang()]
+    return usual + espressif_clangs() if triple.startswith("xtensa-") else usual
 
 
 # The capability every clang sawc hands its `.ll` to must have: opaque
@@ -331,11 +349,12 @@ def choose_clang(triple):
 
 def pick_clang(triple, named):
     """The clang for `triple`: `named` (the `SAWC_CLANG` value) when given,
-    with no fallback, else the first of `clang_candidates()` that compiles
+    with no fallback, else the first of `clang_candidates(triple)` that compiles
     `OPAQUE_POINTER_MODULE` for the target, since whether a clang can compile
     for a target is a fact about that target: Apple's clang has no RISC-V
-    backend. Returns (absolute path, "") or (None, why none qualifies)."""
-    candidates = [named] if named else clang_candidates()
+    backend. A `SAWC_CLANG` with no Xtensa backend leaves the Xtensa target
+    with no record. Returns (absolute path, "") or (None, why none qualifies)."""
+    candidates = [named] if named else clang_candidates(triple)
     refused = []
     answer = None
     for candidate in candidates:
@@ -478,7 +497,7 @@ def runtime_manifest(triple):
 # record names the clang, and the llvm-objcopy a split object needs, alone.
 # `target_bare_metal` in
 # compiler/target/src/layout.saw, which this must agree with.
-BARE_METAL_TARGETS = ("aarch64-unknown-none-elf", "riscv32-unknown-none-elf")
+BARE_METAL_TARGETS = ("aarch64-unknown-none-elf", "riscv32-unknown-none-elf", "xtensa-esp-unknown-elf")
 # The lines a record holds, part of its probe's key, so a record written
 # before a line existed is written again.
 RECORD_FORMAT = "target clang objcopy"
@@ -520,7 +539,7 @@ def configure_bare_metal_targets():
     for triple in BARE_METAL_TARGETS:
         record = runtime_manifest(triple)
         key_path = record + ".key"
-        looked_at = ([os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in clang_candidates()]
+        looked_at = ([os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in clang_candidates(triple)]
                      + [RECORD_FORMAT, shutil.which("llvm-objcopy") or ""])
         current = None
         if os.path.exists(record):
