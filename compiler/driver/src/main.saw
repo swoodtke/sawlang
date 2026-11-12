@@ -3885,7 +3885,7 @@ func driver_timed_build(args: &Vector<String>, first: Int) -> Int {
 // `sawc` found on `PATH`. compiler/tests/run.py fails unless it equals
 // `.sawtracker/version`, so a release bump edits both.
 func driver_version() -> String {
-    "0.21.0"
+    "0.22.0"
 }
 
 // The program stages `driver_resolve` runs to.
