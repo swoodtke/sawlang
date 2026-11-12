@@ -14,6 +14,7 @@ import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind,
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
+import sawparse.grammar.{Alt}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
@@ -164,7 +165,8 @@ extension MonoProgram {
     // (`top_decl`), when the profile makes it the entry (a runtime's source
     // and a freestanding program root their exports alone, and a `main`
     // there is an ordinary function); each exported function, in
-    // declaration order; then the lang functions the backend's own lowering
+    // declaration order; each non-generic top-level function an `@section`
+    // places, in declaration order; then the lang functions the backend's own lowering
     // calls: the panic sink, which every
     // check ends in, and the String roles a literal and a written-out String
     // are read through.
@@ -190,6 +192,17 @@ extension MonoProgram {
             // it, so the code its value names is reached here.
             if symbol.len() > 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Static {
                 self.reach_static(-1, d, self.dp.bc.mir.tc.res.decls[d].node)
+            }
+            // A placed function is a root, since a linker script may name its
+            // section and nothing in the program need call it. A generic one
+            // is rooted at no instance of its own: each instance a call
+            // reaches is placed, and the backend keeps it.
+            let top_function = self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Func && self.dp.bc.mir.tc.res.decls[d].parent < 0
+            if top_function && self.dp.bc.mir.tc.sigs[d].generic_count == 0 && self.dp.bc.mir.tc.res.decl_attribute(d, Alt.Attr_Attribute_Section) >= 0 {
+                let k = self.root_item(d, &none)
+                if k >= 0 {
+                    try! self.placed_items.push(k)
+                }
             }
             d = d + 1
         }

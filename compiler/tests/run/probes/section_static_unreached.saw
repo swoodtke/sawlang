@@ -1,0 +1,15 @@
+// probe: stated
+// about: an `@section` static nothing reads is still defined, as an internal global, and `@llvm.used` keeps it through the optimizer (SL-934)
+// stage 0: builds it and prints the same line; a probe because the Linux Stage 0 records are v0.18.0's and cannot be recorded again from the VM
+// speeds: -O0 -O2
+// prints: 7
+// ll defines: static section_static_unreached.TAGGED
+// ll defines: llvm.used
+// The name is Mach-O's two-part form, which an ELF target takes verbatim.
+
+@section("__DATA,__sawtag")
+static TAGGED: Int = 7
+
+func main() {
+    print("7")
+}

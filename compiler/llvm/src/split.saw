@@ -14,7 +14,10 @@
 // constant`, whose address nothing may observe, is copied into every unit that
 // names it instead, and so is a definition of no module's own (glue, thunks,
 // failure helpers: the plan's `LL_UNIT_COPY`), as `linkonce_odr hidden`,
-// which the link keeps one of. A unit's globals, declarations and definitions are
+// which the link keeps one of. The module's one `@llvm.used` list is cut by
+// definition: a unit holds the elements it defines and no list when it
+// defines none, since a declaration keeps nothing under ThinLTO, and an
+// element copied into several units is refused. A unit's globals, declarations and definitions are
 // written in symbol order, and the byte constants (`@.bytes.N`) and numbered
 // metadata it holds are numbered within it, in the order its text first names
 // them, the fixed debug nodes keeping their numbers. Each unit carries the
@@ -115,6 +118,11 @@ struct LlSplit {
     pool_next: Int
     meta_next: Int
     meta_queue: Vector<Int>
+    // The module's `@llvm.used` global, or -1; the entities its list names, in
+    // list order; and the line the unit being written holds for it.
+    used_entity: Int
+    used_elements: Vector<Int>
+    used_text: String
 }
 
 extension LlSplit: NoCopy {}
@@ -131,7 +139,8 @@ public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<Str
                     owned_first: Vector<Int>(), owned: Vector<Int>(),
                     always: Vector<Int>(), held_mark: Vector<Int>(), asked_mark: Vector<Int>(), token: 0,
                     pool_number: Vector<Int>(), pool_mark: Vector<Int>(), meta_number: Vector<Int>(),
-                    meta_mark: Vector<Int>(), pool_next: 0, meta_next: 0, meta_queue: Vector<Int>())
+                    meta_mark: Vector<Int>(), pool_next: 0, meta_next: 0, meta_queue: Vector<Int>(), used_entity: -1,
+                    used_elements: Vector<Int>(), used_text: "")
     var units = Vector<LlUnit>()
     let why = ll_split_entities(&var s, &text)
     if why.len() > 0 {
@@ -144,6 +153,18 @@ public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<Str
         return move units
     }
     let count = ll_split_owners(&var s, &text, &plan)
+    var j = 0
+    while j < s.used_elements.len() {
+        if s.owner[s.used_elements[j]] < 0 {
+            var msg = StringBuilder()
+            try! msg.append("the splitter finds `@llvm.used` naming `")
+            try! msg.append(s.entities[s.used_elements[j]].symbol)
+            try! msg.append("`, a definition copied into each unit that uses it")
+            try! problems.push(msg.build())
+            return move units
+        }
+        j = j + 1
+    }
     ll_split_group(&var s, count)
     var u = 0
     while u < count {
@@ -325,6 +346,9 @@ func ll_split_entities(s: &var LlSplit, text: &String) -> String {
         if named && (kind != LlEntityKind.Declare || not s.by_symbol.contains_key(key)) {
             let _ = try! s.by_symbol.insert(key, s.entities.len())
         }
+        if kind == LlEntityKind.Global && symbol.equals("@llvm.used") {
+            s.used_entity = s.entities.len()
+        }
         try! s.entities.push(LlEntity(kind: kind, start: at, stop: end, symbol: symbol, refs_first: 0, refs_count: 0))
         at = end
     }
@@ -413,6 +437,16 @@ func ll_split_references(s: &var LlSplit, text: &String) -> String {
         }
         s.entities[e].refs_first = first
         s.entities[e].refs_count = s.refs.len() - first
+        if e == s.used_entity {
+            // The list's elements go to the units that define them
+            // (`ll_split_unit_text`), so the entity itself names nothing.
+            var r = 0
+            while r < s.entities[e].refs_count {
+                try! s.used_elements.push(s.refs[first + r])
+                r = r + 1
+            }
+            s.entities[e].refs_count = 0
+        }
         e = e + 1
     }
     ""
@@ -428,6 +462,12 @@ func ll_split_owners(s: &var LlSplit, text: &String, plan: &LlUnitPlan) -> Int {
     while e < count {
         let entity = s.entities[e]
         var u = LL_UNPLACED
+        // `@llvm.used` is written into each unit that defines an element.
+        if e == s.used_entity {
+            try! s.owner.push(u)
+            e = e + 1
+            continue
+        }
         if entity.kind == LlEntityKind.Define || entity.kind == LlEntityKind.Global {
             let at = entity.start + entity.symbol.len()
             if let planned = plan.owners.get(entity.symbol) {
@@ -594,6 +634,10 @@ func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) ->
             try! tail.push(e)
         }
     }
+    s.used_text = ll_split_used_text(&s, u)
+    if s.used_text.len() > 0 {
+        try! globals.push(s.used_entity)
+    }
     ll_split_by_symbol(&s, &var globals)
     ll_split_by_symbol(&s, &var declares)
     ll_split_by_symbol(&s, &var defines)
@@ -666,6 +710,39 @@ func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) ->
     out.build()
 }
 
+// Unit `u`'s `@llvm.used` line: the elements of the module's list that `u`
+// defines, in the list's order, each a symbol an optimizer or a link run on
+// the unit alone keeps; "" when it defines none. A unit lists only what it
+// defines, since a declaration roots nothing under ThinLTO.
+func ll_split_used_text(s: &LlSplit, u: Int) -> String {
+    var mine = Vector<String>()
+    var k = 0
+    while k < s.used_elements.len() {
+        if s.owner[s.used_elements[k]] == u {
+            try! mine.push(s.entities[s.used_elements[k]].symbol)
+        }
+        k = k + 1
+    }
+    if mine.len() == 0 {
+        return ""
+    }
+    var out = StringBuilder()
+    try! out.append("@llvm.used = appending global [")
+    try! out.append(mine.len())
+    try! out.append(" x ptr] [")
+    k = 0
+    while k < mine.len() {
+        if k > 0 {
+            try! out.append(", ")
+        }
+        try! out.append("ptr ")
+        try! out.append(mine[k])
+        k = k + 1
+    }
+    try! out.append("], section \"llvm.metadata\"\n")
+    out.build()
+}
+
 // Writes each of entities `run` (`ll_split_write`).
 func ll_split_write_all(out: &var StringBuilder, s: &LlSplit, text: &String, run: &Vector<Int>) {
     var k = 0
@@ -681,6 +758,10 @@ func ll_split_write_all(out: &var StringBuilder, s: &LlSplit, text: &String, run
 // copied definition is `linkonce_odr hidden`: every unit that uses it holds
 // the same text, and the link keeps one.
 func ll_split_write(out: &var StringBuilder, s: &LlSplit, text: &String, e: Int) {
+    if e == s.used_entity {
+        try! out.append(s.used_text)
+        return
+    }
     let entity = s.entities[e]
     var at = entity.start
     if entity.kind == LlEntityKind.Define {

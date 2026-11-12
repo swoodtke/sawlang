@@ -94,6 +94,9 @@ run of it, built against its own std.
 - a generated `match` of 6,400 integer literal arms is held as a stated probe
   to the arm each of eight values takes and a sum weighing every value by its
   arm;
+- each placed function or static of `section_function.saw`, `section_static.saw`
+  and their `_unreached` twins is defined in the -O2 binary, whole-module and
+  split (`check_placed_symbols`);
 - no record in `stage0/` names a program that is gone.
 
 `--stage0` records Stage 0's runs of every program not due, or of the NAMEs,
@@ -1418,6 +1421,77 @@ def check_split_object(failures, counts):
         failures.append("run split object: with no llvm-objcopy recorded the split -c build exits %d: %s"
                         % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
     counts["run split objects bound as whole ones"] = 1
+
+
+# The probes whose `@section` definitions must be defined in the optimized
+# binary and sit in the section the probe names, each with the part of their
+# symbols' names `nm` shows and how many such symbols there are: a placed
+# function or static is kept through the optimizer and the link whether or not
+# anything reaches it, whether or not the optimizer inlined or folded its
+# readers, and a generic function's instance a call reaches is one.
+PLACED_SYMBOL_PROBES = (("section_function_unreached.saw", "placed()", 1), ("section_static_unreached.saw", "TAGGED", 1),
+                        ("section_function.saw", "placed()", 1), ("section_static.saw", "TAGGED", 1),
+                        ("section_function_suspends.saw", "placed()", 1),
+                        ("section_function_suspends_unreached.saw", "placed()", 1),
+                        ("section_function_generic.saw", "placed", 2))
+
+
+def symbol_sections(obj, mach_o):
+    """{symbol name: section} of `obj` as `nm` lists them, a Mach-O section as
+    `SEGMENT,section`, an ELF one by its name; (None, why) when `nm` cannot
+    read it."""
+    argv = ["nm", "-m", obj] if mach_o else ["nm", "-f", "sysv", obj]
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        return None, (r.stdout + r.stderr).strip()[:300]
+    found = {}
+    for line in r.stdout.splitlines():
+        if mach_o:
+            m = re.match(r"^[0-9a-fA-F]+ \(([^)]*)\) (?:private )?(?:non-)?external (.+)$", line)
+            if m:
+                found[m.group(2)] = m.group(1)
+        else:
+            fields = [f.strip() for f in line.split("|")]
+            if len(fields) >= 7:
+                found[fields[0]] = fields[6]
+    return found, ""
+
+
+def check_placed_symbols(failures, counts):
+    """Each of `PLACED_SYMBOL_PROBES`, built at -O2 whole-module and with
+    `--codegen-units=module`, defines each placed function or static in the
+    binary, in the section its `@section` names."""
+    work = os.path.join(OUT, "placed-symbols")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    mach_o = "-apple-" in build.clang_triple(TARGET or build.host_triple())
+    for name, part, count in PLACED_SYMBOL_PROBES:
+        with open(os.path.join(PROBES, name)) as fh:
+            named = re.search(r'^@section\("([^"]+)"\)', fh.read(), re.M).group(1)
+        # A Mach-O table shows a section as its segment and name alone.
+        section = ",".join(named.split(",")[:2]) if mach_o else named
+        for units in ("1", "module"):
+            where = "run %s -O2 --codegen-units=%s" % (name, units)
+            out = os.path.join(work, "%s-%s" % (os.path.splitext(name)[0], units))
+            r = subprocess.run([build.SAWC, "build"] + target_flags() + ["-O2", "-g0", "--codegen-units=" + units,
+                                                                         os.path.join(PROBES, name), "-o", out],
+                               cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+            if r.returncode != 0:
+                failures.append("%s: the build fails: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+                continue
+            sections, why = symbol_sections(out, mach_o)
+            if sections is None:
+                failures.append("%s: nm cannot read the binary: %s" % (where, why))
+                continue
+            placed = {symbol: at for symbol, at in sections.items() if part in symbol}
+            if len(placed) != count:
+                failures.append("%s: the binary defines %d symbols naming `%s`, not %d"
+                                % (where, len(placed), part, count))
+            for symbol, at in sorted(placed.items()):
+                if at != section:
+                    failures.append("%s: `%s` is in section `%s`, not `%s`" % (where, symbol, at, section))
+            counts["run placed symbols defined in their section at -O2"] = \
+                counts.get("run placed symbols defined in their section at -O2", 0) + len(placed)
 
 
 # The object cache's SHA-256 (compiler/driver/src/sha256.saw), driven through
@@ -4068,6 +4142,7 @@ def run(names=None, write=False):
         check_codegen_units(failures, counts)
         check_unit_stability(failures, counts)
         check_split_object(failures, counts)
+        check_placed_symbols(failures, counts)
         check_sha256(failures, counts)
         check_object_cache(failures, counts)
         check_front_cache(failures, counts)

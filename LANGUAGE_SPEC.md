@@ -16134,7 +16134,8 @@ shape). There is deliberately no separate `no_mangle`/`c_abi` split.
 
 An export is a keep-root at all three points where unreached code is discarded:
 the `-O1` pipeline above, code generation (which emits only the functions
-reachable from `main`, the exports, and an `@section` placement), and the link
+reachable from `main`, the exports, and an `@section` placement, which is kept
+the same way whether or not anything reaches it), and the link
 (`-dead_strip` on mach-O, `--gc-sections` on ELF). So an exported function that
 nothing in the program calls is still in the object and still in the executable.
 
@@ -16179,10 +16180,15 @@ still governs Saw-side callers.
 **`@section("name")`** places a top-level function or static in the named
 object-file section (the LLVM section attribute). It composes with `@export` and
 does not require it; the name is passed through verbatim (the linker's problem)
-beyond a non-empty check. Placement is all it does: a `@section` without an
-`@export` beside it still has internal linkage, in both profiles (see
-[Link symbols and linkage](#link-symbols-and-linkage)), so the section is a
-placement request and never a second way to publish a symbol. Section-name *syntax* is target-specific — ELF accepts
+beyond a non-empty check. Placement is all it does to a symbol's visibility: a
+`@section` without an `@export` beside it still has internal linkage, in both
+profiles (see [Link symbols and linkage](#link-symbols-and-linkage)), so the
+section is a placement request and never a second way to publish a symbol. A
+placed function or static is emitted and kept through the optimizer whether or
+not anything reaches it, and its definition stays when the optimizer inlines
+every call. At the link
+it is kept where the object format carries a retain flag, and a linker script
+decides otherwise. Section-name *syntax* is target-specific — ELF accepts
 `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
 mach-O target is a compile error naming the declaration and the two-part form:
 

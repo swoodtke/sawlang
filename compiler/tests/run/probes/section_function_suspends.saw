@@ -1,0 +1,16 @@
+// probe: stated
+// about: an `@section` function that suspends is defined as its resume function in the section, kept by `@llvm.used`, and runs (SL-934)
+// stage 0: not run; the probe holds sawc to the spec's placement of a function whose body suspends
+// speeds: -O0 -O2
+// prints: 7
+// The name is Mach-O's form, which an ELF target takes verbatim (section_function.saw).
+
+@section("__TEXT,__sawfn,regular,pure_instructions")
+func placed() -> Int {
+    sleep(Duration.ms(1))
+    7
+}
+
+func main() {
+    print("{}", placed())
+}

@@ -88,6 +88,10 @@ public struct LlEmitter {
     local_align: Map<Int, Int>
     decl_align: Map<Int, Int>
     decl_section: Map<Int, String>
+    // The symbols (with their `@`) of the unexported definitions written with
+    // a `section` clause, in emission order, which `@llvm.used` keeps
+    // (`note_placed_define`).
+    placed_defines: Vector<String>
     // Each field's struct and index there, for every struct `field_slot` has
     // listed: a field place reaches its index without listing its struct's
     // fields again.
@@ -192,7 +196,7 @@ extension LlEmitter {
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
                   local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>(),
-                  field_owners: Map<Int, Int>(), field_slots: Map<Int, Int>(),
+                  placed_defines: Vector<String>(), field_owners: Map<Int, Int>(), field_slots: Map<Int, Int>(),
                   features: "", code_thunks: Vector<Int>(), code_externs: Vector<Int>(),
                   value_thunks: Vector<Int>(), builtins: Vector<Bool>())
     }
@@ -288,7 +292,7 @@ extension LlEmitter {
     // object leaves it to the read-only data a kernel's linker script places
     // (`TcProfile.backtrace_section`). With `accessor`, the function std
     // declares to read the table is defined beside it.
-    public func bt_table_global(&self, triple: String, accessor: Bool, section: Bool) -> String {
+    public func bt_table_global(&self, triple: String, accessor: Bool, section: Bool, placed: &Vector<String>) -> String {
         if self.lowering.bt_table.len() == 0 {
             return ""
         }
@@ -305,7 +309,7 @@ extension LlEmitter {
             try! out.append(", section \".saw_bt\"")
         }
         try! out.append(", align 8\n")
-        try! out.append("@llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section \"llvm.metadata\"\n")
+        try! out.append(ll_used_global(true, &placed))
         if accessor {
             // A Saw `extern` names a function, never data, so std's task
             // dump reaches the table through this accessor (SL-577).
@@ -398,6 +402,43 @@ public func ll_value_type(l: &TargetLayout) -> String {
 // Whether a value of layout `l` travels as an SSA value.
 public func ll_is_scalar(l: &TargetLayout) -> Bool {
     l.kind == TargetKind.Int || l.kind == TargetKind.Float || l.kind == TargetKind.Pointer
+}
+
+// THE `@llvm.used` FUNNEL: the module's one list of definitions the optimizer
+// and the linker keep though nothing names them, in order the backtrace table
+// when `table`, then each of `placed`, the symbols (with their `@`) of the
+// unexported definitions an `@section` places; "" when the list is empty.
+// Linkage never changes: a placement is a request, never a way to publish a
+// symbol.
+// ENTRY POINTS:
+//     bt_table_global
+//     llvm_emit_program
+public func ll_used_global(table: Bool, placed: &Vector<String>) -> String {
+    let count = placed.len() + (if table { 1 } else { 0 })
+    if count == 0 {
+        return ""
+    }
+    var out = StringBuilder()
+    try! out.append("@llvm.used = appending global [")
+    try! out.append(count)
+    try! out.append(" x ptr] [")
+    var first = true
+    if table {
+        try! out.append("ptr @__saw_bt_table")
+        first = false
+    }
+    var j = 0
+    while j < placed.len() {
+        if not first {
+            try! out.append(", ")
+        }
+        first = false
+        try! out.append("ptr ")
+        try! out.append(placed[j])
+        j = j + 1
+    }
+    try! out.append("], section \"llvm.metadata\"\n")
+    out.build()
 }
 
 // The symbol of item `k`: an exported function's C symbol, else its dump

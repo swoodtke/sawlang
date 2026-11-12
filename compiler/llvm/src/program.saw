@@ -16,7 +16,8 @@ import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PAR
                           ll_fail_symbol}
 import sawcoro.lower.{CORO_STATE_START}
 import sawllvm.module.{LlEmitter, LlLowering, ll_bt_table_address, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar,
-                       ll_reaches_extern, ll_resume_symbol, ll_symbol, ll_value_type}
+                       ll_reaches_extern, ll_resume_symbol, ll_static_symbol, ll_symbol, ll_used_global,
+                       ll_value_type}
 // For the extension writing `static_global`.
 import sawllvm.places.{ll_local_slot}
 import sawllvm.render.{ll_spelled}
@@ -109,6 +110,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     // An exported static is a root, and so is a placed one, which a linker
     // script may keep by its section: each has its global whether or not a
     // function reads it.
+    var placed_statics = Vector<String>()
     var s = 0
     while s < mono.dp.bc.mir.tc.res.decls.len() {
         let symbol = mono.dp.bc.mir.tc.export_symbols.get(s) ?? ""
@@ -117,6 +119,9 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
             let node = mono.dp.bc.mir.tc.res.decls[s].node
             let t = mono.dp.bc.mir.tc.sigs[s].result
             let _ = e.static_global(&var mono, &var target, s, t, node)
+            if symbol.len() == 0 {
+                try! placed_statics.push(ll_static_symbol(&mono, s))
+            }
         }
         s = s + 1
     }
@@ -156,8 +161,27 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         }
         k = k + 1
     }
+    // Every placed, unexported definition is kept through the optimizer and
+    // the link, whether or not anything reaches it: functions, then statics.
+    var kept = Vector<String>()
+    var pi = 0
+    while pi < e.placed_defines.len() {
+        try! kept.push(e.placed_defines[pi])
+        pi = pi + 1
+    }
+    pi = 0
+    while pi < placed_statics.len() {
+        try! kept.push(placed_statics[pi])
+        pi = pi + 1
+    }
+    var table = ""
     if profile.backtrace_table() {
-        let table = e.bt_table_global(target.triple, bt_accessor, profile.backtrace_section())
+        table = e.bt_table_global(target.triple, bt_accessor, profile.backtrace_section(), &kept)
+    }
+    if table.len() == 0 {
+        table = ll_used_global(false, &kept)
+    }
+    if table.len() > 0 {
         try! e.globals.append(table)
     }
     mono.current = -1

@@ -1,0 +1,23 @@
+// stage 0: not run on it, a placement being a root is sawc's rule
+// An `@section` function nothing calls is a root: its item is in the list
+// beside `main`'s, and the function that only it reaches follows. A generic
+// placed function is rooted at no instance of its own, so it is an item only
+// at an instance a call reaches (SL-934).
+
+@section(".text.boot")
+func boot() -> Int {
+    boot_helper() + 1
+}
+
+func boot_helper() -> Int {
+    7
+}
+
+@section(".text.generic")
+func placed_generic<T>(v: T) -> T {
+    v
+}
+
+func main() {
+    print("hi")
+}

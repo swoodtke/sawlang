@@ -67,6 +67,21 @@ extension LlEmitter {
         out.build()
     }
 
+    // THE PLACED-DEFINE FUNNEL: item `k`'s define, written under `symbol`
+    // with `section` as its clause, is kept by `@llvm.used` when it has one
+    // and no export makes it external, whether or not anything reaches it, and
+    // for a generic function at each of its instances. A suspending item's
+    // define is its resume function, so the symbol recorded is the one the
+    // define carries.
+    // ENTRY POINTS:
+    //     emit_function
+    //     emit_resume
+    func note_placed_define(&var self, mono: &MonoProgram, k: Int, symbol: String, section: String) {
+        if section.len() > 0 && ll_export_symbol(&mono, k).len() == 0 {
+            try! self.placed_defines.push(symbol)
+        }
+    }
+
     // Item `k`'s concrete function, written into the definitions unless the
     // backend refused something in it.
     public func emit_function(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
@@ -196,7 +211,9 @@ extension LlEmitter {
         self.drive_storage(&var mono, k, &var prelude)
         try! head.append(")")
         try! head.append(ll_function_attributes("", builtin: builtin))
-        try! head.append(self.item_section(&mono, k))
+        let section = self.item_section(&mono, k)
+        self.note_placed_define(&mono, k, ll_symbol(&mono, k), section)
+        try! head.append(section)
         try! head.append(dbg)
         let opening = self.dbg_suffix
         let intrinsic = self.float_method_intrinsic(&var mono, &var target, k)
@@ -473,7 +490,9 @@ extension LlEmitter {
         try! self.defs.append(symbol)
         try! self.defs.append("(ptr %frame, ptr %cx)")
         try! self.defs.append(ll_function_attributes(""))
-        try! self.defs.append(self.item_section(&mono, k))
+        let section = self.item_section(&mono, k)
+        self.note_placed_define(&mono, k, symbol, section)
+        try! self.defs.append(section)
         try! self.defs.append(dbg)
         try! self.defs.append(" \{\nentry:\n")
         let slots = self.allocas.build()
