@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 17:10
+// a lone raw-backed case passed where the parameter is an optional integer; the cast names the parameter's width (SL-1090)
+// message: a raw-backed case is an integer only where the slot's own type is one: write `Why.Bad as UInt32`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+enum Other {
+    case A,
+}
+
+func take(x: UInt32?) {}
+
+func main() {
+    take(Why.Bad)
+}

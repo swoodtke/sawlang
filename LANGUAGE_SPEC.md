@@ -8825,12 +8825,33 @@ let narrow: UInt8 = Cfg.Wide | Cfg.Mask
 **A LONE case folds there too**, on exactly those terms: it is a constant of the
 backing whether one case is written or three, so `static Y: UInt32 = Perm.Read`
 is 1. It was refused until Aug 31, which meant adding a second flag removed a
-cast. A case is still a value of its own enum wherever the slot takes that
-enum, at the slot itself or at a layer of an `Optional` or `Result` slot: in a
-function returning `Result<UInt, Perm>`, `return Perm.Read` is
-`Err(Perm.Read)`, not `Ok(1)`, and in a `Result<Perm, UInt>` slot it is
-`Ok(Perm.Read)`. The fold applies only where no layer of the slot takes the
-enum, so `let n: UInt = Perm.Read` is 1.
+cast. The fold needs the slot's own type to be the integer. Through an
+`Optional` or a `Result` a lone case is a value of its own enum: in a function
+returning `Result<UInt, Perm>`, `return Perm.Read` is `Err(Perm.Read)`, not
+`Ok(1)`, and in a `Result<Perm, UInt>` slot it is `Ok(Perm.Read)`. A case of an enum that is an `Error`, returned where the error is erased (`Result<UInt, Box<any Error>>`), is that `Err`. Where no
+layer of the slot takes the enum, the case does not become the integer: `UInt?`
+and `Result<UInt, Other>` refuse it, and the message names the cast.
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: a raw-backed case is an integer only where the slot's own type is one: write `Perm.Read as UInt`
+enum Perm: UInt8 { case Read = 0x01, case Write = 0x02, case Exec = 0x04 }
+
+func main() {
+    let n: UInt = Perm.Read   // 1: the slot's own type is an integer
+    let m: UInt? = Perm.Read
+    // error: expected `UInt?`, the type of the annotated binding, and found `Perm`;
+    //        a raw-backed case is an integer only where the slot's own type is one:
+    //        write `Perm.Read as UInt`
+}
+```
+
+A `Result<UInt, Other>` slot gets the same refusal, and `Perm.Read as UInt` is
+the way through either. A `Some(...)` or `Ok(...)` written around the case makes
+the payload's slot the integer, so `Optional.Some(Perm.Read)` in a `UInt?` slot
+is `Some(1)`. A combination is unchanged: it is the backing integer by rule, so
+`Perm.Read | Perm.Write` folds into `UInt8?` and `Result<UInt8, Other>` as well
+as into `UInt8`.
 
 The same rule covers a module `static` named in such a slot
 (`let e: UInt16 = 1 << PAGE_SHIFT`), which is what the size-in-one-place idiom

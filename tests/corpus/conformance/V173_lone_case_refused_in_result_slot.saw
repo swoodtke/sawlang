@@ -1,0 +1,28 @@
+// Conformance row V173 — a lone raw-backed case is no integer through a `Result`
+//
+// A raw-backed enum's case is a constant of its backing integer only where the slot's
+// own type is that integer (spec, Flag enums). `Result<UInt, Other>` is not an integer
+// slot, so `return Why.Bad` is a case of `Why`, which the slot does not take: refused,
+// with the cast named, rather than answering `Ok(11)`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: write `Why.Bad as UInt`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+enum Other {
+    case A,
+}
+
+func frame_length() -> Result<UInt, Other> {
+    return Why.Bad
+}
+
+func main() {
+    match frame_length() {
+        case Ok(n) -> print("ok {n}"),
+        case Err(_) -> print("err"),
+    }
+}

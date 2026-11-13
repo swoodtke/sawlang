@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 15:12
+// a lone raw-backed case returned where a Result's Ok payload is an integer and its error is another enum (SL-1090)
+// message: a raw-backed case is an integer only where the slot's own type is one: write `Why.Bad as UInt`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+enum Other {
+    case A,
+}
+
+func frame_length() -> Result<UInt, Other> {
+    return Why.Bad
+}

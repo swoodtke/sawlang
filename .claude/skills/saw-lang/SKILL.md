@@ -4721,7 +4721,12 @@ construct in the owner and lend `&driver` down.
   range-check it against the declared type. **A LONE CASE IS A CONSTANT THERE
   TOO** (design 257 §2, Aug 31): one case or three, it is a constant of the
   backing, so `static Y: UInt32 = Perm.Read` is 1 and a `static_assert` may
-  compare a bare case against a number. Before that date only a COMBINATION
+  compare a bare case against a number, but only where the slot's OWN type is
+  that integer: through an `Optional` or a `Result` a lone case is a value of its
+  enum (`Err(Perm.Read)` in a `Result<UInt, Perm>`) or, where no layer takes the
+  enum, a `type.mismatch` naming the cast (`let m: UInt? = Perm.Read` and a
+  `Result<UInt, Other>` return are refused; write `Perm.Read as UInt`). A
+  COMBINATION still folds through both wrappers. Before Aug 31 only a COMBINATION
   folded — the lone case was ``has type `UInt32` but its initializer has type
   `Perm` `` — so adding a second flag REMOVED a cast, and a build where the
   one-flag line needs `as UInt32` predates the fix. Outside a const or adoption

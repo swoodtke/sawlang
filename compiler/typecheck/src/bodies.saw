@@ -32,7 +32,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets_from}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text, tc_float_bits}
+import sawtypecheck.arith.{TcFault, tc_arith_fits, tc_arith_max, tc_arith_min, tc_arith_text, tc_float_bits}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
@@ -1716,8 +1716,8 @@ extension TcProgram {
     // position; any other expression is typed with the slot as a hint, then
     // converted within what the position allows (`allowance`). An expression
     // typed already, as argument inference types one first, is only
-    // converted. A lone raw-backed case folds into an integer slot only when
-    // no layer of the slot takes its enum. The position takes the value, or,
+    // converted. A lone raw-backed case folds into the slot only when the
+    // slot's own type is an integer. The position takes the value, or,
     // with `borrowed`, borrows it. Returns the type the position receives.
     //
     // ENTRY POINTS (expect):
@@ -1742,16 +1742,14 @@ extension TcProgram {
         let known = slot >= 0 && not self.has_error(slot)
         let allow = self.allowance(pos)
         let lone = if known { self.raw_case_named(e) } else { -1 }
-        if lone >= 0 && not self.is_typed(e) && self.adopts_lone_case(pos) && not self.slot_takes_case_enum(slot, lone) {
-            // A lone raw-backed case is a constant of its backing, so an
-            // integer slot takes its value (spec, Flag enums), unless the
-            // slot takes the case's own enum at some layer, where the case
-            // is that enum and the ordinary path wraps it (SL-1087).
-            let peeled = self.peel(slot, TcClient.Integer, -1, -1)
-            if peeled >= 0 && self.is_integer(peeled) {
-                let _ = self.expr(e, TC_WANT_NONE)
-                self.add_adjust(e, TcAdjustKind.Adopt, peeled)
-            }
+        if lone >= 0 && not self.is_typed(e) && self.adopts_lone_case(pos) && self.is_integer(slot) {
+            // A lone raw-backed case is a constant of its backing where the
+            // slot's own type is that integer (spec, Flag enums). Through an
+            // `Optional` or a `Result` it is a value of its enum, which the
+            // ordinary path wraps where a layer takes the enum and refuses
+            // otherwise (SL-1090).
+            let _ = self.expr(e, TC_WANT_NONE)
+            self.add_adjust(e, TcAdjustKind.Adopt, slot)
         }
         if not self.is_typed(e) {
             if not known {
@@ -2915,20 +2913,9 @@ extension TcProgram {
         return -1
     }
 
-    // Whether `slot` takes the lone raw-backed case `c` as a value of its own
-    // enum: at the slot itself or at a layer `peel` reaches, where one payload
-    // or both (the ordinary path reports the ambiguity) take that enum. Such a
-    // case is never folded into the backing integer, so `Why.Bad` in a
-    // `Result<UInt, Why>` is the error.
-    func slot_takes_case_enum(&self, slot: Int, c: Int) -> Bool {
-        let owner = self.res.decls[c].parent
-        self.peel(slot, TcClient.Construct, -1, owner) != TC_PEEL_NONE
-    }
-
     // Whether funnel position `pos` is an integer slot a lone raw-backed case
     // folds into (spec, Flag enums): a declared type in force, not an
-    // operator's peer; `expect` adds that no layer of the slot takes the
-    // case's own enum.
+    // operator's peer; `expect` adds that the slot's own type is an integer.
     func adopts_lone_case(&self, pos: TcPosition) -> Bool {
         match pos {
             case Operand -> false,
@@ -15626,7 +15613,10 @@ extension TcProgram {
         try! msg.append(", and found `")
         try! msg.append(self.type_text(from))
         try! msg.append("`")
-        let hint = self.static_cast_hint(e, slot)
+        var hint = self.static_cast_hint(e, slot)
+        if hint.len() == 0 {
+            hint = self.lone_case_cast_hint(e, slot, pos)
+        }
         if hint.len() > 0 {
             try! msg.append(hint)
         } else {
@@ -15650,6 +15640,34 @@ extension TcProgram {
         try! out.append(self.text(m, leaf))
         try! out.append(" as ")
         try! out.append(self.type_text(to))
+        try! out.append("`")
+        out.build()
+    }
+
+    // The way out when `e` is a lone raw-backed case where an `Optional` or a
+    // `Result` wraps an integer: the case is an integer only where the slot's
+    // own type is one. Empty otherwise, and when the case's value does not
+    // fit that integer, where the cast would be refused too (SL-1090).
+    func lone_case_cast_hint(&var self, e: Int, slot: Int, pos: TcPosition) -> String {
+        if self.raw_case_named(e) < 0 || not self.adopts_lone_case(pos) {
+            return ""
+        }
+        let peeled = self.peel(slot, TcClient.Integer, -1, -1)
+        if peeled < 0 || not self.is_integer(peeled) {
+            return ""
+        }
+        let v = self.fold_constant(e)
+        if v.ok && v.ty >= 0 && self.is_integer(v.ty) {
+            let held = tc_arith_fits(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(peeled), not self.is_unsigned(peeled))
+            if not held {
+                return ""
+            }
+        }
+        var out = StringBuilder()
+        try! out.append("; a raw-backed case is an integer only where the slot's own type is one: write `")
+        try! out.append(self.text(self.node_module(e), e))
+        try! out.append(" as ")
+        try! out.append(self.type_text(peeled))
         try! out.append("`")
         out.build()
     }

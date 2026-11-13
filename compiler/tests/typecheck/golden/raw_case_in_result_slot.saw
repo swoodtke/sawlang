@@ -1,5 +1,8 @@
 // A lone raw-backed case is its enum wherever a layer of the slot takes that
-// enum, and folds into an integer slot where none does (SL-1087).
+// enum (or erases into the `Error` box, as `Fault` does), and an integer only where the slot's own type is one: through an
+// `Optional` or a `Result` that takes no such enum it is refused, so a
+// written `Some(...)`, `Ok(...)` or cast is how it reaches the payload, and a
+// combination keeps folding through both wrappers (SL-1090).
 
 enum Why: UInt8 {
     case Fine = 0,
@@ -9,6 +12,17 @@ enum Why: UInt8 {
 enum Other {
     case A,
 }
+
+enum Fault: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("fault") }
+}
+
+extension Fault: Error {}
 
 func error_payload() -> Result<UInt, Why> {
     return Why.Bad
@@ -26,20 +40,51 @@ func error_beside_optional() -> Result<UInt?, Why> {
     return Why.Bad
 }
 
-func unrelated_error() -> Result<UInt, Other> {
+func erased_error_return() -> Result<UInt, Box<any Error>> {
+    return Fault.Bad
+}
+
+func erased_error_tail() -> Result<UInt, Box<any Error>> {
+    Fault.Bad
+}
+
+func optional_of_the_enum() -> Why? {
     return Why.Bad
 }
 
 func into_integer() -> UInt {
     let n: UInt = Why.Bad
-    let m: UInt? = Why.Bad
+    let narrow: UInt8 = Why.Bad
     return n
+}
+
+func written_payload() -> Result<UInt, Other> {
+    let m: UInt? = Optional.Some(Why.Bad)
+    return Result.Ok(Why.Bad)
+}
+
+func cast_payload() -> Result<UInt, Other> {
+    let m: UInt? = Why.Bad as UInt
+    return Why.Bad as UInt
 }
 
 func combination() -> Result<UInt, Why> {
     return Why.Bad | Why.Fine
 }
 
+func combination_through_wrappers() -> Result<UInt8, Other> {
+    let m: UInt8? = Why.Bad | Why.Fine
+    return ~Why.Bad
+}
+
 func typed_local(w: Why) -> Result<UInt, Why> {
     return w
+}
+
+func pick(x: UInt?) {}
+
+func pick(x: Why) {}
+
+func overload_takes_the_enum() {
+    pick(Why.Bad)
 }

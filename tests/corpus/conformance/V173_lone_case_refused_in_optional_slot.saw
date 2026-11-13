@@ -1,0 +1,19 @@
+// Conformance row V173 — a lone raw-backed case is no integer through an `Optional`
+//
+// Same rule as the `Result` program beside it: `UInt?` is not an integer slot, so
+// `Why.Bad` there is refused and names the cast.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: write `Why.Bad as UInt`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+func main() {
+    let m: UInt? = Why.Bad
+    match m {
+        case Some(n) -> print("some {n}"),
+        case None -> print("none"),
+    }
+}

@@ -3,7 +3,8 @@
 // A function returning `Result<T, Why>` may `return` a bare value, and the compiler wraps
 // it by its type. A lone case of a raw-backed enum folds into an integer where an integer
 // is expected (spec, Flag enums), but where the slot also takes the case's own enum the
-// case is that enum, so it is the error. Each of the three integer payloads, written by
+// case is that enum, so it is the error: written (`Result<UInt, Why>`) or erased
+// (`Result<UInt, Box<any Error>>` for an enum that is an `Error`, `Fault`). Each of the three integer payloads, written by
 // `return` and as the body's tail, must print `Err`; a case written where only an integer
 // is expected (`let n: UInt = Why.Bad`) still folds and is 11.
 // EXPECT: success
@@ -14,6 +15,8 @@
 // uint8 tail: Err
 // int return: Err
 // int tail: Err
+// erased return: Err
+// erased tail: Err
 // fold: 11
 
 enum Why: UInt8 {
@@ -54,6 +57,35 @@ func int_tail() -> Result<Int, Why> {
     Why.Bad
 }
 
+enum Fault: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("fault") }
+}
+
+extension Fault: Error {}
+
+func erased_return(fail: Bool) -> Result<UInt, Box<any Error>> {
+    if fail {
+        return Fault.Bad
+    }
+    return 5
+}
+
+func erased_tail() -> Result<UInt, Box<any Error>> {
+    Fault.Bad
+}
+
+func erased_verdict(r: Result<UInt, Box<any Error>>) -> String {
+    match r {
+        case Ok(_) -> "Ok",
+        case Err(_) -> "Err",
+    }
+}
+
 func verdict<T>(r: Result<T, Why>) -> String {
     match r {
         case Ok(_) -> "Ok",
@@ -68,6 +100,8 @@ func main() {
     print("uint8 tail: {}", verdict(uint8_tail()))
     print("int return: {}", verdict(int_return(true)))
     print("int tail: {}", verdict(int_tail()))
+    print("erased return: {}", erased_verdict(erased_return(true)))
+    print("erased tail: {}", erased_verdict(erased_tail()))
     let n: UInt = Why.Bad
     print("fold: {}", n)
 }

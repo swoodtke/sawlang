@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:21
+// a lone raw-backed case whose value does not fit the optional integer gets no cast hint, since the cast is refused too (SL-1090)
+
+enum Big: UInt32 {
+    case Fine = 0,
+    case X = 300,
+}
+
+func main() {
+    let m: UInt8? = Big.X
+}

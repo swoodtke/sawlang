@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 15:35
+// a lone raw-backed case where an integer sits under an Optional inside a Result (SL-1090)
+// message: a raw-backed case is an integer only where the slot's own type is one: write `Why.Bad as UInt`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+enum Other {
+    case A,
+}
+
+func main() {
+    let m: Result<UInt?, Other> = Why.Bad
+}

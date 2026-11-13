@@ -1,56 +1,119 @@
 (Module raw_case_in_result_slot
   (declarations
-    (enum Why 4:6 private (raw UInt8))
-    (case Why.Fine 5:10)
-    (case Why.Bad 6:10)
-    (enum Other 9:6 private)
-    (case Other.A 10:10)
-    (func error_payload 13:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
-    (func error_payload_tail 17:6 private (signature (params) -> Result<Int, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
-    (func ok_payload 21:6 private (signature (params) -> Result<raw_case_in_result_slot.Why, UInt>) (summary body (suspends no) (sync-callable yes)))
-    (func error_beside_optional 25:6 private (signature (params) -> Result<UInt?, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
-    (func unrelated_error 29:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Other>) (summary body (suspends no) (sync-callable yes)))
-    (func into_integer 33:6 private (signature (params) -> UInt) (summary body (suspends no) (sync-callable yes)))
-    (func combination 39:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
-    (func typed_local 43:6 private (signature (params (w raw_case_in_result_slot.Why owned)) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes))))
+    (enum Why 7:6 private (raw UInt8))
+    (case Why.Fine 8:10)
+    (case Why.Bad 9:10)
+    (enum Other 12:6 private)
+    (case Other.A 13:10)
+    (enum Fault 16:6 private (raw UInt8))
+    (case Fault.Fine 17:10)
+    (case Fault.Bad 18:10)
+    (extension 21:1 (target raw_case_in_result_slot.Fault) (conforms Printable))
+    (method Fault.format 22:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (extension 25:1 (target raw_case_in_result_slot.Fault) (conforms Error))
+    (func error_payload 27:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func error_payload_tail 31:6 private (signature (params) -> Result<Int, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func ok_payload 35:6 private (signature (params) -> Result<raw_case_in_result_slot.Why, UInt>) (summary body (suspends no) (sync-callable yes)))
+    (func error_beside_optional 39:6 private (signature (params) -> Result<UInt?, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func erased_error_return 43:6 private (signature (params) -> Result<UInt, std.box.Box<any Error, std.alloc.GlobalAllocator>>) (summary body (suspends no) (sync-callable yes)))
+    (func erased_error_tail 47:6 private (signature (params) -> Result<UInt, std.box.Box<any Error, std.alloc.GlobalAllocator>>) (summary body (suspends no) (sync-callable yes)))
+    (func optional_of_the_enum 51:6 private (signature (params) -> raw_case_in_result_slot.Why?) (summary body (suspends no) (sync-callable yes)))
+    (func into_integer 55:6 private (signature (params) -> UInt) (summary body (suspends no) (sync-callable yes)))
+    (func written_payload 61:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Other>) (summary body (suspends no) (sync-callable yes)))
+    (func cast_payload 66:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Other>) (summary body (suspends no) (sync-callable yes)))
+    (func combination 71:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func combination_through_wrappers 75:6 private (signature (params) -> Result<UInt8, raw_case_in_result_slot.Other>) (summary body (suspends no) (sync-callable yes)))
+    (func typed_local 80:6 private (signature (params (w raw_case_in_result_slot.Why owned)) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func pick 84:6 private (signature (params (x UInt? owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func pick 86:6 private (signature (params (x raw_case_in_result_slot.Why owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func overload_takes_the_enum 88:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (raw_case_in_result_slot.Why
       (case Fine private declared)
       (case Bad private declared)
       (static from public (synthesized raw)))
     (raw_case_in_result_slot.Other
-      (case A private declared)))
+      (case A private declared))
+    (raw_case_in_result_slot.Fault
+      (case Fine private declared)
+      (case Bad private declared)
+      (static from public (synthesized raw))
+      (method format private (extension raw_case_in_result_slot))
+      (method to_string public (default Printable))))
   (views
     (raw_case_in_result_slot.Why Fine Bad from)
-    (raw_case_in_result_slot.Other A))
-  (conformances)
+    (raw_case_in_result_slot.Other A)
+    (raw_case_in_result_slot.Fault Fine Bad from format to_string))
+  (conformances
+    (raw_case_in_result_slot.Fault Printable 21:18 (format written) (to_string default))
+    (raw_case_in_result_slot.Fault Error 25:18 (format written) (to_string default)))
   (copy-tier
     (raw_case_in_result_slot.Why Copy)
-    (raw_case_in_result_slot.Other Copy))
+    (raw_case_in_result_slot.Other Copy)
+    (raw_case_in_result_slot.Fault Copy))
   (bodies
-    (Why.Fine 5:10
-      (5:17-5:18 IntLit Int (adopt UInt8) value temp))
-    (Why.Bad 6:10
-      (6:16-6:18 IntLit Int (adopt UInt8) value temp))
-    (error_payload 13:6
-      (14:12-14:19 Member raw_case_in_result_slot.Why (err Result<UInt, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
-    (error_payload_tail 17:6
-      (18:5-18:12 Member raw_case_in_result_slot.Why (err Result<Int, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
-    (ok_payload 21:6
-      (22:12-22:19 Member raw_case_in_result_slot.Why (ok Result<raw_case_in_result_slot.Why, UInt>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
-    (error_beside_optional 25:6
-      (26:12-26:19 Member raw_case_in_result_slot.Why (err Result<UInt?, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
-    (unrelated_error 29:6
-      (30:12-30:19 Member raw_case_in_result_slot.Why (adopt UInt) (ok Result<UInt, raw_case_in_result_slot.Other>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
-    (into_integer 33:6
-      (34:9-34:10 BindingName UInt place temp)
-      (34:19-34:26 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
-      (35:9-35:10 BindingName UInt? place temp)
-      (35:20-35:27 Member raw_case_in_result_slot.Why (adopt UInt) (some UInt?) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
-      (36:12-36:13 Name UInt place copy))
-    (combination 39:6
-      (40:12-40:30 Binary UInt (ok Result<UInt, raw_case_in_result_slot.Why>) value temp (op |))
-      (40:12-40:19 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
-      (40:22-40:30 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Fine (owner raw_case_in_result_slot.Why))))
-    (typed_local 43:6
-      (44:12-44:13 Name raw_case_in_result_slot.Why (err Result<UInt, raw_case_in_result_slot.Why>) place copy))))
+    (Why.Fine 8:10
+      (8:17-8:18 IntLit Int (adopt UInt8) value temp))
+    (Why.Bad 9:10
+      (9:16-9:18 IntLit Int (adopt UInt8) value temp))
+    (Fault.Fine 17:10
+      (17:17-17:18 IntLit Int (adopt UInt8) value temp))
+    (Fault.Bad 18:10
+      (18:16-18:18 IntLit Int (adopt UInt8) value temp))
+    (Fault.format 22:10
+      (22:52-22:77 Try.force Void value temp)
+      (22:57-22:77 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder)))
+      (22:57-22:61 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (22:69-22:76 StringLit String value temp))
+    (error_payload 27:6
+      (28:12-28:19 Member raw_case_in_result_slot.Why (err Result<UInt, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (error_payload_tail 31:6
+      (32:5-32:12 Member raw_case_in_result_slot.Why (err Result<Int, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (ok_payload 35:6
+      (36:12-36:19 Member raw_case_in_result_slot.Why (ok Result<raw_case_in_result_slot.Why, UInt>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (error_beside_optional 39:6
+      (40:12-40:19 Member raw_case_in_result_slot.Why (err Result<UInt?, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (erased_error_return 43:6
+      (44:12-44:21 Member raw_case_in_result_slot.Fault (erase std.box.Box<any Error, std.alloc.GlobalAllocator>) (err Result<UInt, std.box.Box<any Error, std.alloc.GlobalAllocator>>) value temp (case raw_case_in_result_slot.Fault.Bad (owner raw_case_in_result_slot.Fault))))
+    (erased_error_tail 47:6
+      (48:5-48:14 Member raw_case_in_result_slot.Fault (erase std.box.Box<any Error, std.alloc.GlobalAllocator>) (err Result<UInt, std.box.Box<any Error, std.alloc.GlobalAllocator>>) value temp (case raw_case_in_result_slot.Fault.Bad (owner raw_case_in_result_slot.Fault))))
+    (optional_of_the_enum 51:6
+      (52:12-52:19 Member raw_case_in_result_slot.Why (some raw_case_in_result_slot.Why?) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (into_integer 55:6
+      (56:9-56:10 BindingName UInt place temp)
+      (56:19-56:26 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (57:9-57:15 BindingName UInt8 place temp)
+      (57:25-57:32 Member raw_case_in_result_slot.Why (adopt UInt8) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (58:12-58:13 Name UInt place copy))
+    (written_payload 61:6
+      (62:9-62:10 BindingName UInt? place temp)
+      (62:20-62:42 Call.paren UInt? value temp (case Optional.Some (owner UInt?)))
+      (62:34-62:41 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (63:12-63:30 Call.paren Result<UInt, raw_case_in_result_slot.Other> value temp (case Result.Ok (owner Result<UInt, raw_case_in_result_slot.Other>)))
+      (63:22-63:29 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (cast_payload 66:6
+      (67:9-67:10 BindingName UInt? place temp)
+      (67:20-67:35 Cast UInt (some UInt?) value temp)
+      (67:20-67:27 Member raw_case_in_result_slot.Why value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (68:12-68:27 Cast UInt (ok Result<UInt, raw_case_in_result_slot.Other>) value temp)
+      (68:12-68:19 Member raw_case_in_result_slot.Why value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (combination 71:6
+      (72:12-72:30 Binary UInt (ok Result<UInt, raw_case_in_result_slot.Why>) value temp (op |))
+      (72:12-72:19 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (72:22-72:30 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Fine (owner raw_case_in_result_slot.Why))))
+    (combination_through_wrappers 75:6
+      (76:9-76:10 BindingName UInt8? place temp)
+      (76:21-76:39 Binary UInt8 (some UInt8?) value temp (op |))
+      (76:21-76:28 Member raw_case_in_result_slot.Why (adopt UInt8) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (76:31-76:39 Member raw_case_in_result_slot.Why (adopt UInt8) value temp (case raw_case_in_result_slot.Why.Fine (owner raw_case_in_result_slot.Why)))
+      (77:12-77:20 Unary.complement UInt8 (ok Result<UInt8, raw_case_in_result_slot.Other>) value temp (op ~))
+      (77:13-77:20 Member raw_case_in_result_slot.Why (adopt UInt8) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (typed_local 80:6
+      (81:12-81:13 Name raw_case_in_result_slot.Why (err Result<UInt, raw_case_in_result_slot.Why>) place copy))
+    (pick 84:6)
+    (pick 86:6)
+    (overload_takes_the_enum 88:6
+      (89:5-89:18 Call.paren Void value temp (call raw_case_in_result_slot.pick(x: raw_case_in_result_slot.Why)))
+      (89:10-89:17 Member raw_case_in_result_slot.Why value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))))
+  (string-positions
+    (22:69 literal std.string.string_literal)))
