@@ -1,14 +1,7 @@
-// XFAIL: DF-302b — a generic extension's `init` releases a parameter it MOVED
-// into the built value, so the value is torn down twice.
-//
-// `Wrap<T>(value: from)` aggregates the parameter into the returned struct, but
-// the generated init never clears the parameter's drop flag, so its epilogue
-// runs `deinit` on storage the caller now owns. PRE-EXISTING and independent of
-// design 207: it reproduces with the fully explicit `Wrap<Res>(from: move r)`
-// spelling and no inference involved. It was invisible while the caller ALSO
-// failed to drop the built value — a leak and a spurious release cancelling to
-// exit 0 — which is why the double free surfaces at some spellings and not
-// others. The oracle is the deinit count: exactly one teardown per value.
+// `Wrap<T>(value: from)` moves an init's parameter into the struct the init
+// returns, so the value belongs to the caller's struct and the init's epilogue
+// does not release it. The oracle is the deinit count: exactly one teardown
+// per value.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 7

@@ -172,11 +172,11 @@ closure_deinit_dropped_uncalled.saw	pass	-	-
 closure_deinit_returned.saw	pass	-	-
 closure_deinit_struct_field.saw	pass	-	-
 closure_deinit_vector.saw	pass	-	-
-closure_escaping_move_capture_consumed_once.saw	pass	-	capture.escaping-consume: this `move` takes `h` out of an escaping closure's environment, which every copy of the closure shares and which outlives each call, so the body reads what it captured and ne
+closure_escaping_move_capture_consumed_once.saw	pass	judged by its own directives (edited since its oracle)	capture.escaping-consume: this `move` takes `h` out of an escaping closure's environment, which every copy of the closure shares and which outlives each call, so the body reads what it captured and ne
 closure_leaves_enclosing_void_local_visible.saw	pass	-	-
 closure_module_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_move_capture_transfers_when_body_runs.saw	pass	judged by its own directives (edited since its oracle)	-
-closure_nested_ref_param_capture.saw	stage0-wrong	XFAIL DF-248b	sawc meets its directives
+closure_nested_ref_param_capture.saw	pass	judged by its own directives (edited since its oracle)	-
 closure_propagates_to_its_own_result_not_the_enclosing_catch.saw	pass	-	-
 closure_pushed_into_a_vector_keeps_its_captures.saw	pass	-	-
 closure_return_is_local.saw	pass	-	-
@@ -329,7 +329,7 @@ conformance/K137_window_destruction_order.saw	pass	-	-
 conformance/K138_window_acquire_sequence.saw	pass	-	-
 conformance/K13_mt_sum_under_mutex.saw	pass	-	-
 conformance/K140_window_under_cancellation.saw	pass	-	-
-conformance/K141_mutex_guarded_for_is_sync.saw	stage0-wrong	XFAIL SL-340	sawc meets its directives
+conformance/K141_mutex_guarded_for_is_sync.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
 conformance/K149_sawtracker_loop_shape.saw	pass	-	-
 conformance/K14_spawn_ref_param_join_releases.saw	pass	-	-
@@ -820,7 +820,7 @@ coro_try_landing_within_guards.saw	pass	-	-
 coro_try_propagate_suspending.saw	pass	-	-
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
-coro_value_inline_catch_hosts_a_move.saw	stage0-wrong	XFAIL SL-231	sawc meets its directives
+coro_value_inline_catch_hosts_a_move.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_while_head_move_reevaluates_per_iteration.saw	pass	-	-
 coro_wildcard_discards_own_slots.saw	pass	-	-
 crossmodule_embed_annotation_positions.saw	pass	-	-
@@ -1253,7 +1253,7 @@ errors/place_write_immutable_root.saw	pass	-	mutability.immutable: this exclusiv
 errors/prelude_tcp_needs_import.saw	pass	-	name.not-in-prelude: `TcpStream` is not in the prelude and must be imported: `import std.net.{TcpStream}` selects it
 errors/primitive_box_erasure_refused.saw	pass	-	erasure.primitive: `String` is a primitive and cannot be erased to `any primitive_box_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to ca
 errors/primitive_erasure_refused.saw	pass	-	erasure.primitive: `Int` is a primitive and cannot be erased to `any primitive_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
-errors/primitive_type_called_as_a_function.saw	pass	-	init.no-implicit: `UInt8` has no implicit `init`, and no extension `init` this module sees takes `()`: a primitive is constructed only by an `init` an extension declares, so write the value itself, or
+errors/primitive_type_called_as_a_function.saw	pass	judged by its own directives (edited since its oracle)	init.no-implicit: `UInt8` has no implicit `init`, and no extension `init` this module sees takes `()`: a primitive is constructed only by an `init` an extension declares, so write the value itself, or
 errors/print_optional_not_printable.saw	pass	-	format.argument: `Int?` is formatted here, and it is neither `Printable` nor a primitive
 errors/ref_associated_type_assignment.saw	pass	-	type.reference-position: an associated-type assignment may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not
 errors/ref_cast_to_int_not_blessed.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
@@ -1609,7 +1609,7 @@ freestanding_aarch64_no_simd.saw	pass	-	built
 freestanding_seams_extern_no_runtime.saw	pass	-	built
 funcpointer226_call.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 funcpointer226_coercion_positions.saw	pass	-	-
-funcpointer226_composites.saw	pass	-	-
+funcpointer226_composites.saw	pass	judged by its own directives (edited since its oracle)	-
 funcpointer226_ffi_qsort.saw	pass	-	-
 funcpointer226_no_hidden_alloc.saw	pass	-	-
 funcpointer226_type.saw	stage0-wrong	Stage 0 does not build it (unannotated)	sawc meets its directives
@@ -1636,7 +1636,7 @@ generic_extension_overload.saw	pass	-	-
 generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-
 generic_for_loop_owning_balance.saw	pass	-	-
-generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc meets its directives
+generic_init_moved_parameter_is_released_once.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_instance_associated_type_binding.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_const_parameter_value.saw	pass	-	-
@@ -2481,7 +2481,7 @@ thread_assertion_survives_a_glob_import.saw	pass	-	-
 thread_fate_is_written_not_dropped.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `shared.value().lock(…)`
 thread_name_belongs_to_the_user.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 thread_spawn_blocking_beside_a_driven_root.saw	stage0-wrong	annotated SL-765	sawc meets its directives
-trailing_closure_inside_a_try_operand.saw	stage0-wrong	XFAIL DF-259c	sawc: output line 4 is '1', expected '<end>'
+trailing_closure_inside_a_try_operand.saw	pass	judged by its own directives (edited since its oracle)	-
 trait_bound_error.saw	pass	-	type.bound: `trait_bound_error.Point` does not satisfy `Describable`, the bound on `T` of `printDescription`
 trait_default_any.saw	pass	-	-
 trait_default_body.saw	pass	-	-

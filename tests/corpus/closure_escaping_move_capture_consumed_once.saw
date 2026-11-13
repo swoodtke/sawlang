@@ -8,12 +8,6 @@
 // refusal rather than a runtime once-flag (SL-469). The non-escaping half is
 // legal: a `[move h]` into a closure passed straight to a non-escaping
 // parameter transfers when the body runs (V48).
-//
-// The pin stays XFAIL because the frozen Stage 0 compiler accepts the program
-// and double-frees `h`; the checker that refuses it is sawc2's
-// (`capture.escaping-consume`).
-// XFAIL: DF-255a an escaping closure's env destructor releases a capture the
-// body already moved out
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: out of an escaping closure's environment
 

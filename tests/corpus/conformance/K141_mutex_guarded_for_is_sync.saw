@@ -1,16 +1,3 @@
-// XFAIL: SL-340 — `Mutex(value: move v)` at a HEAP-OWNING payload frees the
-// payload at construction, on MAIN and with no diagnostic: an `init`'s
-// by-value parameter is registered for scope-exit cleanup and the transfer
-// into `UnsafeMutableInterior(value)` does not retire it, so the buffer is
-// released at the end of the init body and the struct is returned around it.
-// So `items.len()` reads 3 and `items[0]` reads freed memory — the ITERATION
-// this row is about is downstream of that and reads the same bytes.
-//
-// The row itself is design 275 U3's ruling and is kept as written: the XPASS
-// flip when SL-340 lands is the validation. Its REFUSAL half —
-// `examples/errors/mutex_guarded_for_suspends.saw` — passes today, which is
-// what says the `sync` fence is intact and only the payload is broken.
-//
 // K141 (design 275 U3, part (iii)): THE `Mutex` ROW IS CLOSED, NOT OPEN.
 //
 // `Mutex.lock()` lends `&var T` and is `borrows(sync)` (SL:borrowing §2.5,

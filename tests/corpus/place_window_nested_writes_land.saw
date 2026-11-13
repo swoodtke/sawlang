@@ -11,10 +11,8 @@
 // reaches `b` by borrow now) and left `a`, which is what said the remaining
 // half was the window's PARAMETER rather than an enclosing local.
 //
-// The hand-written face of the same capture is still open (DF-248b, pinned by
-// `closure_nested_ref_param_capture.saw`): a closure's `&var c` parameter is
-// bound under its inner type, so the checker cannot tell it from a `var` local.
-// A window's parameter it CAN tell, because the window lowering builds it.
+// The hand-written face of the same capture, a closure nested in a closure
+// with a `&var c` parameter, is `closure_nested_ref_param_capture.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // two roots: a=50 b=60

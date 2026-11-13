@@ -14,7 +14,7 @@
 // `yield_now()`s were no-ops and no frame was ever built (design 242 unit 0's
 // probe; ruling 8 now refuses the shape). Moved to
 // `funcpointer_call_in_a_driven_body.saw`, which spawns it into a `TaskGroup`
-// and is XFAIL under DF-252a — the claim does not hold today.
+// and passes there.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:

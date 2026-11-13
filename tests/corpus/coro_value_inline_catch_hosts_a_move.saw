@@ -1,24 +1,8 @@
-// XFAIL: SL-231 a value-carrying INLINE catch cannot host a `move` of a frame
-// local in its tail — `let x = try f() catch { take(move r) }` is refused with
-// "move of a frame local in a nested tail-expression ... whose value is used".
-//
-// This is the ONE source shape that reaches SL-222's value-used refusal, and
-// finding it is what turned that brief's "nothing reaches it" claim into a
-// stated exception. Every OTHER value-carrying tail is rewritten into an
-// ASSIGNMENT before the tail handling sees it — `_cond_to_branch` /
-// `_attach_sink_block` do that for a value `if`, a value `match`, `??` and the
-// BLOCK form `try { } catch { }`, and `_done` does it for a function body's own
-// tail — and an assignment hosts the drop-flag clears fine. The INLINE catch is
-// a `TryExpr`, which `_is_value_conditional` does not list, so no sink lowering
-// runs and its catch tail stays a genuine value tail with nowhere to put the
-// forget. Listing `TryExpr` there is the shape of the fix.
-//
-// PRE-EXISTING: refuses identically with none of SL-222's changes applied, so
-// this pins a limitation the batch surfaced rather than one it caused. The
-// diagnostic already names the workaround — bind the value inside the catch and
-// make the binding its tail.
-//
-// Remove the marker in the landing that fixes SL-231.
+// An inline `try ... catch { }` gives a `let` its value inside a loop of a
+// suspending function, and the catch's tail consumes a local. The tail is a
+// value tail, and the move in it clears the local's drop flag on that path
+// alone: an iteration that fails hands `r` to `take`, and none releases it a
+// second time.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 2

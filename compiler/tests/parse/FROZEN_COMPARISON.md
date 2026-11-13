@@ -152,8 +152,8 @@ changed.
 |---|---|---|
 | `tests/corpus/trailing_closure_inside_a_try_operand.saw` | 47:32, "two statements on one line need a `;` between them", at the `{` of `try! jobs.map { j in j.label() }` | syntax.expr.try, syntax.rule.trailing-closure (`defect`, Try Variants; DF-259c), added by this check |
 
-The file is the XFAIL pin of DF-259c in `examples/`, where the frozen parser
-reads no trailing closure inside a `try` operand. GRAMMAR.md attaches one
+The file's twin in v0.18.0's `examples/` is the XFAIL pin of DF-259c: the
+frozen parser reads no trailing closure inside a `try` operand. GRAMMAR.md attaches one
 there as anywhere else, and sawc parses the file with `map` taking the
 closure. LANGUAGE_SPEC.md's `Vector.each` section notes the same defect.
 
