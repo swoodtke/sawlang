@@ -669,8 +669,8 @@ func boot() {
 ```
 
 `sawc build --freestanding` writes a freestanding object for
-`aarch64-unknown-none-elf` and for `riscv32-unknown-none-elf`. A riscv32 build
-reads:
+`aarch64-unknown-none-elf`, `riscv32-unknown-none-elf` and
+`xtensa-esp-unknown-elf` (the ESP32-S3). A riscv32 build reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \

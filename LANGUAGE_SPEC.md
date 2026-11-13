@@ -15430,6 +15430,81 @@ members only, never a `public(package)` or private one. White-box tests use
 spelling the language gives meaning to, and it is refused with a hint naming
 the two spellings above.
 
+### Image manifests (`[sos]`)
+
+A package whose `Saw.toml` has an `[sos]` table builds with `blade build` to a
+flat image, `.build/<triple>/<name>.sosimg`, rather than a host executable.
+Blade runs `sawc --freestanding --target <triple>` on the package (with
+`--runtime` when `[package] runtime = true`, and `--target-features` when the
+manifest or the triple's defaults give a list), compiles each `native` unit with
+the C compiler, links the objects with `ld.lld -T <linker-script>
+--gc-sections`, and converts the linked ELF to the image.
+
+```toml
+[sos]
+emit = "sosimg"
+priorities = { background = 0, low = 1, normal = 1, high = 1 }
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "hal/xtensa/link.ld"
+native = "hal/xtensa/boot.S hal/support.c"
+
+[sos.riscv32-unknown-none-elf]
+linker-script = "hal/riscv32/link.ld"
+native = "hal/riscv32/boot.S hal/support.c"
+```
+
+`[sos]` holds what is true of the program: `emit` and `priorities`. A package
+for one machine may put the per-machine keys there too, with a `target` key
+naming the triple (`[sos]` `target = "riscv32-unknown-none-elf"`). A package for
+several machines gives each its own `[sos.<triple>]` table, and
+`blade build --target <triple>` picks one. A `--target` the manifest has no
+table or `target` for is an error, never a build for another machine.
+
+| Key | Type | Where | Meaning |
+|---|---|---|---|
+| `emit` | string | `[sos]` | Required. The only value is `"sosimg"`. |
+| `priorities` | inline table | `[sos]` | The levels of the four bands `background`, `low`, `normal` and `high`, each an integer from 0 to 7. Defaults 0, 1, 1 and 1. A band left out takes its default. |
+| `target` | string | `[sos]` | The triple, in the flat form. |
+| `linker-script` | string | machine | Required. The path passed to `ld.lld -T`. |
+| `native` | string | machine | The C and assembly sources compiled beside the Saw object, separated by spaces. Default: none. |
+| `march`, `mabi` | string | machine | Passed to the C compiler as `-march=` and `-mabi=`. Default: `rv32imac_zicsr` and `ilp32` for a `riscv32` triple, none otherwise. |
+| `target-features` | string | machine | The list handed to `sawc --target-features`. Default: `+m,+a,+c` for a `riscv32` triple, none otherwise. On an `xtensa` triple it adds to sawc's default list, as `--target-features` does. |
+| `device-window` | string | machine | The base address of a memory-mapped window the image records, decimal or `0x`-prefixed hexadecimal. Default: no window. |
+| `device-window-size` | string | machine | The window's length in bytes, in the same two forms. Default: 4096. |
+
+Paths are passed to the tools as written. An empty `march`, `mabi` or CPU is
+not passed at all. For an `xtensa` triple the C compiler gets `-mcpu=esp32s3`
+and the default features of the Xtensa paragraph in Profiles, each as
+`-Xclang -target-feature -Xclang <feature>`, then the manifest's
+`target-features`, so the C and Saw halves of an image agree on the calling
+convention. An assembly unit (`.S`) there is built with `-fintegrated-as`.
+
+The CPU is the triple's, and no key names it: an `mcpu` key is refused. Each
+refusal is an error from `blade build`, headed `Saw.toml [sos]:`. The text
+follows the heading, here for each case:
+
+| Case | Text |
+|---|---|
+| `mcpu` in `[sos.xtensa-esp-unknown-elf]` | `` [sos.xtensa-esp-unknown-elf] mcpu: `mcpu` is not a manifest key: the CPU is the target's, `esp32s3` for `xtensa-esp-unknown-elf`, and both halves of an image are compiled for it `` |
+| `mcpu` in a flat `[sos]` for `riscv32-unknown-none-elf` | `` [sos] mcpu: `mcpu` is not a manifest key, and `riscv32-unknown-none-elf` names no CPU `` |
+| `emit = "elf"` | `` [sos] emit: expected "sosimg", got `elf` `` |
+| `[sos]` with no `target` and no `[sos.<triple>]` table | `[sos] target is required (the cross-compilation triple), or a [sos.<triple>] section per machine` |
+| two `[sos.<triple>]` tables and no `--target` | `[sos]: this package builds for several machines — pass --target (this manifest declares xtensa-esp-unknown-elf, riscv32-unknown-none-elf)` |
+| `--target riscv32-unknown-none-elf` and only an xtensa table | `` [sos]: no configuration for target `riscv32-unknown-none-elf` (this manifest declares xtensa-esp-unknown-elf) `` |
+| no `linker-script` in `[sos.xtensa-esp-unknown-elf]` | `[sos.xtensa-esp-unknown-elf] linker-script is required (an SOS image has a fixed load address)` |
+| `low = 9` in `priorities` | `[sos] priorities.low: level 9 is outside 0..7` |
+| `device-window = "zz"` in `[sos.xtensa-esp-unknown-elf]` | `` [sos] sos.xtensa-esp-unknown-elf.device-window: `zz` is not a number `` |
+
+Two environment variables name the tools: `SOS_CLANG`, the C compiler (default
+`clang`), and `SOS_LD`, the linker (default `ld.lld`). One that names no program
+fails the build with `could not launch clang` or `could not launch ld.lld`.
+Blade does not look for a compiler the way `sawc` does. For
+`xtensa-esp-unknown-elf` the two variables name Espressif's `clang` and the
+`ld.lld` beside it; with the defaults the C half fails with
+`unknown target CPU 'esp32s3'`, since a clang without the Xtensa backend
+cannot compile for the triple.
+
 ---
 
 ## 9. Standard Library Overview
@@ -15677,11 +15752,12 @@ symbols the environment must supply at link time — `__saw_rt_alloc(size, align
 line `print` writes), the noreturn
 `__saw_rt_panic(msg, len)` and the rest of the frozen set — which the hosted
 profile satisfies by linking a runtime built from `runtime/`. On a target
-whose word compare-and-swap is no instruction (riscv32 without `+a`), the
+whose word compare-and-swap is no instruction (riscv32 without `+a`, xtensa
+with `-s32c1i`), the
 environment also supplies the atomic routines `sawc`'s output can reference,
 exactly `__atomic_load_N`, `__atomic_store_N`, `__atomic_fetch_add_N`,
 `__atomic_fetch_sub_N` and `__atomic_compare_exchange_N` with `N` the word's
-bytes (4 on riscv32), each at the word, since every atomic `sawc` emits is
+bytes (4 on riscv32 and xtensa), each at the word, since every atomic `sawc` emits is
 on a word: `Atomic<Int>`, a `String`'s and an `Arc`'s refcount, and a closure
 environment's. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
@@ -15708,14 +15784,15 @@ refused, since LLVM then calls `__sync_*` routines that no environment is
 told to supply.
 
 On a target with no floating-point unit (aarch64 under the freestanding
-default `-fp-armv8`, riscv32 without `D`, or with a `-f` after it), the
+default `-fp-armv8`, riscv32 without `D`, or with a `-f` after it, and xtensa
+under every feature list, `+fp` included), the
 object also defines the soft-float routines `sawc`'s output can reference,
 exactly `__adddf3`, `__subdf3`, `__muldf3`, `__divdf3`, `__eqdf2`,
 `__nedf2`, `__ltdf2`, `__ledf2`, `__gtdf2`, `__gedf2`, `__unorddf2`,
 `__fixdfsi`, `__fixdfdi`, `__fixunsdfsi`, `__fixunsdfdi`, `__floatsidf`,
 `__floatdidf`, `__floatunsidf` and `__floatundidf`, in the same way: written
 in Saw, weak, and included only for such a target. The list is the same on
-both targets: `Float` arithmetic, its comparisons and `is_nan`, and its
+every such target: `Float` arithmetic, its comparisons and `is_nan`, and its
 conversions to and from every integer width. Each routine's result is
 compiler-rt's, bit for bit, except the bits of a NaN result, which are
 unspecified: arithmetic rounds to nearest, ties to even, a subnormal result
@@ -15815,11 +15892,40 @@ every context switch has to save and restore them.
 `esp32s3` in the call0 convention, with no floating-point, zero-overhead loop,
 MAC16 or boolean-register instruction (`-windowed,-fp,-loop,-mac16,-bool`),
 whether the build is freestanding or not, since two objects of one image must
-agree on the calling convention. Word atomics are inline (`s32c1i`).
+agree on the calling convention. Word atomics are inline (`s32c1i`); with
+`-s32c1i` in `--target-features` they are calls of the five `__atomic_*_4`
+routines above, which the environment then supplies.
 `--target-features` ADDS to that default rather than replacing it, and a later
 mention wins: `+fp` gives call0 with the FPU, and windowed code takes an
-explicit `+windowed`. Only Espressif's clang compiles for this triple, found
-under `~/.espressif` or `$IDF_TOOLS_PATH`.
+explicit `+windowed`. In `--emit-ll` output each function's attribute group
+carries the CPU and the default list, and the operand follows it:
+
+```text
+"target-cpu"="esp32s3" "target-features"="-windowed,-fp,-loop,-mac16,-bool"
+"target-cpu"="esp32s3" "target-features"="-windowed,-fp,-loop,-mac16,-bool,+fp"
+```
+
+The first is the default and the second is `--target-features +fp`. `sawc`
+reads this target as having no floating-point unit under every feature list,
+`+fp` included, so the object defines the soft-float routines above.
+
+Each function's literals sit in a `.literal.NAME` section beside its
+`.text.NAME`, and the code loads them with `l32r`, which reaches a literal at
+most 262,141 bytes before it and none after it. A linker script therefore keeps
+each function's literals just ahead of its code, which one input pattern does
+in every output section that holds code:
+
+```text
+*(.literal .literal.* .text .text.*)
+```
+
+A literal out of reach fails the link with
+`relocation R_XTENSA_SLOT0_OP out of range`. Listing every `.literal` section
+ahead of every `.text` one links only while the section's code is smaller than
+that reach.
+
+Only Espressif's clang compiles for this triple, found under `~/.espressif` or
+`$IDF_TOOLS_PATH`.
 
 Other targets get no default of their own — riscv32 still needs an explicit
 `--target-features +m,+a,+c`, because *which* extensions a RISC-V part has is a
@@ -16186,7 +16292,9 @@ profiles (see [Link symbols and linkage](#link-symbols-and-linkage)), so the
 section is a placement request and never a second way to publish a symbol. A
 placed function or static is emitted and kept through the optimizer whether or
 not anything reaches it, and its definition stays when the optimizer inlines
-every call. At the link
+every call. A generic placed function is the exception: it
+is emitted at each instance a call reaches and at none otherwise, and each such
+instance is placed and kept. At the link
 it is kept where the object format carries a retain flag, and a linker script
 decides otherwise. Section-name *syntax* is target-specific — ELF accepts
 `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a

@@ -4304,9 +4304,36 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   kernel faulted on its first block copy — before the vectors that would
   have reported it were installed. `--target-features` OVERRIDES completely,
   so a kernel whose boot code enables FPEN asks for `+neon,+fp-armv8` by
-  name (and then owns saving those registers across a context switch). No
-  other target gets a profile default: riscv32's `+m,+a,+c` is a fact about
-  the PART, not about the profile.
+  name (and then owns saving those registers across a context switch). The
+  only other target with a default is xtensa (below): riscv32's `+m,+a,+c` is
+  a fact about the PART, not about the profile.
+- **`--freestanding --target` takes** `aarch64-unknown-none-elf`,
+  `riscv32-unknown-none-elf`, `xtensa-esp-unknown-elf`,
+  `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`, from any host;
+  Mach-O (`arm64-apple-darwin`) is refused and an unknown triple is
+  `sawc: unknown target T`.
+  - aarch64: default `-neon,-fp-armv8`, which `--target-features` REPLACES.
+  - riscv32: no default; pass `+m,+a,+c`. A list without `+a` (`+m,+c`) makes
+    atomics calls of the five `__atomic_*_4` routines the environment supplies.
+  - xtensa (ESP32-S3): below.
+- **`xtensa-esp-unknown-elf` is the ESP32-S3** and always compiles for `esp32s3`
+  with `-windowed,-fp,-loop,-mac16,-bool` (call0), freestanding or not.
+  `--target-features` ADDS to that list (`+fp` gives `…,-bool,+fp`) and a later
+  mention wins. Word atomics are inline `s32c1i`; `-s32c1i` makes them the five
+  `__atomic_*_4` calls. `sawc` reads no FP unit under any list, `+fp` included, so
+  the soft-float routines are defined. Only Espressif's clang (`~/.espressif`, `$IDF_TOOLS_PATH`)
+  compiles for it. `l32r` reaches a literal at most 262,141 bytes BEFORE it, so a
+  link script keeps each `.literal.NAME` just ahead of its `.text.NAME`:
+  `*(.literal .literal.* .text .text.*)`. All literals first, then all text,
+  stops linking once the code passes that size (`R_XTENSA_SLOT0_OP out of range`).
+- **A package builds a freestanding image through its manifest** (Blade): `[sos]`
+  `emit = "sosimg"` plus `priorities`, and a `[sos.<triple>]` table per machine
+  (`linker-script` required, `native`, `march`, `mabi`, `target-features`,
+  `device-window`, `device-window-size`); `blade build --target <triple>` picks
+  one. `mcpu` is refused (the CPU is the triple's). `SOS_CLANG` and `SOS_LD` name
+  the C compiler and linker, and for xtensa they MUST name Espressif's `clang`
+  and `ld.lld`: Blade doesn't find them as sawc does. `priorities` is an inline
+  table. Spec: Package Structure, "Image manifests".
 - **A package can BE the runtime** (design 149): `[package] runtime = true`
   in Saw.toml lets it `@export` the frozen `__saw_rt_*` seams, links no
   runtime beside it, and CHECKS each seam's signature against
