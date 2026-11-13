@@ -5,7 +5,7 @@
 // build.py chooses and refuses a libcall where a row here says instruction.
 import sawtarget.layout.{TargetFeatureState, TargetFloatMethod, target_bare_metal, target_cpu,
                          target_effective_features, target_feature_state, target_float_instruction, target_known,
-                         target_native_atomics, target_word_bytes}
+                         target_float_unit, target_native_atomics, target_word_bytes}
 
 // Each method's answer for one cell, as seven letters in `abs floor ceil
 // round sqrt min max` order: `i` for the intrinsic, `s` for the Saw body.
@@ -96,6 +96,14 @@ func main() {
            "windowed code is an explicit +windowed")
     assert(target_effective_features("aarch64-unknown-none-elf", "+neon", true).equals("+neon"),
            "on aarch64 an operand replaces the default")
-    assert(target_effective_features("riscv32-unknown-none-elf", "", true).equals(""), "riscv32 has no default")
+    let rv = "riscv32-unknown-none-elf"
+    assert(target_effective_features(rv, "", true).equals("+m,+a,+c"), "riscv32 freestanding default")
+    assert(target_effective_features(rv, "", false).equals("+m,+a,+c"), "the riscv32 default applies to every build")
+    assert(target_effective_features(rv, "+m", true).equals("+m"), "on riscv32 an operand replaces the default")
+    assert(target_effective_features(rv, "+m,-a,+c", false).equals("+m,-a,+c"), "a list without +a is kept")
+    assert(target_native_atomics(rv, target_effective_features(rv, "", false)), "the default has atomics")
+    assert(not target_native_atomics(rv, target_effective_features(rv, "+m,-a,+c", false)), "-a has none")
+    assert(not target_float_unit(rv, target_effective_features(rv, "", false)), "the default has no FP unit")
+    assert(target_effective_features("x86_64-unknown-linux-gnu", "", false).equals(""), "a hosted triple has none")
     print("float instructions: ok")
 }

@@ -13650,8 +13650,8 @@ Two constraints are enforced, not documented:
   thread or another core.
 - **The target must have atomics.** A `SpinLock` spins on a hardware
   read-modify-write, so where a compare-and-swap lowers to `__atomic_*`
-  libcalls (rv32i), naming one is a compile error pointing at
-  `--target-features +a`. `Atomic<Int>` stays legal there, through the
+  libcalls (a riscv32 feature list without `+a`), naming one is a compile
+  error that says to add `+a`. `Atomic<Int>` stays legal there, through the
   routines the environment supplies (Profiles).
 
 Hold it briefly. A waiter burns its core until the lock is free.
@@ -15957,9 +15957,15 @@ that reach.
 Only Espressif's clang compiles for this triple, found under `~/.espressif` or
 `$IDF_TOOLS_PATH`.
 
-Other targets get no default of their own — riscv32 still needs an explicit
-`--target-features +m,+a,+c`, because *which* extensions a RISC-V part has is a
-fact about the part, not about the profile.
+A `riscv32-unknown-none-elf` build, freestanding or not, with no
+`--target-features` compiles with `+m,+a,+c`, and `sawc` writes that list into
+the module like any other. As on aarch64, a `--target-features` operand
+replaces the default outright, so `--target-features +m` is `+m` alone, and the
+front end's questions (native atomics, the FP unit) are answered for the list
+the code is compiled with. Which extensions a RISC-V part has is a fact about
+the part: a build for one without them names the list it has. Without `+m`,
+a 32-bit multiply or divide is a call of `__mulsi3`, `__divsi3` and their
+kin, which std does not define. Other targets get no default of their own.
 
 ---
 
@@ -17544,7 +17550,8 @@ sawc --version
 - `--target` cross-compiles for a triple (default: the host):
   `arm64-apple-darwin`, `x86_64-unknown-linux-gnu`,
   `aarch64-unknown-linux-gnu`, or the bare-metal `aarch64-unknown-none-elf`,
-  `riscv32-unknown-none-elf` and `xtensa-esp-unknown-elf` (the ESP32-S3: call0,
+  `riscv32-unknown-none-elf` (`+m,+a,+c` by default; a `--target-features`
+  operand replaces it) and `xtensa-esp-unknown-elf` (the ESP32-S3: call0,
   with no FPU, loop, MAC16 or boolean-register instruction by default;
   `--target-features` adds to that default). A bare-metal triple has no C library or runtime
   to link against, so it builds only with `-c` or `--freestanding`; a link for

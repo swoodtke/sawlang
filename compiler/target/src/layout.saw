@@ -342,11 +342,15 @@ public func target_mach_o(triple: String) -> Bool {
 }
 
 // THE FEATURE FUNNEL: the subtarget feature list a compile for `triple`
-// runs with. Two rules, by architecture. On aarch64 `explicit`, the
+// runs with. Three rules, by architecture. On aarch64 `explicit`, the
 // `--target-features` operand, replaces the default outright; a `freestanding`
 // build with none gets the profile's default, Advanced SIMD and the FP unit
 // off, since an AArch64 core traps both at EL1 until its boot code enables
 // them and LLVM moves a struct through `q` registers (spec, Profiles). On
+// riscv32 the operand replaces the default too (a function's attribute
+// replaces the machine's list, so `+m` alone means rv32im), and a build with
+// none, freestanding or not, gets `+m,+a,+c`, which the front end's atomics
+// and FP answers are then asked about. On
 // xtensa `explicit` ADDS to the default, which applies to every build,
 // freestanding or not: `-windowed` is the calling convention, so two objects
 // of one image must agree on it, and a later mention wins as LLVM reads the
@@ -357,6 +361,7 @@ public func target_mach_o(triple: String) -> Bool {
 // has is a fact about the part.
 // ENTRY POINTS:
 //     driver_build
+//     driver_check_target
 public func target_effective_features(triple: String, explicit: String, freestanding: Bool) -> String {
     if triple.starts_with("xtensa") {
         var list = StringBuilder()
@@ -369,6 +374,9 @@ public func target_effective_features(triple: String, explicit: String, freestan
     }
     if explicit.len() > 0 {
         return explicit
+    }
+    if triple.starts_with("riscv32") {
+        return "+m,+a,+c"
     }
     if freestanding && triple.starts_with("aarch64") {
         return "-neon,-fp-armv8"

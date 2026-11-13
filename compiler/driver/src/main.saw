@@ -3669,9 +3669,11 @@ func driver_check_triple() -> String {
 }
 
 // The target record of a checking subcommand, for `triple` with the
-// subtarget features `features`; or none, once the reason is printed, for a
-// triple sawc does not describe or a malformed feature list.
-func driver_check_target(triple: String, features: String) -> TcTarget? {
+// subtarget features `features`, the `--target-features` operand, which the
+// record is asked about as the effective list (`target_effective_features`)
+// the build subcommand compiles under; or none, once the reason is printed,
+// for a triple sawc does not describe or a malformed feature list.
+func driver_check_target(triple: String, features: String, freestanding: Bool) -> TcTarget? {
     if not target_known(triple) {
         print("sawc: unknown target {triple}")
         return None
@@ -3679,7 +3681,7 @@ func driver_check_target(triple: String, features: String) -> TcTarget? {
     if features.len() > 0 && not driver_features_ok(features) {
         return None
     }
-    target_front_end(triple, features)
+    target_front_end(triple, target_effective_features(triple, features, freestanding))
 }
 
 func driver_mono(args: &Vector<String>) -> Int {
@@ -3744,7 +3746,7 @@ func driver_mono(args: &Vector<String>) -> Int {
     if modes != 1 {
         return driver_usage()
     }
-    guard let checked_for = driver_check_target(triple, features) else {
+    guard let checked_for = driver_check_target(triple, features, false) else {
         return DRIVER_EXIT_USAGE
     }
     std_root = driver_std_root("sawc mono", std_root)
@@ -3855,7 +3857,7 @@ func driver_coro(args: &Vector<String>) -> Int {
     if modes != 1 {
         return driver_usage()
     }
-    guard let checked_for = driver_check_target(triple, features) else {
+    guard let checked_for = driver_check_target(triple, features, false) else {
         return DRIVER_EXIT_USAGE
     }
     std_root = driver_std_root("sawc coro", std_root)
@@ -4074,7 +4076,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var command = StringBuilder()
     try! command.append("sawc ")
     try! command.append(args.get(1) ?? "")
-    guard let checked_for = driver_check_target(triple, features) else {
+    guard let checked_for = driver_check_target(triple, features, freestanding) else {
         return DRIVER_EXIT_USAGE
     }
     let named = command.build()

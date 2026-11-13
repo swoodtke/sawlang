@@ -1974,7 +1974,7 @@ public func tc_check_target_atomics(p: &var TcProgram, layer: &FrontLayer) {
     if p.target.triple.starts_with("xtensa") {
         try! msg.append("` has none here: the `s32c1i` option is off (`-s32c1i`), so a word's compare-and-swap is a library call, and a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics — drop the `-s32c1i` from `--target-features`")
     } else {
-        try! msg.append("` has none without the `A` extension: a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics — enable the extension with `--target-features +a`")
+        try! msg.append("` has none without the `A` extension: a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics — add `+a` to the `--target-features` list")
     }
     try! msg.append("; `Atomic<Int>` still works without it, through the `__atomic_*` routines the environment supplies, and for state a single core serializes by construction, reach for `unsafe static var` instead")
     let m = p.node_module(at)

@@ -949,14 +949,14 @@ TEST_CASES = [
     {
         # A `SpinLock` stays refused on the part without atomics.
         "name": "spinlock_without_atomics",
-        # The refusal's wording names the target and the flag that restores
+        # The refusal's wording names the target and the feature that restores
         # atomics, so Xtensa's own wording is pinned by the typechecker's fixture.
         "arches": ["riscv32"],
         "no_atomics": True,
         "expect_compile_error": ["atomics.target", "spinlock_without_atomics.saw:10:",
                                  "`SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none",
                                  "a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics",
-                                 "--target-features +a"],
+                                 "add `+a` to the `--target-features` list"],
     },
     {
         # The non-host build path reached through a manifest, on every arch.

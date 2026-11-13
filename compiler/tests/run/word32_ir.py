@@ -7,7 +7,7 @@
 `run_lane.run()` calls `check()`, which runs one row of `TARGETS` after the
 other (riscv32, then xtensa). For each probe of `riscv32/`, built
 `--emit-ll --freestanding --target TRIPLE` with each of the row's feature sets
-(riscv32: `+m,-a,+c` and `+m,+a,+c`; xtensa: the target's defaults):
+(riscv32: `+m,-a,+c`, `+m,+a,+c` and no operand; xtensa: the target's defaults):
 
 - a WORD probe (`word_*.saw`) uses no type wider than the word, so every
   `i64` in its module must be the enum tag carrier: a tag widened from its
@@ -70,13 +70,16 @@ ELF_RISCV = 243
 
 RISCV32_TRIPLE = "riscv32-unknown-none-elf"
 XTENSA_TRIPLE = "xtensa-esp-unknown-elf"
-# Without the `A` extension, then with it. `-a` is written out, since clang's
-# own riscv32 default (`rv32imac`) has it.
+# Without the `A` extension, then with it, then with no operand at all: the
+# default `+m,+a,+c` (`target_effective_features`) has it. A row's third field
+# names the set whose module it must equal, or is None: the no-operand build
+# is the `+m,+a,+c` build, attribute group and all.
 NO_ATOMICS = ("--target-features", "+m,-a,+c")
-RISCV32_FEATURE_SETS = ((NO_ATOMICS, "-noa"), (("--target-features", "+m,+a,+c"), "-a"))
+WITH_ATOMICS = ("--target-features", "+m,+a,+c")
+RISCV32_FEATURE_SETS = ((NO_ATOMICS, "-noa", None), (WITH_ATOMICS, "-a", None), ((), "-default", WITH_ATOMICS))
 # Xtensa has one feature set, the target's own default (`-windowed,-fp,-loop,
 # -mac16,-bool`): word atomics are inline `s32c1i`, and `Float` is soft-float.
-XTENSA_FEATURE_SETS = (((), ""),)
+XTENSA_FEATURE_SETS = (((), "", None),)
 
 # The runtime seam: every `__saw_rt_*` function a probe's module declares and
 # leaves to the runtime (runtime/ABI.md).
@@ -323,12 +326,16 @@ def check_target(target, failures, counts):
         return
     for probe in probes:
         stem = os.path.splitext(os.path.basename(probe))[0]
-        for flags, suffix in target.feature_sets:
+        modules = {}
+        for flags, suffix, same_as in target.feature_sets:
             where = "%s IR %s %s" % (target.label, rel(probe), " ".join(flags))
             said, ll = emit(target, probe, flags)
             if ll is None:
                 failures.append("%s: sawc refuses the module: %s" % (where, said[:300]))
                 continue
+            modules[flags] = ll
+            if same_as is not None and ll != modules.get(same_as):
+                failures.append("%s: the module is not the one built with `%s`" % (where, " ".join(same_as)))
             if stem.startswith("word_"):
                 found = i64_problems(target, where, ll)
                 failures.extend(found)

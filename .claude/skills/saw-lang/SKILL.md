@@ -4149,8 +4149,9 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
     hosted and (planned) the CPU/hart + interrupt context freestanding.
     NoCopy, so it cannot be captured into
     a closure — reach one through a static or a `&` param. Needs real
-    target atomics: on rv32i, naming one is a compile error pointing at
-    `--target-features +a`. Short critical sections; a waiter burns its
+    target atomics: on riscv32 with a feature list that lacks `+a`, naming
+    one is a compile error that says to add `+a`. Short critical sections;
+    a waiter burns its
     core.
   - **`Mutex<T>`** (`import std.mutex.{Mutex}`, HOSTED) — the same shape
     where a waiter should SLEEP rather than spin. It is two inline words,
@@ -4305,16 +4306,17 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   have reported it were installed. `--target-features` OVERRIDES completely,
   so a kernel whose boot code enables FPEN asks for `+neon,+fp-armv8` by
   name (and then owns saving those registers across a context switch). The
-  only other target with a default is xtensa (below): riscv32's `+m,+a,+c` is
-  a fact about the PART, not about the profile.
+  other targets with a default are riscv32 and xtensa (below).
 - **`--freestanding --target` takes** `aarch64-unknown-none-elf`,
   `riscv32-unknown-none-elf`, `xtensa-esp-unknown-elf`,
   `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu`, from any host;
   Mach-O (`arm64-apple-darwin`) is refused and an unknown triple is
   `sawc: unknown target T`.
   - aarch64: default `-neon,-fp-armv8`, which `--target-features` REPLACES.
-  - riscv32: no default; pass `+m,+a,+c`. A list without `+a` (`+m,+c`) makes
-    atomics calls of the five `__atomic_*_4` routines the environment supplies.
+  - riscv32: default `+m,+a,+c` (every build, freestanding or not), which
+    `--target-features` REPLACES (`+m` alone is `+m`). A list without `+a`
+    (`+m,-a,+c`) makes atomics calls of the five `__atomic_*_4` routines the
+    environment supplies; one without `+m` calls `__mulsi3`-class routines std lacks.
   - xtensa (ESP32-S3): below.
 - **`xtensa-esp-unknown-elf` is the ESP32-S3** and always compiles for `esp32s3`
   with `-windowed,-fp,-loop,-mac16,-bool` (call0), freestanding or not.
