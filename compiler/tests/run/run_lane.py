@@ -56,9 +56,9 @@ run of it, built against its own std.
   host build, so a cross-built binary meets the host's expectations;
 - `sawc runtime` writes the same bytes into two directories, and refuses a
   copy of the runtime that leaves a seam undefined or defines one twice;
-- each `riscv32/` probe's `.ll` for riscv32 holds an `i64` only where the
-  value is 64 bits, and compiles to an object referencing the routines its
-  width and the `A` extension allow (`riscv32_ir.py`);
+- each `riscv32/` probe's `.ll` for riscv32 and for xtensa holds an `i64`
+  only where the value is 64 bits, and compiles to an object referencing the
+  routines its width and atomics allow (`word32_ir.py`);
 - std.numeric's Float methods are their LLVM intrinsic exactly where the
   target funnel's matrix says, and no target's object for them calls a C
   math library function at -O0 or -O2 (`float_lowering.py`);
@@ -133,7 +133,7 @@ import oracle  # noqa: E402
 sys.path.insert(0, HERE)
 import builtin_lowering  # noqa: E402
 import float_lowering  # noqa: E402
-import riscv32_ir  # noqa: E402
+import word32_ir  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
 # The object cache of one run of the lane (`run`).
@@ -4133,7 +4133,7 @@ def run(names=None, write=False):
         check_symbolization(failures, counts)
         check_foreign_targets(failures, counts)
         check_clang_choice(failures, counts)
-        riscv32_ir.check(failures, counts)
+        word32_ir.check(failures, counts)
         float_lowering.check(failures, counts)
         builtin_lowering.check(failures, counts)
         check_runtime(failures, counts)

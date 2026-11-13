@@ -682,12 +682,13 @@ what Stage 0 is no oracle for.
 Stage 0 is the oracle: a difference is a sawc bug until shown otherwise
 (SL:architecture §5).
 
-### The riscv32 word check
+### The 32-bit word check
 
-`riscv32_ir.py` holds the backend to riscv32's 32-bit word with no riscv32
-machine to run on. Each program of `riscv32/` is built `--emit-ll
---freestanding --target riscv32-unknown-none-elf`, once with `+m,-a,+c` and
-once with `+m,+a,+c`:
+`word32_ir.py` holds the backend to the 32-bit word of riscv32 and of
+`xtensa-esp-unknown-elf`, with no machine of either to run on. Each program
+of `riscv32/` is built `--emit-ll --freestanding --target TRIPLE`: for riscv32
+once with `+m,-a,+c` and once with `+m,+a,+c`, for Xtensa once with the
+target's defaults. The rest describes riscv32; Xtensa's differences follow it:
 
 - a `word_*.saw` program uses no type wider than the word, so every `i64` in
   its module must be an enum tag widened to the 64-bit tag carrier, or a
@@ -709,6 +710,14 @@ once with `+m,+a,+c`:
 When no clang compiles IR for riscv32, there is no record and the object half
 is skipped, its reason in the lane's counts; a capable clang with no record
 fails. The `i64` half always runs.
+
+Xtensa's row holds the same programs to the same `i64` rule, and to the
+Espressif clang its record names. Its word atomics are inline, so a program's
+object references no `__atomic_*` routine at all, and its undefined symbols
+are exactly the runtime seam's (`__saw_rt_alloc`, `__saw_rt_dealloc`,
+`__saw_rt_last_raw_code`, `__saw_rt_panic`, `__saw_rt_write_line`). With no
+record (no Espressif clang on the machine) the whole row skips and the lane's
+counts say so.
 
 ### The float-instruction check
 

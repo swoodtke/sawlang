@@ -1,4 +1,4 @@
-// A riscv32 wide probe (compiler/tests/run/riscv32_ir.py): `Int64` and
+// A riscv32 wide probe (compiler/tests/run/word32_ir.py): `Int64` and
 // `UInt64` arithmetic, a struct holding every integer width, a match on a
 // `UInt64`-backed enum, and both 64-bit types rendered by `print`, `panic`
 // and interpolation, which the spec lowers to the 64-bit division libcalls on

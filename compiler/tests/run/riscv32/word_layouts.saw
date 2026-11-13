@@ -1,4 +1,4 @@
-// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): a struct of every
+// A riscv32 word probe (compiler/tests/run/word32_ir.py): a struct of every
 // integer width up to the word passed and returned through memory, a repeat
 // literal both zeroed and copied, raw-pointer arithmetic, enums with payloads
 // and a raw backing matched, an Optional, an erased error boxed and

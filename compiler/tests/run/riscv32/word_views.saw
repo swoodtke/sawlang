@@ -1,4 +1,4 @@
-// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): a view's address
+// A riscv32 word probe (compiler/tests/run/word32_ir.py): a view's address
 // is the word, so its volatile and plain accesses, its field and index
 // projections and `ptr()`/`end()`/`len()` spell no i64; a raw-backed enum's
 // `from(raw:)` compares widened tags only; an integer's partial `from` and a

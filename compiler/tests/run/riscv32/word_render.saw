@@ -1,4 +1,4 @@
-// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): every integer
+// A riscv32 word probe (compiler/tests/run/word32_ir.py): every integer
 // width up to the word rendered as a format argument, by `print`, `panic`
 // and `assert`, a checked cast and an index check that panic naming their
 // value, a Bool and a String part, and a user Printable rendered into fixed

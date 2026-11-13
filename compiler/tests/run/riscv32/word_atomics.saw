@@ -1,4 +1,4 @@
-// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): every atomic the
+// A riscv32 word probe (compiler/tests/run/word32_ir.py): every atomic the
 // backend lowers, on the 4-byte word. `Atomic<Int>`'s four sequentially
 // consistent operations, a String's refcount (the relaxed load, the add, the
 // releasing sub and the acquire fence) and a closure environment's count.

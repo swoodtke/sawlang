@@ -1,4 +1,4 @@
-// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): the placement
+// A riscv32 word probe (compiler/tests/run/word32_ir.py): the placement
 // funnel's output at a 32-bit word: an `@align`ed static, zero and seeded,
 // an `@align`ed local, a sectioned static and function, and exported
 // statics, one unread, each read through its address so the global stays.
