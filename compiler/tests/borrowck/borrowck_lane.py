@@ -630,6 +630,17 @@ def check_long_programs(failures, counts):
         counts["long programs"] = counts.get("long programs", 0) + 1
 
 
+def record_says(record):
+    """What a program's record holds where a refusal was expected: its first
+    error, or that it has none, or that sawc printed no record for it."""
+    if not record.strip():
+        return "sawc printed no record for it"
+    for line in record.split("\n"):
+        if line.startswith(("ERROR\t", "INVARIANT\t")):
+            return "its record's first error: %s" % " ".join(line.split("\t"))[:200]
+    return "its record of %d lines holds no error" % len(record.split("\n"))
+
+
 def corpus_programs():
     skip = ("/modules/", "/module_tests/", "/module_matrix/")
     return sorted(rel(p) for p in glob.glob(os.path.join(CORPUS, "**", "*.saw"), recursive=True)
@@ -660,6 +671,15 @@ def check_corpus(failures, counts):
     got = stripped_records(r.stdout)
     if r.returncode not in (0, 1):
         failures.append("borrowck corpus: sawc exited %d" % r.returncode)
+    # Every listed program has a record; a short output is one failure here,
+    # never a refusal missing from each program it left out.
+    unrecorded = [p for p in rels if p not in got]
+    if unrecorded:
+        failures.append("borrowck corpus: sawc printed no record for %d of the %d programs listed, the first %s "
+                        "(exit %d, %d characters of output): %s"
+                        % (len(unrecorded), len(rels), unrecorded[0], r.returncode, len(r.stdout),
+                           r.stderr.strip()[-400:] or "nothing on stderr"))
+        return
     reasons = read_differential()
     rules = borrowck_rules()
     loan_reasons = read_loan_differential(failures)
@@ -687,7 +707,7 @@ def check_corpus(failures, counts):
                                 % (path, rel(DIFFERENTIAL)))
         elif path not in reasons:
             failures.append("borrowck differential %s: expects a move error the borrow check does not refuse, "
-                            "and %s gives no reason" % (path, rel(DIFFERENTIAL)))
+                            "and %s gives no reason (%s)" % (path, rel(DIFFERENTIAL), record_says(record)))
         else:
             counts["corpus move errors owned elsewhere"] = counts.get("corpus move errors owned elsewhere", 0) + 1
     for path in sorted(reasons):
@@ -798,7 +818,7 @@ def check_loan_row(path, text, wanted, record, loan_reasons, loan_seen, failures
                                 % (path, loan_rules[0], rel(LOAN_DIFFERENTIAL)))
         elif listed is None or listed[0] != "accepts":
             failures.append("borrowck loan differential %s: expects a loan error no loan rule refuses, and %s "
-                            "gives no `accepts` line" % (path, rel(LOAN_DIFFERENTIAL)))
+                            "gives no `accepts` line (%s)" % (path, rel(LOAN_DIFFERENTIAL), record_says(record)))
         else:
             key = "corpus loan errors accepted: %s" % listed[1]
             counts[key] = counts.get(key, 0) + 1

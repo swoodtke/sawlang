@@ -14,7 +14,9 @@ whose frame the two stages print differently (`files`), and counts the files.
 
 The twin runs once per sawc call, the recognizer's many small lexes
 included, so it imports only what it needs, `gate_jobs` only when it must ask
-for a token.
+for a token. Stage 1's answer is handed on with `hand_on.write_all`: an
+answer may be gigabytes (the borrow check's dump of the corpus), and one write
+of that much is cut short on a raw stream.
 """
 import json
 import os
@@ -23,8 +25,8 @@ import subprocess
 import sys
 import threading
 
-TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))), "tools")
+TESTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOOLS = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "tools")
 
 # The sawc commands that write files at paths their arguments name.
 WRITERS = ("build", "runtime")
@@ -252,8 +254,10 @@ def main():
     fd = os.open(os.path.join(os.environ["FIXPOINT_LOG"], name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(record, sort_keys=True) + "\n")
-    sys.stdout.buffer.write(ref.stdout)
-    sys.stderr.buffer.write(ref.stderr)
+    sys.path.append(TESTS)
+    import hand_on
+    hand_on.write_all(sys.stdout.buffer, ref.stdout)
+    hand_on.write_all(sys.stderr.buffer, ref.stderr)
     return ref.returncode
 
 

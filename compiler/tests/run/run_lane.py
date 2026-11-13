@@ -1375,7 +1375,9 @@ def check_split_object(failures, counts):
     included, and keeps its units' own definitions local (its `main` among
     them), which `llvm-objcopy --localize-hidden` makes so; a record naming
     no llvm-objcopy refuses the split build, naming the tool. The refusal
-    runs a copy of sawc beside a copy of the records with the line removed."""
+    runs a copy of sawc beside a copy of the records with the line removed; a
+    twin's wrapper has no records of its own beside it, so that part is left
+    out under one (`under_twin`)."""
     probe = os.path.join(PROBES, FREESTANDING_PROBE)
     problem = bare_metal_record_problem(rel(probe))
     if problem:
@@ -1409,6 +1411,10 @@ def check_split_object(failures, counts):
         changed = sorted(n for n in set(bound["1"]) | set(bound["module"]) if bound["1"].get(n) != bound["module"].get(n))
         failures.append("run split object: the split object binds %s otherwise than the whole-module one"
                         % ", ".join(changed[:6]))
+    if under_twin():
+        left_to_runpy(counts)
+        counts["run split objects bound as whole ones"] = 1
+        return
     copied = os.path.join(work, "sawc")
     shutil.copy(build.SAWC, copied)
     for path in glob.glob(os.path.join(os.path.dirname(os.path.realpath(build.SAWC)), "sawc-runtime*.txt")):
@@ -4170,6 +4176,52 @@ def check_probes(failures, counts, names=None):
         CUSTOM_PROBES[base](failures, counts)
 
 
+TWIN_COUNT = "run checks left to run.py's own run under the twin"
+
+
+def under_twin():
+    """Whether `build.SAWC` is a twin (`fixpoint/twin.py`, which the fixpoint
+    lane and `parallel_order.py` put where a lane expects sawc): a wrapper
+    that runs Stage 1 and Stage 2 on every call, both on the one cache
+    directory, and is no binary with files of its own beside it. A check of
+    the cache's bookkeeping or of such files has no verdict there; the run.py
+    step run outside the twin judges it."""
+    return "FIXPOINT_REF" in os.environ
+
+
+def left_to_runpy(counts):
+    counts[TWIN_COUNT] = counts.get(TWIN_COUNT, 0) + 1
+
+
+# What `run` leaves out under the twin: (the check, whether all of it, why).
+# A check left out in part tests `under_twin` itself, at that part.
+NOT_UNDER_TWIN = (
+    (check_split_object, False, "its last part copies the binary beside an edited runtime record, and the twin is "
+                                "a wrapper with no record beside it"),
+    (check_object_cache, True, "it counts one compiler's cache entries, and the twin writes two compilers' to one "
+                               "cache"),
+    (check_front_cache, True, "it counts one compiler's cache images and expects the other stage to miss them"),
+    (check_front_layers, True, "it counts one compiler's cache parts and expects the other stage to miss them"),
+)
+
+
+def run_check(check, failures, counts):
+    """`check`, unless the twin is in use and the table above leaves all of it
+    out."""
+    if under_twin() and any(check is left_out and whole for left_out, whole, _ in NOT_UNDER_TWIN):
+        left_to_runpy(counts)
+        return
+    check(failures, counts)
+
+
+def check_twin_table(failures, counts):
+    """Under the twin, what was left out is what the table names: one count a
+    row, so a check that leaves itself out without a row fails here."""
+    if under_twin() and counts.get(TWIN_COUNT, 0) != len(NOT_UNDER_TWIN):
+        failures.append("run lane: %d checks were left to run.py's own run under the twin, and NOT_UNDER_TWIN "
+                        "names %d" % (counts.get(TWIN_COUNT, 0), len(NOT_UNDER_TWIN)))
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     # Every build the lane makes (its own pins, and every program, split under
@@ -4219,15 +4271,16 @@ def run(names=None, write=False):
         check_placed_symbols(failures, counts)
         check_exported_placed_link(failures, counts)
         check_sha256(failures, counts)
-        check_object_cache(failures, counts)
-        check_front_cache(failures, counts)
+        run_check(check_object_cache, failures, counts)
+        run_check(check_front_cache, failures, counts)
         check_front_cache_differential(failures, counts)
-        check_front_layers(failures, counts)
+        run_check(check_front_layers, failures, counts)
         check_front_layer_edits(failures, counts)
         check_front_scan_text(failures, counts)
         check_front_shared_writers(failures, counts)
         check_long_accessor(failures, counts)
         check_deep_match(failures, counts)
+        check_twin_table(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues
 

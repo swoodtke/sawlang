@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.join(HERE, "fixpoint"))
 sys.path.append(os.path.join(REPO, "tools"))
 
 import gate_jobs  # noqa: E402
+import hand_on  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "parallel-order")
 MARK = "INJECTED\tparallel-order"
@@ -73,6 +74,8 @@ FIXPOINT_INJECTED = ("lex", "--kinds")
 # on, except that a call beginning with PARALLEL_ORDER_MATCH gets MARK as a line
 # of its standard output, after the first FILE line, or at the end.
 WRAPPER = r'''import os, subprocess, sys
+sys.path.insert(0, %r)
+import hand_on
 args = sys.argv[1:]
 r = subprocess.run([os.environ["PARALLEL_ORDER_REAL"]] + args, capture_output=True)
 out = r.stdout
@@ -80,10 +83,10 @@ if args[:len(os.environ["PARALLEL_ORDER_MATCH"].split())] == os.environ["PARALLE
     lines = out.split(b"\n")
     at = next((k + 1 for k, line in enumerate(lines) if line.startswith(b"FILE\t")), len(lines))
     out = b"\n".join(lines[:at] + [%r.encode()] + lines[at:])
-sys.stdout.buffer.write(out)
-sys.stderr.buffer.write(r.stderr)
+hand_on.write_all(sys.stdout.buffer, out)
+hand_on.write_all(sys.stderr.buffer, r.stderr)
 sys.exit(r.returncode)
-''' % MARK
+''' % (HERE, MARK)
 
 
 # (cpus, SAW_GATE_JOBS or None, the expected worker count, or None for an error).
@@ -369,6 +372,7 @@ def run():
     import run as R
     failures = []
     counts = {"parallel order knob cases": check_knob(failures)}
+    hand_on.check(failures, counts)
     budget = gate_jobs.jobs()
     wrapper = write_wrapper()
     check_stage_steps(failures, R, wrapper, budget)

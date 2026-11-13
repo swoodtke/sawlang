@@ -41,8 +41,12 @@ An invocation whose outputs differ fails unless `mismatches.tsv` lists it
 (`ARGUMENTS<TAB>REASON`, the arguments joined by single spaces) with the
 adjudicated reason: SL:hazards' "oracle known wrong" discipline, so a
 difference is never absorbed, only explained. A listed mismatch that no
-longer occurs fails as stale. The lanes' own verdicts are run.py's to judge;
-here only agreement counts.
+longer occurs fails as stale. Agreement is what the lane judges, and run.py's
+own run judges the lanes' verdicts; but a step that cannot finish cleanly under
+the twin fails the lane with its text, since its calls may be missing or its
+failure may hide a difference. The checks that have no verdict under a twin
+are named in `compiler/tests/run/run_lane.py`'s `NOT_UNDER_TWIN`, and the
+summary counts them as left to run.py's own run.
 """
 import glob
 import json
@@ -69,6 +73,8 @@ OUT = os.path.join(REPO, ".build", "fixpoint-lane")
 TWIN = os.path.join(HERE, "twin.py")
 MISMATCHES = os.path.join(HERE, "mismatches.tsv")
 LOG = os.path.join(OUT, "invocations")
+# The count `run_lane.py` makes of the checks it leaves out under a twin.
+TWIN_COUNT = "run checks left to run.py's own run under the twin"
 TIMEOUT = 1800
 
 # The steps of run.py that drive sawc, in run.py's order.
@@ -187,6 +193,34 @@ def check_driver_ir(failures, counts):
                         % (": " + why if why else ""))
 
 
+def step_failures(results):
+    """The lane's failures from run.py's `(step, result)` pairs: every failure
+    of a step that finished with some, and of one that crashed, as
+    `fixpoint: under the twin, STEP: FAILURE`. A step that crashed may have
+    made fewer calls than it should, and one that failed may hide a difference."""
+    return ["fixpoint: under the twin, %s: %s" % (step.name, failure)
+            for step, result in results for failure in result["failures"]]
+
+
+def check_step_failures(failures, counts):
+    """`step_failures` over a clean step, one that finished with a failure and
+    one that crashed: the lane fails with each failure's text, and only then."""
+    class Named:
+        def __init__(self, name):
+            self.name = name
+
+    results = [(Named("clean"), {"failures": [], "crashed": False}),
+               (Named("failed"), {"failures": ["a check said no"], "crashed": False}),
+               (Named("crashed"), {"failures": ["did not finish: exit 1"], "crashed": True})]
+    want = ["fixpoint: under the twin, failed: a check said no",
+            "fixpoint: under the twin, crashed: did not finish: exit 1"]
+    got = step_failures(results)
+    if got != want:
+        failures.append("fixpoint: the lane's failures from steps are %r, not %r" % (got, want))
+        return
+    counts["fixpoint step failure cases"] = counts.get("fixpoint step failure cases", 0) + 3
+
+
 def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None, progress=None):
     """Every sawc invocation of the run.py steps `lanes`, under Stage 1 and
     `new` (Stage 2 when None), within `budget` workers (run.py's `run_steps`,
@@ -209,9 +243,11 @@ def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None, 
     _, results = R.run_steps([R.STEP_BY_NAME[name] for name in lanes], sawc=twin, env=env, budget=budget,
                              call_tokens=2, progress=progress, label="fixpoint: run.py")
     counts["seconds: the lanes under both binaries"] = round(time.time() - start)
+    failures += step_failures(results)
     for step, result in results:
-        if result["crashed"]:
-            failures += ["fixpoint: under the twin, %s" % failure for failure in result["failures"]]
+        left = result["counts"].get(TWIN_COUNT, 0)
+        if left:
+            counts[TWIN_COUNT] = counts.get(TWIN_COUNT, 0) + left
     records = []
     for path in glob.glob(os.path.join(log, "*.json")):
         with open(path, encoding="utf-8") as fh:
@@ -394,6 +430,7 @@ def run():
     counts = {}
     check_twin_stderr(failures, counts)
     check_twin_rewrites(failures, counts)
+    check_step_failures(failures, counts)
     if build_stages(failures, counts):
         # The checks and the replay write apart (`elsewhere/`, `stage3/`,
         # `.build/seed-check/` and the lanes' own directories), so beside the
