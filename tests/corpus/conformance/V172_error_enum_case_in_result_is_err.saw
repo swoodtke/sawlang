@@ -1,0 +1,73 @@
+// Conformance row V172 — an error enum's case returned from a `Result` function is `Err`
+//
+// A function returning `Result<T, Why>` may `return` a bare value, and the compiler wraps
+// it by its type. A lone case of a raw-backed enum folds into an integer where an integer
+// is expected (spec, Flag enums), but where the slot also takes the case's own enum the
+// case is that enum, so it is the error. Each of the three integer payloads, written by
+// `return` and as the body's tail, must print `Err`; a case written where only an integer
+// is expected (`let n: UInt = Why.Bad`) still folds and is 11.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// uint return: Err
+// uint tail: Err
+// uint8 return: Err
+// uint8 tail: Err
+// int return: Err
+// int tail: Err
+// fold: 11
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+func uint_return(fail: Bool) -> Result<UInt, Why> {
+    if fail {
+        return Why.Bad
+    }
+    return 5
+}
+
+func uint_tail() -> Result<UInt, Why> {
+    Why.Bad
+}
+
+func uint8_return(fail: Bool) -> Result<UInt8, Why> {
+    if fail {
+        return Why.Bad
+    }
+    return 5
+}
+
+func uint8_tail() -> Result<UInt8, Why> {
+    Why.Bad
+}
+
+func int_return(fail: Bool) -> Result<Int, Why> {
+    if fail {
+        return Why.Bad
+    }
+    return 5
+}
+
+func int_tail() -> Result<Int, Why> {
+    Why.Bad
+}
+
+func verdict<T>(r: Result<T, Why>) -> String {
+    match r {
+        case Ok(_) -> "Ok",
+        case Err(_) -> "Err",
+    }
+}
+
+func main() {
+    print("uint return: {}", verdict(uint_return(true)))
+    print("uint tail: {}", verdict(uint_tail()))
+    print("uint8 return: {}", verdict(uint8_return(true)))
+    print("uint8 tail: {}", verdict(uint8_tail()))
+    print("int return: {}", verdict(int_return(true)))
+    print("int tail: {}", verdict(int_tail()))
+    let n: UInt = Why.Bad
+    print("fold: {}", n)
+}

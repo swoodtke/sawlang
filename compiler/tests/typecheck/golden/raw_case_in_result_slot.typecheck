@@ -1,0 +1,56 @@
+(Module raw_case_in_result_slot
+  (declarations
+    (enum Why 4:6 private (raw UInt8))
+    (case Why.Fine 5:10)
+    (case Why.Bad 6:10)
+    (enum Other 9:6 private)
+    (case Other.A 10:10)
+    (func error_payload 13:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func error_payload_tail 17:6 private (signature (params) -> Result<Int, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func ok_payload 21:6 private (signature (params) -> Result<raw_case_in_result_slot.Why, UInt>) (summary body (suspends no) (sync-callable yes)))
+    (func error_beside_optional 25:6 private (signature (params) -> Result<UInt?, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func unrelated_error 29:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Other>) (summary body (suspends no) (sync-callable yes)))
+    (func into_integer 33:6 private (signature (params) -> UInt) (summary body (suspends no) (sync-callable yes)))
+    (func combination 39:6 private (signature (params) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes)))
+    (func typed_local 43:6 private (signature (params (w raw_case_in_result_slot.Why owned)) -> Result<UInt, raw_case_in_result_slot.Why>) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (raw_case_in_result_slot.Why
+      (case Fine private declared)
+      (case Bad private declared)
+      (static from public (synthesized raw)))
+    (raw_case_in_result_slot.Other
+      (case A private declared)))
+  (views
+    (raw_case_in_result_slot.Why Fine Bad from)
+    (raw_case_in_result_slot.Other A))
+  (conformances)
+  (copy-tier
+    (raw_case_in_result_slot.Why Copy)
+    (raw_case_in_result_slot.Other Copy))
+  (bodies
+    (Why.Fine 5:10
+      (5:17-5:18 IntLit Int (adopt UInt8) value temp))
+    (Why.Bad 6:10
+      (6:16-6:18 IntLit Int (adopt UInt8) value temp))
+    (error_payload 13:6
+      (14:12-14:19 Member raw_case_in_result_slot.Why (err Result<UInt, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (error_payload_tail 17:6
+      (18:5-18:12 Member raw_case_in_result_slot.Why (err Result<Int, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (ok_payload 21:6
+      (22:12-22:19 Member raw_case_in_result_slot.Why (ok Result<raw_case_in_result_slot.Why, UInt>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (error_beside_optional 25:6
+      (26:12-26:19 Member raw_case_in_result_slot.Why (err Result<UInt?, raw_case_in_result_slot.Why>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (unrelated_error 29:6
+      (30:12-30:19 Member raw_case_in_result_slot.Why (adopt UInt) (ok Result<UInt, raw_case_in_result_slot.Other>) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why))))
+    (into_integer 33:6
+      (34:9-34:10 BindingName UInt place temp)
+      (34:19-34:26 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (35:9-35:10 BindingName UInt? place temp)
+      (35:20-35:27 Member raw_case_in_result_slot.Why (adopt UInt) (some UInt?) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (36:12-36:13 Name UInt place copy))
+    (combination 39:6
+      (40:12-40:30 Binary UInt (ok Result<UInt, raw_case_in_result_slot.Why>) value temp (op |))
+      (40:12-40:19 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Bad (owner raw_case_in_result_slot.Why)))
+      (40:22-40:30 Member raw_case_in_result_slot.Why (adopt UInt) value temp (case raw_case_in_result_slot.Why.Fine (owner raw_case_in_result_slot.Why))))
+    (typed_local 43:6
+      (44:12-44:13 Name raw_case_in_result_slot.Why (err Result<UInt, raw_case_in_result_slot.Why>) place copy))))

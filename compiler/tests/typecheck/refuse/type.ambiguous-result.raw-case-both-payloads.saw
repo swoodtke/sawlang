@@ -1,0 +1,10 @@
+// refuses: type.ambiguous-result at 9:12
+// a lone raw-backed case returned where both of a Result's payloads take its enum
+
+enum Why: UInt8 {
+    case Bad = 11,
+}
+
+func fail() -> Result<Why, Why> {
+    return Why.Bad
+}

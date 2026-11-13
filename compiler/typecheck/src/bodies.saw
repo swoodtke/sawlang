@@ -1716,8 +1716,9 @@ extension TcProgram {
     // position; any other expression is typed with the slot as a hint, then
     // converted within what the position allows (`allowance`). An expression
     // typed already, as argument inference types one first, is only
-    // converted. The position takes the value, or, with `borrowed`, borrows
-    // it. Returns the type the position receives.
+    // converted. A lone raw-backed case folds into an integer slot only when
+    // no layer of the slot takes its enum. The position takes the value, or,
+    // with `borrowed`, borrows it. Returns the type the position receives.
     //
     // ENTRY POINTS (expect):
     //     check_let_value
@@ -1740,9 +1741,12 @@ extension TcProgram {
     func expect(&var self, e: Int, slot: Int, pos: TcPosition, borrowed: Bool) -> Int {
         let known = slot >= 0 && not self.has_error(slot)
         let allow = self.allowance(pos)
-        if known && not self.is_typed(e) && self.raw_case_named(e) >= 0 && self.adopts_lone_case(pos) {
+        let lone = if known { self.raw_case_named(e) } else { -1 }
+        if lone >= 0 && not self.is_typed(e) && self.adopts_lone_case(pos) && not self.slot_takes_case_enum(slot, lone) {
             // A lone raw-backed case is a constant of its backing, so an
-            // integer slot takes its value (spec, Flag enums).
+            // integer slot takes its value (spec, Flag enums), unless the
+            // slot takes the case's own enum at some layer, where the case
+            // is that enum and the ordinary path wraps it (SL-1087).
             let peeled = self.peel(slot, TcClient.Integer, -1, -1)
             if peeled >= 0 && self.is_integer(peeled) {
                 let _ = self.expr(e, TC_WANT_NONE)
@@ -2911,9 +2915,20 @@ extension TcProgram {
         return -1
     }
 
+    // Whether `slot` takes the lone raw-backed case `c` as a value of its own
+    // enum: at the slot itself or at a layer `peel` reaches, where one payload
+    // or both (the ordinary path reports the ambiguity) take that enum. Such a
+    // case is never folded into the backing integer, so `Why.Bad` in a
+    // `Result<UInt, Why>` is the error.
+    func slot_takes_case_enum(&self, slot: Int, c: Int) -> Bool {
+        let owner = self.res.decls[c].parent
+        self.peel(slot, TcClient.Construct, -1, owner) != TC_PEEL_NONE
+    }
+
     // Whether funnel position `pos` is an integer slot a lone raw-backed case
     // folds into (spec, Flag enums): a declared type in force, not an
-    // operator's peer.
+    // operator's peer; `expect` adds that no layer of the slot takes the
+    // case's own enum.
     func adopts_lone_case(&self, pos: TcPosition) -> Bool {
         match pos {
             case Operand -> false,

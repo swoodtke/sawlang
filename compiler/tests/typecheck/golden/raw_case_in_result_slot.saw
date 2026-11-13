@@ -1,0 +1,45 @@
+// A lone raw-backed case is its enum wherever a layer of the slot takes that
+// enum, and folds into an integer slot where none does (SL-1087).
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+enum Other {
+    case A,
+}
+
+func error_payload() -> Result<UInt, Why> {
+    return Why.Bad
+}
+
+func error_payload_tail() -> Result<Int, Why> {
+    Why.Bad
+}
+
+func ok_payload() -> Result<Why, UInt> {
+    return Why.Bad
+}
+
+func error_beside_optional() -> Result<UInt?, Why> {
+    return Why.Bad
+}
+
+func unrelated_error() -> Result<UInt, Other> {
+    return Why.Bad
+}
+
+func into_integer() -> UInt {
+    let n: UInt = Why.Bad
+    let m: UInt? = Why.Bad
+    return n
+}
+
+func combination() -> Result<UInt, Why> {
+    return Why.Bad | Why.Fine
+}
+
+func typed_local(w: Why) -> Result<UInt, Why> {
+    return w
+}

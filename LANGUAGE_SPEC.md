@@ -8825,7 +8825,12 @@ let narrow: UInt8 = Cfg.Wide | Cfg.Mask
 **A LONE case folds there too**, on exactly those terms: it is a constant of the
 backing whether one case is written or three, so `static Y: UInt32 = Perm.Read`
 is 1. It was refused until Aug 31, which meant adding a second flag removed a
-cast.
+cast. A case is still a value of its own enum wherever the slot takes that
+enum, at the slot itself or at a layer of an `Optional` or `Result` slot: in a
+function returning `Result<UInt, Perm>`, `return Perm.Read` is
+`Err(Perm.Read)`, not `Ok(1)`, and in a `Result<Perm, UInt>` slot it is
+`Ok(Perm.Read)`. The fold applies only where no layer of the slot takes the
+enum, so `let n: UInt = Perm.Read` is 1.
 
 The same rule covers a module `static` named in such a slot
 (`let e: UInt16 = 1 << PAGE_SHIFT`), which is what the size-in-one-place idiom
