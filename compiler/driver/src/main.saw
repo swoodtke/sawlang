@@ -850,7 +850,7 @@ struct DriverLink {
 // Links `link`'s module with `objects` and the target's libraries, and
 // returns the build's exit status, or 1 once the reason it could not is
 // printed. One clang run does it, `CLANG -target TRIPLE SPEED
-// [-fsanitize=address] -x ir LL -x none OBJECTS... LIBRARIES... -o OUT`, and
+// [-fsanitize=address] -x ir LL [-x none OBJECTS...] LIBRARIES... -o OUT`, and
 // an ELF executable keeps the module's DWARF itself. A Mach-O executable
 // keeps only a debug map naming the object its DWARF is in, so a module with
 // line tables links there through `driver_link_mach_o`. compiler/tools/
@@ -860,16 +860,27 @@ func driver_link(link: &DriverLink, objects: &Vector<String>) -> Int {
         return driver_link_mach_o(&link, &objects)
     }
     var arguments = driver_link_head(&link)
-    try! arguments.push("-x")
-    try! arguments.push("ir")
-    try! arguments.push(link.ll)
-    try! arguments.push("-x")
-    try! arguments.push("none")
+    driver_link_module(&var arguments, link.ll, &objects)
     driver_link_tail(&var arguments, &link, &objects)
     stagetime_begin(StageTime.ClangLink)
     let status = driver_clang("sawc build", link.clang, &arguments)
     stagetime_end(StageTime.ClangLink)
     status
+}
+
+// The module's part of a one-run link: `-x ir LL`, then `-x none` to end the
+// IR language for the objects that follow. clang warns about a `-x none` with
+// no input file after it, and a provider's link has no objects.
+// ENTRY POINTS:
+//     driver_link
+func driver_link_module(arguments: &var Vector<String>, ll: String, objects: &Vector<String>) {
+    try! arguments.push("-x")
+    try! arguments.push("ir")
+    try! arguments.push(ll)
+    if objects.len() > 0 {
+        try! arguments.push("-x")
+        try! arguments.push("none")
+    }
 }
 
 // The Mach-O link of a module with line tables, which is reproducible, since

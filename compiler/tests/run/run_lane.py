@@ -1429,6 +1429,71 @@ def check_split_object(failures, counts):
     counts["run split objects bound as whole ones"] = 1
 
 
+def check_link_arguments(failures, counts):
+    """In every clang run sawc makes, a `-x none` is followed by an input
+    file: clang warns about one that ends the line, and a provider's link has
+    no object to follow it. A copy of sawc runs beside a made-up record for a
+    Linux target that is not this host's, whose clang is a stub that writes
+    each argument list down and creates the `-o` file. The provider's link
+    carries no `-x none`; a program's carries it right before the record's
+    one object. A twin has no records beside it, so the whole check is left
+    out under one (`NOT_UNDER_TWIN`)."""
+    work = os.path.join(OUT, "link-arguments")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    triple = "x86_64-unknown-linux-gnu" if build.host_triple() == "aarch64-unknown-linux-gnu" \
+        else "aarch64-unknown-linux-gnu"
+    log = os.path.join(work, "clang.log")
+    stub = os.path.join(work, "clang-stub")
+    with open(stub, "w") as fh:
+        fh.write('#!/bin/sh\necho "$*" >> "%s"\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = -o ]; then : > "$2"; fi\n'
+                 '  shift\ndone\n' % log)
+    os.chmod(stub, 0o755)
+    copied = os.path.join(work, "sawc")
+    shutil.copy(build.SAWC, copied)
+    for path in glob.glob(os.path.join(os.path.dirname(os.path.realpath(build.SAWC)), "sawc-runtime*.txt")):
+        shutil.copy(path, os.path.join(work, os.path.basename(path)))
+    part = os.path.join(work, "runtime-part.o")
+    with open(part, "w") as fh:
+        fh.write("not read\n")
+    record = os.path.join(work, "sawc-runtime-%s.txt" % triple)
+    cases = (("provider", ["--runtime", rel(os.path.join(PROBES, "runtime_provider.saw"))], ""),
+             ("program", [rel(os.path.join(HERE, "hello.saw"))], "object %s\n" % part))
+    for name, args, objects in cases:
+        with open(record, "w") as fh:
+            fh.write("target %s\nclang %s\n%s" % (triple, stub, objects))
+        if os.path.exists(log):
+            os.remove(log)
+        r = subprocess.run([copied, "build", "--target", triple, "--codegen-units=1", "--std-root", "std"] + args
+                           + ["-o", os.path.join(work, name)], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        if r.returncode != 0 or not os.path.exists(log):
+            failures.append("run link arguments: the %s build exits %d with %s clang runs: %s"
+                            % (name, r.returncode, "some" if os.path.exists(log) else "no",
+                               (r.stdout + r.stderr).strip()[:300]))
+            continue
+        with open(log) as fh:
+            runs = [line.split() for line in fh.read().splitlines()]
+        for argv in runs:
+            for k, arg in enumerate(argv):
+                if arg == "-x" and argv[k + 1:k + 2] == ["none"] and (k + 2 >= len(argv) or argv[k + 2].startswith("-")):
+                    failures.append("run link arguments: the %s build's clang line has a `-x none` with no input "
+                                    "file after it: %s" % (name, " ".join(argv)))
+        links = [argv for argv in runs if "-c" not in argv and "-o" in argv]
+        has_none = [["-x", "none"] in [argv[k:k + 2] for k in range(len(argv))] for argv in links]
+        if len(links) != 1:
+            failures.append("run link arguments: the %s build ran clang %d times to link, not once: %s"
+                            % (name, len(links), "; ".join(" ".join(a) for a in runs)))
+        elif name == "provider" and has_none[0]:
+            failures.append("run link arguments: the provider's link has a `-x none`: %s" % " ".join(links[0]))
+        elif name == "program":
+            argv = links[0]
+            if ["-x", "none", part] not in [argv[k:k + 3] for k in range(len(argv))]:
+                failures.append("run link arguments: the program's link has no `-x none` right before its object: %s"
+                                % " ".join(argv))
+    counts["run link argument lists checked"] = len(cases)
+
+
 # The probes whose `@section` definitions must be defined in the optimized
 # binary and sit in the section the probe names, each with the part of their
 # symbols' names `nm` shows and how many such symbols there are: a placed
@@ -4267,6 +4332,8 @@ NOT_UNDER_TWIN = (
                                "cache"),
     (check_front_cache, True, "it counts one compiler's cache images and expects the other stage to miss them"),
     (check_front_layers, True, "it counts one compiler's cache parts and expects the other stage to miss them"),
+    (check_link_arguments, True, "it copies the binary beside made-up runtime records, and the twin is a wrapper "
+                                 "with no record beside it"),
 )
 
 
@@ -4346,6 +4413,7 @@ def run(names=None, write=False):
         check_front_shared_writers(failures, counts)
         check_long_accessor(failures, counts)
         check_deep_match(failures, counts)
+        run_check(check_link_arguments, failures, counts)
         check_twin_table(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues
