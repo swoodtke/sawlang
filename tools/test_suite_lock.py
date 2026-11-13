@@ -343,6 +343,39 @@ def yield_fallback(root):
     lock_tool(lock, "release")
 
 
+def yield_status_failure(root):
+    """A status command that cannot run, or a failure the script does not
+    anticipate, is the cannot-tell answer and never the busy one."""
+    cases = (
+        ("a status command that cannot be executed", "not-executable", "Permission denied"),
+        ("a status command that does not parse", "unbalanced", "ValueError"),
+    )
+    for what, name, named in cases:
+        lock = os.path.join(root, "yield-" + name)
+        if name == "not-executable":
+            cmd = os.path.join(root, "not-executable-tracker")
+            open(cmd, "w").close()
+            os.chmod(cmd, 0o644)
+        else:
+            cmd = "'unbalanced"
+        env = dict(env_for(lock), SAW_GATE_STATUS_CMD=cmd)
+        proc = subprocess.Popen(["sh", LOCK_TOOL, "acquire", "--yield-to-gate", "--pid", ME, name],
+                                cwd=REPO, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        try:
+            rc, out = finish(proc)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            rc, out = finish(proc)
+            out = "(waited, never fell back)\n" + out
+        check(rc == 0 and "cannot read the server's SL gate (" in out and named in out
+              and "falling back to the plain acquire" in out and "acquired; it was free" in out
+              and "Traceback" not in out and "yielding" not in out,
+              "%s falls back to the plain acquire, never waits as busy" % what, out)
+        check(len(out.splitlines()) == 2, "%s is named on one line" % what, out)
+        lock_tool(lock, "release")
+
+
 def gate_stub(root):
     """An interpreter for build.sh that records that the gate ran, then fails."""
     stub = os.path.join(root, "stub_python")
@@ -472,7 +505,7 @@ def main():
         for case in (free_lock, held_lock, unknown_holder, build_sh, orphaned_waiter,
                      term_releases, term_while_waiting, dead_owner_at_acquire, yield_idle,
                      yield_queued, yield_held, yield_running, yield_gives_back, yield_behind_holder,
-                     yield_fallback):
+                     yield_fallback, yield_status_failure):
             case(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -482,7 +515,8 @@ def main():
         return 1
     print("suite lock: OK: holder, heartbeat, wait, unknown holder, build.sh, orphaned waiter, "
           "TERMed gate, TERMed waiter, dead owner, yield to an idle/queued/held/running gate, "
-          "give back on a race, yield behind a holder, fallback")
+          "give back on a race, yield behind a holder, fallback, "
+          "a failing status command")
     return 0
 
 

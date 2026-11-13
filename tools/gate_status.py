@@ -28,10 +28,12 @@ def query(project):
     argv = shlex.split(cmd) if cmd else ["sawtracker", "gate", "--project", project, "--json"]
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT)
-    except FileNotFoundError:
-        return None, "%s: not found" % argv[0]
     except subprocess.TimeoutExpired:
         return None, "%s: no answer in %ds" % (argv[0], TIMEOUT)
+    except OSError as e:
+        # FileNotFoundError, and PermissionError when a PATH directory is
+        # unreadable in a sandbox.
+        return None, "%s: %s" % (argv[0], e.strerror or e)
     if r.returncode != 0:
         lines = (r.stderr.strip() or r.stdout.strip()).splitlines()
         return None, lines[0] if lines else "%s: exit %d" % (argv[0], r.returncode)
@@ -90,5 +92,15 @@ def main(argv):
     return 1
 
 
+def guarded(argv):
+    """main's exit code, or 2 for any failure it did not anticipate: an
+    uncaught exception would exit 1, which is the busy answer."""
+    try:
+        return main(argv)
+    except Exception as e:
+        print(("gate status failed: %s: %s" % (type(e).__name__, e)).replace("\n", " "))
+        return 2
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(guarded(sys.argv))
