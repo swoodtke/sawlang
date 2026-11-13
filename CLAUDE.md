@@ -115,6 +115,7 @@ bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
 bin/sawc fix [--check] FILE...  # drops `borrow` prefixes SL:borrowing §12 makes redundant
 bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...
 bin/sawc runtime ...       # `bin/sawc --help` lists every form
+bin/sawc tools [--target TRIPLE]   # the clang, ld.lld and objcopy recorded for a target, `NAME PATH` lines
 bin/sawc --version         # `sawc X.Y.Z`: driver_version, held equal to
                            # .sawtracker/version by run.py
 ```

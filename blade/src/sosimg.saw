@@ -250,9 +250,12 @@ extension TomlSection {
     /// The level for one spec §7 priority band, or `fallback` when
     /// `[sos.priorities]` does not name it. A malformed or out-of-range level is
     /// an ERROR, never a silent fallback: a typo'd level would otherwise ship an
-    /// image whose scheduling silently disagrees with its manifest.
-    func band_level(&self, band: String, fallback: Int) -> Result<Int, SosError> {
-        guard let raw = self.table_value("priorities", band) else {
+    /// image whose scheduling silently disagrees with its manifest. `dotted` says
+    /// the table is its own `[sos.priorities]` section, whose keys are `self`'s
+    /// own; otherwise it is the inline `priorities = { ... }` value of `[sos]`.
+    func band_level(&self, band: String, fallback: Int, dotted: Bool) -> Result<Int, SosError> {
+        let stated = if dotted { self.get(band) } else { self.table_value("priorities", band) }
+        guard let raw = stated else {
             return fallback
         }
         guard let level = raw.to_int() else {
@@ -267,16 +270,24 @@ extension TomlSection {
 
 // The `[sos]` priorities table, read through ONE place-window on `index`
 // rather than one per band (design 212 unit 2 — `load_sos_config` used to
-// spell `section_at` four times here, one per band).
+// spell `section_at` four times here, one per band). TOML gives the table two
+// spellings, an inline `priorities = { ... }` in `[sos]` and a `[sos.priorities]`
+// section, and they read the same; stating both is an error.
 func read_priorities(doc: &TomlDoc, index: Int) -> Result<UInt, SosError> {
-    try priorities_from(&doc.section_at(index))
+    guard let own = doc.index_of("sos.priorities") else {
+        return try priorities_from(&doc.section_at(index), false)
+    }
+    if doc.section_at(index).is_table("priorities") {
+        return SosError(msg: "[sos] priorities: stated both inline and as a [sos.priorities] section")
+    }
+    try priorities_from(&doc.section_at(own), true)
 }
 
-func priorities_from(section: &TomlSection) -> Result<UInt, SosError> {
-    let background = try section.band_level("background", DEFAULT_BACKGROUND)
-    let low = try section.band_level("low", DEFAULT_LOW)
-    let normal = try section.band_level("normal", DEFAULT_NORMAL)
-    let high = try section.band_level("high", DEFAULT_HIGH)
+func priorities_from(section: &TomlSection, dotted: Bool) -> Result<UInt, SosError> {
+    let background = try section.band_level("background", DEFAULT_BACKGROUND, dotted)
+    let low = try section.band_level("low", DEFAULT_LOW, dotted)
+    let normal = try section.band_level("normal", DEFAULT_NORMAL, dotted)
+    let high = try section.band_level("high", DEFAULT_HIGH, dotted)
     pack_priorities(background, low, normal, high)
 }
 
@@ -365,7 +376,8 @@ static HEX_PREFIX_LEN: Int = 2      // "0x"
 ///     linker-script = "../hal/arm64/user/root.ld"
 ///     native = "..."
 ///
-/// `emit` and `priorities` stay in `[sos]` either way, because they are
+/// `priorities` may also be its own `[sos.priorities]` table, which is no
+/// machine. `emit` and `priorities` stay in `[sos]` either way, because they are
 /// properties of the PROGRAM and not of the machine it is built for. A
 /// `--target` the manifest has no section for is an ERROR naming the ones it
 /// does have — never a build for something else, and never a silent fallback
@@ -398,6 +410,8 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     if not emit.equals("sosimg") {
         return SosError(msg: "[sos] emit: expected \"sosimg\", got `{emit}`")
     }
+
+    try check_sos_subtables(&doc)
 
     // `priorities` describes the PROGRAM, so it is read from `[sos]` whichever
     // spelling the per-machine keys use.
@@ -491,8 +505,15 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     return found
 }
 
+/// Whether `[sos.<name>]` is a table `[sos]` owns as one of its own keys, which
+/// is no machine. THE LIST of `[sos]`'s table-valued keys: a new one is added
+/// here, and the machine tables are the subtables left over.
+func is_sos_own_table(name: String) -> Bool {
+    name.equals("priorities")
+}
+
 /// Every triple this manifest has a `[sos.<triple>]` section for, in document
-/// order.
+/// order: the `[sos]` subtables that are not `[sos]`'s own keys.
 func sos_target_sections(doc: &TomlDoc) -> Vector<String> {
     var out = Vector<String>()
     let names = doc.section_names()
@@ -503,11 +524,35 @@ func sos_target_sections(doc: &TomlDoc) -> Vector<String> {
             continue
         }
         if name.starts_with("sos.") {
-            try! out.push(name.substring(SOS_PREFIX_LEN, name.len()))
+            let sub = name.substring(SOS_PREFIX_LEN, name.len())
+            if not is_sos_own_table(sub) {
+                try! out.push(sub)
+            }
         }
         i = i + 1
     }
     move out
+}
+
+/// Refuses a `[sos.<name>]` that is neither one of `[sos]`'s own tables nor a
+/// triple sosimg has an arch tag for, naming it: counting it as a machine would
+/// have it reported as one more machine to pass to `--target`.
+func check_sos_subtables(doc: &TomlDoc) -> Result<Void, SosError> {
+    let per_target = sos_target_sections(&doc)
+    var i = 0
+    while i < per_target.len() {
+        guard let name = per_target.get(i) else {
+            i = i + 1
+            continue
+        }
+        match arch_for_target(name) {
+            case Ok(_) -> {},
+            case Err(_) -> {
+                return SosError(msg: "[sos.{name}]: `{name}` is neither a table [sos] owns (priorities) nor a target triple sosimg knows")
+            }
+        }
+        i = i + 1
+    }
 }
 
 static SOS_PREFIX_LEN: Int = 4      // "sos."
@@ -543,17 +588,48 @@ func sos_targets_summary(doc: &TomlDoc, flat_target: String) -> String {
     "this manifest declares {flat_target}, {listed}"
 }
 
-/// The cross-compiler driving the native translation unit. An SOS image is
-/// built for a bare-metal triple, so this is never the host toolchain by
-/// accident — `SOS_CLANG` names it when the default is wrong (macOS's Apple
-/// clang mis-drives the riscv integrated assembler).
-public func sos_clang() -> String {
-    (try! Env.get("SOS_CLANG")) ?? "clang"
+/// The path on the `name` line of what `sawc tools --target T` printed, a
+/// `NAME PATH` line per tool, or None when `recorded` has no such line.
+public func recorded_tool(recorded: String, name: String) -> String? {
+    let prefix = "{name} "
+    let lines = try! recorded.split("\n")
+    var i = 0
+    while i < lines.len() {
+        let line = lines.get(i) ?? ""
+        if line.starts_with(prefix) && line.len() > prefix.len() {
+            return line.substring(prefix.len(), line.len())
+        }
+        i = i + 1
+    }
+    None
 }
 
-/// The linker. `SOS_LD` overrides.
-public func sos_ld() -> String {
-    (try! Env.get("SOS_LD")) ?? "ld.lld"
+/// The cross-compiler driving the native translation unit. An SOS image is
+/// built for a bare-metal triple, so this is never the host toolchain by
+/// accident. `SOS_CLANG` wins; otherwise the `clang` line of `recorded`, what
+/// `sawc tools --target T` printed for the image's target; otherwise `clang`.
+public func sos_clang(recorded: String) -> String {
+    if let named = try! Env.get("SOS_CLANG") {
+        return named
+    }
+    recorded_tool(recorded, "clang") ?? "clang"
+}
+
+/// The linker. `SOS_LD` wins; otherwise the `ld.lld` line of `recorded`, the one
+/// beside the recorded clang; otherwise `ld.lld`.
+public func sos_ld(recorded: String) -> String {
+    if let named = try! Env.get("SOS_LD") {
+        return named
+    }
+    recorded_tool(recorded, "ld.lld") ?? "ld.lld"
+}
+
+/// Whether the build must ask `sawc` for the target's tools: a variable that
+/// is unset leaves one of the two to the recorded answer.
+public func sos_tools_wanted() -> Bool {
+    let clang_set = if let _ = try! Env.get("SOS_CLANG") { true } else { false }
+    let ld_set = if let _ = try! Env.get("SOS_LD") { true } else { false }
+    not (clang_set && ld_set)
 }
 
 /// The argument list (without the program) for compiling one native

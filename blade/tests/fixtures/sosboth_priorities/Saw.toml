@@ -1,0 +1,14 @@
+[package]
+name = "sosboth_priorities"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+priorities = { low = 2 }
+
+[sos.priorities]
+low = 3
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "xt.ld"
+native = "xt.c"

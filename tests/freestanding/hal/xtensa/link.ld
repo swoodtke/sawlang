@@ -7,7 +7,8 @@
  * 0x4200_0408.
  *
  * L32R reaches only backwards, up to 256 KiB, so every output section that
- * holds code lists its literal pools ahead of the code.
+ * holds code places each function's literal pool just ahead of that function's
+ * code, which one input pattern does.
  *
  * IRAM starts at 0x4037_8000 and DRAM at 0x3FC8_C000: on silicon the two are
  * one SRAM seen through two buses, and these ranges stay disjoint under that
@@ -35,8 +36,7 @@ SECTIONS {
 
     .text : ALIGN(4) {
         *(.literal.start) *(.text.start)
-        *(.literal .literal.*)
-        *(.text .text.*)
+        *(.literal .literal.* .text .text.*)
     }
 
     .rodata : ALIGN(4) {

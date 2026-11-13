@@ -4330,9 +4330,10 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   `emit = "sosimg"` plus `priorities`, and a `[sos.<triple>]` table per machine
   (`linker-script` required, `native`, `march`, `mabi`, `target-features`,
   `device-window`, `device-window-size`); `blade build --target <triple>` picks
-  one. `mcpu` is refused (the CPU is the triple's). `SOS_CLANG` and `SOS_LD` name
-  the C compiler and linker, and for xtensa they MUST name Espressif's `clang`
-  and `ld.lld`: Blade doesn't find them as sawc does. `priorities` is an inline
+  one. `mcpu` is refused (the CPU is the triple's). `SOS_CLANG` and `SOS_LD`
+  override the C compiler and linker; unset, Blade takes the tools from
+  `sawc tools --target <triple>` (for xtensa, Espressif's `clang` and the
+  `ld.lld` beside it). `priorities` is an inline table or a `[sos.priorities]`
   table. Spec: Package Structure, "Image manifests".
 - **A package can BE the runtime** (design 149): `[package] runtime = true`
   in Saw.toml lets it `@export` the frozen `__saw_rt_*` seams, links no

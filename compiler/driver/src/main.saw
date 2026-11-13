@@ -39,6 +39,7 @@
 //   sawc build --runtime FILE      the entry file built as its own runtime, linked with none of sawc's
 //   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
 //   sawc runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
+//   sawc tools [--target TRIPLE]   the clang, ld.lld and objcopy the records beside the binary name for the target, as `NAME PATH` lines
 //   sawc [FLAG]... FILE.saw        `sawc build` with the subcommand left out, Stage 0's command line
 //   sawc --version                 `sawc VERSION`, the release a toolchain pin names
 //
@@ -138,6 +139,7 @@ func driver_usage() -> Int {
     print("       (resolve through coro, and fix, each also take --no-front-cache)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
+    print("       sawc tools [--target TRIPLE]")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
     print("       sawc --version")
     DRIVER_EXIT_USAGE
@@ -364,14 +366,14 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if cross {
         let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang, &var foreign_objcopy)
         if not configured.equals(triple) && target_bare_metal(triple) {
-            print("sawc build: --target {} has no clang configured to compile for it: compiler/tools/build.py records one on every build, the one SAWC_CLANG names or else the first that compiles IR for that target of each clang-NN on PATH (the newest first), clang, and Homebrew's LLVM clang ($HOMEBREW_PREFIX/opt/llvm/bin/clang, /opt/homebrew when unset), and found none (`compiler/tools/build.py --runtime {}` says why)", triple, triple)
+            print("{}", driver_no_clang_refusal("sawc build", triple))
             return 1
         }
         if not configured.equals(triple) && (freestanding || provider) {
             try! foreign_clang.append(clang.build())
             try! foreign_objcopy.append(objcopy.build())
         } else if not configured.equals(triple) {
-            print("sawc build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
+            print("{}", driver_no_runtime_refusal("sawc build", triple, host))
             return 1
         }
     }
@@ -618,6 +620,20 @@ func driver_read_target_runtime(triple: String, objects: &var Vector<String>, cl
         return ""
     }
     driver_parse_manifest("sawc build", at, text, &var objects, &var clang, &var objcopy)
+}
+
+// The refusal for a bare-metal `triple` whose record beside this binary names
+// no clang, headed by `command`: the one text `sawc build` and `sawc tools`
+// share.
+func driver_no_clang_refusal(command: String, triple: String) -> String {
+    "{command}: --target {triple} has no clang configured to compile for it: compiler/tools/build.py records one on every build, the one SAWC_CLANG names or else the first that compiles IR for that target of each clang-NN on PATH (the newest first), clang, and Homebrew's LLVM clang ($HOMEBREW_PREFIX/opt/llvm/bin/clang, /opt/homebrew when unset), and found none (`compiler/tools/build.py --runtime {triple}` says why)"
+}
+
+// The refusal for a hosted `triple` other than `host` that has no runtime record
+// beside this binary, headed by `command`, shared as `driver_no_clang_refusal`
+// is.
+func driver_no_runtime_refusal(command: String, triple: String, host: String) -> String {
+    "{command}: --target {triple} is not this host ({host}), and no runtime for it is configured: `compiler/tools/build.py --runtime {triple}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc mono --layouts --target {triple}` describes its layouts"
 }
 
 // The path of the file `name` in the directory of the executable this process
@@ -3278,6 +3294,63 @@ func driver_tool(command: String, tool: String, program: String, arguments: &Vec
     }
 }
 
+// `sawc tools [--target TRIPLE]`: the tools the records beside this binary name
+// for the target (the host without `--target`), one `NAME PATH` line each:
+// `clang`, always; `ld.lld`, when one sits in that clang's directory; and
+// `objcopy`, when the record names one. A target with no record prints the
+// refusal `sawc build` prints for it and exits 1.
+func driver_tools(args: &Vector<String>) -> Int {
+    var triple = ""
+    var i = 2
+    while i < args.len() {
+        let arg = args.get(i) ?? ""
+        let value = args.get(i + 1) ?? ""
+        if value.len() == 0 || not arg.equals("--target") {
+            return driver_usage()
+        }
+        triple = value
+        i = i + 2
+    }
+    if triple.len() > 0 && not target_known(triple) {
+        print("sawc: unknown target {triple}")
+        return DRIVER_EXIT_USAGE
+    }
+    var objects = Vector<String>()
+    var clang = StringBuilder()
+    var objcopy = StringBuilder()
+    let host = driver_read_runtime("sawc tools", &var objects, &var clang, &var objcopy)
+    if host.len() == 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    var clang_path = clang.build()
+    var copier = objcopy.build()
+    if triple.len() > 0 && not triple.equals(host) {
+        var foreign = Vector<String>()
+        var foreign_clang = StringBuilder()
+        var foreign_objcopy = StringBuilder()
+        let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang, &var foreign_objcopy)
+        if not configured.equals(triple) {
+            if target_bare_metal(triple) {
+                print("{}", driver_no_clang_refusal("sawc tools", triple))
+            } else {
+                print("{}", driver_no_runtime_refusal("sawc tools", triple, host))
+            }
+            return 1
+        }
+        clang_path = foreign_clang.build()
+        copier = foreign_objcopy.build()
+    }
+    print("clang {}", clang_path)
+    let linker = driver_path(driver_parent(clang_path), "ld.lld", "")
+    if driver_file_exists(linker) {
+        print("ld.lld {}", linker)
+    }
+    if copier.len() > 0 {
+        print("objcopy {}", copier)
+    }
+    0
+}
+
 // `sawc runtime --out DIR`: each runtime source of the target, as the ABI
 // table lists them under the runtime root, compiled to `DIR/NAME.ll` and by
 // clang to `DIR/NAME.o`, and the C shim to `DIR/shim.o`, all at the module's
@@ -3856,6 +3929,9 @@ func main() -> Int {
     }
     if command.equals("runtime") {
         return driver_runtime(&args)
+    }
+    if command.equals("tools") {
+        return driver_tools(&args)
     }
     if command.equals("--version") {
         print("sawc {}", driver_version())

@@ -47,6 +47,38 @@ func main() {
         case Err(e) -> panic("sosdefaults [sos] should parse: {e}")
     }
 
+    // `[sos.priorities]` is the same value as the inline table, and is no
+    // machine: the one `[sos.<triple>]` section is the package's only target.
+    match load_sos_config(Path(s: "tests/fixtures/sosdotted_priorities")) {
+        case Ok(found) -> {
+            guard let cfg = found else {
+                panic("sosdotted_priorities declares [sos]")
+            }
+            assert(cfg.target.equals("xtensa-esp-unknown-elf"), "the dotted table is no machine")
+            assert(cfg.prio_map == pack_priorities(0, 2, 1, 7), "dotted priorities read like inline ones")
+        },
+        case Err(e) -> panic("a [sos.priorities] section should read: {e}")
+    }
+
+    // An unknown `[sos.<name>]` is refused by name, not counted as a machine.
+    match load_sos_config(Path(s: "tests/fixtures/sosunknown_subtable")) {
+        case Ok(_) -> panic("an unknown [sos] subtable should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("[sos.priorites]"), "the refusal names the subtable")
+            assert(said.contains("neither a table [sos] owns"), "and the rule")
+        }
+    }
+
+    // Both spellings of the table at once are refused.
+    match load_sos_config(Path(s: "tests/fixtures/sosboth_priorities")) {
+        case Ok(_) -> panic("priorities stated twice should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("both inline and as a [sos.priorities] section"), "the refusal names both spellings")
+        }
+    }
+
     // An ordinary package: absent, not an error.
     match load_sos_config(Path(s: "tests/fixtures/deps_ok")) {
         case Ok(found) -> {

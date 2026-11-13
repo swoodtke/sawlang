@@ -15459,12 +15459,14 @@ for one machine may put the per-machine keys there too, with a `target` key
 naming the triple (`[sos]` `target = "riscv32-unknown-none-elf"`). A package for
 several machines gives each its own `[sos.<triple>]` table, and
 `blade build --target <triple>` picks one. A `--target` the manifest has no
-table or `target` for is an error, never a build for another machine.
+table or `target` for is an error, never a build for another machine. So is a
+`[sos.<name>]` table that is neither `priorities` nor a triple Blade has an
+image tag for; the error names it.
 
 | Key | Type | Where | Meaning |
 |---|---|---|---|
 | `emit` | string | `[sos]` | Required. The only value is `"sosimg"`. |
-| `priorities` | inline table | `[sos]` | The levels of the four bands `background`, `low`, `normal` and `high`, each an integer from 0 to 7. Defaults 0, 1, 1 and 1. A band left out takes its default. |
+| `priorities` | table | `[sos]` | The levels of the four bands `background`, `low`, `normal` and `high`, each an integer from 0 to 7. Defaults 0, 1, 1 and 1. A band left out takes its default. Written inline (`priorities = { low = 2 }`) or as a `[sos.priorities]` table, which read the same; stating both is an error. |
 | `target` | string | `[sos]` | The triple, in the flat form. |
 | `linker-script` | string | machine | Required. The path passed to `ld.lld -T`. |
 | `native` | string | machine | The C and assembly sources compiled beside the Saw object, separated by spaces. Default: none. |
@@ -15496,14 +15498,16 @@ follows the heading, here for each case:
 | `low = 9` in `priorities` | `[sos] priorities.low: level 9 is outside 0..7` |
 | `device-window = "zz"` in `[sos.xtensa-esp-unknown-elf]` | `` [sos] sos.xtensa-esp-unknown-elf.device-window: `zz` is not a number `` |
 
-Two environment variables name the tools: `SOS_CLANG`, the C compiler (default
-`clang`), and `SOS_LD`, the linker (default `ld.lld`). One that names no program
-fails the build with `could not launch clang` or `could not launch ld.lld`.
-Blade does not look for a compiler the way `sawc` does. For
-`xtensa-esp-unknown-elf` the two variables name Espressif's `clang` and the
-`ld.lld` beside it; with the defaults the C half fails with
-`unknown target CPU 'esp32s3'`, since a clang without the Xtensa backend
-cannot compile for the triple.
+Two environment variables override the tools: `SOS_CLANG`, the C compiler, and
+`SOS_LD`, the linker. For one that is unset, Blade runs the compiler it drives
+(`SAWC`, else `sawc`) as `sawc tools --target <triple>`, once per build, and
+takes the `clang` line for the compiler and the `ld.lld` line for the linker:
+the clang `sawc` recorded for that triple, which for `xtensa-esp-unknown-elf`
+is Espressif's, and the `ld.lld` in that clang's directory when there is one.
+When the query fails, prints no such line, or the compiler has no `tools`
+command, Blade uses `clang` and `ld.lld` from `PATH`. A variable that names no
+program fails the build with `could not launch clang` or
+`could not launch ld.lld`.
 
 ---
 
@@ -17497,6 +17501,7 @@ sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)
+sawc tools [--target TRIPLE]
 sawc lex | parse | resolve | typecheck | mir | eval | borrowck | drops | mono | coro ...
 sawc --version
 ```
@@ -17562,6 +17567,11 @@ sawc --version
   computed again; it never fails the build. `--no-front-cache`, or
   `SAWC_FRONT_CACHE=off` in the environment, compiles without it.
 - `sawc runtime` builds the hosted runtime from `runtime/`.
+- `sawc tools` prints the tools recorded for a target (the host without
+  `--target`), one `NAME PATH` line each: `clang`, always; `ld.lld`, when a file
+  of that name sits in the clang's directory; and `objcopy`, when the record
+  names one. Blade runs it to find the tools of an image's target. A target with
+  no record gets the refusal `sawc build` prints for it, and exit 1.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`
   checks a file through every stage before code generation, with no `main`

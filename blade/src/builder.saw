@@ -317,6 +317,27 @@ extension Builder {
         return
     }
 
+    // What `sawc tools --target <target>` prints, the compiler's record of the
+    // tools that compile for the target; "" when both `SOS_CLANG` and `SOS_LD`
+    // are set (nothing to ask), or when the query fails or the compiler has no
+    // such command, so the callers fall back to their defaults.
+    func recorded_tools(&self, target: String) -> String {
+        if not sos_tools_wanted() {
+            return ""
+        }
+        var query = self.compiler_command()
+        try! query.arg("tools")
+        try! query.arg("--target")
+        try! query.arg(target)
+        guard let out = try? query.output() else {
+            return ""
+        }
+        if not out.success() {
+            return ""
+        }
+        out.stdout
+    }
+
     // Build an SOS process image (design 140 unit B; sos/spec.md §6).
     //
     // `sawc --freestanding` for the Saw half, the cross `clang` for the one
@@ -395,6 +416,7 @@ extension Builder {
         // compiled separately so a HAL file and a shared runtime file can be
         // named without either knowing about the other.
         let units = try! cfg.native.split(" ")
+        let recorded = self.recorded_tools(cfg.target)
         var u = 0
         while u < units.len() {
             guard let unit = units.get(u) else {
@@ -406,7 +428,7 @@ extension Builder {
                 continue
             }
             let native_obj = layout.artifact("{name}.native{u}.o")
-            var cc = Command(program: sos_clang())
+            var cc = Command(program: sos_clang(recorded))
             // The argument list is `native_compile_arguments`, so a test can
             // pin it without a toolchain.
             let cc_args = native_compile_arguments(&cfg, unit, native_obj)
@@ -420,7 +442,7 @@ extension Builder {
             u = u + 1
         }
 
-        var ld = Command(program: sos_ld())
+        var ld = Command(program: sos_ld(recorded))
         try! ld.arg("-T")
         try! ld.arg(cfg.linker_script)
         try! ld.arg("--gc-sections")

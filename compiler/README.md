@@ -253,6 +253,7 @@ bin/sawc build --emit-ll FILE                         # FILE's `.ll` on standard
 bin/sawc build --time-stages FILE -o OUT              # the build, then `time: STEP MS ms` per step on standard error
 bin/sawc build --codegen-units=module FILE -o OUT     # one module per Saw module, compiled in parallel (below)
 bin/sawc runtime --out DIR                            # the host's runtime objects, into DIR
+bin/sawc tools --target TRIPLE                        # the clang, ld.lld and objcopy recorded for TRIPLE
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT  # another program
 ```
 

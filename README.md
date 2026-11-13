@@ -756,6 +756,7 @@ sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--target TRIPLE]
            [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc fix [--check] FILE...
 sawc runtime (--out DIR | --emit-ll FILE)
+sawc tools [--target TRIPLE]
 sawc --version
 ```
 
@@ -764,7 +765,8 @@ object and links nothing. `--freestanding` writes an ELF object under the
 freestanding profile, rooted at its `@export`s. `--runtime` builds a program
 that is its own runtime, defining every `__saw_rt_*` seam it reaches (checked
 against `runtime/ABI.md`). `sawc runtime` builds the hosted runtime from
-`runtime/`. The spec documents some flags `sawc` does not take yet: the `-W`
+`runtime/`. `sawc tools` prints the `clang`, `ld.lld` and `objcopy` recorded for
+a target, one `NAME PATH` line each. The spec documents some flags `sawc` does not take yet: the `-W`
 categories other than `borrow-prefix` (SL-879) and `--emit-docs` (SL-880).
 
 ## Running tests

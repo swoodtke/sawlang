@@ -3909,6 +3909,69 @@ def check_clang_choice(failures, counts):
     counts["run clang choices checked"] = 4
 
 
+def tool_lines(out):
+    """{name: path} of the `NAME PATH` lines `sawc tools` printed."""
+    found = {}
+    for line in out.splitlines():
+        name, _, path = line.partition(" ")
+        found[name] = path
+    return found
+
+
+def check_sawc_tools(failures, counts):
+    """`sawc tools` prints the tools the records beside the binary name: for the
+    host and for the bare-metal target, a `clang` line naming a file that exists, an
+    `ld.lld` line only when that file sits beside the clang, and the record's
+    `objcopy`. A copy of sawc beside the records without the Xtensa one is refused
+    for that target with the text `sawc build` prints, and an unknown triple
+    is refused as elsewhere."""
+    where = "run sawc tools"
+    problem = bare_metal_record_problem("sawc tools for %s" % BARE_METAL_TARGET)
+    if problem:
+        failures.append(problem)
+        return
+    for flags, label in (([], "the host"), (["--target", BARE_METAL_TARGET], BARE_METAL_TARGET)):
+        r = subprocess.run([build.SAWC, "tools"] + flags, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        found = tool_lines(r.stdout)
+        clang = found.get("clang", "")
+        beside = os.path.join(os.path.dirname(clang), "ld.lld")
+        if (r.returncode != 0 or r.stderr or not os.path.isfile(clang)
+                or ("ld.lld" in found) != os.path.isfile(beside) or found.get("ld.lld", beside) != beside
+                or not set(found) <= {"clang", "ld.lld", "objcopy"}
+                or ("objcopy" in found and not os.path.isfile(found["objcopy"]))):
+            failures.append("%s for %s exits %d with %r, not an existing clang, an ld.lld only beside it, and the "
+                            "record's objcopy" % (where, label, r.returncode, r.stdout + r.stderr))
+    unknown = subprocess.run([build.SAWC, "tools", "--target", "sawc-no-such-target"], capture_output=True, text=True,
+                             timeout=BUILD_TIMEOUT)
+    if unknown.returncode != 2 or unknown.stdout.strip() != "sawc: unknown target sawc-no-such-target":
+        failures.append("%s for an unknown triple exits %d with %r" % (where, unknown.returncode, unknown.stdout))
+    if under_twin():
+        left_to_runpy(counts)
+        counts["run sawc tools checks"] = 3
+        return
+    work = os.path.join(OUT, "sawc-tools")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    copied = os.path.join(work, "sawc")
+    shutil.copy(build.SAWC, copied)
+    missing = XTENSA_TARGET
+    for path in glob.glob(os.path.join(os.path.dirname(os.path.realpath(build.SAWC)), "sawc-runtime*.txt")):
+        if not os.path.basename(path).endswith("-%s.txt" % missing):
+            shutil.copy(path, work)
+    probe = os.path.join(PROBES, FREESTANDING_PROBE)
+    refused = subprocess.run([copied, "tools", "--target", missing], capture_output=True, text=True,
+                             timeout=BUILD_TIMEOUT)
+    built = subprocess.run([copied, "build", "--freestanding", "--std-root", "std", "--target", missing, rel(probe),
+                            "-o", os.path.join(work, "refused.o")], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+    said = refused.stdout.strip()
+    if (refused.returncode != 1 or "has no clang configured" not in said
+            or said.replace("sawc tools:", "sawc build:", 1) != built.stdout.strip()):
+        failures.append("%s --target %s with no record exits %d with %r, not the text `sawc build` prints: %r"
+                        % (where, missing, refused.returncode, said[:200], built.stdout.strip()[:200]))
+    counts["run sawc tools checks"] = 4
+
+
 # The Xtensa target is compiled by Espressif's clang alone, so a machine
 # without one has no record and the build is refused, which the lane counts as
 # a visible skip (SL-1067).
@@ -4198,6 +4261,8 @@ def left_to_runpy(counts):
 NOT_UNDER_TWIN = (
     (check_split_object, False, "its last part copies the binary beside an edited runtime record, and the twin is "
                                 "a wrapper with no record beside it"),
+    (check_sawc_tools, False, "its refusal part copies the binary beside the records less one, for the same "
+                              "reason"),
     (check_object_cache, True, "it counts one compiler's cache entries, and the twin writes two compilers' to one "
                                "cache"),
     (check_front_cache, True, "it counts one compiler's cache images and expects the other stage to miss them"),
@@ -4259,6 +4324,7 @@ def run(names=None, write=False):
         check_symbolization(failures, counts)
         check_foreign_targets(failures, counts)
         check_clang_choice(failures, counts)
+        check_sawc_tools(failures, counts)
         word32_ir.check(failures, counts)
         float_lowering.check(failures, counts)
         builtin_lowering.check(failures, counts)

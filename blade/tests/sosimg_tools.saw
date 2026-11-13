@@ -1,0 +1,26 @@
+// Test: reading the tools `sawc tools --target T` names (SL-1085).
+//
+// The variables win over the record and the record over the defaults, but the
+// environment is the process's, so this pins the record's reading alone.
+
+import blade.sosimg.{recorded_tool}
+
+func main() {
+    let said = "clang /opt/esp/bin/clang\nld.lld /opt/esp/bin/ld.lld\nobjcopy /opt/esp/bin/llvm-objcopy\n"
+    assert((recorded_tool(said, "clang") ?? "").equals("/opt/esp/bin/clang"), "the clang line")
+    assert((recorded_tool(said, "ld.lld") ?? "").equals("/opt/esp/bin/ld.lld"), "the ld.lld line")
+    assert((recorded_tool(said, "objcopy") ?? "").equals("/opt/esp/bin/llvm-objcopy"), "the objcopy line")
+
+    // A path with a space stays whole.
+    let spaced = "clang /Users/a b/bin/clang\n"
+    assert((recorded_tool(spaced, "clang") ?? "").equals("/Users/a b/bin/clang"), "a path with a space")
+
+    // A record with no ld.lld line says so, and so does no record at all: the
+    // caller falls back to its default.
+    let bare = "clang /opt/llvm/bin/clang\n"
+    assert(recorded_tool(bare, "ld.lld") == None, "no ld.lld line")
+    assert(recorded_tool("", "clang") == None, "no output")
+    // A refusal or a usage text is no record.
+    assert(recorded_tool("sawc tools: --target x has no clang configured\n", "clang") == None, "a refusal")
+    print("sosimg_tools: ok")
+}

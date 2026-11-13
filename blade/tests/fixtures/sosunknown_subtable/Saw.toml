@@ -1,0 +1,13 @@
+[package]
+name = "sosunknown_subtable"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+
+[sos.priorites]
+low = 2
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "xt.ld"
+native = "xt.c"

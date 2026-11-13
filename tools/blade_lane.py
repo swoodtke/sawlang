@@ -179,6 +179,41 @@ def check_xtensa_drift():
                       % (XTENSA_TRIPLE, sorted(cpus), cpu))
 
 
+def check_blade_finds_tools():
+    """With `SOS_CLANG` and `SOS_LD` unset, Blade builds `tests/freestanding/bladepkg`
+    for each bare-metal target sawc has a record for, with the clang and `ld.lld` `sawc tools`
+    names; a target with no record is skipped, saying so. With `SOS_CLANG` naming a program
+    that does not exist the build fails to launch it, so the variable still wins."""
+    package = os.path.join(REPO, "tests", "freestanding", "bladepkg")
+    unset = blade_environment()
+    for name in ("SOS_CLANG", "SOS_LD"):
+        unset.pop(name, None)
+    recorded = []
+    for triple in ("riscv32-unknown-none-elf", XTENSA_TRIPLE):
+        record = os.path.join(os.path.dirname(build.SAWC), "sawc-runtime-%s.txt" % triple)
+        if not os.path.exists(record):
+            print("blade: no sawc record for %s: Blade's own search of the tools is not checked for it" % triple,
+                  flush=True)
+            continue
+        recorded.append(triple)
+        shutil.rmtree(os.path.join(package, ".build", triple), ignore_errors=True)
+        print("blade: blade build --target %s, SOS_CLANG and SOS_LD unset" % triple, flush=True)
+        code, out = run([SELF_BUILT, "build", "--target", triple], BUILD_TIMEOUT_S, cwd=package, env=unset)
+        if code != 0:
+            raise Failure("blade build --target %s with SOS_CLANG and SOS_LD unset exited %s\n%s" % (triple, code, out))
+        if not os.path.exists(os.path.join(package, ".build", triple, "fsblade.sosimg")):
+            raise Failure("blade build --target %s left no image\n%s" % (triple, out))
+    if not recorded:
+        return
+    wrong = dict(unset)
+    wrong["SOS_CLANG"] = os.path.join(WORK_DIR, "no-such-clang")
+    shutil.rmtree(os.path.join(package, ".build", recorded[0]), ignore_errors=True)
+    print("blade: blade build --target %s, SOS_CLANG naming no program" % recorded[0], flush=True)
+    code, out = run([SELF_BUILT, "build", "--target", recorded[0]], BUILD_TIMEOUT_S, cwd=package, env=wrong)
+    if code == 0 or "could not launch clang" not in out:
+        raise Failure("SOS_CLANG naming no program did not stop the build with `could not launch clang`\n%s" % out)
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -198,6 +233,7 @@ def lane():
         for lib in LIBRARIES:
             tests_passed("blade test in libs/%s" % lib, SELF_BUILT, os.path.join(LIBS_DIR, lib))
         check_xtensa_drift()
+        check_blade_finds_tools()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,
