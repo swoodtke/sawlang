@@ -98,8 +98,6 @@ class Target(NamedTuple):
     native_words: str
     # Every undefined symbol allowed of a probe's object, or None for no pin.
     allowed: Optional[frozenset]
-    # The target whose std builtin routines `std_builtin` consults.
-    std_triple: str
     # Whether a missing record skips the whole row (Espressif's clang alone
     # compiles the target) rather than only the object half.
     record_only: bool
@@ -116,11 +114,9 @@ def word_atomic_routines():
 
 TARGETS = (
     Target("riscv32", RISCV32_TRIPLE, os.path.join(REPO, ".build", "riscv32-ir"), RISCV32_FEATURE_SETS, NO_ATOMICS,
-           word_atomic_routines(), "with `+a`", None, RISCV32_TRIPLE, False, "riscv32 objects with the expected routines"),
-    # builtin_lowering has no xtensa row, so std's routine names are
-    # riscv32's, the freestanding set (compiler/llvm/src/attributes.saw).
+           word_atomic_routines(), "with `+a`", None, False, "riscv32 objects with the expected routines"),
     Target("xtensa", XTENSA_TRIPLE, os.path.join(REPO, ".build", "xtensa-ir"), XTENSA_FEATURE_SETS, None,
-           frozenset(), "on a target with inline word atomics", SEAM, RISCV32_TRIPLE, True,
+           frozenset(), "on a target with inline word atomics", SEAM, True,
            "xtensa objects with the expected routines"),
 )
 
@@ -152,7 +148,7 @@ def std_builtin(target, symbol):
     values by nature (`builtin_lowering.STD_ROUTINES`; SL-948)."""
     name = symbol.strip('"')
     return (name.startswith(("saw std.builtins.", "static std.builtins."))
-            or name in builtin_lowering.STD_ROUTINES[target.std_triple])
+            or name in builtin_lowering.STD_ROUTINES[target.triple])
 
 
 _GLOBAL = re.compile(r'^@("[^"]+"|[\w.$]+) = ')

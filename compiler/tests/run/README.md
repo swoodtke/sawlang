@@ -713,8 +713,8 @@ fails. The `i64` half always runs.
 
 Xtensa's row holds the same programs to the same `i64` rule, and to the
 Espressif clang its record names. Its word atomics are inline, so a program's
-object references no `__atomic_*` routine at all, and its undefined symbols
-are exactly the runtime seam's (`__saw_rt_alloc`, `__saw_rt_dealloc`,
+object references no `__atomic_*` routine at all, and none of its undefined
+symbols lies outside the runtime seam (`__saw_rt_alloc`, `__saw_rt_dealloc`,
 `__saw_rt_last_raw_code`, `__saw_rt_panic`, `__saw_rt_write_line`). With no
 record (no Espressif clang on the machine) the whole row skips and the lane's
 counts say so.

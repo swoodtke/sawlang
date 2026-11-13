@@ -5,13 +5,16 @@ weakly, and no builtin routine reaches itself (SL-948).
     python compiler/tests/run/builtin_lowering.py     # the check alone
 
 `run_lane.run()` calls `check()`. Each program of `lowering/` it names is
-built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`) and aarch64, at
--O0, -O1, -O2, -Os and -Oz, and each object's relocations are read with
-`llvm-readobj`, each resolved by the symbol it carries (`readobj_graph`):
+built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`), aarch64 and
+Xtensa (ESP32-S3), at -O0, -O1, -O2, -Os and -Oz, and each object's relocations
+are read with `llvm-readobj`, each resolved by the symbol it carries
+(`readobj_graph`; on Xtensa a call loads its callee's address from a literal
+pool, so a relocation naming a literal names the function the literal names).
+An object whose graph has no edge fails: the reader sees none of its calls.
 
 - `builtin_uses.saw`'s object defines std's routines, each `W` (`STD_ROUTINES`:
-  the memory routines and the soft-float routines on both arches, neither
-  having an FP unit, and the 64-bit integer helpers on riscv32), and every
+  the memory routines and the soft-float routines on every arch, none having
+  an FP unit, and the 64-bit integer helpers on riscv32 and Xtensa), and every
   function a routine reaches through relocations carries `"no-builtins"` in
   the object's `.ll`, is a machine-outlined fragment (whose relocations are
   followed), or is one of std's `__saw_fail_*` panic helpers, which a correct
@@ -20,7 +23,7 @@ built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`) and aarch64, at
   no `__saw_fail_*` helper, either of which means it used a Float operation
   or a checked one;
 - `builtin_float_operation.saw`'s own `__muldf3`, written with a Float `+`, is
-  reported as reaching `__adddf3` at -O0 and -O2 on both arches, so the check
+  reported as reaching `__adddf3` at -O0 and -O2 on every arch, so the check
   sees what it is for;
 - `builtin_memset_helper.saw` and `builtin_memmove_shift.saw`, a program's own
   `memset` and `memmove`, reach themselves at no level and are `W`, the
@@ -29,8 +32,8 @@ built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`) and aarch64, at
 - `builtin_cross_module.saw`'s `memset` fills through another module's loop,
   which "no-builtins" does not reach: the routine reaches itself at exactly the
   levels `CROSS_MODULE_SELF_CALLS` pins;
-- `builtin_memset_helper.saw`'s riscv32 -O2 module with its helper's
-  "no-builtins" taken away is reported as reaching itself, so the check sees
+- `builtin_memset_helper.saw`'s riscv32 and Xtensa -O2 modules with its helper's
+  "no-builtins" taken away are reported as reaching itself, so the check sees
   what it is for;
 - `builtin_uses.saw` built for the host defines none of the routines, and
   `shift_checks.saw`'s -O0 module checks the variable shift's count and not the
@@ -73,16 +76,19 @@ FLOAT = ("__adddf3", "__subdf3", "__muldf3", "__divdf3", "__eqdf2", "__nedf2", "
 ARCHES = (
     ("riscv32-unknown-none-elf", "+m,+a,+c", MEMORY + INTEGER + FLOAT),
     ("aarch64-unknown-none-elf", None, MEMORY + FLOAT),
+    ("xtensa-esp-unknown-elf", None, MEMORY + INTEGER + FLOAT),
 )
+XTENSA = "xtensa-esp-unknown-elf"
 SOFTFLOAT = os.path.join(HERE, "softfloat")
 FLOAT_MODULE = os.path.join(REPO, "std", "builtins", "float.saw")
 STD_ROUTINES = {triple: routines for triple, _, routines in ARCHES}
 # The levels at which `builtin_cross_module.saw`'s `memset` reaches itself:
 # LLVM turns the imported loop into a `memset` call before inlining it, and
-# neither arch's -O0 or -Oz inlines it.
+# no arch's -O0 or -Oz inlines it.
 CROSS_MODULE_SELF_CALLS = {
     "riscv32-unknown-none-elf": ("-O1", "-O2", "-Os"),
     "aarch64-unknown-none-elf": ("-O1", "-O2", "-Os"),
+    XTENSA: ("-O1", "-O2", "-Os"),
 }
 
 # A readobj dump's relocation run header, `Section (INDEX) .rela.NAME {`; a
@@ -231,22 +237,48 @@ def readobj_graph(dump):
                 return key[index]
         return None
 
-    graph = {name: set() for name in key.values()}
-    for applies, relocation in relocations:
-        caller = at(info.get(applies, -1), int(relocation.get("Offset", "0"), 16), False)
+    def resolve(relocation):
+        """The function a relocation names, directly or through a section
+        symbol and its addend; None for data."""
         found = _READOBJ_SYMBOL.match(relocation.get("Symbol", ""))
-        if caller is None or not found:
-            continue
+        if not found:
+            return None
         index = int(found.group(1))
         if index in key:
-            graph[caller].add(key[index])
-            continue
+            return key[index]
         symbol = symbols[index] if index < len(symbols) else {}
         section = _READOBJ_SECTION.match(symbol.get("Section", ""))
         if symbol.get("Type", "").startswith("Section") and section:
-            target = at(int(section.group(1), 16), int(relocation.get("Addend", "0"), 16), True)
+            return at(int(section.group(1), 16), int(relocation.get("Addend", "0"), 16), True)
+        return None
+
+    literal_sections = set()
+    for section in sections:
+        name = section.get("Name", "").rsplit(" (", 1)[0]
+        if name == ".literal" or name.startswith(".literal."):
+            literal_sections.add(int(section.get("Index", "-1")))
+    literal = {}
+    for applies, relocation in relocations:
+        if info.get(applies, -1) in literal_sections:
+            target = resolve(relocation)
             if target is not None:
-                graph[caller].add(target)
+                literal[(info[applies], int(relocation.get("Offset", "0"), 16))] = target
+
+    graph = {name: set() for name in key.values()}
+    for applies, relocation in relocations:
+        caller = at(info.get(applies, -1), int(relocation.get("Offset", "0"), 16), False)
+        if caller is None:
+            continue
+        target = resolve(relocation)
+        found = _READOBJ_SYMBOL.match(relocation.get("Symbol", ""))
+        if target is None and found:
+            index = int(found.group(1))
+            symbol = symbols[index] if index < len(symbols) else {}
+            section = _READOBJ_SECTION.match(symbol.get("Section", ""))
+            if symbol.get("Type", "").startswith("Section") and section:
+                target = literal.get((int(section.group(1), 16), int(relocation.get("Addend", "0"), 16)))
+        if target is not None:
+            graph[caller].add(target)
     return graph
 
 
@@ -325,6 +357,9 @@ def check_std_routines(failures, counts, triple, features, tools, level):
         failures.append("%s: %s" % (where, why))
         return
     symbols, graph, marked = read(tools, obj, ll)
+    if not any(graph.values()):
+        failures.append("%s: the reader sees none of the object's calls (its graph has no edge)" % where)
+        return
     for routine in sorted(set(MEMORY + INTEGER + FLOAT)):
         wanted = routine in STD_ROUTINES[triple]
         if not wanted:
@@ -409,13 +444,12 @@ def check_cross_module(failures, counts, triple, features, tools, level):
         counts.get("run builtin lowering cross-module cells pinned", 0) + 1
 
 
-def check_sees_a_self_call(failures, counts, clang, tools):
-    """The check catches what it is for: `builtin_memset_helper.saw`'s riscv32
-    -O2 module, its helper's "no-builtins" taken away and compiled as sawc
-    compiles it, is reported as reaching itself."""
-    triple, features, _ = ARCHES[0]
-    where = "run builtin lowering: the injected helper without \"no-builtins\""
-    obj, ll, why = sawc_object("builtin_memset_helper.saw", triple, features, "-O2", "injected_source")
+def check_sees_a_self_call(failures, counts, triple, features, clang, tools):
+    """The check catches what it is for: `builtin_memset_helper.saw`'s -O2
+    module for riscv32 and for Xtensa, its helper's "no-builtins" taken away
+    and compiled as sawc compiles it, is reported as reaching itself."""
+    where = "run builtin lowering: the injected helper without \"no-builtins\" %s" % triple
+    obj, ll, why = sawc_object("builtin_memset_helper.saw", triple, features, "-O2", "injected_source_" + triple)
     if obj is None:
         failures.append("%s: %s" % (where, why))
         return
@@ -424,10 +458,10 @@ def check_sees_a_self_call(failures, counts, clang, tools):
         if line.startswith("define ") and "fill_bytes" in line:
             line = re.sub(r"\)( .*)#1\b", r")\1#0", line)
         lines.append(line)
-    injected = os.path.join(OUT, "injected.ll")
+    injected = os.path.join(OUT, "injected_%s.ll" % triple)
     with open(injected, "w") as fh:
         fh.write("\n".join(lines) + "\n")
-    injected_obj = os.path.join(OUT, "injected.o")
+    injected_obj = os.path.join(OUT, "injected_%s.o" % triple)
     c = subprocess.run([clang, "-c", "-target", build.clang_triple(triple), "-O2", "-ffunction-sections",
                         "-fdata-sections", "-fno-pic", "-x", "ir", injected, "-o", injected_obj],
                        capture_output=True, text=True, timeout=TIMEOUT)
@@ -671,7 +705,154 @@ Symbols [
 """
 
 
+# A readobj dump, cut to what `readobj_graph` reads, of an Xtensa object: a
+# call is `l32r` of a literal, then `callx0`, so `caller`'s relocations name its
+# `.literal.caller` section symbol at the literal's offset, and the literal
+# words name `callee_a` (by symbol), `callee_b` (by section symbol) and, at
+# offset 8, data.
+XTENSA_SAMPLE = """Sections [
+  Section {
+    Index: 1
+    Name: .text.caller (1)
+    Info: 0
+  }
+  Section {
+    Index: 2
+    Name: .rela.text.caller (2)
+    Info: 1
+  }
+  Section {
+    Index: 3
+    Name: .literal.caller (3)
+    Info: 0
+  }
+  Section {
+    Index: 4
+    Name: .rela.literal.caller (4)
+    Info: 3
+  }
+  Section {
+    Index: 5
+    Name: .text.callee_a (5)
+    Info: 0
+  }
+  Section {
+    Index: 6
+    Name: .text.callee_b (6)
+    Info: 0
+  }
+  Section {
+    Index: 7
+    Name: .rodata.table (7)
+    Info: 0
+  }
+]
+Relocations [
+  Section (2) .rela.text.caller {
+    Relocation {
+      Offset: 0x5
+      Type: R_XTENSA_SLOT0_OP (20)
+      Symbol: .literal.caller (1)
+      Addend: 0x0
+    }
+    Relocation {
+      Offset: 0xB
+      Type: R_XTENSA_SLOT0_OP (20)
+      Symbol: .literal.caller (1)
+      Addend: 0x4
+    }
+    Relocation {
+      Offset: 0x11
+      Type: R_XTENSA_SLOT0_OP (20)
+      Symbol: .literal.caller (1)
+      Addend: 0x8
+    }
+  }
+  Section (4) .rela.literal.caller {
+    Relocation {
+      Offset: 0x0
+      Type: R_XTENSA_32 (1)
+      Symbol: callee_a (4)
+      Addend: 0x0
+    }
+    Relocation {
+      Offset: 0x4
+      Type: R_XTENSA_32 (1)
+      Symbol: .text.callee_b (2)
+      Addend: 0x0
+    }
+    Relocation {
+      Offset: 0x8
+      Type: R_XTENSA_32 (1)
+      Symbol: table (6)
+      Addend: 0x0
+    }
+  }
+]
+Symbols [
+  Symbol {
+    Name:  (0)
+    Type: None (0x0)
+    Section: Undefined (0x0)
+  }
+  Symbol {
+    Name: .literal.caller (1)
+    Value: 0x0
+    Type: Section (0x3)
+    Section: .literal.caller (0x3)
+  }
+  Symbol {
+    Name: .text.callee_b (2)
+    Value: 0x0
+    Type: Section (0x3)
+    Section: .text.callee_b (0x6)
+  }
+  Symbol {
+    Name: caller (3)
+    Value: 0x0
+    Size: 32
+    Type: Function (0x2)
+    Section: .text.caller (0x1)
+  }
+  Symbol {
+    Name: callee_a (4)
+    Value: 0x0
+    Size: 8
+    Type: Function (0x2)
+    Section: .text.callee_a (0x5)
+  }
+  Symbol {
+    Name: callee_b (5)
+    Value: 0x0
+    Size: 8
+    Type: Function (0x2)
+    Section: .text.callee_b (0x6)
+  }
+  Symbol {
+    Name: table (6)
+    Value: 0x0
+    Size: 12
+    Type: Object (0x1)
+    Section: .rodata.table (0x7)
+  }
+]
+"""
+
+
 def check_graph_reading(failures, counts):
+    """`readobj_graph` follows an Xtensa call through its literal: `XTENSA_SAMPLE`'s
+    `caller` reaches `callee_a` and `callee_b`, and a literal naming data names
+    nothing."""
+    graph = readobj_graph(XTENSA_SAMPLE)
+    want = {"caller": {"callee_a", "callee_b"}, "callee_a": set(), "callee_b": set()}
+    if graph != want:
+        failures.append("run builtin lowering: the recorded Xtensa object reads as %r, not %r" % (graph, want))
+    else:
+        counts["run builtin lowering literal-pool objects read by symbol"] = 1
+    check_split_graph_reading(failures, counts)
+
+
+def check_split_graph_reading(failures, counts):
     """`readobj_graph` keeps two units' same-named local fragments apart, so
     `GRAPH_SAMPLE`'s `__floatdidf` reaches `helper` and not another unit's
     `__saw_fail_head`, which the graph keyed by name alone would join."""
@@ -717,8 +898,8 @@ def check(failures, counts):
             check_cross_module(failures, counts, triple, features, tools, level)
         for level in ("-O0", "-O2"):
             check_float_operation_seen(failures, counts, triple, features, tools, level)
-        if triple == ARCHES[0][0]:
-            check_sees_a_self_call(failures, counts, clang, tools)
+        if triple in (ARCHES[0][0], XTENSA):
+            check_sees_a_self_call(failures, counts, triple, features, clang, tools)
 
 
 def main():

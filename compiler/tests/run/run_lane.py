@@ -64,7 +64,7 @@ run of it, built against its own std.
   math library function at -O0 or -O2 (`float_lowering.py`);
 - a freestanding object defines std's builtin routines weakly, a program's
   own export of one's name replaces std's, and no builtin routine reaches a
-  call of itself at any level on either bare-metal target
+  call of itself at any level on each of the three bare-metal targets
   (`builtin_lowering.py`);
 - each `probes/NAME.saw` states in its leading comment lines how it is held
   (README.md, "Probes"): `// probe: stated` is built by sawc alone at its
