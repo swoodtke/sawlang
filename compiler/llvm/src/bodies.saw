@@ -68,8 +68,9 @@ extension LlEmitter {
     }
 
     // THE PLACED-DEFINE FUNNEL: item `k`'s define, written under `symbol`
-    // with `section` as its clause, is kept by `@llvm.used` when it has one
-    // and no export makes it external, whether or not anything reaches it, and
+    // with `section` as its clause, is kept by `@llvm.used` when it has one,
+    // exported or not (the list also sets the section's retain flag, which an
+    // external symbol alone lacks), whether or not anything reaches it, and
     // for a generic function at each of its instances. A suspending item's
     // define is its resume function, so the symbol recorded is the one the
     // define carries.
@@ -77,7 +78,7 @@ extension LlEmitter {
     //     emit_function
     //     emit_resume
     func note_placed_define(&var self, mono: &MonoProgram, k: Int, symbol: String, section: String) {
-        if section.len() > 0 && ll_export_symbol(&mono, k).len() == 0 {
+        if section.len() > 0 {
             try! self.placed_defines.push(symbol)
         }
     }

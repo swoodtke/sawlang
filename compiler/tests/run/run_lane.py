@@ -1433,7 +1433,9 @@ PLACED_SYMBOL_PROBES = (("section_function_unreached.saw", "placed()", 1), ("sec
                         ("section_function.saw", "placed()", 1), ("section_static.saw", "TAGGED", 1),
                         ("section_function_suspends.saw", "placed()", 1),
                         ("section_function_suspends_unreached.saw", "placed()", 1),
-                        ("section_function_generic.saw", "placed", 2))
+                        ("section_function_generic.saw", "placed", 2),
+                        ("section_function_exported.saw", "exported_placed_function", 1),
+                        ("section_static_exported.saw", "exported_placed_static", 1))
 
 
 def symbol_sections(obj, mach_o):
@@ -1492,6 +1494,78 @@ def check_placed_symbols(failures, counts):
                     failures.append("%s: `%s` is in section `%s`, not `%s`" % (where, symbol, at, section))
             counts["run placed symbols defined in their section at -O2"] = \
                 counts.get("run placed symbols defined in their section at -O2", 0) + len(placed)
+
+
+# An exported function and an exported static, each placed and referenced by
+# nothing, beside the entry the link starts from: the vector-table shape.
+EXPORTED_PLACED_LINK_SOURCE = """@export("exported_placed_function")
+@section(".sawplaced_fn")
+func placed_function() -> Int {
+    7
+}
+
+@export("exported_placed_static")
+@section(".sawplaced_static")
+static PLACED_STATIC: Int = 7
+
+@export("_start")
+func start() {
+}
+"""
+EXPORTED_PLACED_LINK_TARGET = "riscv32-unknown-none-elf"
+EXPORTED_PLACED_LINK_SYMBOLS = ("exported_placed_function", "exported_placed_static")
+
+
+def check_exported_placed_link(failures, counts):
+    """An exported, placed function and static survive `ld.lld --gc-sections`
+    when nothing references them: a freestanding riscv32 object linked from
+    `_start` still defines both. It skips, saying so, when the target has no
+    clang record or the clang has no `ld.lld` beside it."""
+    where = "run exported placed link"
+    skipped = "run exported placed link skipped"
+    if not os.path.exists(build.runtime_manifest(EXPORTED_PLACED_LINK_TARGET)):
+        counts["%s: no %s record" % (skipped, EXPORTED_PLACED_LINK_TARGET)] = 1
+        return
+    clang = manifest_clang(EXPORTED_PLACED_LINK_TARGET)
+    linker = clang_tool(clang, "ld.lld") if clang else ""
+    if not linker or not (os.path.isabs(linker) and os.path.exists(linker)):
+        linker = shutil.which("ld.lld") if clang else None
+    if not linker:
+        counts["%s: no ld.lld beside the recorded clang or on PATH" % skipped] = 1
+        return
+    work = os.path.join(OUT, "exported-placed-link")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    source = os.path.join(work, "placed.saw")
+    with open(source, "w") as fh:
+        fh.write(EXPORTED_PLACED_LINK_SOURCE)
+    for units in ("1", "module"):
+        label = "%s --codegen-units=%s" % (where, units)
+        obj = os.path.join(work, "placed-%s.o" % units)
+        linked = os.path.join(work, "placed-%s.elf" % units)
+        r = subprocess.run([build.SAWC, "build", "--freestanding", "--std-root", "std", "--target",
+                            EXPORTED_PLACED_LINK_TARGET, "-O2", "-g0", "--codegen-units=" + units, source, "-o", obj],
+                           cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0 or not os.path.exists(obj):
+            failures.append("%s: the build fails: %s" % (label, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        # The runtime seam is not linked in: its references stay undefined.
+        r = subprocess.run([linker, "--gc-sections", "--unresolved-symbols=ignore-all", "-e", "_start", "-o", linked,
+                            obj], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: ld.lld fails: %s" % (label, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        r = subprocess.run([word32_ir.nm_tool(clang), linked], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: nm cannot read the linked file: %s" % (label, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        defined = {line.split()[-1] for line in r.stdout.splitlines() if line.split()}
+        for symbol in EXPORTED_PLACED_LINK_SYMBOLS:
+            if symbol not in defined:
+                failures.append("%s: the linked file does not define `%s`" % (label, symbol))
+            else:
+                counts["run exported placed definitions kept by --gc-sections"] = \
+                    counts.get("run exported placed definitions kept by --gc-sections", 0) + 1
 
 
 # The object cache's SHA-256 (compiler/driver/src/sha256.saw), driven through
@@ -4143,6 +4217,7 @@ def run(names=None, write=False):
         check_unit_stability(failures, counts)
         check_split_object(failures, counts)
         check_placed_symbols(failures, counts)
+        check_exported_placed_link(failures, counts)
         check_sha256(failures, counts)
         check_object_cache(failures, counts)
         check_front_cache(failures, counts)
