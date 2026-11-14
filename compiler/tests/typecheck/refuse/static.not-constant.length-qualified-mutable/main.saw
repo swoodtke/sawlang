@@ -1,7 +1,7 @@
-// refuses: static.not-constant at 9:26
+// refuses: static.not-constant at 9:20
 // a mutable static of another module, named through its module as an array
 // length (SL-920)
-// message: array length is not a compile-time constant: the mutable static `LIVE` is not allowed here
+// message: `sizes.LIVE` is not a constant, and an array length is a constant expression: it names an `unsafe static var`, whose value belongs to the running program
 
 import sizes
 

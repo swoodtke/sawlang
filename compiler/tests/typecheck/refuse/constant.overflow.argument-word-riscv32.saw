@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 11:20
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: constant expression overflows `Int`
+// A constant argument that is an expression folds on its own, at the target's
+// `Int`: 65536 * 65536 is 2^32, which riscv32's 32-bit `Int` cannot hold.
+
+struct Wide<const N: Int> {
+    n: Int
+}
+
+func read(w: &Wide<65536 * 65536>) -> Int {
+    w.n
+}

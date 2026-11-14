@@ -10,7 +10,7 @@ import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram, res_twin_message}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig,
-                               TcStaticTyping, TcStaticVerdict, TcStatus, TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
+                               TcConstPosition, TcStaticTyping, TcStaticVerdict, TcStatus, TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
 import sawtypecheck.stdsuspension.{TcStdRows}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
@@ -578,6 +578,12 @@ public struct TcProgram {
     // after which a judgment is final where it is met.
     pending_constants: Vector<TcPendingConstant>
     constants_final: Bool
+    // Whether the pre-signature pass is running, in which a length or an
+    // argument no one has evaluated yet is evaluated where it is read, by
+    // `evaluate_hook`: signatures cannot import the pass (an import cycle),
+    // so the pass hands its entry over for the run.
+    constants_running: Bool
+    evaluate_hook: TcEvaluateHook  // front: process-local
     // How many of resolve's calls `res_call_at` maps: the body half's side
     // tables grow to every node at each layer, since a static named where a
     // type fixes a constant has its initializer typed before signatures are
@@ -665,6 +671,37 @@ extension TcFieldMemo: Deserialize {
     }
 }
 
+// THE EVALUATION HOOK: the entry the pre-signature pass hands to signatures
+// while it runs. It is a function value, so it serializes as nothing and
+// loads as the idle one.
+public struct TcEvaluateHook {
+    run: (&var TcProgram, Int, TcConstPosition) -> Int
+}
+
+// The hook of a program no pass is running over: nothing is evaluated, and
+// the node stays unevaluated.
+public func tc_no_evaluation(p: &var TcProgram, node: Int, pos: TcConstPosition) -> Int {
+    -1
+}
+
+public func tc_idle_hook() -> TcEvaluateHook {
+    TcEvaluateHook(run: tc_no_evaluation)
+}
+
+extension TcEvaluateHook: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(0)
+        return
+    }
+}
+
+extension TcEvaluateHook: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<TcEvaluateHook, DecodeError> {
+        try from.expect_array(0)
+        return tc_idle_hook()
+    }
+}
+
 // The program under type checking over `res`, its tables sized to what `res`
 // holds; each layer grows them to what resolve adds (`begin_layer`).
 public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
@@ -737,7 +774,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
                       instance_params: Vector<Int>(), instance_values: Vector<Int>(),
                       instance_types: Vector<Int>(),
-                      pending_constants: Vector<TcPendingConstant>(), constants_final: false,
+                      pending_constants: Vector<TcPendingConstant>(), constants_final: false, constants_running: false, evaluate_hook: tc_idle_hook(),
                       mapped_calls: 0, members_built: false, tiers_ready: false, phase_problems: Vector<String>(),
                       phase_problem_modules: Vector<Int>(), quiet_refused: Vector<Int>(), static_typing: Vector<TcStaticTyping>(),
                       static_verdicts: Vector<TcStaticVerdict>(),

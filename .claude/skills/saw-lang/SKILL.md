@@ -2473,7 +2473,10 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   adopts another width (`let b: UInt8 = N` over `const N: Int` wants `as`).
   sawc built none of those value reads before SL-548 (`backend.not-yet: the
   constant N`), so treat them as SUSPECT in older builds; const ARITHMETIC in instantiation position (`FixedBuf<2 * 128>` IS
-  `FixedBuf<256>` — folded before mangling), and a module `static` counts as a
+  `FixedBuf<256>` — folded before mangling; `+ - * / %`, unary `-`, parentheses and
+  `sizeof<T>()`/`alignof<T>()` of a target-fixed type go through the same constant fold as
+  an array length, so `Ring<BYTES / sizeof<UInt64>()>` builds; arithmetic over a const
+  PARAMETER (`Buf<N * 2>`, `[0; N + 1]`) is still `slice.not-yet`), and a module `static` counts as a
   constant there too (DF-172j: `FixedBuf<CAP>` IS `FixedBuf<16>` for a
   `static CAP: Int = 16`). sawc takes it at every position (SL-920): an
   annotation, a construction's head `Slab<T, MAX>(…)`, a field, a static's
@@ -5406,8 +5409,8 @@ construct in the owner and lend `&driver` down.
   non-integer type WHERE AN INTEGER IS REQUIRED (it is a fine leaf in a
   `static` initializer — see the statics tiers above), and one with no
   initializer — each a clean error NAMING
-  which static and why (``the mutable static `ARENA_BYTES` is not allowed
-  here``). A local shadows a static here as anywhere else, so a derived shadow
+  which static and why (```ARENA_BYTES` is not a constant, and an array
+  length is a constant expression: it names an `unsafe static var` ...``). A local shadows a static here as anywhere else, so a derived shadow
   is the runtime value it looks like. Cross-module follows visibility: a
   `public` static reached by `import dep.{REGION_SIZE}` folds, and so does the
   QUALIFIER spelling (`[UInt8; dep.REGION_SIZE]`, design 185 — it was a parse

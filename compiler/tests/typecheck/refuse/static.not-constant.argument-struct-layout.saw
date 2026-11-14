@@ -1,0 +1,16 @@
+// refuses: static.not-constant at 10:19
+// `sizeof` of a struct in a constant argument, whose layout only code generation knows (spec, Layout in a constant)
+// message: a constant argument is a constant expression
+struct Pair { a: Int, b: Int }
+
+struct Buf<const N: Int> {
+    d: [UInt8; 4]
+}
+
+func take(b: &Buf<sizeof<Pair>() * 2>) -> Int {
+    0
+}
+
+func main() {
+    print("{}", 0)
+}

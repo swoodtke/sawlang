@@ -913,6 +913,14 @@ extension ResProgram {
                 self.unbound()
             },
             case Type_Path -> self.walk_path(e, ResSpace.Value),
+            case Const_LayoutQuery_Size -> {
+                self.walk_layout_query(e)
+                self.unbound()
+            },
+            case Const_LayoutQuery_Align -> {
+                self.walk_layout_query(e)
+                self.unbound()
+            },
             case Expr_ShorthandParam -> {
                 self.not_in_slice(e, alt)
                 self.unbound()
@@ -1421,17 +1429,24 @@ extension ResProgram {
         if alt == Alt.Type_Path {
             let _ = self.walk_path(c, ResSpace.Value)
         } else if alt == Alt.Const_LayoutQuery_Size || alt == Alt.Const_LayoutQuery_Align {
-            let n = self.child_count(c)
-            var k = 0
-            while k < n {
-                let x = self.child(c, k)
-                if not self.is_leaf(x) {
-                    self.walk_type_or_const(x)
-                }
-                k = k + 1
-            }
+            self.walk_layout_query(c)
         } else {
             let _ = self.walk_expr(c)
+        }
+    }
+
+    // A `sizeof<T>()` / `alignof<T>()` in a generic list: the whole argument
+    // or an operand of a constant expression. Both reach it here so the type
+    // children are walked the same way.
+    public func walk_layout_query(&var self, q: Int) {
+        let n = self.child_count(q)
+        var k = 0
+        while k < n {
+            let x = self.child(q, k)
+            if not self.is_leaf(x) {
+                self.walk_type_or_const(x)
+            }
+            k = k + 1
         }
     }
 

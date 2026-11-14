@@ -1,0 +1,162 @@
+// flags: --std-root std --target riscv32-unknown-none-elf
+// A constant written inside a type that another constant's evaluation builds
+// is evaluated where that build reads it, whatever order the declarations and
+// the constants come in (SL-457). Each outer position holds a layout query
+// over a pointer to a type whose own array length (`_len`) or constant
+// argument (`_arg`) is a constant written inside it; the run prints each
+// outer value, and the last cells put the inner type in a struct declared
+// below, its length naming statics declared below that.
+// At riscv32 a pointer is 4 bytes, so every outer value is 4.
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+struct F_field_length_len {
+    a: [UInt8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()]
+}
+
+func p_parameter_length_len(x: [UInt8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()]) -> Int {
+    x.len()
+}
+
+func r_return_length_len() -> [UInt8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()] {
+    [0; 4]
+}
+
+type A_alias_length_len = [UInt8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()]
+
+static ST_static_type_length_len: [UInt8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()] = [0; 4]
+
+func t_type_argument_len(x: &Buf<sizeof<UnsafePointer<[UInt8; 1 + 2]>>()>) -> Int {
+    x.d.len()
+}
+
+struct D_const_default_len<const M: Int = sizeof<UnsafePointer<[UInt8; 1 + 2]>>()> {
+    v: [UInt8; M]
+}
+
+func dl_const_default_len(d: &D_const_default_len) -> Int {
+    d.v.len()
+}
+
+static V_static_value_len: Int = sizeof<UnsafePointer<[UInt8; 1 + 2]>>()
+
+enum K_raw_case_value_len: Int {
+    case A = sizeof<UnsafePointer<[UInt8; 1 + 2]>>()
+}
+
+static_assert(sizeof<UnsafePointer<[UInt8; 1 + 2]>>() == 4, "pointer")
+
+struct F_field_length_arg {
+    a: [UInt8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()]
+}
+
+func p_parameter_length_arg(x: [UInt8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()]) -> Int {
+    x.len()
+}
+
+func r_return_length_arg() -> [UInt8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()] {
+    [0; 4]
+}
+
+type A_alias_length_arg = [UInt8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()]
+
+static ST_static_type_length_arg: [UInt8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()] = [0; 4]
+
+func t_type_argument_arg(x: &Buf<sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()>) -> Int {
+    x.d.len()
+}
+
+struct D_const_default_arg<const M: Int = sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()> {
+    v: [UInt8; M]
+}
+
+func dl_const_default_arg(d: &D_const_default_arg) -> Int {
+    d.v.len()
+}
+
+static V_static_value_arg: Int = sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()
+
+enum K_raw_case_value_arg: Int {
+    case A = sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()
+}
+
+static_assert(sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>() == 4, "pointer")
+
+struct Out_below_static {
+    a: [UInt8; sizeof<UnsafePointer<Below_a>>()]
+}
+
+struct Below_a {
+    b: [UInt8; LATER_A]
+}
+
+static LATER_A: Int = LATER_B + 1
+
+static LATER_B: Int = 7
+
+struct Out_below_argument {
+    a: [UInt8; sizeof<UnsafePointer<Below_b>>()]
+}
+
+struct Below_b {
+    b: Buf<LATER_C>
+}
+
+static LATER_C: Int = LATER_D + 1
+
+static LATER_D: Int = 7
+
+func main() {
+    print(sizeof<F_field_length_len>())
+    print(p_parameter_length_len([0; 4]))
+    print(r_return_length_len().len())
+    let a_alias_length_len: A_alias_length_len = [0; 4]
+    print(a_alias_length_len.len())
+    print(ST_static_type_length_len.len())
+    let n_annotation_length_len: [UInt8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()] = [0; 4]
+    print(n_annotation_length_len.len())
+    let b_type_argument_len = Buf<4>(d: [0; 4])
+    print(t_type_argument_len(&b_type_argument_len))
+    print(cap<sizeof<UnsafePointer<[UInt8; 1 + 2]>>()>())
+    let d_const_default_len = D_const_default_len(v: [0u8; 4])
+    print(dl_const_default_len(&d_const_default_len))
+    let r_repeat_count_len = [0u8; sizeof<UnsafePointer<[UInt8; 1 + 2]>>()]
+    print(r_repeat_count_len.len())
+    print(V_static_value_len)
+    print(K_raw_case_value_len.A as Int)
+    @align(alignof<UnsafePointer<[UInt8; 1 + 2]>>())
+    var g_align_argument_len: [UInt8; 4] = [0; 4]
+    g_align_argument_len[0] = 1
+    print(g_align_argument_len[0])
+    print(1)
+    print(sizeof<F_field_length_arg>())
+    print(p_parameter_length_arg([0; 4]))
+    print(r_return_length_arg().len())
+    let a_alias_length_arg: A_alias_length_arg = [0; 4]
+    print(a_alias_length_arg.len())
+    print(ST_static_type_length_arg.len())
+    let n_annotation_length_arg: [UInt8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()] = [0; 4]
+    print(n_annotation_length_arg.len())
+    let b_type_argument_arg = Buf<4>(d: [0; 4])
+    print(t_type_argument_arg(&b_type_argument_arg))
+    print(cap<sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()>())
+    let d_const_default_arg = D_const_default_arg(v: [0u8; 4])
+    print(dl_const_default_arg(&d_const_default_arg))
+    let r_repeat_count_arg = [0u8; sizeof<UnsafePointer<Buf<sizeof<UInt16>()>>>()]
+    print(r_repeat_count_arg.len())
+    print(V_static_value_arg)
+    print(K_raw_case_value_arg.A as Int)
+    @align(alignof<UnsafePointer<Buf<sizeof<UInt16>()>>>())
+    var g_align_argument_arg: [UInt8; 4] = [0; 4]
+    g_align_argument_arg[0] = 1
+    print(g_align_argument_arg[0])
+    print(1)
+    print(sizeof<Out_below_static>())
+    print(sizeof<Out_below_argument>())
+}

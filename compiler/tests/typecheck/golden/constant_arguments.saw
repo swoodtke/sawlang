@@ -1,0 +1,197 @@
+// A const generic argument and a const parameter's default are constant
+// positions, folded by the constant-position funnel (SL-457): every form of
+// the generic list's grammar that folds to an integer, as a type argument in
+// a field, a parameter's type and a local's annotation, as a call argument
+// (`cap<..>()`) and as a default (`D_x<const N: Int = ..>`). Each value is
+// held twice: by the type the dump writes, and by the array of that length
+// the program builds and the run counts. `E.A` alone, an alias construction
+// and a struct's `sizeof` are refused: refuse/static.not-constant.argument-
+// struct-layout.saw. The word-sized forms are in constant_arguments_riscv32.
+
+static S8: Int = 8
+static SU8: UInt = 8
+static BYTES: Int = 64
+
+enum E: UInt8 {
+    case A = 8
+    case B = 4
+}
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+struct Small<const N: UInt8> {
+    d: [UInt8; 4]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+struct D_literal<const N: Int = 8> { d: [UInt8; N] }
+struct D_hex<const N: Int = 0x8> { d: [UInt8; N] }
+struct D_plus_times<const N: Int = 2 * 3 + 2> { d: [UInt8; N] }
+struct D_div<const N: Int = 16 / 2> { d: [UInt8; N] }
+struct D_rem<const N: Int = 17 % 9> { d: [UInt8; N] }
+struct D_negate<const N: Int = -(-8)> { d: [UInt8; N] }
+struct D_paren<const N: Int = (8)> { d: [UInt8; N] }
+struct D_group<const N: Int = (S8 * 2) / 4> { d: [UInt8; N] }
+struct D_static<const N: Int = S8> { d: [UInt8; N] }
+struct D_static_times<const N: Int = S8 * 2> { d: [UInt8; N] }
+struct D_static_div<const N: Int = BYTES / S8> { d: [UInt8; N] }
+struct D_uint_static<const N: Int = SU8> { d: [UInt8; N] }
+struct D_uint_static_div<const N: Int = SU8 / 2> { d: [UInt8; N] }
+struct D_case_plus<const N: Int = E.A + 0> { d: [UInt8; N] }
+struct D_case_times<const N: Int = E.A * 2> { d: [UInt8; N] }
+struct D_sizeof<const N: Int = sizeof<UInt64>()> { d: [UInt8; N] }
+struct D_sizeof_div<const N: Int = BYTES / sizeof<UInt64>()> { d: [UInt8; N] }
+struct D_alignof<const N: Int = alignof<UInt32>()> { d: [UInt8; N] }
+struct D_sizeof_times<const N: Int = sizeof<UInt32>() * 2> { d: [UInt8; N] }
+struct D_sizeof_group<const N: Int = (alignof<UInt16>() + 2) * sizeof<UInt8>()> { d: [UInt8; N] }
+struct D_static_below<const N: Int = LATE + 1> { d: [UInt8; N] }
+struct D_static_below_div<const N: Int = LATE_BYTES / LATE> { d: [UInt8; N] }
+
+struct Fields {
+    f_literal: Buf<8>
+    f_hex: Buf<0x8>
+    f_plus_times: Buf<2 * 3 + 2>
+    f_div: Buf<16 / 2>
+    f_rem: Buf<17 % 9>
+    f_negate: Buf<-(-8)>
+    f_paren: Buf<(8)>
+    f_group: Buf<(S8 * 2) / 4>
+    f_static: Buf<S8>
+    f_static_times: Buf<S8 * 2>
+    f_static_div: Buf<BYTES / S8>
+    f_uint_static: Buf<SU8>
+    f_uint_static_div: Buf<SU8 / 2>
+    f_case_plus: Buf<E.A + 0>
+    f_case_times: Buf<E.A * 2>
+    f_sizeof: Buf<sizeof<UInt64>()>
+    f_sizeof_div: Buf<BYTES / sizeof<UInt64>()>
+    f_alignof: Buf<alignof<UInt32>()>
+    f_sizeof_times: Buf<sizeof<UInt32>() * 2>
+    f_sizeof_group: Buf<(alignof<UInt16>() + 2) * sizeof<UInt8>()>
+    f_static_below: Buf<LATE + 1>
+    f_static_below_div: Buf<LATE_BYTES / LATE>
+}
+
+func p_literal(b: &Buf<8>) -> Int { b.d.len() }
+func p_hex(b: &Buf<0x8>) -> Int { b.d.len() }
+func p_plus_times(b: &Buf<2 * 3 + 2>) -> Int { b.d.len() }
+func p_div(b: &Buf<16 / 2>) -> Int { b.d.len() }
+func p_rem(b: &Buf<17 % 9>) -> Int { b.d.len() }
+func p_negate(b: &Buf<-(-8)>) -> Int { b.d.len() }
+func p_paren(b: &Buf<(8)>) -> Int { b.d.len() }
+func p_group(b: &Buf<(S8 * 2) / 4>) -> Int { b.d.len() }
+func p_static(b: &Buf<S8>) -> Int { b.d.len() }
+func p_static_times(b: &Buf<S8 * 2>) -> Int { b.d.len() }
+func p_static_div(b: &Buf<BYTES / S8>) -> Int { b.d.len() }
+func p_uint_static(b: &Buf<SU8>) -> Int { b.d.len() }
+func p_uint_static_div(b: &Buf<SU8 / 2>) -> Int { b.d.len() }
+func p_case_plus(b: &Buf<E.A + 0>) -> Int { b.d.len() }
+func p_case_times(b: &Buf<E.A * 2>) -> Int { b.d.len() }
+func p_sizeof(b: &Buf<sizeof<UInt64>()>) -> Int { b.d.len() }
+func p_sizeof_div(b: &Buf<BYTES / sizeof<UInt64>()>) -> Int { b.d.len() }
+func p_alignof(b: &Buf<alignof<UInt32>()>) -> Int { b.d.len() }
+func p_sizeof_times(b: &Buf<sizeof<UInt32>() * 2>) -> Int { b.d.len() }
+func p_sizeof_group(b: &Buf<(alignof<UInt16>() + 2) * sizeof<UInt8>()>) -> Int { b.d.len() }
+func p_static_below(b: &Buf<LATE + 1>) -> Int { b.d.len() }
+func p_static_below_div(b: &Buf<LATE_BYTES / LATE>) -> Int { b.d.len() }
+
+static LATE: Int = 4
+static LATE_BYTES: Int = 64
+
+func main() {
+    let l_literal: Buf<8> = Buf<8>(d: [0; 8])
+    let c_literal = cap<8>()
+    let d_literal = D_literal(d: [0u8; 8])
+    print("{} {} {} {}", l_literal.d.len(), c_literal, d_literal.d.len(), p_literal(&l_literal))
+    let l_hex: Buf<0x8> = Buf<8>(d: [0; 8])
+    let c_hex = cap<0x8>()
+    let d_hex = D_hex(d: [0u8; 8])
+    print("{} {} {} {}", l_hex.d.len(), c_hex, d_hex.d.len(), p_hex(&l_hex))
+    let l_plus_times: Buf<2 * 3 + 2> = Buf<8>(d: [0; 8])
+    let c_plus_times = cap<2 * 3 + 2>()
+    let d_plus_times = D_plus_times(d: [0u8; 8])
+    print("{} {} {} {}", l_plus_times.d.len(), c_plus_times, d_plus_times.d.len(), p_plus_times(&l_plus_times))
+    let l_div: Buf<16 / 2> = Buf<8>(d: [0; 8])
+    let c_div = cap<16 / 2>()
+    let d_div = D_div(d: [0u8; 8])
+    print("{} {} {} {}", l_div.d.len(), c_div, d_div.d.len(), p_div(&l_div))
+    let l_rem: Buf<17 % 9> = Buf<8>(d: [0; 8])
+    let c_rem = cap<17 % 9>()
+    let d_rem = D_rem(d: [0u8; 8])
+    print("{} {} {} {}", l_rem.d.len(), c_rem, d_rem.d.len(), p_rem(&l_rem))
+    let l_negate: Buf<-(-8)> = Buf<8>(d: [0; 8])
+    let c_negate = cap<-(-8)>()
+    let d_negate = D_negate(d: [0u8; 8])
+    print("{} {} {} {}", l_negate.d.len(), c_negate, d_negate.d.len(), p_negate(&l_negate))
+    let l_paren: Buf<(8)> = Buf<8>(d: [0; 8])
+    let c_paren = cap<(8)>()
+    let d_paren = D_paren(d: [0u8; 8])
+    print("{} {} {} {}", l_paren.d.len(), c_paren, d_paren.d.len(), p_paren(&l_paren))
+    let l_group: Buf<(S8 * 2) / 4> = Buf<4>(d: [0; 4])
+    let c_group = cap<(S8 * 2) / 4>()
+    let d_group = D_group(d: [0u8; 4])
+    print("{} {} {} {}", l_group.d.len(), c_group, d_group.d.len(), p_group(&l_group))
+    let l_static: Buf<S8> = Buf<8>(d: [0; 8])
+    let c_static = cap<S8>()
+    let d_static = D_static(d: [0u8; 8])
+    print("{} {} {} {}", l_static.d.len(), c_static, d_static.d.len(), p_static(&l_static))
+    let l_static_times: Buf<S8 * 2> = Buf<16>(d: [0; 16])
+    let c_static_times = cap<S8 * 2>()
+    let d_static_times = D_static_times(d: [0u8; 16])
+    print("{} {} {} {}", l_static_times.d.len(), c_static_times, d_static_times.d.len(), p_static_times(&l_static_times))
+    let l_static_div: Buf<BYTES / S8> = Buf<8>(d: [0; 8])
+    let c_static_div = cap<BYTES / S8>()
+    let d_static_div = D_static_div(d: [0u8; 8])
+    print("{} {} {} {}", l_static_div.d.len(), c_static_div, d_static_div.d.len(), p_static_div(&l_static_div))
+    let l_uint_static: Buf<SU8> = Buf<8>(d: [0; 8])
+    let c_uint_static = cap<SU8>()
+    let d_uint_static = D_uint_static(d: [0u8; 8])
+    print("{} {} {} {}", l_uint_static.d.len(), c_uint_static, d_uint_static.d.len(), p_uint_static(&l_uint_static))
+    let l_uint_static_div: Buf<SU8 / 2> = Buf<4>(d: [0; 4])
+    let c_uint_static_div = cap<SU8 / 2>()
+    let d_uint_static_div = D_uint_static_div(d: [0u8; 4])
+    print("{} {} {} {}", l_uint_static_div.d.len(), c_uint_static_div, d_uint_static_div.d.len(), p_uint_static_div(&l_uint_static_div))
+    let l_case_plus: Buf<E.A + 0> = Buf<8>(d: [0; 8])
+    let c_case_plus = cap<E.A + 0>()
+    let d_case_plus = D_case_plus(d: [0u8; 8])
+    print("{} {} {} {}", l_case_plus.d.len(), c_case_plus, d_case_plus.d.len(), p_case_plus(&l_case_plus))
+    let l_case_times: Buf<E.A * 2> = Buf<16>(d: [0; 16])
+    let c_case_times = cap<E.A * 2>()
+    let d_case_times = D_case_times(d: [0u8; 16])
+    print("{} {} {} {}", l_case_times.d.len(), c_case_times, d_case_times.d.len(), p_case_times(&l_case_times))
+    let l_sizeof: Buf<sizeof<UInt64>()> = Buf<8>(d: [0; 8])
+    let c_sizeof = cap<sizeof<UInt64>()>()
+    let d_sizeof = D_sizeof(d: [0u8; 8])
+    print("{} {} {} {}", l_sizeof.d.len(), c_sizeof, d_sizeof.d.len(), p_sizeof(&l_sizeof))
+    let l_sizeof_div: Buf<BYTES / sizeof<UInt64>()> = Buf<8>(d: [0; 8])
+    let c_sizeof_div = cap<BYTES / sizeof<UInt64>()>()
+    let d_sizeof_div = D_sizeof_div(d: [0u8; 8])
+    print("{} {} {} {}", l_sizeof_div.d.len(), c_sizeof_div, d_sizeof_div.d.len(), p_sizeof_div(&l_sizeof_div))
+    let l_alignof: Buf<alignof<UInt32>()> = Buf<4>(d: [0; 4])
+    let c_alignof = cap<alignof<UInt32>()>()
+    let d_alignof = D_alignof(d: [0u8; 4])
+    print("{} {} {} {}", l_alignof.d.len(), c_alignof, d_alignof.d.len(), p_alignof(&l_alignof))
+    let l_sizeof_times: Buf<sizeof<UInt32>() * 2> = Buf<8>(d: [0; 8])
+    let c_sizeof_times = cap<sizeof<UInt32>() * 2>()
+    let d_sizeof_times = D_sizeof_times(d: [0u8; 8])
+    print("{} {} {} {}", l_sizeof_times.d.len(), c_sizeof_times, d_sizeof_times.d.len(), p_sizeof_times(&l_sizeof_times))
+    let l_sizeof_group: Buf<(alignof<UInt16>() + 2) * sizeof<UInt8>()> = Buf<4>(d: [0; 4])
+    let c_sizeof_group = cap<(alignof<UInt16>() + 2) * sizeof<UInt8>()>()
+    let d_sizeof_group = D_sizeof_group(d: [0u8; 4])
+    print("{} {} {} {}", l_sizeof_group.d.len(), c_sizeof_group, d_sizeof_group.d.len(), p_sizeof_group(&l_sizeof_group))
+    let l_static_below: Buf<LATE + 1> = Buf<5>(d: [0; 5])
+    let c_static_below = cap<LATE + 1>()
+    let d_static_below = D_static_below(d: [0u8; 5])
+    print("{} {} {} {}", l_static_below.d.len(), c_static_below, d_static_below.d.len(), p_static_below(&l_static_below))
+    let l_static_below_div: Buf<LATE_BYTES / LATE> = Buf<16>(d: [0; 16])
+    let c_static_below_div = cap<LATE_BYTES / LATE>()
+    let d_static_below_div = D_static_below_div(d: [0u8; 16])
+    print("{} {} {} {}", l_static_below_div.d.len(), c_static_below_div, d_static_below_div.d.len(), p_static_below_div(&l_static_below_div))
+    let fits: Small<200 + 55> = Small<255>(d: [0; 4])
+    print("{}", fits.d.len())
+}

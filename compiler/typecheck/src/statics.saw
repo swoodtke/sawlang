@@ -1,12 +1,13 @@
 // The constants a type fixes (spec, Module-level statics, "A static is a
 // constant where a constant is required"): an array length, a repeat count,
 // a constant generic argument and a const parameter's default may name an
-// integer static whose initializer folds, and an array length is itself a
-// constant expression. A type is built while signatures are, before any body
-// is typed, and the value comes from the one fold over a typed expression
-// (`fold.saw`), so each such static's initializer, each array length and
-// each raw-backed case's value is typed and folded first, here, ahead of the
-// staged order (SL:architecture §3.10).
+// integer static whose initializer folds, and a length and an argument are
+// themselves constant expressions. A type is built while signatures are,
+// before any body is typed, and the value comes from the one fold over a
+// typed expression (`fold.saw`), so each such static's initializer, each
+// array length, each constant argument and each raw-backed case's value is
+// typed and folded first, here, ahead of the staged order
+// (SL:architecture §3.10).
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
@@ -19,8 +20,8 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcFold}
-import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR, TC_LENGTH_PENDING, TcStaticTyping, TcStaticVerdict}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR, TC_LENGTH_PENDING, TcConstPosition, TcStaticTyping, TcStaticVerdict}
+import sawtypecheck.program.{TcEvaluateHook, TcProgram, tc_idle_hook}
 import sawtypecheck.signatures.{TcArgSlot}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -29,9 +30,10 @@ import sawtypecheck.typeops.{TcClient}
 // declaring leaf of each written bare as a length or a repeat count, and each
 // passed bare as an argument, from `params[k]` into parameter `indexes[k]`
 // of declaration `targets[k]`; and every array type's length expression,
-// `nodes`.
+// `nodes`, and every constant argument written as a value, `arguments`.
 struct TcLengthFlow {
     nodes: Vector<Int>
+    arguments: Vector<Int>
     lengths: Vector<Int>
     params: Vector<Int>
     targets: Vector<Int>
@@ -47,6 +49,20 @@ public func tc_evaluate_constant_statics(p: &var TcProgram, layer: &FrontLayer) 
     p.evaluate_constant_statics(&layer)
 }
 
+// Constant `node`, which no one has evaluated yet, evaluated at the moment a
+// type being built reads it (`evaluate_hook`): order in the pass's lists does
+// not matter, since a constant written inside a type another constant's
+// evaluation builds is reached by that build. `node_types[node]` says where
+// it stands (-1 not started, `TC_LENGTH_PENDING` under way, a type once
+// done); one met under way is a cycle, which its reader refuses once.
+// Answers what is left at `node`.
+func tc_evaluate_on_demand(p: &var TcProgram, node: Int, pos: TcConstPosition) -> Int {
+    let root = p.current_root
+    p.evaluate_constant(node, pos)
+    p.current_root = root
+    p.node_types[node]
+}
+
 // What a static's refusal adds, wherever a type fixes a constant.
 func tc_static_hint() -> String {
     "; a static is a constant here when it is an immutable static of an integer type whose own initializer folds"
@@ -60,8 +76,8 @@ extension TcProgram {
     // The same walk records each const parameter that sizes an array.
     func evaluate_constant_statics(&var self, layer: &FrontLayer) {
         var found = Vector<Int>()
-        var flow = TcLengthFlow(nodes: Vector<Int>(), lengths: Vector<Int>(), params: Vector<Int>(),
-                                targets: Vector<Int>(), indexes: Vector<Int>())
+        var flow = TcLengthFlow(nodes: Vector<Int>(), arguments: Vector<Int>(), lengths: Vector<Int>(),
+                                params: Vector<Int>(), targets: Vector<Int>(), indexes: Vector<Int>())
         var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
@@ -71,9 +87,16 @@ extension TcProgram {
             m = m + 1
         }
         self.record_length_params(&flow)
+        self.constants_running = true
+        self.evaluate_hook = TcEvaluateHook(run: tc_evaluate_on_demand)
         var k = 0
         while k < flow.nodes.len() {
             self.evaluate_length(flow.nodes[k])
+            k = k + 1
+        }
+        k = 0
+        while k < flow.arguments.len() {
+            self.evaluate_argument(flow.arguments[k])
             k = k + 1
         }
         k = 0
@@ -89,6 +112,8 @@ extension TcProgram {
             }
             m = m + 1
         }
+        self.constants_running = false
+        self.evaluate_hook = tc_idle_hook()
     }
 
     // Each case among declarations `first` for `count` that states a raw
@@ -128,6 +153,7 @@ extension TcProgram {
         if self.has_alt(e, Alt.Type_Named) || self.has_alt(e, Alt.Expr_Name) {
             self.collect_parameter_flows(e, &var flow)
         }
+        self.collect_value_arguments(e, &var flow)
         if self.is_leaf(e) {
             if inside {
                 let d = self.static_bound(e)
@@ -149,6 +175,42 @@ extension TcProgram {
             let argument = head && c != base && not self.is_leaf(c)
             self.collect_constant_statics(c, here || c == count || argument, &var out, &var flow)
         }
+    }
+
+    // Each constant argument `e` writes as a value, into `flow.arguments`.
+    func collect_value_arguments(&self, e: Int, flow: &var TcLengthFlow) {
+        let found = self.value_arguments(e)
+        var k = 0
+        while k < found.len() {
+            try! flow.arguments.push(found[k])
+            k = k + 1
+        }
+    }
+
+    // The constant arguments node `e` writes as values: those of a type
+    // applied (`Buf<N + 1>`), of a call's head and of a member's, and a const
+    // parameter's default. A type-spelled one is the generic-argument
+    // classifier's.
+    func value_arguments(&self, e: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let member = self.has_alt(e, Alt.Expr_Member)
+        let holds = self.has_alt(e, Alt.Type_Named) || self.has_alt(e, Alt.Expr_Name) || member || self.has_alt(e, Alt.Generic_Param_Const)
+        if not holds {
+            return move out
+        }
+        let base = if member { self.res.first_node_child(e) } else { -1 }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            // A named type's own path is no argument; a path alone as one is a
+            // type, which the classifier reads.
+            if c != base && not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) && not self.has_alt(c, Alt.Type_Path) {
+                try! out.push(c)
+            }
+        }
+        move out
     }
 
     // Each const parameter that sizes an array: one written bare as a
@@ -332,6 +394,12 @@ extension TcProgram {
         if self.has_alt(e, Alt.Type_Array) {
             self.evaluate_length(self.res.last_node_child(e))
         }
+        let arguments = self.value_arguments(e)
+        var j = 0
+        while j < arguments.len() {
+            self.evaluate_argument(arguments[j])
+            j = j + 1
+        }
         let n = self.child_count(e)
         var k = 0
         while k < n {
@@ -343,51 +411,62 @@ extension TcProgram {
 
     // Array length expression `node`, typed ahead, folded by the
     // constant-position funnel and left as its length type at `node` in
-    // `node_types`, where `build_type` reads it (`array_length`). One the
-    // constant grammar does not shape (a const parameter's, a local's), one
-    // that names a static that is no constant, and one the fold leaves
-    // unfolded stay with the small folder, which words each refusal.
+    // `node_types`, where `build_type` reads it (`array_length`).
     func evaluate_length(&var self, node: Int) {
-        if node < 0 || self.node_types[node] != -1 || not self.shaped(node, true) {
+        self.evaluate_constant(node, TcConstPosition.Length)
+    }
+
+    // Constant argument `node`, a value written in a generic list or as a
+    // const parameter's default, evaluated as a length is: its constant type
+    // is left at `node` for `generic_arg`.
+    func evaluate_argument(&var self, node: Int) {
+        self.evaluate_constant(node, TcConstPosition.Argument)
+    }
+
+    // THE AHEAD-EVALUATION FUNNEL: expression `node` at position `pos`, a
+    // length or an argument, typed and folded before signatures, and left as
+    // the constant type it stands for, a const parameter's type, or the error
+    // type once refused. One the constant grammar does not shape (a const
+    // parameter's, a local's), one that names a static that is no constant,
+    // and one the fold leaves unfolded are `const_parameter_value`'s.
+    // ENTRY POINTS:
+    //     evaluate_length
+    //     evaluate_argument
+    func evaluate_constant(&var self, node: Int, pos: TcConstPosition) {
+        if node < 0 || self.node_types[node] != -1 {
+            return
+        }
+        if not self.shaped(node, pos == TcConstPosition.Length) {
+            self.node_types[node] = self.parameter_value_in_module(node, pos)
             return
         }
         self.node_types[node] = TC_LENGTH_PENDING
         self.prepare_ahead(node, -1)
-        if self.names_unfolded_static(node) {
-            self.node_types[node] = -1
-            return
+        var constant = -1
+        if not self.names_unfolded_static(node) {
+            constant = self.type_constant_ahead(node, pos)
         }
-        self.node_types[node] = self.type_length_ahead(node)
+        if constant < 0 {
+            constant = self.parameter_value_in_module(node, pos)
+        }
+        self.node_types[node] = constant
     }
 
-    // Whether expression `e` names a static whose verdict is not a folded
-    // value.
+    // `const_parameter_value` for `node`, in the module that holds it, which
+    // no body is open around.
+    func parameter_value_in_module(&var self, node: Int, pos: TcConstPosition) -> Int {
+        let saved = self.save_context()
+        self.enter_module(self.node_module(node))
+        let v = self.const_parameter_value(node, pos)
+        self.restore_context(saved)
+        v
+    }
+
+    // Whether expression `e` names a static whose verdict is neither a folded
+    // value nor a value past `Int`, which the fold reports by its own
+    // position's wording.
     func names_unfolded_static(&self, e: Int) -> Bool {
-        if e < 0 {
-            return false
-        }
-        if self.is_leaf(e) {
-            let d = self.static_bound(e)
-            return d >= 0 && self.static_verdicts[d] != TcStaticVerdict.Folds
-        }
-        let n = self.child_count(e)
-        var k = 0
-        while k < n {
-            if self.names_unfolded_static(self.child(e, k)) {
-                return true
-            }
-            k = k + 1
-        }
-        false
-    }
-
-    // The static leaf `leaf` binds, or -1.
-    func static_bound(&self, leaf: Int) -> Int {
-        let b = self.binding_at(leaf)
-        if b.kind != ResBindKind.Decl || b.decl < 0 || self.res.decls[b.decl].kind != ResDeclKind.Static {
-            return -1
-        }
-        b.decl
+        self.unfolded_static_leaf(e, true) >= 0
     }
 
     // Static `d`'s verdict where a type fixes a constant, its initializer
@@ -523,6 +602,12 @@ extension TcProgram {
             case Expr_Bitor -> self.shaped_parts(e, bools),
             case Expr_Bitxor -> self.shaped_parts(e, bools),
             case Expr_Cast -> self.shaped_parts(e, bools),
+            case Const_Expr -> self.shaped_parts(e, bools),
+            case Const_Term -> self.shaped_parts(e, bools),
+            case Const_Negate -> self.shaped_parts(e, bools),
+            case Const_LayoutQuery_Size -> true,
+            case Const_LayoutQuery_Align -> true,
+            case Type_Path -> self.constant_shaped_path(e),
             case Expr_Name -> self.static_bound(self.res.first_leaf(e)) >= 0,
             case Expr_Member -> self.constant_shaped_member(e),
             case Expr_Call_Paren -> self.constant_shaped_call(e),
@@ -552,6 +637,20 @@ extension TcProgram {
             }
         }
         true
+    }
+
+    // A path atom of a constant generic argument: a static, or a case of an
+    // enum, named through its module or its type.
+    func constant_shaped_path(&self, e: Int) -> Bool {
+        let leaf = self.res.last_leaf_of(e)
+        if leaf < 0 {
+            return false
+        }
+        if self.static_bound(leaf) >= 0 {
+            return true
+        }
+        let b = self.binding_at(leaf)
+        (b.kind == ResBindKind.Case || b.kind == ResBindKind.Decl) && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case
     }
 
     // `m.S`, a static named through its module; `E.Case`; `Int.max`.

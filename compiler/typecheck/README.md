@@ -673,9 +673,16 @@ These are the reversible readings this unit made; SL-447's report lists them.
 - A slot holding a type already refused is poisoned: what is checked against
   it, a `None`, an implicit member, an empty literal, adopts the error type
   rather than refusing again (SL:architecture §3.0).
-- A constant argument folds when it is a literal, a const parameter, or `+`,
-  `-` and `*` over literals; a static, and arithmetic over a const parameter,
-  are outside the slice.
+- A constant argument and a const parameter's default go through the
+  constant-position funnel (`check_constant_position`, at position `Argument`),
+  as a length and a repeat count do: literals, statics, raw-backed cases,
+  `+ - * / %`, unary `-`, parentheses and `sizeof`/`alignof` of a type the
+  target fixes. A bare const parameter is the parameter itself, and arithmetic
+  over one is outside the slice (`const_parameter_value`). The pass that
+  evaluates them before signatures is order-free: a length or an argument
+  written inside a type another constant's evaluation builds is evaluated when
+  that build reads it, and one met while it is being evaluated is a
+  `static.cycle` (golden `constant_nested`).
 - `T??` is two nested optional nodes in the tree, each one layer.
 - An extension's parameters restate the type's defaults; a restated default
   is typed but not compared with the type's.

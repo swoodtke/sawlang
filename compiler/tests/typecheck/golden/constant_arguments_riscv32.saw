@@ -1,0 +1,72 @@
+// flags: --std-root std --target riscv32-unknown-none-elf
+// A const generic argument folds at the program's word (SL-457): at riscv32
+// `sizeof<UInt>()` is 4 and `Int` is 32 bits, so `BYTES / sizeof<UInt>()` is
+// 16. refuse/type.mismatch.argument-word-riscv32.saw is the product that no
+// longer fits.
+
+static S8: Int = 8
+static SU8: UInt = 8
+static BYTES: Int = 64
+
+enum E: UInt8 {
+    case A = 8
+    case B = 4
+}
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+struct Small<const N: UInt8> {
+    d: [UInt8; 4]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+struct D_word<const N: Int = sizeof<UInt>()> { d: [UInt8; N] }
+struct D_word_div<const N: Int = BYTES / sizeof<UInt>()> { d: [UInt8; N] }
+struct D_word_align<const N: Int = alignof<Int>() * 2> { d: [UInt8; N] }
+struct D_literal<const N: Int = 8> { d: [UInt8; N] }
+struct D_static_div<const N: Int = BYTES / S8> { d: [UInt8; N] }
+
+struct Fields {
+    f_word: Buf<sizeof<UInt>()>
+    f_word_div: Buf<BYTES / sizeof<UInt>()>
+    f_word_align: Buf<alignof<Int>() * 2>
+    f_literal: Buf<8>
+    f_static_div: Buf<BYTES / S8>
+}
+
+func p_word(b: &Buf<sizeof<UInt>()>) -> Int { b.d.len() }
+func p_word_div(b: &Buf<BYTES / sizeof<UInt>()>) -> Int { b.d.len() }
+func p_word_align(b: &Buf<alignof<Int>() * 2>) -> Int { b.d.len() }
+func p_literal(b: &Buf<8>) -> Int { b.d.len() }
+func p_static_div(b: &Buf<BYTES / S8>) -> Int { b.d.len() }
+
+static LATE: Int = 4
+static LATE_BYTES: Int = 64
+
+func main() {
+    let l_word: Buf<sizeof<UInt>()> = Buf<4>(d: [0; 4])
+    let c_word = cap<sizeof<UInt>()>()
+    let d_word = D_word(d: [0u8; 4])
+    print("{} {} {} {}", l_word.d.len(), c_word, d_word.d.len(), p_word(&l_word))
+    let l_word_div: Buf<BYTES / sizeof<UInt>()> = Buf<16>(d: [0; 16])
+    let c_word_div = cap<BYTES / sizeof<UInt>()>()
+    let d_word_div = D_word_div(d: [0u8; 16])
+    print("{} {} {} {}", l_word_div.d.len(), c_word_div, d_word_div.d.len(), p_word_div(&l_word_div))
+    let l_word_align: Buf<alignof<Int>() * 2> = Buf<8>(d: [0; 8])
+    let c_word_align = cap<alignof<Int>() * 2>()
+    let d_word_align = D_word_align(d: [0u8; 8])
+    print("{} {} {} {}", l_word_align.d.len(), c_word_align, d_word_align.d.len(), p_word_align(&l_word_align))
+    let l_literal: Buf<8> = Buf<8>(d: [0; 8])
+    let c_literal = cap<8>()
+    let d_literal = D_literal(d: [0u8; 8])
+    print("{} {} {} {}", l_literal.d.len(), c_literal, d_literal.d.len(), p_literal(&l_literal))
+    let l_static_div: Buf<BYTES / S8> = Buf<8>(d: [0; 8])
+    let c_static_div = cap<BYTES / S8>()
+    let d_static_div = D_static_div(d: [0u8; 8])
+    print("{} {} {} {}", l_static_div.d.len(), c_static_div, d_static_div.d.len(), p_static_div(&l_static_div))
+}

@@ -1,7 +1,7 @@
 // refuses: static.not-constant at 10:22
 // a local named as an array length: it wins over a static of its name and is
 // the run-time value it looks like, refused as such and never as a static
-// message: array length is not a compile-time constant: `REGION` names a binding whose value is known only at run time
+// message: `REGION` is not a constant, and an array length is a constant expression: it names a binding whose value is known only at run time
 
 static REGION: Int = 64
 

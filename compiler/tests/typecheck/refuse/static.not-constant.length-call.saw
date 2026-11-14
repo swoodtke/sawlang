@@ -1,0 +1,15 @@
+// refuses: static.not-constant at 10:16
+// a call as an array length: the funnel says why it is not a constant, where the small folder once answered "not yet"
+// message: an array length is a constant expression
+
+func four() -> Int {
+    4
+}
+
+struct Table {
+    a: [UInt8; four()]
+}
+
+func main() {
+    print("{}", 0)
+}

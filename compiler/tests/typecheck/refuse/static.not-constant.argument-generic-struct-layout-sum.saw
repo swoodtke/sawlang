@@ -1,0 +1,15 @@
+// refuses: static.not-constant at 14:21
+// the same instance measured inside arithmetic (`sizeof<Buf<4>>() + 0`): the refusal still names the instance, `Buf<4>`
+// message: Buf<4>` is laid out only by code generation
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print("{}", cap<sizeof<Buf<4>>() + 0>())
+}

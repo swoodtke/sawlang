@@ -1,0 +1,11 @@
+// refuses: static.cycle at 5:29
+// a const parameter's default that measures the type it defaults for: the cycle runs through that type's layout, and no static is on it
+// message: depends on itself, through the layout of a type it names
+
+struct Self2<const N: Int = sizeof<Self2>() + 1> {
+    d: [UInt8; 4]
+}
+
+func main() {
+    print("{}", 1)
+}

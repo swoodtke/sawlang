@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 14:20
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: a constant argument is 4294967296, which does not fit `Int`
+// A constant argument that is an expression folds on its own, then meets the
+// parameter's type: a `UInt64` static of 2^32 plus zero is 2^32, which fits a
+// 64-bit `Int` and not riscv32's.
+
+static W: UInt64 = 4294967296
+
+struct Wide<const N: Int> {
+    n: Int
+}
+
+func read(w: &Wide<W + 0>) -> Int {
+    w.n
+}

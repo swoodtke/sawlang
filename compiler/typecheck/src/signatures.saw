@@ -77,8 +77,6 @@ public func tc_const_use_phrase(use: TcConstPosition) -> String {
     }
 }
 
-// The largest constant argument folded; a product stays inside an `Int`.
-static TC_CONST_LIMIT: Int = 2147483647
 static TC_SIG_UNBUILT: Int = 0
 static TC_SIG_GENERICS: Int = 1
 static TC_SIG_GENERICS_BUILT: Int = 2
@@ -1318,7 +1316,7 @@ extension TcProgram {
                 self.kind_mismatch(node, "a type")
                 return self.error_type
             }
-            return self.build_const(node, TcConstPosition.Argument)
+            return self.argument_value(node)
         }
         if self.names_constant(node) {
             let path = self.child(node, 0)
@@ -1340,6 +1338,29 @@ extension TcProgram {
             return self.error_type
         }
         self.build_type(node)
+    }
+
+    // The constant a value-spelled generic argument `node` stands for: what
+    // the pre-signature pass left at it (`evaluate_argument`), its folded
+    // value, a const parameter or the error type once refused. A path alone,
+    // which only a const parameter's default is, names a constant as a bare
+    // argument does.
+    func argument_value(&var self, node: Int) -> Int {
+        if self.has_alt(node, Alt.Type_Path) {
+            return self.constant_named(self.res.last_leaf_of(node), TcConstPosition.Argument)
+        }
+        var ahead = self.node_types[node]
+        if ahead == -1 && self.constants_running {
+            ahead = self.evaluate_on_demand(node, TcConstPosition.Argument)
+        }
+        if ahead >= 0 {
+            return ahead
+        }
+        if ahead == TC_LENGTH_PENDING {
+            self.refuse_pending_constant(node, "the constant argument")
+            return self.error_type
+        }
+        self.unevaluated_constant(node, TcConstPosition.Argument)
     }
 
     // Whether type-spelled argument `node` is a bare path, written with no
@@ -1364,7 +1385,8 @@ extension TcProgram {
 
     // The constant name `leaf` stands for at use `use`: a const parameter,
     // or a static's value. A local, or any other value, is known only at run
-    // time (a local wins over a static, so a shadowing one is this).
+    // time (a local wins over a static, so a shadowing one is this). A
+    // whole argument that is a name is this, bare or as a const default.
     func constant_named(&var self, leaf: Int, use: TcConstPosition) -> Int {
         let b = self.binding_at(leaf)
         if b.kind == ResBindKind.TypeParam {
@@ -1405,8 +1427,8 @@ extension TcProgram {
     // typed is reached again only through itself, which is a cycle.
     // ENTRY POINTS:
     //     constant_named
-    //     build_const
-    func static_constant(&var self, d: Int, at: Int, use: TcConstPosition) -> Int {
+    //     refuse_unfolded_constant
+    public func static_constant(&var self, d: Int, at: Int, use: TcConstPosition) -> Int {
         let verdict = self.static_verdicts[d]
         if verdict == TcStaticVerdict.Folds {
             return self.mk_const(self.static_values[d])
@@ -1579,39 +1601,113 @@ extension TcProgram {
 
     // The length of the array type whose length expression is `node`. The
     // pre-signature pass typed and folded it through the constant-position
-    // funnel and left its type at `node` (`evaluate_length`); one it did not
-    // type, a const parameter's, a local's or any form outside the constant
-    // grammar, goes to the small folder, which refuses what it cannot fold.
+    // funnel and left its type at `node` (`evaluate_length`); one the pass
+    // has not reached yet, written inside a type another constant's
+    // evaluation builds, is evaluated here (`evaluate_on_demand`). One it did
+    // not type, a const parameter's, a local's or any form outside the
+    // constant grammar, goes to the small folder, which refuses what it
+    // cannot fold.
     func array_length(&var self, node: Int) -> Int {
-        let ahead = self.node_types[node]
+        var ahead = self.node_types[node]
+        if ahead == -1 && self.constants_running {
+            ahead = self.evaluate_on_demand(node, TcConstPosition.Length)
+        }
         if ahead >= 0 {
             return ahead
         }
         if ahead == TC_LENGTH_PENDING {
-            let m = self.current
-            let leaf = self.length_static_leaf(node)
-            var msg = StringBuilder()
-            if leaf >= 0 {
-                try! msg.append("the value of the static `")
-                try! msg.append(self.text(m, leaf))
-                try! msg.append("` depends on itself, through a type its own initializer names")
-            } else {
-                try! msg.append("the array length `")
-                try! msg.append(self.text(m, node))
-                try! msg.append("` depends on itself, through a static whose type holds it")
-            }
-            self.refuse(if leaf >= 0 { leaf } else { node }, "static.cycle", msg.build())
+            self.refuse_pending_constant(node, "the array length")
             return self.error_type
         }
-        self.build_length(node, TcConstPosition.Length)
+        self.unevaluated_constant(node, TcConstPosition.Length)
     }
 
-    // An array length or repeat count at `node` that names a const
-    // parameter, folded by the small folder: a constant that is not negative
-    // (`refuse_negative_length`).
-    public func build_length(&var self, node: Int, use: TcConstPosition) -> Int {
-        let v = self.build_const(node, use)
-        return self.checked_length(node, use, v)
+    // Constant `node` at `pos`, evaluated now by the running pass, and what
+    // it left at `node` (`tc_evaluate_on_demand`).
+    func evaluate_on_demand(&var self, node: Int, pos: TcConstPosition) -> Int {
+        let run = self.evaluate_hook.run
+        run(&var self, node, pos)
+    }
+
+    // Whether constant `node` is a path whose last segment binds an enum's
+    // case.
+    func names_case(&self, node: Int) -> Bool {
+        if not self.has_alt(node, Alt.Expr_Member) && not self.has_alt(node, Alt.Type_Path) {
+            return false
+        }
+        let leaf = self.res.last_leaf_of(node)
+        if leaf < 0 {
+            return false
+        }
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Case {
+            return true
+        }
+        b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case
+    }
+
+    // The refusal of constant `node`, whose own typing is under way and
+    // reached again through the statics it names: a cycle, which `what`
+    // names.
+    func refuse_pending_constant(&var self, node: Int, what: String) {
+        let m = self.current
+        let leaf = self.length_static_leaf(node)
+        var msg = StringBuilder()
+        if leaf >= 0 {
+            try! msg.append("the value of the static `")
+            try! msg.append(self.text(m, leaf))
+            try! msg.append("` depends on itself, through a type its own initializer names")
+        } else {
+            try! msg.append(what)
+            try! msg.append(" `")
+            try! msg.append(self.text(m, node))
+            if self.names_case(node) {
+                try! msg.append("` depends on itself, through the raw value of the case it names")
+            } else {
+                try! msg.append("` depends on itself, through the layout of a type it names")
+            }
+        }
+        self.refuse(if leaf >= 0 { leaf } else { node }, "static.cycle", msg.build())
+    }
+
+    // The constant a length or argument `node` stands for when the
+    // pre-signature pass left none, which only a node outside every module the
+    // pass reads is: a bare const parameter, which is the parameter itself.
+    func unevaluated_constant(&var self, node: Int, use: TcConstPosition) -> Int {
+        let bare = self.bare_const_parameter(node)
+        if bare >= 0 {
+            return bare
+        }
+        var msg = StringBuilder()
+        try! msg.append(tc_const_use_phrase(use))
+        try! msg.append(" `")
+        try! msg.append(self.text(self.current, node))
+        try! msg.append("` was not evaluated before signatures")
+        self.phase_violation(msg.build())
+        self.error_type
+    }
+
+    // The type of the const parameter that constant expression `node` names
+    // bare, `N` and no more, or -1.
+    public func bare_const_parameter(&var self, node: Int) -> Int {
+        guard let alt = self.node_alt(node) else {
+            return -1
+        }
+        if alt != Alt.Expr_Name && alt != Alt.Const_Atom_Name && alt != Alt.Type_Path {
+            return -1
+        }
+        // A name atom is a path; its last segment carries resolve's binding.
+        let leaf = if alt == Alt.Expr_Name { self.res.first_leaf(node) } else { self.res.last_leaf_of(node) }
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.TypeParam {
+            return -1
+        }
+        let owner = self.param_owner(b.node)
+        let index = self.param_index(b.node)
+        if owner < 0 {
+            return -1
+        }
+        self.mk_param(owner, index)
     }
 
     // An array length or repeat count at `node` whose value the
@@ -1667,7 +1763,7 @@ extension TcProgram {
     // (a static, or a const parameter's argument), or is empty for a written
     // constant.
     // ENTRY POINTS:
-    //     build_length
+    //     checked_length
     //     check_argument_kind
     func refuse_negative_length(&var self, at: Int, use: TcConstPosition, value: Int, why: String) {
         var msg = StringBuilder()
@@ -1681,156 +1777,6 @@ extension TcProgram {
         }
         try! msg.append("; a length counts elements, so it starts at 0")
         self.refuse(at, "constant.negative-length", msg.build())
-    }
-
-    // A constant expression at use `use`, folded: an integer literal, a const
-    // parameter, and `+`, `-`, `*` and negation over them. A constant
-    // generic argument, a count or a length that names a const parameter,
-    // and a length outside the constant grammar reach it; every other
-    // length and count is the funnel's.
-    public func build_const(&var self, node: Int, use: TcConstPosition) -> Int {
-        guard let alt = self.node_alt(node) else {
-            return self.error_type
-        }
-        if alt == Alt.Expr_Int || alt == Alt.Const_Atom_Int {
-            return self.const_literal(node)
-        }
-        if alt == Alt.Expr_Name || alt == Alt.Const_Atom_Name || alt == Alt.Type_Path {
-            // A constant expression's name atom is a path; its last segment
-            // carries resolve's binding.
-            let leaf = if alt == Alt.Expr_Name { self.res.first_leaf(node) } else { self.res.last_leaf_of(node) }
-            let b = self.binding_at(leaf)
-            if b.kind == ResBindKind.TypeParam {
-                let owner = self.param_owner(b.node)
-                let index = self.param_index(b.node)
-                if owner >= 0 {
-                    return self.mk_param(owner, index)
-                }
-            }
-            return self.constant_named(leaf, use)
-        }
-        if alt == Alt.Expr_Member {
-            // A static named through its module, `dep.SIZE`.
-            let leaf = self.res.last_leaf_of(node)
-            let b = self.binding_at(leaf)
-            if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
-                return self.static_constant(b.decl, leaf, use)
-            }
-        }
-        if alt == Alt.Const_Negate || alt == Alt.Expr_Unary_Negate || alt == Alt.Const_Unary_Negate {
-            let inner = self.res.first_node_child(node)
-            let v = self.build_const(inner, use)
-            let info = self.types.ty(v)
-            if info.kind == TcKind.ConstInt {
-                return self.mk_const(0 - info.a)
-            }
-            return self.const_unfolded(node, alt, v)
-        }
-        if alt == Alt.Const_Expr || alt == Alt.Const_Term || alt == Alt.Expr_Additive || alt == Alt.Expr_Multiplicative {
-            return self.fold_chain(node, alt, use)
-        }
-        self.not_in_slice(node, alt)
-        self.error_type
-    }
-
-    // An operator chain `a op b op c`, folded left to right.
-    func fold_chain(&var self, node: Int, alt: Alt, use: TcConstPosition) -> Int {
-        let n = self.child_count(node)
-        var value = 0
-        var have = false
-        var op = "+"
-        var k = 0
-        while k < n {
-            let c = self.child(node, k)
-            let m = self.current
-            if self.is_leaf(c) {
-                op = self.text(m, c)
-            } else {
-                let v = self.build_const(c, use)
-                let info = self.types.ty(v)
-                if info.kind != TcKind.ConstInt {
-                    return self.const_unfolded(node, alt, v)
-                }
-                let x = info.a
-                if x > TC_CONST_LIMIT || x < 0 - TC_CONST_LIMIT || value > TC_CONST_LIMIT || value < 0 - TC_CONST_LIMIT {
-                    self.not_in_slice(node, alt)
-                    return self.error_type
-                }
-                if not have {
-                    value = x
-                    have = true
-                } else if op.equals("+") {
-                    value = value + x
-                } else if op.equals("-") {
-                    value = value - x
-                } else if op.equals("*") {
-                    value = value * x
-                } else {
-                    self.not_in_slice(node, alt)
-                    return self.error_type
-                }
-            }
-            k = k + 1
-        }
-        self.mk_const(value)
-    }
-
-    // An operator over a constant that is not an integer: a const parameter's
-    // arithmetic is folded only per instantiation, which is not this stage's.
-    func const_unfolded(&var self, node: Int, alt: Alt, v: Int) -> Int {
-        let info = self.types.ty(v)
-        if info.kind == TcKind.Error {
-            return self.error_type
-        }
-        self.refuse(node, "slice.not-yet",
-                    "arithmetic over a const parameter, which folds only per instantiation, is not in the bootstrap slice yet")
-        try! self.skipped.push(node)
-        self.error_type
-    }
-
-    // An integer literal's value: decimal, `0x`, `0o` or `0b`, with `_`.
-    func const_literal(&var self, node: Int) -> Int {
-        let m = self.current
-        let leaf = self.res.first_leaf(node)
-        let at = if leaf >= 0 { leaf } else { node }
-        let text = self.text(m, at)
-        var radix = 10
-        var i = 0
-        let n = text.len()
-        if n > 2 && (text.byte_at(0) as Int) == 48 {
-            let letter = text.byte_at(1) as Int
-            if letter == 120 {
-                radix = 16
-                i = 2
-            } else if letter == 111 {
-                radix = 8
-                i = 2
-            } else if letter == 98 {
-                radix = 2
-                i = 2
-            }
-        }
-        var value = 0
-        while i < n {
-            let b = text.byte_at(i) as Int
-            var digit = -1
-            if b >= 48 && b <= 57 {
-                digit = b - 48
-            } else if b >= 97 && b <= 102 {
-                digit = b - 87
-            } else if b >= 65 && b <= 70 {
-                digit = b - 55
-            }
-            if b != 95 {
-                if digit < 0 || digit >= radix || value > TC_CONST_LIMIT {
-                    self.not_in_slice(node, Alt.Expr_Int)
-                    return self.error_type
-                }
-                value = value * radix + digit
-            }
-            i = i + 1
-        }
-        self.mk_const(value)
     }
 
     func build_tuple(&var self, t: Int, named: Bool) -> Int {

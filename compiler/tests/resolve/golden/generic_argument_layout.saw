@@ -1,0 +1,31 @@
+// A `sizeof` / `alignof` in a generic argument list: the whole argument, and
+// an operand of a constant expression, in a type argument, a call argument and
+// a const parameter's default. Each type child resolves the same way.
+
+static BYTES: Int = 64
+
+struct Pair {
+    a: Int
+    b: Int
+}
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+struct Ring<const N: Int = sizeof<UInt64>() * 2> {
+    d: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func whole() -> Int {
+    cap<sizeof<UInt64>()>() + cap<alignof<UInt32>()>()
+}
+
+func operand() -> Int {
+    let b: Buf<sizeof<UInt32>() * 2> = Buf<8>(d: [0; 8])
+    b.d.len() + cap<BYTES / sizeof<UInt>()>() + cap<(alignof<UInt16>() + 1) * 2>()
+}

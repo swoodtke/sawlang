@@ -1,0 +1,12 @@
+// refuses: static.cycle at 6:29
+// an array length that names a raw case whose value measures the array: the cycle runs through that case's value, and no static is on it
+// message: depends on itself, through the raw value of the case it names
+
+enum E: Int {
+    case A = sizeof<[UInt8; E.B]>()
+    case B = E.A
+}
+
+func main() {
+    print("{}", 1)
+}

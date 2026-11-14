@@ -1,0 +1,15 @@
+// refuses: constant.divide-by-zero at 9:19
+// a constant generic argument that divides by zero, folded by the constant-position funnel (SL-457)
+// message: divides by zero
+
+struct Buf<const N: Int> {
+    d: [UInt8; 4]
+}
+
+func take(b: &Buf<8 / 0>) -> Int {
+    0
+}
+
+func main() {
+    print("{}", 0)
+}

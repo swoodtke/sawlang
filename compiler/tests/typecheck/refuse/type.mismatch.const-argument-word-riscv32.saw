@@ -1,6 +1,6 @@
 // refuses: type.mismatch at 11:20
 // flags: --std-root std --target riscv32-unknown-none-elf
-// message: the constant argument 2147483648 does not fit `Int`, the type of `N`
+// message: integer literal 2147483648 does not fit in `Int` (range -2147483648..=2147483647): a literal with no expected type is an `Int`; write `2147483648u64` for a `UInt64`
 // A const parameter of type `Int` holds the target word's range, so 2^31 does
 // not fit it at riscv32 though it fits on a 64-bit target.
 

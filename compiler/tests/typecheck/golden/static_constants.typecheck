@@ -73,6 +73,7 @@
     (peek 37:6
       (38:5-38:72 Call.paren static_constants.Wrap<static_constants.Pool<Int, 4>> value temp (memberwise static_constants.Wrap (owner static_constants.Wrap<static_constants.Pool<Int, 4>>)))
       (38:35-38:71 Call.paren static_constants.Pool<Int, 4> value temp (memberwise static_constants.Pool (owner static_constants.Pool<Int, 4>)))
+      (38:45-38:46 IntLit Int value temp)
       (38:55-38:70 Repeat [Int; 4] value temp)
       (38:56-38:66 Subscript.single Int place copy (op []))
       (38:56-38:63 Member [Int; 4] place project)
@@ -90,11 +91,13 @@
     (main 49:6
       (50:9-50:10 BindingName static_constants.Pool<Int, 4> place temp)
       (50:23-50:50 Call.paren static_constants.Pool<Int, 4> value temp (memberwise static_constants.Pool (owner static_constants.Pool<Int, 4>)))
+      (50:33-50:34 IntLit Int value temp)
       (50:43-50:49 Repeat [Int; 4] value temp)
       (50:44-50:45 IntLit Int value temp)
       (50:47-50:48 IntLit Int value temp)
       (51:9-51:10 BindingName static_constants.Ring<4> place temp)
       (51:19-51:45 Call.paren static_constants.Ring<4> value temp (memberwise static_constants.Ring (owner static_constants.Ring<4>)))
+      (51:24-51:25 IntLit Int value temp)
       (51:34-51:44 Repeat [Int; 4] value temp)
       (51:35-51:36 IntLit Int value temp)
       (51:38-51:43 Name Int place copy)

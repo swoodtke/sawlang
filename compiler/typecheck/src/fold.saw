@@ -147,19 +147,13 @@ extension TcProgram {
             case Expr_Bool_True -> TcFold(bits: 1, ty: self.bool_type()),
             case Expr_Bool_False -> TcFold(bits: 0, ty: self.bool_type()),
             case Expr_SourceLocation_Line -> TcFold(bits: self.token_line(e), ty: self.int_type()),
-            case Expr_Unary_Negate -> {
-                let operand = self.res.first_node_child(e)
-                if self.has_alt(operand, Alt.Expr_Int) {
-                    // A negated literal is one constant, so `-128` is an
-                    // `Int8` though `128` is not (SL:open-questions D6).
-                    var t = self.expr_types[e]
-                    if self.adj_head[operand] >= 0 || self.fold_written >= 0 {
-                        t = self.literal_type(operand)
-                    }
-                    return self.fold_literal(operand, t, true)
-                }
-                self.fold_unary(e, "-", &var chain)
-            },
+            case Const_Negate -> self.fold_negate(e, &var chain),
+            case Expr_Unary_Negate -> self.fold_negate(e, &var chain),
+            case Const_Expr -> self.fold_operators(e, &var chain),
+            case Const_Term -> self.fold_operators(e, &var chain),
+            case Const_LayoutQuery_Size -> self.fold_alias_construct(e, &var chain),
+            case Const_LayoutQuery_Align -> self.fold_alias_construct(e, &var chain),
+            case Type_Path -> self.fold_path(e, &var chain),
             case Expr_Unary_Complement -> self.fold_unary(e, "~", &var chain),
             case Expr_Unary_Not -> {
                 let operand = self.res.first_node_child(e)
@@ -192,6 +186,21 @@ extension TcProgram {
             case Expr_Call_Paren -> self.fold_alias_construct(e, &var chain),
             case _ -> TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
+    }
+
+    // `-x`: a negated literal is one constant, so `-128` is an `Int8` though
+    // `128` is not; any other operand is negated at its own type
+    // (SL:open-questions D6).
+    func fold_negate(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let operand = self.res.first_node_child(e)
+        if self.has_alt(operand, Alt.Expr_Int) {
+            var t = self.expr_types[e]
+            if self.adj_head[operand] >= 0 || self.fold_written >= 0 {
+                t = self.literal_type(operand)
+            }
+            return self.fold_literal(operand, t, true)
+        }
+        self.fold_unary(e, "-", &var chain)
     }
 
     // `A(x)` for a type alias `A`: `x`'s value at the type `A` names, which
@@ -468,7 +477,22 @@ extension TcProgram {
     // value mono gives it at the instance being checked, and no constant
     // before one.
     func fold_name(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
-        let leaf = self.res.first_leaf(e)
+        self.fold_binding(e, self.res.first_leaf(e), &var chain)
+    }
+
+    // A path atom of a constant generic argument: a case of a raw-backed
+    // enum by its raw value, or a name `fold_name` reads, at the path's last
+    // segment.
+    func fold_path(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let c = self.raw_case_named(e)
+        if c >= 0 {
+            return self.fold_case(c, e, &var chain)
+        }
+        self.fold_binding(e, self.res.last_leaf_of(e), &var chain)
+    }
+
+    // The value of the name at `leaf`, which `e` spells.
+    func fold_binding(&var self, e: Int, leaf: Int, chain: &var Vector<Int>) -> TcFold {
         let b = self.binding_at(leaf)
         if b.kind == ResBindKind.TypeParam {
             var k = 0
@@ -572,7 +596,7 @@ extension TcProgram {
     // The case of a raw-backed enum member expression `e` names, `E.Case`,
     // or -1.
     public func raw_case_named(&self, e: Int) -> Int {
-        if not self.has_alt(e, Alt.Expr_Member) {
+        if not self.has_alt(e, Alt.Expr_Member) && not self.has_alt(e, Alt.Type_Path) {
             return -1
         }
         let leaf = self.res.last_leaf_of(e)

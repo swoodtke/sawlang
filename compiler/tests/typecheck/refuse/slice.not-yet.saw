@@ -1,11 +1,12 @@
-// refuses: slice.not-yet at 9:19
-// a constant argument written with `/`, which the constant grammar admits and
-// the bootstrap slice's folder does not compute yet (SL-457)
+// refuses: slice.not-yet at 6:18
+// arithmetic over a const parameter in a repeat count, which folds only per instantiation (U4 owns it)
+// message: arithmetic over a const parameter
 
-struct Ring<const N: Int> {
-    head: Int
+func grow<const N: Int>() -> Int {
+    let xs = [0; N + 1]
+    xs.len()
 }
 
-func size(r: Ring<8 / 2>) -> Int {
-    0
+func main() {
+    print("{}", grow<4>())
 }

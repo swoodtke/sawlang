@@ -1,0 +1,15 @@
+// refuses: static.not-constant at 14:21
+// `sizeof` of a generic struct's instance as a call argument: the refusal names the instance, `Buf<4>`, once its own argument is evaluated
+// message: Buf<4>` is laid out only by code generation
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print("{}", cap<sizeof<Buf<4>>()>())
+}

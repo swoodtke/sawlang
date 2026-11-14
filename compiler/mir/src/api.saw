@@ -194,6 +194,13 @@ public func mir_append_module_checks(out: &var StringBuilder, p: &var MirProgram
             j = j + 1
         }
         j = 0
+        while j < p.tc.phase_problems.len() {
+            if p.tc.phase_problem_modules[j] == m {
+                try! met.push(p.tc.phase_problems.get(j) ?? "")
+            }
+            j = j + 1
+        }
+        j = 0
         while j < p.problems.len() {
             if p.problem_modules[j] == m {
                 try! met.push(p.problems.get(j) ?? "")

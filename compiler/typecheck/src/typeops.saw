@@ -2,6 +2,7 @@
 // what it holds, and the builtin types a literal, a condition or a range has
 // with no name occurrence to read.
 
+import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst}
@@ -194,7 +195,10 @@ extension TcProgram {
         if c.role != TcRole.Builtin || not (spelling.equals("sizeof") || spelling.equals("alignof")) {
             return -1
         }
-        let callee = self.res.first_node_child(e)
+        // A layout query in a constant generic argument holds its type
+        // itself; a call's head holds it.
+        let query = self.has_alt(e, Alt.Const_LayoutQuery_Size) || self.has_alt(e, Alt.Const_LayoutQuery_Align)
+        let callee = if query { e } else { self.res.first_node_child(e) }
         let n = self.child_count(callee)
         var k = 0
         while k < n {

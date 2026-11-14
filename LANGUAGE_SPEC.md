@@ -3514,10 +3514,11 @@ one slot that differs: a bare literal DOES adopt there, so
 a constant expression is itself a constant expression, the identity at the
 underlying type, so it is accepted wherever a constant is (see *The constant
 grammar*), and `Byte(300)` is refused because 300 does not fit a `UInt8`.
-**Status:** `sawc` takes it in a `static` initializer, a `static_assert` and a
-raw case's value;
-an array length, a repeat count and a const generic argument accept it only
-once those positions are folded by the same evaluator.
+**Status:** `sawc` takes it in a `static` initializer, a `static_assert`, a
+raw case's value, an array length and a repeat count. A const generic
+argument's grammar has no call, so there the construction goes through a
+`static` (`static EIGHT: Byte = Byte(8)`, then `Buf<EIGHT>`) until the form is
+decided.
 
 ```saw-body
 type Handle = UInt
@@ -13315,11 +13316,12 @@ here":
 
 ```saw-error
 // error-rule: static.not-constant
-// error-contains: the mutable static
+// error-contains: it names an `unsafe static var`
 unsafe static var ARENA_BYTES: Int = 1024
 static ARENA: [UInt8; ARENA_BYTES] = [0; 1024]
-// error: array length is not a compile-time constant: the mutable static
-//        `ARENA_BYTES` is not allowed here
+// error: `ARENA_BYTES` is not a constant, and an array length is a constant
+//        expression: it names an `unsafe static var`, whose value belongs to
+//        the running program
 ```
 
 The name resolves as it would in any other read. A local wins over a
@@ -14072,7 +14074,6 @@ Scope, deliberately narrow in this version:
   of the grammar in this position: an argument list is closed by `>`, which is
   also the shift token. Write the multiplicative form (`FixedBuf<2 * 128>`) or
   a `static`. An array length is closed by `]` and takes the full grammar.
-  (A layout query in a type argument is not built in `sawc` yet, SL-457.)
 - **A module `static`** may be the argument on the same terms, so
   `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
   layout and one symbol. See Module-level statics for which statics fold.
@@ -14318,14 +14319,17 @@ A **struct, enum, tuple or array** `T` is the exception, and only outside a
 `static_assert`. Its ABI layout is built during code generation, later than an
 array length is resolved, so the four earlier positions refuse it by name:
 
-```saw-pending SL-457
-// error-contains: whose layout only code generation knows
+```saw-error
+// error-rule: static.not-constant
+// error-contains: is laid out only by code generation
 struct Region { a: Int, b: Int }
 
 func main() {
     var buf: [UInt8; sizeof<Region>()] = [0; 16]
-    // error: array length is not a compile-time constant: `sizeof<Region>()`,
-    //        whose layout only code generation knows, is not allowed here
+    // error: `sizeof<Region>()` is not a constant, and an array length is a
+    //        constant expression: `Region` is laid out only by code
+    //        generation, so `sizeof` and `alignof` measure it only in a
+    //        `static_assert`
     print(buf[0])
 }
 ```

@@ -39,7 +39,7 @@ import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE, TC_FLAG_BLOCKING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
-                               TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcUse}
+                               TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcStaticVerdict, TcUse}
 import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
@@ -255,7 +255,7 @@ extension TcProgram {
     }
 
     // Enters module `m` outside any declaration, in ordinary code.
-    func enter_module(&var self, m: Int) {
+    public func enter_module(&var self, m: Int) {
         self.current = m
         self.current_decl = -1
         self.current_trait = -1
@@ -2011,8 +2011,8 @@ extension TcProgram {
     // It answers the fold of `e`, which is not `ok` when `e` is refused,
     // deferred or constant but unfolded; a caller that needs the value
     // (`repeat_expr`) reads `refused_within(e)` to tell the first from the
-    // rest. A repeat count and an array length are never deferred, since
-    // their value fixes the array's type where it is written.
+    // rest. A repeat count, an array length and a constant argument are never
+    // deferred, since their value fixes the type where it is written.
     //
     // ENTRY POINTS (check_constant_position):
     //     check_static_body
@@ -2021,7 +2021,7 @@ extension TcProgram {
     //     check_align_local
     //     check_static_assert
     //     repeat_expr
-    //     type_length_ahead
+    //     type_constant_ahead
     func check_constant_position(&var self, e: Int, pos: TcConstPosition, d: Int, message: Int) -> TcFold {
         let none = TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         if e < 0 || self.refused_within(e) {
@@ -2060,7 +2060,7 @@ extension TcProgram {
         if pos == TcConstPosition.RawValue && d >= 0 && self.refuse_case_cycle(d, e) {
             return none
         }
-        if pos != TcConstPosition.Static && pos != TcConstPosition.Repeat && pos != TcConstPosition.Length {
+        if pos != TcConstPosition.Static && pos != TcConstPosition.Repeat && pos != TcConstPosition.Length && pos != TcConstPosition.Argument {
             let early = self.fold_constant(e)
             if self.awaits_typing(&early) {
                 self.defer_constant(TcPendingConstant.Position(e: e, pos: pos, d: d, message: message))
@@ -2282,7 +2282,7 @@ extension TcProgram {
     // memberwise construction, an array or repeat literal, a float, and an
     // earlier static of any type. A raw case's value names no static and no
     // other enum's case, which are not yet known when its cases are fixed.
-    func constant_offender(&self, e: Int, pos: TcConstPosition, d: Int) -> Int {
+    public func constant_offender(&self, e: Int, pos: TcConstPosition, d: Int) -> Int {
         guard let alt = self.node_alt(e) else {
             return e
         }
@@ -2310,6 +2310,12 @@ extension TcProgram {
             case Expr_Compare_Pair -> self.constant_parts(e, pos, d),
             case Expr_And -> self.constant_parts(e, pos, d),
             case Expr_Or -> self.constant_parts(e, pos, d),
+            case Const_Expr -> self.constant_parts(e, pos, d),
+            case Const_Term -> self.constant_parts(e, pos, d),
+            case Const_Negate -> self.constant_parts(e, pos, d),
+            case Const_LayoutQuery_Size -> self.constant_call(e, pos, d),
+            case Const_LayoutQuery_Align -> self.constant_call(e, pos, d),
+            case Type_Path -> self.constant_path(e, pos),
             case Expr_Cast -> {
                 let operand = self.res.first_node_child(e)
                 self.constant_offender(operand, pos, d)
@@ -2356,6 +2362,32 @@ extension TcProgram {
             }
         }
         return -1
+    }
+
+    // A path atom of a constant generic argument: a module static whose
+    // value is fixed, a const parameter, or a case of a raw-backed enum, as
+    // `constant_name` and `constant_member` judge their spellings.
+    func constant_path(&self, e: Int, pos: TcConstPosition) -> Int {
+        let leaf = self.res.last_leaf_of(e)
+        if leaf < 0 {
+            return e
+        }
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.TypeParam && pos != TcConstPosition.RawValue && pos != TcConstPosition.Align {
+            return -1
+        }
+        if b.decl >= 0 && (b.kind == ResBindKind.Decl || b.kind == ResBindKind.Case) {
+            if self.res.decls[b.decl].kind == ResDeclKind.Case {
+                if self.raw_backed(self.res.decls[b.decl].parent) {
+                    return -1
+                }
+                return e
+            }
+            if self.fixed_static(b.decl) {
+                return -1
+            }
+        }
+        e
     }
 
     // A bare name: a module static whose value is fixed, or a const
@@ -2480,7 +2512,7 @@ extension TcProgram {
         return -1
     }
 
-    func refuse_not_constant(&var self, e: Int, pos: TcConstPosition) {
+    public func refuse_not_constant(&var self, e: Int, pos: TcConstPosition) {
         let m = self.node_module(e)
         var msg = StringBuilder()
         try! msg.append("`")
@@ -2498,7 +2530,7 @@ extension TcProgram {
     // Why sub-expression `e` is no constant at position `pos`.
     func not_constant_reason(&self, e: Int, pos: TcConstPosition) -> String {
         let leaf = if self.has_alt(e, Alt.Expr_Name) { self.res.first_leaf(e) } else { self.res.last_leaf_of(e) }
-        let named = leaf >= 0 && (self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_ImplicitMember))
+        let named = leaf >= 0 && (self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_ImplicitMember) || self.has_alt(e, Alt.Type_Path))
         let b = self.binding_at(if leaf >= 0 { leaf } else { e })
         if named && pos == TcConstPosition.RawValue && (b.kind == ResBindKind.Decl || b.kind == ResBindKind.Case || b.kind == ResBindKind.TypeParam) {
             return "it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known"
@@ -2872,6 +2904,12 @@ extension TcProgram {
             case Expr_Bitand -> self.all_constant(e),
             case Expr_Bitor -> self.all_constant(e),
             case Expr_Bitxor -> self.all_constant(e),
+            case Const_Expr -> self.all_constant(e),
+            case Const_Term -> self.all_constant(e),
+            case Const_Negate -> {
+                let inner = self.res.first_node_child(e)
+                self.is_constant_part(inner)
+            },
             case _ -> false
         }
     }
@@ -2898,10 +2936,11 @@ extension TcProgram {
     }
 
     public func names_constant_static(&self, e: Int) -> Bool {
-        if not self.has_alt(e, Alt.Expr_Name) {
+        let path = self.has_alt(e, Alt.Type_Path)
+        if not self.has_alt(e, Alt.Expr_Name) && not path {
             return false
         }
-        let leaf = self.res.first_leaf(e)
+        let leaf = if path { self.res.last_leaf_of(e) } else { self.res.first_leaf(e) }
         let b = self.binding_at(leaf)
         if b.kind != ResBindKind.Decl || b.decl < 0 {
             return false
@@ -3355,6 +3394,12 @@ extension TcProgram {
             case Expr_Bitand -> self.arithmetic_expr(e, want),
             case Expr_Bitor -> self.arithmetic_expr(e, want),
             case Expr_Bitxor -> self.arithmetic_expr(e, want),
+            case Const_Expr -> self.arithmetic_expr(e, want),
+            case Const_Term -> self.arithmetic_expr(e, want),
+            case Const_Negate -> self.unary_expr(e, want, 0),
+            case Const_LayoutQuery_Size -> self.layout_query_expr(e, "sizeof"),
+            case Const_LayoutQuery_Align -> self.layout_query_expr(e, "alignof"),
+            case Type_Path -> self.path_value_expr(e, want),
             case Expr_And -> self.logic_expr(e),
             case Expr_Or -> self.logic_expr(e),
             case Expr_Compare_Pair -> self.compare_expr(e),
@@ -3717,23 +3762,7 @@ extension TcProgram {
             },
             case Overload -> self.function_value(e, leaf, b, want),
             case Overloads -> self.function_value(e, leaf, b, want),
-            case TypeParam -> {
-                // A const parameter is a value of its declared type wherever
-                // an expression wants one (design 148).
-                let owner = self.param_owner(b.node)
-                let index = self.param_index(b.node)
-                if owner >= 0 && index >= 0 {
-                    self.ensure_generics(owner)
-                    let s = self.sigs[owner]
-                    let g = self.generics[s.generic_first + index]
-                    if g.is_const && g.const_type >= 0 {
-                        return self.set_type(e, g.const_type, false)
-                    }
-                }
-                self.refuse_not_a_value(e, leaf)
-                let poisoned = self.error_type
-                self.set_type(e, poisoned, false)
-            },
+            case TypeParam -> self.const_parameter_expr(e, leaf, b),
             case Error -> {
                 let poisoned = self.error_type
                 self.set_type(e, poisoned, false)
@@ -3748,6 +3777,74 @@ extension TcProgram {
                 self.set_type(e, poisoned, false)
             }
         }
+    }
+
+    // Any other type parameter is no value; a const parameter is a value of
+    // its declared type wherever an expression wants one (design 148).
+    func const_parameter_expr(&var self, e: Int, leaf: Int, b: ResBinding) -> Int {
+        let owner = self.param_owner(b.node)
+        let index = self.param_index(b.node)
+        if owner >= 0 && index >= 0 {
+            self.ensure_generics(owner)
+            let s = self.sigs[owner]
+            let g = self.generics[s.generic_first + index]
+            if g.is_const && g.const_type >= 0 {
+                return self.set_type(e, g.const_type, false)
+            }
+        }
+        self.refuse_not_a_value(e, leaf)
+        let poisoned = self.error_type
+        self.set_type(e, poisoned, false)
+    }
+
+    // A path atom of a constant generic argument, `BYTES` or `E.A` in
+    // `Buf<BYTES / 8 + E.A>`, read as the value it names: a static, a case of
+    // an enum, or a const parameter, as `name_expr` reads each.
+    func path_value_expr(&var self, e: Int, want: Int) -> Int {
+        let leaf = self.res.last_leaf_of(e)
+        let b = self.binding_at(leaf)
+        if (b.kind == ResBindKind.Case || b.kind == ResBindKind.Decl) && b.decl >= 0 {
+            let kind = self.res.decls[b.decl].kind
+            if kind == ResDeclKind.Case {
+                return self.case_value(e, b.decl, want)
+            }
+            if kind == ResDeclKind.Static {
+                self.build_decl(b.decl)
+                let t = self.sigs[b.decl].result
+                self.poison_if(t)
+                return self.set_type(e, t, true)
+            }
+        }
+        if b.kind == ResBindKind.TypeParam {
+            return self.const_parameter_expr(e, leaf, b)
+        }
+        if b.kind != ResBindKind.Error && b.kind != ResBindKind.Unbound {
+            self.refuse_not_a_value(e, leaf)
+        }
+        let poisoned = self.error_type
+        self.set_type(e, poisoned, false)
+    }
+
+    // `sizeof<T>()` or `alignof<T>()` written in a constant generic argument:
+    // the `Int` the builtin call gives, with `T` built as a type argument.
+    func layout_query_expr(&var self, e: Int, name: String) -> Int {
+        var types = 0
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if not self.is_leaf(c) {
+                let _ = self.generic_arg(c, TcArgSlot.Type)
+                types = types + 1
+            }
+        }
+        if types != 1 {
+            self.refuse(e, "type.arity", "`sizeof` and `alignof` take one type argument, as `sizeof<T>()`")
+        }
+        self.record_builtin(e, -1, TcRole.Builtin, name)
+        let t = self.int_type()
+        self.set_type(e, t, false)
     }
 
     // The `FuncPointer` type a position expecting `want` builds, peeled of
@@ -6422,18 +6519,18 @@ extension TcProgram {
     // constant-position funnel folds, at the count's own integer type and
     // then converted to `Int` (`fold_length`), or the error type once
     // refused. A count naming a const parameter, and one the fold leaves
-    // unfolded without a refusal, stay with the small folder, which refuses
-    // what it cannot fold.
+    // unfolded without a refusal, stay with `const_parameter_value`, which
+    // refuses what it cannot fold.
     func repeat_length(&var self, count: Int) -> Int {
         if self.const_parameters_named(count).len() > 0 {
-            return self.build_length(count, TcConstPosition.Repeat)
+            return self.const_parameter_value(count, TcConstPosition.Repeat)
         }
         let v = self.check_constant_position(count, TcConstPosition.Repeat, self.current_decl, -1)
         if self.refused_within(count) || v.fault == TcFault.Cycle {
             return self.error_type
         }
         if not v.ok {
-            return self.build_length(count, TcConstPosition.Repeat)
+            return self.const_parameter_value(count, TcConstPosition.Repeat)
         }
         let length = self.fold_length(count, TcConstPosition.Repeat, &v)
         if self.raw_case_named(count) >= 0 && not self.has_error(length) {
@@ -6445,13 +6542,135 @@ extension TcProgram {
         length
     }
 
-    // THE LENGTH CONVERSION: the length expression `node` at `use` stands
-    // for, from its fold `v`: the integer value converted to `Int` (one past
-    // `Int` is `type.mismatch`, a negative one `constant.negative-length`),
-    // or the error type once refused. A value of another type is no length.
+    // THE CONST-PARAMETER FOLDER, what the constant-position funnel does not
+    // judge in a length, a count or a constant argument `node` at use `use`:
+    // a bare const parameter, which is the parameter itself and no fold, and
+    // arithmetic over one, which folds only per instantiation and is refused.
+    // Anything else the funnel could not type or fold is no constant, and
+    // refused by name. Answers the constant type, or the error type once
+    // refused.
     // ENTRY POINTS:
     //     repeat_length
-    //     type_length_ahead
+    //     evaluate_constant
+    public func const_parameter_value(&var self, node: Int, use: TcConstPosition) -> Int {
+        // The refusal reads the body tables (`constant_offender` reads a
+        // member's type), which a node the pre-signature pass did not type
+        // ahead has no row in yet.
+        self.ensure_body_tables()
+        if self.refused_within(node) {
+            return self.error_type
+        }
+        let bare = self.bare_const_parameter(node)
+        if bare >= 0 {
+            return bare
+        }
+        let named = self.const_parameters_named(node).len()
+        // Naming a parameter builds its owner, whose own signature may read
+        // this very node and refuse it first.
+        if self.refused_within(node) {
+            return self.error_type
+        }
+        if named > 0 {
+            self.refuse(node, "slice.not-yet",
+                        "arithmetic over a const parameter, which folds only per instantiation, is not in the bootstrap slice yet")
+            try! self.skipped.push(node)
+            return self.error_type
+        }
+        if self.holds_unresolved_name(node) {
+            // Resolve refused the name, once, where it is written.
+            return self.error_type
+        }
+        self.refuse_unfolded_constant(node, use)
+        self.error_type
+    }
+
+    // Whether expression `e` names something resolve refused as unbound.
+    func holds_unresolved_name(&self, e: Int) -> Bool {
+        if e < 0 {
+            return false
+        }
+        if self.is_leaf(e) {
+            let b = self.binding_at(e)
+            return b.kind == ResBindKind.Error
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            if self.holds_unresolved_name(self.child(e, k)) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The refusal of constant `node` at `use` that the funnel did not fold
+    // and did not refuse: the first part outside the position's grammar, else
+    // the first static it names that is no constant, else the expression
+    // itself. A static whose own declaration was refused says why there.
+    func refuse_unfolded_constant(&var self, node: Int, use: TcConstPosition) {
+        let offender = self.constant_offender(node, use, -1)
+        if offender >= 0 {
+            self.refuse_not_constant(offender, use)
+            return
+        }
+        let leaf = self.unfolded_static_leaf(node, false)
+        if leaf >= 0 {
+            let d = self.static_bound(leaf)
+            let _ = self.static_constant(d, leaf, use)
+            return
+        }
+        self.refuse_not_constant(node, use)
+    }
+
+    // The leaf of the first static expression `e` names whose verdict is no
+    // value: a refusal, or with `pending` one not yet reached; -1 when there
+    // is none. A value past `Int` is a value here.
+    public func unfolded_static_leaf(&self, e: Int, pending: Bool) -> Int {
+        if e < 0 {
+            return -1
+        }
+        if self.is_leaf(e) {
+            let d = self.static_bound(e)
+            if d >= 0 {
+                let verdict = self.static_verdicts[d]
+                let refused = verdict == TcStaticVerdict.NotConstant || verdict == TcStaticVerdict.Poisoned
+                if refused || (pending && verdict == TcStaticVerdict.Unevaluated) {
+                    return e
+                }
+            }
+            return -1
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let found = self.unfolded_static_leaf(self.child(e, k), pending)
+            if found >= 0 {
+                return found
+            }
+            k = k + 1
+        }
+        -1
+    }
+
+    // The static leaf `leaf` binds, or -1.
+    public func static_bound(&self, leaf: Int) -> Int {
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Decl || b.decl < 0 || self.res.decls[b.decl].kind != ResDeclKind.Static {
+            return -1
+        }
+        b.decl
+    }
+
+    // THE LENGTH CONVERSION: the length or constant argument expression
+    // `node` at `use` stands for, from its fold `v`: the integer value
+    // converted to `Int` (one past `Int` is `type.mismatch`, a negative length
+    // `constant.negative-length`; an argument may be negative, its parameter's
+    // use decides), or the error type once refused. A value of another type
+    // is no length.
+    // ENTRY POINTS:
+    //     repeat_length
+    //     type_constant_ahead
     public func fold_length(&var self, node: Int, use: TcConstPosition, v: &TcFold) -> Int {
         if not self.is_integer(v.ty) {
             var msg = StringBuilder()
@@ -6475,29 +6694,32 @@ extension TcProgram {
             self.refuse(node, "type.mismatch", msg.build())
             return self.error_type
         }
+        if use == TcConstPosition.Argument {
+            return self.mk_const(r.bits)
+        }
         self.folded_length(node, use, r.bits)
     }
 
-    // Array length expression `node`, typed ahead of the signature that
-    // holds it (`evaluate_length`) and judged by the constant-position
-    // funnel: the length its fold stands for (`fold_length`), the error type
-    // once refused, or -1 when the fold leaves it unfolded without a
-    // refusal. The expression keeps its own integer type, as a repeat
-    // count does, and no body is open around it.
-    public func type_length_ahead(&var self, node: Int) -> Int {
+    // Length or constant argument expression `node`, typed ahead of the
+    // signature that holds it (`evaluate_constant`) and judged by the
+    // constant-position funnel at `pos`: the value its fold stands for
+    // (`fold_length`), the error type once refused, or -1 when the fold
+    // leaves it unfolded without a refusal. The expression keeps its own
+    // integer type, as a repeat count does, and no body is open around it.
+    public func type_constant_ahead(&var self, node: Int, pos: TcConstPosition) -> Int {
         self.ensure_body_tables()
         let saved = self.save_context()
         self.enter_module(self.node_module(node))
         self.reset_body(node)
         let _ = self.expr(node, TC_WANT_NONE)
         self.consume(node)
-        let v = self.check_constant_position(node, TcConstPosition.Length, -1, -1)
+        let v = self.check_constant_position(node, pos, -1, -1)
         var length = -1
         if self.refused_within(node) || v.fault == TcFault.Cycle {
             // A raw case on a cycle says so at its own declaration.
             length = self.error_type
         } else if v.ok {
-            length = self.fold_length(node, TcConstPosition.Length, &v)
+            length = self.fold_length(node, pos, &v)
         }
         self.restore_context(saved)
         self.current_root = -1
