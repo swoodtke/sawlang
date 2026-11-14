@@ -1,0 +1,25 @@
+// refuses: synthesize.unmet-member at 24:11
+// A derived `Comparable` over a member whose own `Comparable` is written on an extension bounded `where T: Comparable`, which the instance does not meet: a field `Wrap<Inner>`, reached by `<`.
+// message: `synthesize.unmet-member.conditional-comparable.Holder`'s field `x` of type
+// message: is declared where `T: Comparable`, and `synthesize.unmet-member.conditional-comparable.Inner` is not
+
+struct Inner { s: String }
+@synthesize
+extension Inner: Equatable {}
+struct Wrap<T> { v: T }
+extension Wrap<T: Comparable>: Equatable {
+    func equals(&self, other: &Wrap<T>) -> Bool { true }
+}
+extension Wrap<T: Comparable>: Comparable {
+    func compare(&self, other: &Wrap<T>) -> Ordering { self.v.compare(&other.v) }
+}
+struct Holder { x: Wrap<Inner> }
+@synthesize
+extension Holder: Equatable {}
+@synthesize
+extension Holder: Comparable {}
+func main() {
+    let a = Holder(x: Wrap(v: Inner(s: "a")))
+    let b = Holder(x: Wrap(v: Inner(s: "a")))
+    print(a < b)
+}

@@ -192,12 +192,22 @@ extension TcProgram {
         if info.kind != TcKind.Nominal || info.decl != member.type_decl {
             return None
         }
+        return self.unmet_extension_bound(ext, owner, self.current_decl, self.current_ext, self.current, self.current_test)
+    }
+
+    // THE EXTENSION-BOUND QUESTION: the first bound extension `ext` puts on
+    // its type's parameters that nominal `owner`'s arguments do not meet,
+    // seen from declaration `env` in module `viewer`, or none. Typecheck asks
+    // it where a member or a conformance is named, and mono asks it before it
+    // takes a conformance for a concrete instance.
+    // ENTRY POINTS:
+    //     unmet_member_bound
+    //     unmet_condition
+    public func unmet_extension_bound(&var self, ext: Int, owner: Int, env: Int, env_ext: Int, viewer: Int,
+                                      in_test: Bool) -> TcUnmetBound? {
+        let info = self.types.ty(owner)
         self.ensure_generics(ext)
         let s = self.sigs[ext]
-        let env = self.current_decl
-        let env_ext = self.current_ext
-        let viewer = self.current
-        let in_test = self.current_test
         var i = 0
         while i < s.generic_count && i < info.count {
             let g = self.generics[s.generic_first + i]

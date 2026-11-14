@@ -1,0 +1,22 @@
+// probe: stated
+// about: a derived Equatable over a member whose written conformance sits on a bounded extension runs where the instance meets the bound (SL-925)
+// stage 0: no recorded run of it; the program states its own output
+// speeds: -O0 -O2
+// prints: true
+
+struct Wrap<T> { v: T }
+
+extension Wrap<T: Equatable>: Equatable {
+    func equals(&self, other: &Wrap<T>) -> Bool { self.v == other.v }
+}
+
+struct Holder { x: Wrap<Int> }
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a = Holder(x: Wrap(v: 1))
+    let b = Holder(x: Wrap(v: 1))
+    print(a == b)
+}

@@ -1,0 +1,18 @@
+// refuses: synthesize.unmet-member at 17:11
+// A derived `Equatable` over a member whose own `Equatable` is written on an extension bounded `where T: Equatable`, which the instance does not meet: a field `Wrap<Inner>`, reached by `==`.
+// message: `synthesize.unmet-member.conditional-field.Holder`'s field `x` of type
+// message: is declared where `T: Equatable`, and `synthesize.unmet-member.conditional-field.Inner` is not
+
+struct Inner { s: String }
+struct Wrap<T> { v: T }
+extension Wrap<T: Equatable>: Equatable {
+    func equals(&self, other: &Wrap<T>) -> Bool { self.v == other.v }
+}
+struct Holder { x: Wrap<Inner> }
+@synthesize
+extension Holder: Equatable {}
+func main() {
+    let a = Holder(x: Wrap(v: Inner(s: "a")))
+    let b = Holder(x: Wrap(v: Inner(s: "a")))
+    print(a == b)
+}

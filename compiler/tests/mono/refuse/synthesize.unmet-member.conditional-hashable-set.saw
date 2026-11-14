@@ -1,0 +1,24 @@
+// refuses: synthesize.unmet-member at 23:18
+// A derived `Hashable` over a member whose own `Hashable` is written on an extension bounded `where T: Hashable`, which the instance does not meet: a field `Wrap<Inner>`, reached by a `Set` insert.
+// message: `synthesize.unmet-member.conditional-hashable-set.Holder`'s field `x` of type
+// message: is declared where `T: Hashable`, and `synthesize.unmet-member.conditional-hashable-set.Inner` is not
+
+struct Inner { s: String }
+@synthesize
+extension Inner: Equatable {}
+struct Wrap<T> { v: T }
+extension Wrap<T: Hashable>: Hashable {
+    func hash(&self, h: &var Hasher) { self.v.hash(&var h) }
+}
+extension Wrap<T>: Equatable {
+    func equals(&self, other: &Wrap<T>) -> Bool { true }
+}
+struct Holder { x: Wrap<Inner> }
+@synthesize
+extension Holder: Equatable {}
+@synthesize
+extension Holder: Hashable {}
+func main() {
+    var s = Set<Holder>()
+    let _ = try! s.insert(Holder(x: Wrap(v: Inner(s: "a"))))
+}

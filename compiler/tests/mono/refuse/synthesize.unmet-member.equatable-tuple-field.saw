@@ -1,0 +1,20 @@
+// refuses: synthesize.unmet-member at 19:11
+// A derived `Equatable` over a tuple member holding a type that does not conform, reached by `==`.
+// message: `synthesize.unmet-member.equatable-tuple-field.Holder`'s field `x` of type `(synthesize.unmet-member.equatable-tuple-field.Inner, Int)` does not conform to `Equatable` (`synthesize.unmet-member.equatable-tuple-field.Inner` does not)
+
+struct Inner {
+    s: String
+}
+
+struct Holder {
+    x: (Inner, Int)
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a = Holder(x: (Inner(s: "a"), 1))
+    let b = Holder(x: (Inner(s: "a"), 1))
+    print(a == b)
+}

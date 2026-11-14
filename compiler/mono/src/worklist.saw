@@ -36,7 +36,7 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatus, TcStatusKind}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatus, TcStatusKind, TcUnmetBound}
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -1682,13 +1682,15 @@ extension MonoProgram {
     // under `Self` = owner; a derivation MIR lowered as a body
     // (`lower_derived_bodies`) is that body at the owner's arguments; a
     // requirement met otherwise, by another derivation or by a builtin
-    // type's own conformance, is the glue that synthesizes it.
+    // type's own conformance, is the glue that synthesizes it. A conformance
+    // whose extension's bound the owner misses is skipped (`unmet_condition`).
     // A bound is also met with no conformance at all (`met_without_conformance`),
     // a primitive's `Copy` by its tier among them, so that requirement reaches
     // `glued` too (probe `copy_bound_on_primitives`). A requirement nothing meets is
-    // refused: as a derivation's unmet member when a derived type's glue asked
-    // (`refuse_unmet_member`), else as outside the slice. `item` is -1 unless
-    // the answer is glue.
+    // refused as a derivation's unmet member when a derived type's glue asked
+    // (`refuse_unmet_member`); any other is a broken invariant, since
+    // typecheck's bound and derivation checks refuse every program that
+    // reaches one. `item` is -1 unless the answer is glue.
     // ENTRY POINTS:
     //     resolve_call
     //     render_of
@@ -1701,6 +1703,9 @@ extension MonoProgram {
             let one = self.dp.bc.mir.tc.conformances[c]
             c = c + 1
             if d < 0 || one.type_decl != d || not self.dp.bc.mir.tc.trait_refines(one.trait_decl, trait_decl) {
+                continue
+            }
+            if let _ = self.unmet_condition(one.ext, owner) {
                 continue
             }
             var s = 0
@@ -1741,9 +1746,64 @@ extension MonoProgram {
         try! msg.append(self.dp.bc.mir.tc.target_text(req))
         try! msg.append("` on `")
         try! msg.append(self.dp.bc.mir.tc.type_text(owner))
-        try! msg.append("`, which no conformance of it meets, is not in the backend slice yet")
-        self.refuse(node, "mono.not-yet", msg.build())
+        try! msg.append("` found no conformance, grant or derivation that meets it, which typecheck's bound and derivation checks should have refused earlier")
+        let m = self.dp.bc.mir.tc.node_module(node)
+        if node >= 0 && m >= 0 {
+            try! msg.append(" (at ")
+            try! msg.append(self.dp.bc.mir.tc.res.module_file(m))
+            try! msg.append(":")
+            try! msg.append(self.dp.bc.mir.tc.res.node_position(m, node))
+            try! msg.append(")")
+        }
+        try! self.problems.push(msg.build())
         MonoTarget(decl: -1, self_type: -1, item: -1)
+    }
+
+    // THE CONDITIONAL-CONFORMANCE FUNNEL: the first bound the extension
+    // declaring a conformance puts on its type's parameters that concrete
+    // `owner`'s arguments do not meet, or none. A conformance whose bound the
+    // instance misses is no conformance for it, as typecheck holds wherever a
+    // program names the instance. Seen from the extension's own module.
+    // ENTRY POINTS:
+    //     resolve_requirement
+    //     refuse_unmet_member
+    func unmet_condition(&var self, ext: Int, owner: Int) -> TcUnmetBound? {
+        let at = self.dp.bc.mir.tc.res.decls[ext]
+        self.dp.bc.mir.tc.unmet_extension_bound(ext, owner, -1, -1, at.module, at.test_only)
+    }
+
+    // Where concrete `owner` misses a conformance to `trait_decl` for want of
+    // a bound, "`Wrap`'s `Equatable` is declared where `T: Equatable`, and
+    // `Inner` is not"; empty when no conformance of it is conditional on one
+    // the instance misses.
+    func unmet_condition_text(&var self, owner: Int, trait_decl: Int) -> String {
+        let d = self.dp.bc.mir.tc.nominal_decl(owner)
+        var c = 0
+        while d >= 0 && c < self.dp.bc.mir.tc.conformances.len() {
+            let one = self.dp.bc.mir.tc.conformances[c]
+            c = c + 1
+            if one.type_decl != d || not self.dp.bc.mir.tc.trait_refines(one.trait_decl, trait_decl) {
+                continue
+            }
+            if let unmet = self.unmet_condition(one.ext, owner) {
+                let g = self.dp.bc.mir.tc.generic(one.ext, unmet.index)
+                let arg = self.dp.bc.mir.tc.types.arg(owner, unmet.index)
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[d].name))
+                try! msg.append("`'s `")
+                try! msg.append(self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[trait_decl].name))
+                try! msg.append("` is declared where `")
+                try! msg.append(self.dp.bc.mir.tc.name_text(g.name))
+                try! msg.append(": ")
+                try! msg.append(self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[unmet.trait_decl].name))
+                try! msg.append("`, and `")
+                try! msg.append(self.dp.bc.mir.tc.type_text(arg))
+                try! msg.append("` is not")
+                return msg.build()
+            }
+        }
+        ""
     }
 
     // Derived body `req` of type declaration `d`, which `index_bodies` found
@@ -1831,10 +1891,20 @@ extension MonoProgram {
         try! msg.append("` does not conform to `")
         try! msg.append(trait_name)
         try! msg.append("`")
+        let declared = self.unmet_condition_text(owner, trait_decl)
         if part != owner {
             try! msg.append(" (`")
             try! msg.append(self.dp.bc.mir.tc.type_text(owner))
-            try! msg.append("` does not)")
+            try! msg.append("` does not")
+            if declared.len() > 0 {
+                try! msg.append(": ")
+                try! msg.append(declared)
+            }
+            try! msg.append(")")
+        } else if declared.len() > 0 {
+            try! msg.append(" (")
+            try! msg.append(declared)
+            try! msg.append(")")
         }
         try! msg.append(", which `")
         try! msg.append(self.dp.bc.mir.tc.type_text(t))

@@ -1,0 +1,28 @@
+// refuses: synthesize.unmet-member at 27:11
+// A derived `Equatable` over a generic member whose argument does not conform, reached by `==`; the refusal names the instance's field and the member it was reached through.
+// message: `synthesize.unmet-member.equatable-field-wrap.Wrap<synthesize.unmet-member.equatable-field-wrap.Inner>`'s field `v` of type `synthesize.unmet-member.equatable-field-wrap.Inner` does not conform to `Equatable`
+// message: reached through `synthesize.unmet-member.equatable-field-wrap.Holder`'s field `x`
+
+struct Inner {
+    s: String
+}
+
+struct Wrap<T> {
+    v: T
+}
+
+@synthesize
+extension Wrap: Equatable {}
+
+struct Holder {
+    x: Wrap<Inner>
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a = Holder(x: Wrap(v: Inner(s: "a")))
+    let b = Holder(x: Wrap(v: Inner(s: "a")))
+    print(a == b)
+}
