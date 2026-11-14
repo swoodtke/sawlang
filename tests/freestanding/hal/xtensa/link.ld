@@ -43,6 +43,15 @@ SECTIONS {
         *(.rodata .rodata.*)
     }
 
+    /* A table `@section("saw_table")` places, kept in flash with the read-only
+     * data it is read beside. The name is a C identifier, so the linker
+     * defines `__start_saw_table` and `__stop_saw_table` around it
+     * (`cases/section_walk.saw`). Left to the default placement, the
+     * orphan section lands at the cursor `.bss` also starts from. */
+    saw_table : ALIGN(4) {
+        *(saw_table)
+    }
+
     /* 512 KiB into the flash window, the offset the runner's FSMARK_OFFSET and
      * `cases/link_address.saw` also state. */
     .fsmark 0x42080000 : {

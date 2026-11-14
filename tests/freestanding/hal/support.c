@@ -5,8 +5,9 @@
 // 238 unit 5, and a shared file across two repos with no package relation
 // between them would be a distribution problem invented to avoid forty lines.
 //
-// EVERY LINE HERE IS C FOR ONE OF TWO REASONS, both permanent — neither is
-// waiting on a language feature:
+// EVERY LINE HERE IS C FOR ONE OF THREE REASONS. The first two are permanent;
+// the third (the `saw_table` bounds at the end of the file) waits on Saw naming
+// a linker-defined symbol's address (SL-136):
 //
 //  1. mem* : a byte-copy loop written in Saw is exactly the pattern LLVM's
 //     loop-idiom recognizer rewrites into a call to `memcpy` — which, in a
@@ -88,3 +89,17 @@ static u64 udivmod64(u64 n, u64 d, u64 *rem) {
 u64 __udivdi3(u64 n, u64 d) { return udivmod64(n, d, 0); }
 
 u64 __umoddi3(u64 n, u64 d) { u64 r; udivmod64(n, d, &r); return r; }
+
+// ---- the `saw_table` section's bounds ---------------------------------------
+//
+// Saw cannot name a linker-defined data symbol, so the two addresses
+// `cases/section_walk.saw` walks between come from here. The linker defines
+// `__start_saw_table` and `__stop_saw_table` for a section named like a C
+// identifier, and only when the section exists; weak, so every other case's
+// link (which has no such section) still resolves. Both read as null then.
+extern char __start_saw_table[] __attribute__((weak));
+extern char __stop_saw_table[] __attribute__((weak));
+
+char *fs_section_table_start(void) { return __start_saw_table; }
+
+char *fs_section_table_stop(void) { return __stop_saw_table; }

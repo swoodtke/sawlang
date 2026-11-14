@@ -1,0 +1,75 @@
+// `@section` PLACEMENTS, walked at run time between the linker's own bounds
+// (SL-1078), the use the attribute exists for: a table the linker gathers, which
+// nothing in the program names.
+//
+// Four statics of one struct type sit in the `saw_table` section; the program
+// never refers to any of them. One is also `@export`ed (the vector-table shape),
+// and nothing names it either. `main` reads the section's start and stop
+// addresses, which the linker defines for a section whose name is a C
+// identifier, walks the entries between them and prints each. A placement the
+// compiler dropped, or one the link garbage-collected, is a short walk.
+//
+// The two bounds come from `hal/support.c`: Saw has no way to name a
+// linker-defined data symbol, so a few lines of C hand the addresses over.
+//
+// The entries arrive in the order the object lists them, which is what the
+// expected lines hold. The walk checks the SET too: each entry's id is a bit,
+// and every bit must be present once.
+
+import fscore.*
+
+extern "C" {
+    func fs_section_table_start() -> UnsafePointer<UInt8>
+    func fs_section_table_stop() -> UnsafePointer<UInt8>
+}
+
+struct Entry {
+    id: UInt32,
+    weight: UInt32,
+}
+
+@section("saw_table")
+static FIRST: Entry = Entry(id: 1, weight: 100)
+
+@section("saw_table")
+static SECOND: Entry = Entry(id: 2, weight: 200)
+
+@export("fs_section_exported")
+@section("saw_table")
+static EXPORTED: Entry = Entry(id: 4, weight: 400)
+
+@section("saw_table")
+static THIRD: Entry = Entry(id: 8, weight: 800)
+
+// The only unsafe-typed reads: the section's bytes viewed as entries.
+func table_start() unsafe -> UnsafePointer<Entry> {
+    fs_section_table_start() as UnsafePointer<Entry>
+}
+
+func table_bytes() unsafe -> UInt {
+    (fs_section_table_stop() as UInt) - (fs_section_table_start() as UInt)
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    let entry_size: UInt = 8
+    check_unsigned("table_bytes_whole_entries", table_bytes() % entry_size, 0)
+    let count = Int.from(truncating: table_bytes() / entry_size)
+    check_value("table_count", count, 4)
+
+    let table = table_start()
+    var seen: UInt32 = 0
+    var total: UInt32 = 0
+    var index = 0
+    while index < count {
+        let entry = table[index]
+        print("fs entry {} id={} weight={}", index, entry.id, entry.weight)
+        seen = seen | entry.id
+        total = total + entry.weight
+        index = index + 1
+    }
+    check("table_ids_all_present", seen == 15)
+    check("table_weight_total", total == 1500)
+
+    finish("section_walk")
+}

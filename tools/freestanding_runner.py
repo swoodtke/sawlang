@@ -779,6 +779,22 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # Four `@section("saw_table")` statics nothing names, one also
+        # `@export`ed, walked between the linker's `__start_`/`__stop_`
+        # symbols: every placement survives the link and lies in the range.
+        "name": "section_walk",
+        "expect_out": ["fs check table_bytes_whole_entries=1",
+                       "fs check table_count=1",
+                       "fs entry 0 id=1 weight=100",
+                       "fs entry 1 id=2 weight=200",
+                       "fs entry 2 id=4 weight=400",
+                       "fs entry 3 id=8 weight=800",
+                       "fs check table_ids_all_present=1",
+                       "fs check table_weight_total=1",
+                       "fs done section_walk ok"],
+        "expect_clean_exit": True,
+    },
+    {
         # An image holds at most one sawc object (LANGUAGE_SPEC.md, Profiles):
         # a second one fails the link on the backtrace table both define. The
         # pin becomes a RUN case with SL-955's one final link per image.
