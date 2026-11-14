@@ -97,6 +97,7 @@ import sawc_reading  # noqa: E402
 import ast_nodes as A  # noqa: E402
 import line_length  # noqa: E402
 import parse_lane  # noqa: E402
+import test_fixture_headers  # noqa: E402
 import test_lint  # noqa: E402
 import test_parse  # noqa: E402
 import test_recognize  # noqa: E402
@@ -268,6 +269,7 @@ def run_fixture_whitespace(run):
         if data.endswith(b"\n\n"):
             run.fail("fixture %s: ends in a blank line, which `git apply "
                      "--whitespace=fix` strips" % rel)
+    _run_module(run, test_fixture_headers)
 
 
 def run_golden(run):

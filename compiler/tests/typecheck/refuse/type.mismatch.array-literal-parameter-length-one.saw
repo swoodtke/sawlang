@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 8:23
+// errors: 1
+// message: has 1 element,
+// A one-element list literal against a parameter length: the message takes its
+// singular arm.
+
+func filled<const N: Int>() -> Int {
+    let a: [Int; N] = [1]
+    a[N - 1]
+}

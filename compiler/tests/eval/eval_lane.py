@@ -40,6 +40,7 @@ REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
+import fixture_headers  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
@@ -120,6 +121,34 @@ def first_difference(expected, got):
         if x != y:
             return "line %d: expected %r, got %r" % (i + 1, x[:90], y[:90])
     return "a trailing byte"
+
+
+# A golden program's `// flags:` is its first line, a refusal fixture's its
+# second.
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", r"^// refuses: (\S+)(?: at (\d+:\d+))?$", "// refuses: RULE at ROW:COL"),
+     fixture_headers.Header("shadowed", r"^// shadowed: (\S+)(?: at (\d+:\d+))?$", "// shadowed: RULE at ROW:COL"),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS")])
+HEADER_KINDS = {
+    "golden": HEADER_RULE.with_rows({"flags": (1,)}),
+    "refuse": HEADER_RULE.with_rows({"refuses": (1,), "shadowed": (1,), "flags": (2,)}),
+}
+
+
+def header_files():
+    """[(path, rule)] for each golden and refusal fixture, whose leading
+    comment the lane reads."""
+    files = [(path, HEADER_KINDS["golden"]) for path in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
+    files += [(path, HEADER_KINDS["refuse"]) for path in sorted(glob.glob(os.path.join(REFUSE, "*.saw")))]
+    return files
+
+
+def check_headers(failures):
+    """No fixture's leading comment holds a header line the lane cannot
+    read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("eval header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def line_flags(path, index):
@@ -326,6 +355,7 @@ def check_corpus(failures, counts):
 def run(write=False, fill=False):
     failures = []
     counts = {}
+    check_headers(failures)
     build.guarded(failures, "eval golden", check_golden, failures, counts, write)
     build.guarded(failures, "eval refusal", check_refusals, failures, counts, fill)
     build.guarded(failures, "eval acceptance", check_acceptance, failures, counts)

@@ -168,7 +168,7 @@ def check_disk(failures):
         failures.append("`sync` with 5 GiB free is refused for its disk or never goes on: %r %s"
                         % (calls, said.strip()[:300]))
     own = os.path.basename(REPO)
-    for bad in ("", ".", "..", "a/b", "../x", "a b", "a;b", "$HOME", "/abs", "a\\nb", own):
+    for bad in ("", ".", "..", "a/b", "../x", "a b", "a;b", "$HOME", "/abs", "a\\nb", "a\n", own):
         code, said, calls = run_disk(["remove-clone", bad], 5 * GIB, "bad")
         if code != 2 or calls:
             failures.append("`remove-clone %r` exits %d with the VM calls %r, not 2 and none: %s"

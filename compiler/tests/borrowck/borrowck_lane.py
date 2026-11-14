@@ -60,6 +60,7 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
+import fixture_headers  # noqa: E402
 import oracle  # noqa: E402
 
 # Stage 0's recorded builds of the fixtures the loan differential says it
@@ -130,6 +131,27 @@ _LOAN_ERROR = re.compile(r"exclusiv|while also being accessed|window opened on i
                          r"cannot be held across a suspension|not rooted in the receiver|lends twice|"
                          r"returns no value|while a spawned task borrows|cannot be accessed by reference", re.I)
 _NOT_LOAN_ERROR = re.compile(r"immutable", re.I)
+
+
+# A due fixture's `// due:` is its first line, ahead of its `// refuses:`.
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("due", _DUE.pattern, "// due: RULE when REASON", rows=(1,)),
+     fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1, 2))])
+
+
+def header_files():
+    """[(path, rule)] for each refusal and premise fixture, whose leading
+    comment the lane reads."""
+    paths = sorted(glob.glob(os.path.join(REFUSE, "*.saw"))) + sorted(glob.glob(os.path.join(PREMISE, "*.saw")))
+    return [(path, HEADER_RULE) for path in paths]
+
+
+def check_headers(failures):
+    """No fixture's leading comment holds a header line the lane cannot
+    read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("borrowck header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def rel(path):
@@ -841,6 +863,7 @@ def check_loan_row(path, text, wanted, record, loan_reasons, loan_seen, failures
 def run(write=False, fill=False):
     failures = []
     counts = {}
+    check_headers(failures)
     check_ledgers(failures, counts)
     check_conformance(failures, counts)
     build.guarded(failures, "borrowck golden", check_golden, failures, counts, write)

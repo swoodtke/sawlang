@@ -33,7 +33,6 @@ import argparse
 import glob
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -797,10 +796,11 @@ def runtime_failures():
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
         paths.append(path)
-    r = subprocess.run([build.SAWC, "parse", "--check"] + paths, capture_output=True)
+    # A compiler that dies raises `build.SawcDied`, which `run.py` reports as one failure.
+    r = build.run_sawc([build.SAWC, "parse", "--check"] + paths, encoding="utf-8", errors="replace")
     records = {}
     current = None
-    for line in r.stdout.decode("utf-8", "replace").split("\n"):
+    for line in r.stdout.split("\n"):
         if line.startswith("FILE\t"):
             current = records.setdefault(line[5:], [])
         elif line.startswith("ERROR\t") and current is not None:

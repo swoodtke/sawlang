@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.join(TESTS, "borrowck"))
 
 import build  # noqa: E402
 import borrowck_lane  # noqa: E402
+import fixture_headers  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
@@ -118,6 +119,34 @@ def check_golden(failures, counts, write):
                 if line.startswith(("ERROR\t", "INVARIANT\t")):
                     failures.append("drops golden %s: %s" % (rel(src), line))
             counts["drops golden cases"] = counts.get("drops golden cases", 0) + 1
+
+
+# A golden program's `// flags:` is its first line; a refusal fixture's follows
+# its `// refuses:` (and its `// due:`, which comes first).
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("due", _DUE.pattern, "// due: RULE when REASON", rows=(1,)),
+     fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1, 2)),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS")])
+HEADER_KINDS = {
+    "golden": HEADER_RULE.with_rows({"flags": (1,)}),
+    "refuse": HEADER_RULE.with_rows({"flags": (2, 3)}),
+}
+
+
+def header_files():
+    """[(path, rule)] for each golden and refusal fixture, whose leading
+    comment the lane reads."""
+    files = [(path, HEADER_KINDS["golden"]) for path in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
+    files += [(path, HEADER_KINDS["refuse"]) for path in sorted(glob.glob(os.path.join(REFUSE, "*.saw")))]
+    return files
+
+
+def check_headers(failures):
+    """No fixture's leading comment holds a header line the lane cannot
+    read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("drops header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def drops_rules():
@@ -301,6 +330,7 @@ def check_conformance(failures, counts, got):
 def run(write=False):
     failures = []
     counts = {}
+    check_headers(failures)
     build.guarded(failures, "drops golden", check_golden, failures, counts, write)
     build.guarded(failures, "drops refusal", check_refusals, failures, counts)
     build.guarded(failures, "drops acceptance", check_acceptance, failures, counts)

@@ -82,6 +82,7 @@ sys.path.append(os.path.join(REPO, "tools"))
 sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
+import fixture_headers  # noqa: E402
 import gate_jobs  # noqa: E402
 import std_layers  # noqa: E402
 import oracle  # noqa: E402
@@ -896,6 +897,7 @@ def run(write=False):
     failures = []
     counts = {}
     check_whitespace(failures)
+    check_headers(failures)
     build.guarded(failures, "std modules", check_modules, failures, counts)
     build.guarded(failures, "std profile", check_profile, failures, counts)
     build.guarded(failures, "std lang", check_lang, failures, counts, write)
@@ -909,6 +911,24 @@ def run(write=False):
     build.guarded(failures, "std driver", check_driver, failures, counts, write)
     check_layers(failures, counts)
     return failures, counts
+
+
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", _REFUSES.pattern, "// refuses: RULE at ROW:COL", rows=(1,))])
+
+
+def header_files():
+    """[(path, rule)] for each `calls/` program, whose first line the lane
+    reads."""
+    return [(path, HEADER_RULE) for path in sorted(glob.glob(os.path.join(CALLS, "*.saw")))]
+
+
+def check_headers(failures):
+    """No `calls/` program's leading comment holds a `// refuses:` line the
+    lane cannot read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("std header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def check_layers(failures, counts):

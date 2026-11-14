@@ -60,7 +60,7 @@ UV = "$HOME/.local/bin/uv"
 # The VM's free space under which sync, run-lane, lane and seed refuse.
 LOW_SPACE_BYTES = 2 * 2 ** 30
 # What names a clone `remove-clone` may remove: one path segment.
-CLONE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+CLONE_NAME = re.compile(r"[A-Za-z0-9_.-]+")
 # Each arch the run lane runs on, and the target sawc cross-builds for it:
 # None is the VM's own (native aarch64); x86_64 binaries run under Rosetta.
 ARCHES = {"aarch64": None, "x86_64": "x86_64-unknown-linux-gnu"}
@@ -263,7 +263,7 @@ def clone_name_problem(name, own):
     """Why `name` is no clone `remove-clone` may remove, or "" when it is
     one: a single segment of letters, digits, `-`, `_` and `.`, never `.` or
     `..`, and not `own`, the clone of the checkout this runs from."""
-    if not name or name in (".", "..") or not CLONE_NAME.match(name):
+    if not name or name in (".", "..") or not CLONE_NAME.fullmatch(name):
         return "%r is not a clone name: one path segment of letters, digits, -, _ and ." % name
     if name == own:
         return "%s is the clone of this checkout; pass --self to remove it" % name

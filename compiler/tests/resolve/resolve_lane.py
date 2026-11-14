@@ -39,6 +39,7 @@ REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
+import fixture_headers  # noqa: E402
 
 sys.path.insert(0, HERE)
 import interface_pin  # noqa: E402
@@ -46,6 +47,7 @@ import interface_pin  # noqa: E402
 # The `// message:` header reader is the typecheck lane's, so a header means the
 # same in every lane that has one.
 sys.path.insert(0, os.path.join(TESTS, "typecheck"))
+import typecheck_lane  # noqa: E402
 from typecheck_lane import first_message, fixture_messages  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
@@ -172,6 +174,34 @@ def refusal_cases():
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
     cases += sorted(glob.glob(os.path.join(REFUSE, "*", "main.saw")))
     return cases
+
+
+# A golden program's `// flags:` is its first line, a refusal fixture's its
+# second.
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL"),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS"),
+     typecheck_lane.HEADER_RULE.by_word["message"]],
+    misspelt={"messages": "message"})
+HEADER_KINDS = {
+    "golden": HEADER_RULE.with_rows({"flags": (1,)}),
+    "refuse": HEADER_RULE.with_rows({"refuses": (1,), "flags": (2,)}),
+}
+
+
+def header_files():
+    """[(path, rule)] for each fixture whose leading comment the lane reads."""
+    files = [(src, HEADER_KINDS["golden"]) for src, _ in golden_cases()]
+    files += [(path, HEADER_KINDS["refuse"]) for path in refusal_cases()]
+    return files
+
+
+def check_headers(failures):
+    """No fixture's leading comment holds a header line the lane cannot
+    read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("resolve header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def golden_flags(src):
@@ -532,6 +562,7 @@ def check_package_invariants(failures):
 def run(write=False, fill=False):
     failures = []
     counts = {}
+    check_headers(failures)
     build.guarded(failures, "resolve golden", check_golden, failures, counts, write)
     named = build.guarded(failures, "resolve refusal", check_refusals, failures, counts, fill)
     build.guarded(failures, "resolve invariants", check_all_invariants, failures)

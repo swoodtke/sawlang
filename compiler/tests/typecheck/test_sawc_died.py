@@ -155,6 +155,9 @@ HEADER_CASES = [
     ("prose that starts like a header", ["// error type, so the refusal"], "cannot read"),
     ("a word that only starts the same", ["// messaging layer", "// errorless"], None),
     ("a header after the leading comment", ["", "// message:late"], None),
+    ("flags on the second row", ["// flags: --runtime"], None),
+    ("flags on the third row", ["// a line of prose", "// flags: --runtime"], "`// flags:` goes on the second row"),
+    ("a second refuses line", ["// refuses: static.cycle at 9:14"], "`// refuses:` is stated twice"),
 ]
 
 

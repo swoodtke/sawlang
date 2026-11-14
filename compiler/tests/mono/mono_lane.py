@@ -50,6 +50,7 @@ sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
 import borrowck_lane  # noqa: E402
+import fixture_headers  # noqa: E402
 import oracle  # noqa: E402
 import typecheck_lane  # noqa: E402
 
@@ -192,6 +193,30 @@ def check_own_targets(failures, counts, write):
                         failures.append("mono %s %s: %s" % (suffix, rel(src), line))
                 counts["mono records for a target of its own"] = (
                     counts.get("mono records for a target of its own", 0) + 1)
+
+
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1,)),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS", rows=(2,)),
+     fixture_headers.Header("message", _MESSAGE.pattern, "// message: TEXT", repeat=True),
+     fixture_headers.Header("stage 0", _STAGE0.pattern, "// stage 0: REASON", repeat=True, detect="stage ?0")],
+    misspelt={"messages": "message"})
+
+
+def header_files():
+    """[(path, rule)] for each golden, refusal and backend fixture, whose
+    leading comment the lane reads."""
+    paths = [os.path.join(d, name) for d in (GOLDEN, REFUSE, BACKEND)
+             for name in sorted(os.listdir(d)) if name.endswith(".saw")]
+    return [(path, HEADER_RULE) for path in paths]
+
+
+def check_headers(failures):
+    """No fixture's leading comment holds a header line the lane cannot
+    read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("mono header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def mono_rules():
@@ -477,6 +502,7 @@ def check_lowerings(failures, counts):
 def run(write=False):
     failures = []
     counts = {}
+    check_headers(failures)
     build.guarded(failures, "mono golden", check_golden, failures, counts, write)
     build.guarded(failures, "mono target layouts", check_target_layouts, failures, counts)
     build.guarded(failures, "mono own targets", check_own_targets, failures, counts, write)

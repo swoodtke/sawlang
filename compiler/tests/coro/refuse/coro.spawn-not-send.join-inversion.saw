@@ -1,7 +1,7 @@
 // refuses: coro.spawn-not-send at 22:1
 // message: cannot spawn `joiner`: local `g` of type `std.taskgroup.TaskGroup` is held across a suspension but is not `Send`
-// A join inversion is unreachable from a spawned task, because the frame rule
-// refuses it (K196). To be resumed inside `subject`'s drive and then join
+// A join inversion is unreachable from a spawned task, because the
+// frame rule refuses it (K196). To be resumed inside `subject`'s drive and then join
 // `subject`, the joiner has to suspend between the spawn and the join, holding
 // its group and the handle across that suspension, and neither is `Send`. A
 // suspending `main` is no spawned task, so it still reaches the shape, and

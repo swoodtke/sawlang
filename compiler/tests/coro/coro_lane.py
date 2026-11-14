@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.join(TESTS, "typecheck"))
 
 import build  # noqa: E402
 import borrowck_lane  # noqa: E402
+import fixture_headers  # noqa: E402
 import typecheck_lane  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
@@ -336,6 +337,29 @@ def check_bt_ir(failures, counts):
             counts["coro backtrace tables in the IR"] = counts.get("coro backtrace tables in the IR", 0) + 1
 
 
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1,)),
+     fixture_headers.Header("message", _MESSAGE.pattern, "// message: TEXT", repeat=True),
+     fixture_headers.Header("stage0", _STAGE0.pattern, "// stage0: PATH.saw", rows=(1,), detect="stage ?0")],
+    misspelt={"messages": "message"})
+
+
+def header_files():
+    """[(path, rule)] for each golden and refusal fixture, whose leading
+    comment the lane reads."""
+    paths = [os.path.join(d, name) for d in (GOLDEN, REFUSE) for name in sorted(os.listdir(d))
+             if name.endswith(".saw")]
+    return [(path, HEADER_RULE) for path in paths]
+
+
+def check_headers(failures):
+    """No fixture's leading comment holds a header line the lane cannot
+    read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("coro header %s:%d: %s" % (rel(path), row, sentence))
+
+
 def check_refusals(failures, counts, rules):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
     code, out = sawc(["--check", "--std-root", "std"] + module_args() + [rel(p) for p in cases])
@@ -444,6 +468,7 @@ def run(write=False):
     failures = []
     counts = {}
     rules = coro_rules()
+    check_headers(failures)
     import test_park_std
     more, more_counts = test_park_std.run()
     failures += more

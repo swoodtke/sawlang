@@ -22,7 +22,11 @@ directory specifies:
   `--fill` never writes;
 - a leading comment line of any fixture that begins `// refuses`, `// flags`,
   `// errors`, `// error`, `// message`, `// messages` or `// warns` is a
-  header the lane reads, or a failure: no header is skipped in silence;
+  header the lane reads, or a failure: no header is skipped in silence, one
+  is on its row (`// flags:` on the second row of a refusal fixture), and a
+  header other than `// message:` is stated once
+  (`compiler/tools/fixture_headers.py`, which every lane's header check
+  shares);
 - no golden or refusal record holds one `ERROR` line twice;
 - each warning fixture, `warn/NAME.saw`, draws the `-W borrow-prefix`
   warnings its `// warns: N` header counts, holding each `// message:`
@@ -48,6 +52,7 @@ REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
+import fixture_headers  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 MULTI = os.path.join(HERE, "multi")
@@ -265,55 +270,40 @@ def stated_errors(path):
     return stated
 
 
-_HEADER_WORD = re.compile(r"^//\s*(refuses|flags|errors|error|messages|message|warns)(?![A-Za-z0-9_])")
-_HEADER_FORMS = {
-    "refuses": (_HEADER, "// refuses: RULE at ROW:COL"),
-    "flags": (_FLAGS, "// flags: FLAGS"),
-    "errors": (_ERRORS, "// errors: N"),
-    "message": (_MESSAGE, "// message: TEXT"),
-    "warns": (_WARNS, "// warns: N"),
+# The headers the lane reads. A golden program's `// flags:` is its first
+# line, a refusal fixture's its second, and a warning fixture's `// warns:`
+# its first.
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL"),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS"),
+     fixture_headers.Header("errors", _ERRORS.pattern, "// errors: N"),
+     fixture_headers.Header("message", _MESSAGE.pattern, "// message: TEXT", repeat=True),
+     fixture_headers.Header("warns", _WARNS.pattern, "// warns: N")],
+    misspelt={"error": "errors", "messages": "message"},
+    before=[("errors", "message")])
+HEADER_KINDS = {
+    "golden": HEADER_RULE.with_rows({"flags": (1,)}),
+    "refuse": HEADER_RULE.with_rows({"refuses": (1,), "flags": (2,)}),
+    "warn": HEADER_RULE.with_rows({"warns": (1,)}),
 }
 
 
-def header_problems(path):
-    """[(row, line, sentence)] for each leading comment line of a fixture that
-    begins like a header (any spacing after the slashes) and is not one the
-    lane reads, and for a `// errors:` line it would read wrongly: after the
-    first `// message:`, or stated twice. A header the patterns skip is a
+def header_problems(path, kind="refuse"):
+    """[(row, line, sentence)] for each leading comment line of a `kind`
+    fixture that begins like a header and is not one the lane reads (the
+    shared rule, `fixture_headers.problems`). A header the patterns skip is a
     check that silently never runs, so each is a failure."""
-    problems = []
-    seen_message = False
-    seen_errors = False
-    with open(path) as fh:
-        lines = fh.read().split("\n")
-    for row, line in enumerate(lines, 1):
-        if not line.startswith("//"):
-            break
-        word = _HEADER_WORD.match(line)
-        if word is None:
-            continue
-        kind = word.group(1)
-        # `error` and `messages` are misspelt headers: no pattern reads them.
-        form = _HEADER_FORMS.get({"error": "errors", "messages": "message"}.get(kind, kind))
-        if kind in ("error", "messages") or not form[0].match(line):
-            problems.append((row, line, "a header line the lane cannot read: `%s` (a header is `%s`)"
-                             % (line, form[1])))
-        elif kind == "message":
-            seen_message = True
-        elif kind == "errors":
-            if seen_message:
-                problems.append((row, line, "`// errors:` goes before the first `// message:`: `%s`" % line))
-            if seen_errors:
-                problems.append((row, line, "`// errors:` is stated twice: `%s`" % line))
-            seen_errors = True
-    return problems
+    return fixture_headers.file_problems(path, HEADER_KINDS[kind])
 
 
 def check_headers(failures):
     """Every golden, refusal and warning fixture's leading comment holds no
     header line the lane cannot read."""
-    for path in [src for src, _ in golden_cases()] + refusal_cases() + warning_cases():
-        for row, line, sentence in header_problems(path):
+    kinds = [(src, "golden") for src, _ in golden_cases()]
+    kinds += [(path, "refuse") for path in refusal_cases()]
+    kinds += [(path, "warn") for path in warning_cases()]
+    for path, kind in kinds:
+        for row, line, sentence in header_problems(path, kind):
             failures.append("typecheck header %s:%d: %s" % (rel(path), row, sentence))
 
 

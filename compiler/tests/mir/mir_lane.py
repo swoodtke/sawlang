@@ -30,6 +30,7 @@ REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
+import fixture_headers  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 SPANS = os.path.join(HERE, "spans")
@@ -112,6 +113,23 @@ def golden_cases():
 
 def refusal_cases():
     return sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
+
+
+HEADER_RULE = fixture_headers.Rule(
+    [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1,))])
+
+
+def header_files():
+    """[(path, rule)] for each fixture whose leading comment the lane reads."""
+    return [(path, HEADER_RULE) for path in refusal_cases()]
+
+
+def check_headers(failures):
+    """No refusal fixture's leading comment holds a header line the lane
+    cannot read."""
+    for path, rule in header_files():
+        for row, line, sentence in fixture_headers.file_problems(path, rule):
+            failures.append("mir header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def check_golden(failures, counts, write, spans=False):
@@ -233,6 +251,7 @@ def check_acceptance(failures, counts):
 def run(write=False, fill=False):
     failures = []
     counts = {}
+    check_headers(failures)
     build.guarded(failures, "mir golden", check_golden, failures, counts, write)
     build.guarded(failures, "mir golden spans", check_golden, failures, counts, write, spans=True)
     build.guarded(failures, "mir refusal", check_refusals, failures, counts, fill)
