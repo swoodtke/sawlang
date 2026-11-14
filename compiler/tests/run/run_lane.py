@@ -1846,6 +1846,21 @@ exec "%s" "$@"
 """
 
 
+def sanitizer_runtime_missing(clang, triple, work):
+    """The first line of the linker's message when `clang` cannot link an
+    empty C `main` with `-fsanitize=address` for `triple`, the sign of a
+    toolchain with no address sanitizer runtime for it; "" when it links."""
+    source = os.path.join(work, "empty.c")
+    with open(source, "w") as fh:
+        fh.write("int main(void) { return 0; }\n")
+    r = subprocess.run([clang, "-target", triple, "-fsanitize=address", source, "-o", os.path.join(work, "empty")],
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode == 0:
+        return ""
+    lines = [line for line in (r.stdout + r.stderr).splitlines() if line.strip()]
+    return (lines[0] if lines else "clang exits %d" % r.returncode).strip()[:200]
+
+
 def check_object_cache(failures, counts):
     """A split build takes each unit's object from the object cache when the
     cache holds its key and runs no clang for it: the program is the same
@@ -2076,10 +2091,16 @@ def check_object_cache(failures, counts):
         failures.append("run object cache: a whole-module build exits %d and %s a cache"
                         % (r.returncode, "makes" if os.path.exists(whole) else "makes no"))
     sanitized = os.path.join(work, "sanitized-cache")
-    r = sawc(["-O0", "-g0", "--sanitize", "address"], "sanitized", sanitized)
-    if r.returncode != 0 or os.path.exists(sanitized) or " cached " in r.stderr:
-        failures.append("run object cache: a sanitized split build exits %d and %s a cache"
-                        % (r.returncode, "uses" if os.path.exists(sanitized) else "uses no"))
+    missing = sanitizer_runtime_missing(real_clang, TARGET or build.host_triple(), work)
+    if missing:
+        counts["run object cache sanitized build skipped: no address sanitizer runtime for %s: %s"
+               % (TARGET or build.host_triple(), missing)] = 1
+    else:
+        r = sawc(["-O0", "-g0", "--sanitize", "address"], "sanitized", sanitized)
+        if r.returncode != 0 or os.path.exists(sanitized) or " cached " in r.stderr:
+            failures.append("run object cache: a sanitized split build exits %d and %s: %s"
+                            % (r.returncode, "makes a cache" if os.path.exists(sanitized) else "makes no cache",
+                               "\n".join((r.stdout + r.stderr).strip().splitlines()[-5:])[:600]))
     for extra, why in (({"SAWC_OBJECT_CACHE": "maybe"}, "SAWC_OBJECT_CACHE=maybe"),
                        ({"SAWC_CACHE_ENTRIES": "1"}, "SAWC_CACHE_ENTRIES=1")):
         r = sawc(["-O0", "-g0"], "refused", extra=extra)
@@ -2748,12 +2769,14 @@ def check_front_scan_text(failures, counts):
 
 
 def check_front_shared_writers(failures, counts):
-    """Two store threads of one command may write one key: `resolve --check`
+    """Two store threads of one command may write one key: `typecheck --check`
     over two entries that share the fixture's packages, on a cold cache,
     stores the packages' layers from the first input's thread while the
     second input misses and stores them again. Each writer has a temporary
     name of its own, so every run succeeds with no warning and no temporary
-    left, and the next command loads every layer."""
+    left, and the next command loads every layer. Both commands name one
+    triple: the check stages default to a fixed one and a build to the
+    host's, and the cache key holds the triple."""
     work = os.path.join(OUT, "front-shared-writers")
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
@@ -2762,7 +2785,8 @@ def check_front_shared_writers(failures, counts):
     with open(second, "w") as fh:
         fh.write("import geometry.{Point}\nimport shapes.{Square}\n\nfunc main() {\n"
                  "    print(\"{}\", Square(corner: Point(x: 0, y: 0), side: 2))\n}\n")
-    args = ["resolve", "--check"] + layers_arguments(tree) + [second]
+    triple = ["--target", TARGET or build.host_triple()]
+    args = ["typecheck", "--check"] + triple + layers_arguments(tree) + [second]
     checked = 0
     for k in range(8):
         cache = os.path.join(work, "cache%d" % k)
@@ -2773,9 +2797,9 @@ def check_front_shared_writers(failures, counts):
             failures.append("run front shared writers: round %d exits %d, leaves %r: %s"
                             % (k, r.returncode, left, (r.stdout + r.stderr).strip()[:300]))
             continue
-        warm = subprocess.run([build.SAWC, "build", "--time-stages", "--emit-ll", "-g0"] + layers_arguments(tree),
-                              cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT,
-                              env=front_cache_environment(cache))
+        warm = subprocess.run([build.SAWC, "build", "--time-stages", "--emit-ll", "-g0"] + triple
+                              + layers_arguments(tree), cwd=work, capture_output=True, text=True,
+                              timeout=BUILD_TIMEOUT, env=front_cache_environment(cache))
         states = [state for name, state in LAYER_LINE.findall(warm.stderr) if name != "program"]
         if warm.returncode != 0 or "warning" in warm.stderr or states != ["loaded", "loaded"]:
             failures.append("run front shared writers: after round %d the packages' layers are %r: %s"

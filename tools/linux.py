@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Linux builds through the `sawlang-linux` Lima VM (SL-536).
 
-    tools/linux.py status            # the VM, its toolchain, and this checkout's clone in it
+    tools/linux.py status            # the VM, its toolchain, its free disk space, and the
+                                     # clones in it with their sizes
     tools/linux.py sync              # clone or fetch this checkout's HEAD into the VM
+    tools/linux.py remove-clone NAME [--self]
+                                     # remove ~/sawlang/NAME in the VM (never this checkout's
+                                     # own clone without --self)
     tools/linux.py shell [CMD...]    # CMD (or a login shell) in the VM's clone
     tools/linux.py run-lane [--arch aarch64|x86_64] [NAME...]
                                      # sync, build the stages in the VM, run the run lane
@@ -21,6 +25,9 @@ limactl is installed but cannot report Lima's state, every command exits 4
 with limactl's message: the VM's state is unknown, and the lane fails on it
 (tools/test_linux.py pins both).
 
+`sync`, `run-lane`, `lane` and `seed` refuse while the VM has under
+`LOW_SPACE_BYTES` free, naming the clones; `remove-clone` frees one.
+
 The host checkout is mounted read-only, so the VM builds in a clone on its own
 disk, `~/sawlang/<checkout name>`. `sync` carries COMMITS: the clone is checked
 out at this checkout's HEAD, and uncommitted changes stay behind (it warns).
@@ -35,6 +42,7 @@ host's upload key. The VM fetches the seed it builds from over HTTPS.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -49,6 +57,10 @@ EXIT_LIMA_FAILED = 4
 # The clone's venv gets the Mac's Python minor.
 PYTHON = "3.14"
 UV = "$HOME/.local/bin/uv"
+# The VM's free space under which sync, run-lane, lane and seed refuse.
+LOW_SPACE_BYTES = 2 * 2 ** 30
+# What names a clone `remove-clone` may remove: one path segment.
+CLONE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 # Each arch the run lane runs on, and the target sawc cross-builds for it:
 # None is the VM's own (native aarch64); x86_64 binaries run under Rosetta.
 ARCHES = {"aarch64": None, "x86_64": "x86_64-unknown-linux-gnu"}
@@ -140,6 +152,53 @@ def clone_dir():
     return "%s/sawlang/%s" % (vm_home(), os.path.basename(REPO))
 
 
+def free_bytes():
+    """The free space on the VM's `/`, in bytes."""
+    r = run_in_vm(["df", "-B1", "--output=avail", "/"], capture=True)
+    lines = r.stdout.split() if r.returncode == 0 else []
+    if not lines or not lines[-1].isdigit():
+        raise VmError("linux: cannot read the VM's free space (df exit %d): %s"
+                      % (r.returncode, (r.stderr or r.stdout).strip()[:300]))
+    return int(lines[-1])
+
+
+def clone_sizes():
+    """[(name, MiB)] of every directory under the VM's `~/sawlang`, the
+    largest first; none when the directory does not exist."""
+    root = "%s/sawlang" % vm_home()
+    r = run_in_vm(["du", "-m", "--max-depth=1", root], capture=True)
+    sizes = []
+    for line in r.stdout.splitlines():
+        size, _, path = line.partition("\t")
+        if size.isdigit() and path and path != root:
+            sizes.append((os.path.basename(path), int(size)))
+    return sorted(sizes, key=lambda one: (-one[1], one[0]))
+
+
+def gib(nbytes):
+    return "%.1f GiB" % (nbytes / 2 ** 30)
+
+
+def disk_lines():
+    """The VM's free space and each clone's size, as `status` prints them."""
+    lines = ["linux: the VM has %s free on /" % gib(free_bytes())]
+    for name, mib in clone_sizes():
+        lines.append("linux: clone %s, %s" % (name, gib(mib * 2 ** 20)))
+    return lines
+
+
+def require_space():
+    """Refuses, naming the clones, while the VM's free space is under
+    `LOW_SPACE_BYTES`: a sync or a build into a full disk fails half way."""
+    free = free_bytes()
+    if free >= LOW_SPACE_BYTES:
+        return
+    clones = ", ".join("%s (%s)" % (name, gib(mib * 2 ** 20)) for name, mib in clone_sizes()) or "none"
+    raise VmError("linux: the VM has %s free on /, under the %s this tool wants before it syncs or builds; "
+                  "clones: %s; remove one with `tools/linux.py remove-clone NAME`"
+                  % (gib(free), gib(LOW_SPACE_BYTES), clones))
+
+
 def host_git(args):
     r = subprocess.run(["git"] + args, cwd=REPO, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if r.returncode != 0:
@@ -170,7 +229,10 @@ echo "linux: $dest at $(git_ rev-parse --short HEAD), $(.venv/bin/python --versi
 
 
 def sync(record):
-    """The VM's clone of this checkout, brought to its HEAD; its path."""
+    """The VM's clone of this checkout, brought to its HEAD; its path.
+    Every command that syncs (`sync`, `run-lane`, `lane`, `seed`) reaches the
+    disk check here, before it does anything."""
+    require_space()
     common = host_git(["rev-parse", "--path-format=absolute", "--git-common-dir"])
     sha = host_git(["rev-parse", "HEAD"])
     if host_git(["status", "--porcelain", "--untracked-files=no"]):
@@ -191,8 +253,37 @@ def command_status(record, _args):
              "$(git -c safe.directory='*' -C \"$dest\" rev-parse --short HEAD)\"; "
              "else echo \"clone: none yet (tools/linux.py sync)\"; fi" % UV)
     r = run_in_vm(["bash", "-c", probe, "status", clone_dir()])
+    for line in disk_lines():
+        print(line)
     print("host: %s at %s" % (REPO, host_git(["rev-parse", "--short", "HEAD"])))
     return r.returncode
+
+
+def clone_name_problem(name, own):
+    """Why `name` is no clone `remove-clone` may remove, or "" when it is
+    one: a single segment of letters, digits, `-`, `_` and `.`, never `.` or
+    `..`, and not `own`, the clone of the checkout this runs from."""
+    if not name or name in (".", "..") or not CLONE_NAME.match(name):
+        return "%r is not a clone name: one path segment of letters, digits, -, _ and ." % name
+    if name == own:
+        return "%s is the clone of this checkout; pass --self to remove it" % name
+    return ""
+
+
+def command_remove_clone(record, name):
+    """Removes `~/sawlang/NAME` in the VM, once `name` passed
+    `clone_name_problem` and the directory holds a `.git`."""
+    dest = "%s/sawlang/%s" % (vm_home(), name)
+    if run_in_vm(["test", "-d", dest + "/.git"], capture=True).returncode != 0:
+        print("linux: %s is not a clone (no %s/.git); nothing removed" % (dest, dest))
+        return 1
+    r = run_in_vm(["rm", "-rf", "--", dest])
+    if r.returncode != 0:
+        print("linux: cannot remove %s (rm exit %d)" % (dest, r.returncode))
+        return r.returncode
+    print("linux: removed %s" % dest)
+    print("linux: the VM has %s free on /" % gib(free_bytes()))
+    return 0
 
 
 def command_sync(record, _args):
@@ -311,10 +402,30 @@ def lane(argv):
     return failed
 
 
+def remove_clone(argv):
+    """`remove-clone NAME [--self]`: the name is checked before the VM is
+    asked anything, so a bad one costs no call."""
+    own = os.path.basename(REPO)
+    names = [a for a in argv if a != "--self"]
+    if len(names) != 1 or len(argv) - len(names) > 1:
+        return usage()
+    problem = clone_name_problem(names[0], None if "--self" in argv else own)
+    if problem:
+        print("linux: remove-clone: %s" % problem)
+        return 2
+    try:
+        return command_remove_clone(instance(), names[0])
+    except VmError as e:
+        print(e)
+        return e.status
+
+
 def main(argv):
     sys.stdout.reconfigure(line_buffering=True)
     if argv[:1] == ["lane"]:
         return lane(argv[1:])
+    if argv[:1] == ["remove-clone"]:
+        return remove_clone(argv[1:])
     if not argv or argv[0] not in COMMANDS:
         return usage()
     try:

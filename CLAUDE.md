@@ -91,7 +91,10 @@ USER starts it (`limactl start sawlang-linux`); a sandboxed session cannot, and
 `tools/linux.py` never tries. `tools/linux.py sync` clones this checkout's
 HEAD (commits only) into the VM's `~/sawlang/<checkout>` with its own `.venv`;
 `shell CMD...` runs there; `run-lane --arch aarch64|x86_64` builds the stages
-in the VM and runs the run lane, x86_64 cross-built and run under Rosetta. Run
+in the VM and runs the run lane, x86_64 cross-built and run under Rosetta.
+`status` shows the VM's free space and each clone's size; `sync`, `run-lane`,
+`lane` and `seed` refuse under 2 GiB free; `remove-clone NAME` removes
+`~/sawlang/NAME` (the checkout's own clone only with `--self`). Run
 VM-side git through `tools/linux.py`, never in a hand-written `limactl shell`.
 The battery's `linux` lane (`tools/linux.py lane`) runs both arches and SKIPS
 (passes) only when the VM is known down or Lima is absent; a limactl that

@@ -1319,6 +1319,12 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         try! jobs.append(split.jobs)
         try! arguments.push(jobs.build())
         driver_freestanding_arguments(&var arguments, split.freestanding)
+        // An LTO backend run by `ld.lld -r` generates static code, whose
+        // absolute relocations do not link into a hosted ELF executable
+        // (PIE by default); a whole-module object is position-independent.
+        if split.object && not mach_o && not split.bare_metal {
+            try! arguments.push("-Wl,-mllvm,-relocation-model=pic")
+        }
         if split.lto.equals("thin") && thinlto.len() > 0 {
             driver_thinlto_cache_arguments(&var arguments, thinlto, mach_o)
         }
