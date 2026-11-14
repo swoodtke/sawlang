@@ -14082,7 +14082,19 @@ Scope, deliberately narrow in this version:
   expressions are one type exactly when they are written alike, after every
   part that names no parameter is folded: `N + 2 * 3` is `N + 6` and
   `N + S8` is `N + 8` for a `static S8: Int = 8`, but `N + N` is not `2 * N`
-  and `N + 1` is not `1 + N`.
+  and `N + 1` is not `1 + N`. A chain is read left to right, so `N + 1 + 2`
+  is not `N + 3` either: with `grow` returning `[Int; N + 1]`, `grow(grow(x))`
+  over a `[Int; K]` has the type `[Int; K + 1 + 1]`, and an annotation
+  `[Int; K + 2]` on it is refused. Spell the annotation as the calls do
+  (`[Int; K + 1 + 1]`), or call a function that states the length it returns,
+  `-> [Int; N + 2]`.
+  What only an instance decides is checked at each instance: a length, a
+  repeat count or an argument over a const parameter that faults (an overflow
+  at the parameter's type, a shift out of range, a division by zero), a length
+  or count that comes out negative, and an argument that does not fit the
+  parameter it fills are compile errors there. The error is reported at the
+  expression written in the generic and names the instance (`f<0>`). An
+  argument is checked even when its callee never reads it.
 - **A module `static`** may be the argument on the same terms, so
   `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
   layout and one symbol. See Module-level statics for which statics fold.

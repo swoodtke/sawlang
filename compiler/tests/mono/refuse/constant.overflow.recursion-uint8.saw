@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 8:10
+// message: overflows `UInt8`
+// message: (in the instantiation `down<0>`)
+// A recursion that counts down over an unsigned parameter faults when it
+// goes below zero, at the first instance that does.
+
+func down<const N: UInt8>() -> Int {
+    down<N - 1>()
+}
+
+func main() {
+    print(down<3>())
+}

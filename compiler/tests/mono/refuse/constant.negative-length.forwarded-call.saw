@@ -1,0 +1,18 @@
+// refuses: constant.negative-length at 8:19
+// message: `N` is -1 at this instance
+// message: (in the instantiation `rep<-1>`)
+// A negative value forwarded bare into a call head's argument reaches the
+// callee's own length at its instance (SL-1111).
+
+func rep<const N: Int>() -> Int {
+    let a = [0u8; N]
+    a.len()
+}
+
+func pass<const N: Int>() -> Int {
+    rep<N>()
+}
+
+func main() {
+    print(pass<-1>())
+}

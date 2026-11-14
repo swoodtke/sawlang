@@ -1,0 +1,14 @@
+// refuses: constant.overflow at 8:19
+// message: overflows `UInt8` (range 0..=255)
+// message: (in the instantiation `one_more<255>`)
+// A parameter's arithmetic runs at the parameter's type, so `N + 1` at 255
+// overflows `UInt8` at that instance only.
+
+func one_more<const N: UInt8>() -> Int {
+    let a = [0u8; N + 1]
+    a.len()
+}
+
+func main() {
+    print(one_more<254>() + one_more<255>())
+}

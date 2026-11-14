@@ -1,0 +1,14 @@
+// refuses: constant.shift-range at 8:19
+// message: shifts a value of type `Int` by a count outside its width
+// message: (in the instantiation `bits<64>`)
+// A shift by the parameter's value that is out of range at one instance is
+// refused there, as `static_assert` over the same shift is (SL-548).
+
+func bits<const N: Int>() -> Int {
+    let a = [0u8; 1 << N]
+    a.len()
+}
+
+func main() {
+    print(bits<2>() + bits<64>())
+}

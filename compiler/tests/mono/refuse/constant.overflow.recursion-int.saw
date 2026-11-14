@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 8:12
+// message: overflows `Int`
+// message: (in the instantiation `double<4611686018427387904>`)
+// A recursion whose constant faults stops at the first instance that faults,
+// by the fault's own rule, not as a chain that never ends (SL-507).
+
+func double<const N: Int>() -> Int {
+    double<N * 2>()
+}
+
+func main() {
+    print(double<1>())
+}

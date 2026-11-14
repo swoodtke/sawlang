@@ -1,0 +1,15 @@
+// refuses: constant.negative-length at 9:19
+// message: `N - 1` is -1 at this instance
+// message: (in the instantiation `count<0>`)
+// A length that goes negative only at one instance is refused there, at the
+// expression written in the generic: `count<1>` is an empty array, and `count<0>`
+// is `N - 1` = -1 (SL-457).
+
+func count<const N: Int>() -> Int {
+    let a = [0u8; N - 1]
+    a.len()
+}
+
+func main() {
+    print(count<1>() + count<0>())
+}

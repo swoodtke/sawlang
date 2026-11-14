@@ -2481,8 +2481,11 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   an array length, so `Ring<BYTES / sizeof<UInt64>()>` builds; arithmetic over a const
   PARAMETER (`Buf<N * 2>`, `[0; N + 1]`, `[UInt8; 1 << N]`) folds once `N` has a value; two such
   expressions are one type only when written alike, parameter-free parts folded
-  (`N + 2 * 3` is `N + 6`, `N + N` is NOT `2 * N`), and inference binds a bare
-  `[T; N]` only, so `[T; N + 1]` is written on the call), and a module `static` counts as a
+  (`N + 2 * 3` is `N + 6`, `N + N` is NOT `2 * N`, `N + 1 + 2` is NOT `N + 3`), and inference binds a bare
+  `[T; N]` only, so `[T; N + 1]` is written on the call; a length, count or argument that faults, goes
+  negative or does not fit its parameter at ONE instance is refused there by the fault's own rule
+  (`constant.overflow`, `constant.negative-length`, `type.mismatch`), at the expression in the
+  generic, naming the instance, even when the callee never reads the argument), and a module `static` counts as a
   constant there too (DF-172j: `FixedBuf<CAP>` IS `FixedBuf<16>` for a
   `static CAP: Int = 16`). sawc takes it at every position (SL-920): an
   annotation, a construction's head `Slab<T, MAX>(…)`, a field, a static's

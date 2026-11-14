@@ -1,0 +1,15 @@
+// refuses: constant.negative-length at 8:20
+// message: `N` is -1 at this instance
+// message: (in the instantiation `fill<-1>`)
+// A default that is negative is refused where a body sizes an array by it,
+// at each instance that uses the default (SL-1111).
+
+func fill<const N: Int = -1>() -> Int {
+    var a: [UInt8; N] = [7; N]
+    a[0] = 9
+    a[0] as Int
+}
+
+func main() {
+    print(fill())
+}

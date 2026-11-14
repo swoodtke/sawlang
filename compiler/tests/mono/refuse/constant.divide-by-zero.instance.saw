@@ -1,0 +1,14 @@
+// refuses: constant.divide-by-zero at 8:19
+// message: divides by zero
+// message: (in the instantiation `per<4>`)
+// A division by an expression of the parameter that is zero at one instance
+// is refused there.
+
+func per<const N: Int>() -> Int {
+    let a = [0u8; 8 / (N - 4)]
+    a.len()
+}
+
+func main() {
+    print(per<5>() + per<4>())
+}

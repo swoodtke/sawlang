@@ -1,0 +1,24 @@
+// refuses: constant.overflow at 12:39
+// message: overflows `Int`
+// message: (in the instantiation `grow<9223372036854775807>`)
+// A type the caller forms from the callee's signature (`Z<K + 1>`, the
+// callee's result) is refused where the callee is instantiated, by the
+// callee's own length, and the caller's copy of it builds nothing from it.
+
+struct Z<const N: Int> {
+    s: String
+}
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(s: z.s)
+}
+
+func start<const K: Int>() -> Int {
+    let z = Z<K>(s: "a")
+    let y = grow(z)
+    y.s.len()
+}
+
+func main() {
+    print(start<9223372036854775807>())
+}

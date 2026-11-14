@@ -1,0 +1,15 @@
+// refuses: constant.negative-length at 9:19
+// flags: --target riscv32-unknown-none-elf
+// message: `1 << N` is -2147483648 at this instance
+// `1 << 31` is `Int.min` at a 32-bit `Int`, so the count is negative there
+// and a sound length on a 64-bit host (spec, Constant arithmetic: the
+// target's integer width).
+
+func mask<const N: Int>() -> Int {
+    let a = [0u8; 1 << N]
+    a.len()
+}
+
+func main() {
+    print(mask<31>())
+}

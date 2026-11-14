@@ -1,0 +1,17 @@
+// refuses: constant.negative-length at 7:39
+// message: `M` is -1 at this instance
+// message: (in the instantiation `mk<-1>`)
+// A length inferred from `[T; N]` is the producer's default here, `-1`, and
+// the producer's own length is refused first (SL-1111).
+
+func mk<const M: Int = -1>() -> [Int; M] {
+    [0; M]
+}
+
+func via<const N: Int>(x: [Int; N]) -> Int {
+    N
+}
+
+func main() {
+    print(via(mk()))
+}

@@ -24,9 +24,12 @@ positions, each a MIR function of its own (`compiler/tests/mir/README.md`):
 - an `@align` argument;
 - a `static_assert`'s condition, which must evaluate `true`.
 
-Array lengths and repeat counts are folded by typecheck's
-constant-position funnel, and const-generic arguments by its small folder,
-`build_const`; none has a MIR body yet, and SL-457 owns what becomes of that.
+Array lengths, repeat counts and const-generic arguments have no MIR function
+of their own: typecheck's constant-position funnel folds them, arithmetic over
+a const parameter stays a symbolic type until an instantiation gives the
+parameter a value, and the agreement gate holds the fold to the evaluator at
+statics. Monomorphization checks each such constant at each instance
+(`compiler/tests/mono/README.md`).
 
 The evaluator runs the MIR as it would run, at the target's integer widths:
 integer and `Bool` literals (a literal is written at the type its expression

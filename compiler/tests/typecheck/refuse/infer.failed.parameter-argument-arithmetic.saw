@@ -1,0 +1,17 @@
+// refuses: infer.failed at 16:11
+// errors: 1
+// message: it appears in this call's parameter types only inside a length or an argument such as `N + 1`
+// A struct's argument binds a bare `N` alone as an array's length does, so
+// `Buf<N + 1>` solves nothing and the parameter is written on the call.
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func f<const N: Int>(b: Buf<N + 1>) -> Int {
+    N
+}
+
+func main() {
+    print(f(Buf<4>(d: [0; 4])))
+}

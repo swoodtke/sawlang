@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 12:10
+// message: the constant argument `K` is 300, which does not fit `UInt8`, the type of `N`
+// message: (in the instantiation `pass<300>`)
+// A value forwarded into a parameter whose type does not hold it is refused
+// at the forwarding argument, where it once wrapped to 44 (SL-1111).
+
+func read<const N: UInt8>() -> Int {
+    N as Int
+}
+
+func pass<const K: Int>() -> Int {
+    read<K>()
+}
+
+func main() {
+    print(pass<3>() + pass<300>())
+}

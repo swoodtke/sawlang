@@ -43,7 +43,7 @@ import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_
 import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.signatures.{TcArgSlot, TcContext, tc_const_use_phrase}
+import sawtypecheck.signatures.{TcArgSlot, TcConstFold, TcContext, tc_const_use_phrase}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.strings.{TcStringPosition}
 // For the extension writing `satisfies`.
@@ -1903,6 +1903,16 @@ extension TcProgram {
             self.refuse_constant_cast(&v, at)
             return
         }
+        let text = self.constant_fault_text(&v, t)
+        self.refuse(at, text.rule, text.message)
+    }
+
+    // The rule and sentence of a fault `v` the fold met; `t` is the type a
+    // value did not fit, for `NotFit`.
+    // ENTRY POINTS:
+    //     refuse_constant_fault
+    //     check_instance_constant (mono)
+    public func constant_fault_text(&self, v: &TcFold, t: Int) -> TcFaultText {
         var msg = StringBuilder()
         var rule = "type.mismatch"
         if v.fault == TcFault.NotFit {
@@ -1929,8 +1939,26 @@ extension TcProgram {
             rule = "constant.divide-by-zero"
             try! msg.append("constant expression divides by zero")
         }
-        self.refuse(at, rule, msg.build())
+        TcFaultText(rule: rule, message: msg.build())
     }
+
+    // The fold `f` of a stuck constant as the fold the fault sentences read:
+    // a value that did not fit is held as a signed 64-bit integer, so it
+    // reads in decimal, not wrapped at the operation's width.
+    public func fault_fold(&var self, f: &TcConstFold) -> TcFold {
+        var ty = f.ty
+        if f.v.fault == TcFault.NotFit {
+            let none = Vector<Int>()
+            ty = self.mk_nominal(self.known.int64, &none)
+        }
+        TcFold(ok: false, bits: f.v.bits, ty: ty, fault: f.v.fault, at: -1)
+    }
+}
+
+// A fault's rule and its sentence.
+public struct TcFaultText {
+    rule: String
+    message: String
 }
 
 // The pending-constant funnel.
@@ -6585,6 +6613,9 @@ extension TcProgram {
         }
         let bare = self.bare_const_parameter(node)
         if bare >= 0 {
+            if use != TcConstPosition.Argument {
+                self.note_instance_check(node, bare, use, -1, -1)
+            }
             return bare
         }
         let named = self.const_parameters_named(node).len()
@@ -6597,6 +6628,7 @@ extension TcProgram {
             let symbolic = self.parameter_constant(node, use)
             if symbolic >= 0 {
                 if use != TcConstPosition.Argument {
+                    self.note_instance_check(node, symbolic, use, -1, -1)
                     return self.checked_length(node, use, symbolic)
                 }
                 return symbolic
@@ -10917,6 +10949,9 @@ extension TcProgram {
             if k < written.len() {
                 try! args.push(written[k])
                 let at = if k < nodes.len() { nodes[k] } else { leaf }
+                if g.is_const && k < nodes.len() {
+                    self.note_instance_check(at, written[k], TcConstPosition.Argument, d, k)
+                }
                 var j = 0
                 while j < g.bound_count {
                     let bound = self.traits[g.bound_first + j]
@@ -13253,7 +13288,7 @@ extension TcProgram {
                         try! msg.append(self.name_text(g.name))
                         try! msg.append("` of `")
                         try! msg.append(self.res.decl_path(owner))
-                        try! msg.append("`: it appears in this call's parameter types only inside a length such as `")
+                        try! msg.append("`: it appears in this call's parameter types only inside a length or an argument such as `")
                         try! msg.append(self.type_text(solve.symbolic_type))
                         try! msg.append("`, and an argument's length binds a bare `[T; N]` alone; write it on the call")
                     } else {
@@ -13379,6 +13414,7 @@ extension TcProgram {
             self.unmet_owner = owner
             let _ = self.refuse_unmet_member(e)
         }
+        self.note_written_arguments(e, &solve)
         let role = self.cand_role(c)
         let _ = self.record_call(e, c.decl, role, owner, &inst)
         let sub = if owner >= 0 { self.cand_subst_at(c, owner) } else { self.cand_subst(c) }
@@ -13413,6 +13449,25 @@ extension TcProgram {
             }
         }
         self.set_type(e, result, false)
+    }
+
+    // Each constant argument written on the head of call `e`, as solved for
+    // `solve.owner`'s parameter, an instance-check record when it names a
+    // const parameter. Only the chosen candidate's: an overload set's others
+    // never run `finish_call`.
+    func note_written_arguments(&var self, e: Int, solve: &TcSolve) {
+        if solve.owner < 0 {
+            return
+        }
+        let nodes = self.explicit_arg_nodes(self.res.first_node_child(e))
+        let s = self.sigs[solve.owner]
+        var k = 0
+        while k < nodes.len() && k < solve.sol.len() && k < s.generic_count {
+            if self.generics[s.generic_first + k].is_const {
+                self.note_instance_check(nodes[k], solve.sol[k], TcConstPosition.Argument, solve.owner, k)
+            }
+            k = k + 1
+        }
     }
 
     func cand_role(&self, c: TcCand) -> TcRole {

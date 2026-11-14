@@ -1,0 +1,15 @@
+// refuses: type.mismatch at 9:19
+// flags: --target riscv32-unknown-none-elf
+// message: does not fit in `Int`
+// message: (in the instantiation `double_count<1500000000>`)
+// A length computed at `Int64` converts to the target's `Int`, which is 32
+// bits here: 3000000000 does not fit it, though it does at a 64-bit `Int`.
+
+func double_count<const N: Int64>() -> Int {
+    let a = [0u8; N * 2]
+    a.len()
+}
+
+func main() {
+    print(double_count<1500000000i64>())
+}

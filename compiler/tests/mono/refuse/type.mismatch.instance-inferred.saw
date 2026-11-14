@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 12:5
+// message: `N` is inferred as 300 here, which does not fit `UInt8`, the type of `N`
+// message: (in the instantiation `pass<300>`)
+// A value inferred from an argument's length that its parameter's type does
+// not hold is refused at the call, which writes no argument for it.
+
+func take<const N: UInt8>(a: [Int; N]) -> Int {
+    N as Int
+}
+
+func pass<const K: Int>(x: [Int; K]) -> Int {
+    take(x)
+}
+
+func main() {
+    print(pass<3>([1, 2, 3]) + pass<300>([0; 300]))
+}

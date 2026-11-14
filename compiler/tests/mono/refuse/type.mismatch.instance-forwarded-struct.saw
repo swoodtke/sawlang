@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 11:14
+// message: the constant argument `K` is 300, which does not fit `UInt8`, the type of `N`
+// message: (in the instantiation `size<300>`)
+// The same misfit as an argument of a struct, which builds no body.
+
+struct S<const N: UInt8> {
+    d: [UInt8; 2]
+}
+
+func size<const K: Int>() -> Int {
+    sizeof<S<K>>()
+}
+
+func main() {
+    print(size<300>())
+}

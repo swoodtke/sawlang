@@ -760,8 +760,8 @@ defence in depth (`compiler/tests/eval/README.md`).
 | a raw case's value | `check_raw_value` | names no static and no other enum's case (spec, Raw backings) | constant_positions; static.not-constant.raw-static, .raw-case |
 | an `@align` argument on a static | `check_align_attribute` | none, so no const parameter; its value a power of two from 1 to 4096 | constant_positions; constant.align.above-cap |
 | an `@align` argument on a local | `check_align_local` | none, so no const parameter; its value a power of two from 1 to 4096; never on `let _` | constant_positions; static.not-constant.align, .align-const-parameter; constant.align, .zero, .negative; attribute.align-no-storage |
-| a repeat count | `repeat_expr` | none beyond the shared one; a const parameter is left to `build_const` | constant_repeat_counts; constant.shift-range.repeat, constant.overflow.repeat, constant.overflow.repeat-word-riscv32, constant.divide-by-zero.repeat, constant.negative-length.repeat, .repeat-shift; type.mismatch.repeat-bool; static.not-constant.repeat-struct-layout, .repeat-count-range |
-| an array length | `type_length_ahead` | none beyond the shared one, and a `Bool` form is judged as the integer a length is; a const parameter, a local and a static that is no constant are left to `build_const`, which words them | constant_lengths, constant_lengths_riscv32, multi/constant_length_modules; constant.shift-range.length, constant.overflow.length, constant.overflow.length-word-riscv32, constant.divide-by-zero.length, constant.negative-length.shift; type.mismatch.length-bool, .length-literal-word-riscv32; operator.undefined.length-bool-bit; static.not-constant.length-struct-layout |
+| a repeat count | `repeat_expr` | none beyond the shared one; a const parameter is left to `const_parameter_value` | constant_repeat_counts; constant.shift-range.repeat, constant.overflow.repeat, constant.overflow.repeat-word-riscv32, constant.divide-by-zero.repeat, constant.negative-length.repeat, .repeat-shift; type.mismatch.repeat-bool; static.not-constant.repeat-struct-layout, .repeat-count-range |
+| an array length | `type_length_ahead` | none beyond the shared one, and a `Bool` form is judged as the integer a length is; a const parameter, a local and a static that is no constant are left to `const_parameter_value`, which words them | constant_lengths, constant_lengths_riscv32, multi/constant_length_modules; constant.shift-range.length, constant.overflow.length, constant.overflow.length-word-riscv32, constant.divide-by-zero.length, constant.negative-length.shift; type.mismatch.length-bool, .length-literal-word-riscv32; operator.undefined.length-bool-bit; static.not-constant.length-struct-layout |
 | a `static_assert` condition, at the top and in every body kind | `check_static_assert` | a const parameter in scope | constant_positions, constant_faults; static_assert.failed, .function, .method, .init, .closure, .default-body, .test-case, .declared-later, .declared-later-module; static.not-constant.assert-local; constant.overflow.assert, constant.shift-range |
 
 The shared grammar is the fold's: integer and `Bool` literals, `#line`, module
@@ -797,7 +797,10 @@ formed by `mk_const_expr`, which folds it to a `ConstInt` the moment every
 operand is a value, so `subst` turns `[UInt8; N + 1]` at `N = 3` into
 `[UInt8; 4]`; a fault in a part that names no parameter is refused where it is
 written, and one that depends on the parameter leaves a node that holds
-`TC_HOLDS_UNFOLDED`; goldens `constant_parameter_lengths`. A local or a static
+`TC_HOLDS_UNFOLDED`; goldens `constant_parameter_lengths`. Each such length,
+count and written argument is also recorded (`note_instance_check`, with the
+declaration whose instances fix it) for the check monomorphization makes at
+each instance (`compiler/tests/mono/README.md`, "Instance constants"). A local or a static
 that is no constant is worded there as `static.not-constant`; the
 const-argument positions refuse every `sizeof` there, of any type, as
 `slice.not-yet`.

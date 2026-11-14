@@ -1,0 +1,13 @@
+// refuses: constant.negative-length at 8:16
+// message: `N` is -1 in `
+// message: Q<-1>`
+// A struct whose default gives a negative length is refused at its field's
+// length, naming the instance of the type (SL-1111).
+
+struct Q<const N: Int = -1> {
+    d: [UInt8; N]
+}
+
+func main() {
+    print(sizeof<Q>())
+}

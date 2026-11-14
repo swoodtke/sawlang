@@ -1,0 +1,17 @@
+// refuses: constant.divide-by-zero at 12:7
+// message: divides by zero
+// message: (in the instantiation `f<0>`)
+// An argument that faults at an instance is refused though its function
+// never reads the parameter nor sizes anything by it.
+
+func g<const M: Int>() -> Int {
+    1
+}
+
+func f<const N: Int>() -> Int {
+    g<8 / N>()
+}
+
+func main() {
+    print(f<0>())
+}

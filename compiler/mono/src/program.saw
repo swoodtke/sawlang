@@ -245,6 +245,11 @@ public static MONO_KEY_THREAD: Int = 12
 // (error type, 13) -> whether a `try!` that fails on it renders the error:
 // 1, or 0 for the bare reason (`judge_forced_errors`).
 public static MONO_KEY_TRY_ERROR: Int = 13
+// (declaration, 14) -> each instance check typecheck recorded for it, in
+// recording order; (concrete type, 15) -> 1 once its checks and its
+// members' ran (`check_nominal_instances`).
+public static MONO_KEY_CONSTANT_CHECK: Int = 14
+public static MONO_KEY_INSTANCE_CHECKED: Int = 15
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).

@@ -1,0 +1,17 @@
+// refuses: constant.divide-by-zero at 12:7
+// message: divides by zero
+// message: (in the instantiation `f<0>`)
+// The same argument read as a value by the callee is the same refusal at the
+// caller's instance, made before any item of it is copied.
+
+func g<const M: Int>() -> Int {
+    M
+}
+
+func f<const N: Int>() -> Int {
+    g<8 / N>()
+}
+
+func main() {
+    print(f<0>())
+}

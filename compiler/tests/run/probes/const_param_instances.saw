@@ -1,0 +1,73 @@
+// probe: stated
+// about: a constant an instantiation fixes is checked at each instance, and the instances that hold it build and run (SL-457)
+// stage 0: not run: Stage 0 refuses arithmetic over a const parameter
+// speeds: -O0 -O2
+// prints: 0 8 255 8
+// prints: 255 200 7 2
+
+// An empty array is a length, and a body never instantiated is never checked.
+func sized<const N: Int>() -> Int {
+    let a = [0u8; N - 1]
+    a.len()
+}
+
+func never<const N: Int>() -> Int {
+    let a = [0u8; N - 1]
+    a.len()
+}
+
+// A parameter's own type decides where its arithmetic overflows.
+func next<const N: UInt8>() -> Int {
+    let a = [0u8; N + 1]
+    a.len()
+}
+
+func bits<const N: Int>() -> Int {
+    let a = [0u8; 1 << N]
+    a.len()
+}
+
+func per<const N: Int>() -> Int {
+    let a = [0u8; 8 / (N - 3)]
+    a.len()
+}
+
+// A value forwarded into a parameter of another type fits when it can.
+func read<const N: UInt8>() -> Int {
+    N as Int
+}
+
+func wide<const N: Int>() -> Int {
+    N
+}
+
+func through<const K: Int>() -> Int {
+    read<K>()
+}
+
+func through_narrow<const K: UInt8>() -> Int {
+    wide<K>()
+}
+
+// An argument that is only carried is still held to its parameter's type.
+struct Tag<const N: UInt8> {
+    x: Int
+}
+
+func tagged<const K: Int>() -> Int {
+    let t = Tag<K + 1>(x: 7)
+    t.x
+}
+
+func ignores<const M: Int>() -> Int {
+    2
+}
+
+func passes<const N: Int>() -> Int {
+    ignores<8 / N>()
+}
+
+func main() {
+    print("{} {} {} {}", sized<1>(), per<4>(), next<254>(), bits<3>())
+    print("{} {} {} {}", through<255>(), through_narrow<200>(), tagged<254>(), passes<4>())
+}

@@ -17,8 +17,9 @@ import sawmono.dump.{mono_dump_layouts}
 import sawparse.grammar.{Alt}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
-import sawmono.program.{MONO_CHAIN_LIMIT, MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
-                            MONO_KEY_EXTERN, MONO_KEY_FUNCTION, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
+import sawmono.program.{MONO_CHAIN_LIMIT, MONO_DEPTH_LIMIT, MONO_KEY_CONSTANT_CHECK, MONO_KEY_COPY, MONO_KEY_DEALLOC,
+                            MONO_KEY_DISPATCHED, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
+                            MONO_KEY_INSTANCE_CHECKED, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
                             MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
                             MONO_KEY_VTABLE, MonoItem,
                             MonoItemKind, MonoProgram, MonoThreadSpawn, MonoVtable}
@@ -36,16 +37,20 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatus, TcStatusKind, TcUnmetBound}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcConstPosition, TcStatus, TcStatusKind, TcUnmetBound}
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
-import sawtypecheck.types.{TcKind}
+import sawtypecheck.types.{TC_HOLDS_UNFOLDED, TcKind}
 
 // Every rule monomorphization refuses by.
 public func mono_rules() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("atomic.width")
+    try! out.push("constant.divide-by-zero")
+    try! out.push("constant.negative-length")
+    try! out.push("constant.overflow")
+    try! out.push("constant.shift-range")
     try! out.push("memory.enum")
     try! out.push("memory.intent")
     try! out.push("memory.trivial")
@@ -54,6 +59,7 @@ public func mono_rules() -> Vector<String> {
     try! out.push("static_assert.failed")
     try! out.push("synthesize.unmet-member")
     try! out.push("transfer.no-move")
+    try! out.push("type.mismatch")
     move out
 }
 
@@ -105,6 +111,7 @@ extension MonoProgram {
             return
         }
         self.index_bodies()
+        self.index_instance_checks()
         self.add_roots()
         var k = 0
         while k < self.items.len() {
@@ -330,6 +337,9 @@ extension MonoProgram {
         if self.chain_exceeded(source, origin, node) {
             return -1
         }
+        if not self.arguments_fit(type_decl, &args, node) || not self.arguments_fit(func_decl, &inst, node) {
+            return -1
+        }
         let args_first = self.item_types.len()
         j = 0
         while j < args.len() {
@@ -447,6 +457,7 @@ extension MonoProgram {
         let out = self.substituted(k, t)
         self.refuse_narrow_atomics(k, out)
         self.refuse_memory_views(k, out)
+        self.check_nominal_instances(out)
         out
     }
 
@@ -482,6 +493,217 @@ extension MonoProgram {
         out
     }
 
+    // Each instance check typecheck recorded, indexed under the declaration
+    // whose instances fix it, in recording order.
+    func index_instance_checks(&var self) {
+        var j = self.dp.bc.mir.tc.instance_checks.len()
+        while j > 0 {
+            j = j - 1
+            let holder = self.dp.bc.mir.tc.instance_check_holders[j]
+            if holder >= 0 {
+                self.by_key.add(holder, MONO_KEY_CONSTANT_CHECK, j)
+            }
+        }
+    }
+
+    // THE INSTANCE-CONSTANT FUNNEL: recorded check `j`, its type `t` already
+    // at one instance (`at` spells it: "at this instance" for a function
+    // item, "in `T`" for a nominal type). A constant an instantiation fixes
+    // is refused here by the fault's own rule, at the expression written in
+    // the generic declaration: a stuck value, a negative length or count, an
+    // argument its parameter's type does not hold. Answers whether it holds.
+    // ENTRY POINTS:
+    //     instance_constants_hold
+    //     check_nominal_instances
+    func check_instance_constant(&var self, j: Int, t: Int, at: String) -> Bool {
+        let node = self.dp.bc.mir.tc.instance_checks[j]
+        let use = self.dp.bc.mir.tc.instance_check_uses[j]
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        if (info.holds & TC_HOLDS_UNFOLDED) != 0 {
+            let f = self.dp.bc.mir.tc.fold_const_expr(t)
+            if f.v.ok {
+                try! self.problems.push("a stuck constant folds at its instance")
+                return false
+            }
+            let fold = self.dp.bc.mir.tc.fault_fold(&f)
+            let text = self.dp.bc.mir.tc.constant_fault_text(&fold, f.into)
+            var msg = StringBuilder()
+            try! msg.append(text.message)
+            try! msg.append(", ")
+            try! msg.append(at)
+            self.refuse(node, text.rule, msg.build())
+            return false
+        }
+        if info.kind != TcKind.ConstInt {
+            return true
+        }
+        let m = self.dp.bc.mir.tc.node_module(node)
+        let written = self.dp.bc.mir.tc.text(m, node)
+        if use != TcConstPosition.Argument {
+            if info.a >= 0 {
+                return true
+            }
+            var why = StringBuilder()
+            try! why.append("`")
+            try! why.append(written)
+            try! why.append("` is ")
+            try! why.append(info.a)
+            try! why.append(" ")
+            try! why.append(at)
+            let why_text = why.build()
+            let msg = self.dp.bc.mir.tc.negative_length_text(use, info.a, &why_text)
+            self.refuse(node, "constant.negative-length", msg)
+            return false
+        }
+        let owner = self.dp.bc.mir.tc.instance_check_owners[j]
+        let index = self.dp.bc.mir.tc.instance_check_indexes[j]
+        if owner < 0 || index < 0 || index >= self.dp.bc.mir.tc.sigs[owner].generic_count {
+            return true
+        }
+        let g = self.dp.bc.mir.tc.generics[self.dp.bc.mir.tc.sigs[owner].generic_first + index]
+        if g.leaf < 0 || not self.dp.bc.mir.tc.constant_misfit(info.a, g.const_type) {
+            return true
+        }
+        let name = self.dp.bc.mir.tc.text(self.dp.bc.mir.tc.res.decls[owner].module, g.leaf)
+        var msg = StringBuilder()
+        try! msg.append(self.dp.bc.mir.tc.constant_fit_text(&written, info.a, g.const_type, &name, false))
+        try! msg.append(", ")
+        try! msg.append(at)
+        self.refuse(node, "type.mismatch", msg.build())
+        false
+    }
+
+    // Whether every constant typecheck recorded for function item `k`'s
+    // declaration holds at its arguments; it is refused, each by its rule,
+    // before its body is copied, so no stuck or negative constant reaches a
+    // type the copy forms.
+    // ENTRY POINTS:
+    //     instantiate
+    func instance_constants_hold(&var self, k: Int) -> Bool {
+        let decl = self.items[k].decl
+        if decl < 0 {
+            return true
+        }
+        var holds = true
+        var entry = self.by_key.first(decl, MONO_KEY_CONSTANT_CHECK)
+        while entry >= 0 {
+            let j = self.by_key.value(entry)
+            entry = self.by_key.following(entry)
+            let t = self.substituted(k, self.dp.bc.mir.tc.instance_check_types[j])
+            if not self.check_instance_constant(j, t, "at this instance") {
+                holds = false
+            }
+        }
+        holds
+    }
+
+    // The checks of the nominal types concrete type `t` holds, once per type:
+    // each struct or enum instance meets the constants its declaration
+    // recorded, and its fields and payloads are walked at its arguments, so
+    // a type only another one's member names (a default's instance) is met
+    // too.
+    // ENTRY POINTS:
+    //     concrete_type
+    func check_nominal_instances(&var self, t: Int) {
+        if t < 0 || self.dp.bc.mir.tc.instance_checks.len() == 0 || self.dp.bc.mir.tc.mentions_param(t) {
+            return
+        }
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        if info.count == 0 && info.kind != TcKind.Nominal {
+            return
+        }
+        if self.by_key.first(t, MONO_KEY_INSTANCE_CHECKED) >= 0 {
+            return
+        }
+        self.by_key.add(t, MONO_KEY_INSTANCE_CHECKED, 1)
+        var j = 0
+        while j < info.count {
+            self.check_nominal_instances(self.dp.bc.mir.tc.types.arg(t, j))
+            j = j + 1
+        }
+        if info.kind != TcKind.Nominal || info.decl < 0 {
+            return
+        }
+        let d = info.decl
+        var spelled = StringBuilder()
+        try! spelled.append("in `")
+        try! spelled.append(self.dp.bc.mir.tc.type_text(t))
+        try! spelled.append("`")
+        let at = spelled.build()
+        var entry = self.by_key.first(d, MONO_KEY_CONSTANT_CHECK)
+        while entry >= 0 {
+            let c = self.by_key.value(entry)
+            entry = self.by_key.following(entry)
+            let written = self.dp.bc.mir.tc.instance_check_types[c]
+            let member = target_member_type(&var self.dp.bc.mir.tc, t, written)
+            let _ = self.check_instance_constant(c, member, at)
+        }
+        let kind = self.dp.bc.mir.tc.res.decls[d].kind
+        if kind == ResDeclKind.Struct {
+            let fields = target_struct_fields(&self.dp.bc.mir.tc, d)
+            j = 0
+            while j < fields.len() {
+                let written = self.dp.bc.mir.tc.sigs[fields[j]].result
+                if written >= 0 {
+                    let member = target_member_type(&var self.dp.bc.mir.tc, t, written)
+                    self.check_nominal_instances(member)
+                }
+                j = j + 1
+            }
+        } else if kind == ResDeclKind.Enum {
+            let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+            j = 0
+            while j < cases.len() {
+                let s = self.dp.bc.mir.tc.sigs[cases[j]]
+                var p = 0
+                while p < s.param_count {
+                    let written = self.dp.bc.mir.tc.params[s.param_first + p].ty
+                    if written >= 0 {
+                        let member = target_member_type(&var self.dp.bc.mir.tc, t, written)
+                        self.check_nominal_instances(member)
+                    }
+                    p = p + 1
+                }
+                j = j + 1
+            }
+        }
+    }
+
+    // The values an instance's const parameters take where no written
+    // position carried one the instance check could judge: a value inferred
+    // or forwarded that its parameter's type does not hold is refused at the
+    // call `node`. A stuck value is a recorded position's, refused before
+    // this call was made.
+    // ENTRY POINTS:
+    //     function_item
+    func arguments_fit(&var self, owner: Int, values: &Vector<Int>, node: Int) -> Bool {
+        if owner < 0 {
+            return true
+        }
+        let s = self.dp.bc.mir.tc.sigs[owner]
+        var fits = true
+        var j = 0
+        while j < values.len() && j < s.generic_count {
+            let g = self.dp.bc.mir.tc.generics[s.generic_first + j]
+            let v = values[j]
+            j = j + 1
+            if not g.is_const || g.leaf < 0 || v < 0 {
+                continue
+            }
+            let info = self.dp.bc.mir.tc.types.ty(v)
+            if (info.holds & TC_HOLDS_UNFOLDED) != 0 {
+                try! self.problems.push("an instance's constant argument was not checked where it was written")
+                fits = false
+            } else if info.kind == TcKind.ConstInt && self.dp.bc.mir.tc.constant_misfit(info.a, g.const_type) {
+                let name = self.dp.bc.mir.tc.text(self.dp.bc.mir.tc.res.decls[owner].module, g.leaf)
+                let written = ""
+                self.refuse(node, "type.mismatch", self.dp.bc.mir.tc.constant_fit_text(&written, info.a, g.const_type, &name, true))
+                fits = false
+            }
+        }
+        fits
+    }
+
     func instantiate(&var self, k: Int) {
         let it = self.items[k]
         let places_first = self.dp.bc.mir.places.len()
@@ -489,6 +711,9 @@ extension MonoProgram {
             case Function -> {
                 if not self.dp.elaborated[it.source] {
                     try! self.problems.push("an item's source function was not elaborated")
+                    return
+                }
+                if not self.instance_constants_hold(k) {
                     return
                 }
                 let f = self.copy_function(k)

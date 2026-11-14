@@ -632,6 +632,18 @@ public struct TcProgram {
     // of a twin, or -1 (`match_blocking_twin`).
     blocking_twins: Vector<Int>  // front: rewritten in place
     pair_defaults: Vector<Int>  // front: rewritten in place
+    // The constant positions whose value an instantiation fixes, by record
+    // (`note_instance_check`): each length, repeat count or written value
+    // argument whose type names a const parameter, by node; the type formed
+    // there; the declaration whose instances fix it, or -1; for an argument,
+    // the declaration and index of the parameter it fills (-1 for a length
+    // or count); and the use that words the refusal.
+    instance_checks: Vector<Int>
+    instance_check_types: Vector<Int>
+    instance_check_holders: Vector<Int>
+    instance_check_owners: Vector<Int>
+    instance_check_indexes: Vector<Int>
+    instance_check_uses: Vector<TcConstPosition>
     // Each struct's fields as `struct_field_at` listed them: this process's
     // alone, never in an image.
     field_memo: TcFieldMemo  // front: process-local
@@ -783,6 +795,9 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       profile: tc_profile(false, false, false), no_hidden_alloc: false, target: target,
                       export_symbols: Vector<String>(), export_nodes: Vector<Int>(),
                       erased_nodes: Vector<Int>(), blocking_twins: Vector<Int>(), pair_defaults: Vector<Int>(),
+                      instance_checks: Vector<Int>(), instance_check_types: Vector<Int>(),
+                      instance_check_holders: Vector<Int>(), instance_check_owners: Vector<Int>(),
+                      instance_check_indexes: Vector<Int>(), instance_check_uses: Vector<TcConstPosition>(),
                       field_memo: tc_field_memo())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()

@@ -1,0 +1,19 @@
+// refuses: constant.negative-length at 10:16
+// message: `N` is -4 in `
+// message: Buf<-4>`
+// A struct that holds another at a negative default reaches the inner type
+// through its field: the instance named is the inner one (SL-1111).
+
+static NEG: Int = -4
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+struct Outer<const N: Int = NEG> {
+    inner: Buf<N>
+}
+
+func main() {
+    print(sizeof<Outer>())
+}

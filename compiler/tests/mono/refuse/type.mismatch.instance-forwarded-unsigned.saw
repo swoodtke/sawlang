@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 12:10
+// message: the constant argument `K` is -1, which does not fit `UInt`, the type of `N`
+// message: (in the instantiation `pass<-1>`)
+// A negative value forwarded into an unsigned parameter, which once read
+// back as 18446744073709551615.
+
+func read<const N: UInt>() -> UInt {
+    N
+}
+
+func pass<const K: Int>() -> UInt {
+    read<K>()
+}
+
+func main() {
+    print(pass<-1>())
+}

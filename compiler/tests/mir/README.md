@@ -203,7 +203,8 @@ The functions of a static's initializer, a raw-backed case's value, an
 `@align` argument and a `static_assert`'s condition are the constant
 positions `compiler/eval` evaluates (`compiler/tests/eval/README.md`).
 Const-generic arguments, array lengths and repeat counts have no function of
-their own yet; SL-457 owns lowering them.
+their own: typecheck folds them, or carries them as a symbolic type that
+monomorphization checks at each instance.
 
 ## Accessors
 

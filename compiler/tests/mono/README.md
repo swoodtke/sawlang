@@ -364,9 +364,41 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `synthesize.unmet-member` | a `@synthesize`d `Equatable`, `Comparable` or `Hashable` whose member glue asks a part that nothing meets: a member type with no conformance, or one the spec gives none (a struct's or an enum's `compare` no conformance writes, a payload-carrying enum's unwritten `equals` or `hash`, a tuple's, an Optional's or a fixed array's `compare`), reached through any Optional, fixed array or tuple glue between the derivation and the member. A derivation nothing reaches is legal (spec, Equality), so it is refused where something first reaches it: at the outermost call the program writes on the chain of instantiations that reached the derived glue, naming the derived type, the member, its type, the trait, any outer derived type it is reached through, and the generic instantiation that call made (SL-941). Any Optional's `== None` reads the tag alone and reaches nothing (SL-945); an Optional's `==` against another Optional reaches the payload's derivation | `.equatable-field`, `-ne`, `-generic`, `-optional-holder`, `-array-holder`, `-tuple-holder`, `.equatable-optional-field`, `-array-field`, `-payload`, `-nested`; the `.comparable-` rows with `-ge`, `-sort`, `-generic`; the `.hashable-` rows with `-set`, `-generic`, `-optional-holder`; the run probe `derived_unmet_member_unreached` builds the derivations nothing reaches, and `none_comparison_presence` compares such Optionals with `None` |
 | `static_assert.failed` | a deferred `static_assert` false at an instantiation of the function holding it: one measuring a type parameter's layout, one naming a const parameter, which folds to the instance's value, or both; one whose condition faults at the instance (a shift by the value out of range) fails too (SL:open-questions D40; SL-548) | `static_assert.failed`, `.const-parameter`, `.const-and-layout`, `.const-fault` |
+| `constant.negative-length`, `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero`, `type.mismatch` | a length, repeat count or written argument that names a const parameter and is wrong only at an instance (below, "Instance constants"): arithmetic that faults there is the fault's own rule, a length or count that is negative is `constant.negative-length`, and an argument its parameter's type does not hold is `type.mismatch`, whether written, forwarded or inferred. Each is reported once per instance at the expression written in the generic, naming the instance | `constant.negative-length.instance`, `.default`, `.struct-default`, `.struct-nested-argument`, `.forwarded-call`, `.inferred`, `.instance-riscv32`; `constant.shift-range.instance`; `constant.overflow.instance-uint8`, `.recursion-int`, `.recursion-uint8`, `.callee-signature`; `constant.divide-by-zero.instance`, `.ignored-argument`, `.struct-argument`, `.two-arguments`, `.read-as-value`; `type.mismatch.instance-forwarded`, `-forwarded-struct`, `-forwarded-unsigned`, `-inferred`, `-argument-arithmetic`, `-length-word-riscv32` |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `memory.trivial`, `memory.enum`, `memory.intent` | an `UnsafeMemory<T, Use>` that only an instantiation forms whose `T` is not trivially copyable, holds an enum, or whose `Use` is neither `Device` nor `Normal`, judged by typecheck's view-type funnel, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL-914) | `memory.trivial`, `memory.enum`, `memory.intent` |
 | `transfer.no-move` | a generic body's move out of a place, which typecheck records where the type names a type parameter, at an instantiation that makes the type `NoMove`: the first such move of each declaration at each set of arguments, its body's, its closures' and its accessor halves' together. A spelled `move`, a `[move x]` capture and a local's by-value read at its last use all count; the fresh placement of a by-value parameter no reference has named does not. A concrete type's is typecheck's (SL-662) | `transfer.no-move`, a `Vector`'s growth; `.element`, `Vector.pop`'s move out of its buffer; `.forward`, a read at its last use; `.capture`, a `[move x]` capture; `.placement-after-borrow`, the placement once a reference named the parameter; `.take`, an Optional's payload; `.map`, a `Map`'s entries |
+
+**Instance constants.** Arithmetic over a const parameter is a symbolic
+constant that folds when the parameter has a value (`compiler/tests/typecheck/README.md`),
+and a fault that depends on the value exists only at an instance. Typecheck
+records each array length, repeat count and written generic argument whose
+type names a const parameter (`TcProgram.instance_checks`, by node, with the
+type formed there, the declaration whose instances fix it, and for an argument
+the parameter it fills). Mono checks each record once per instance
+(`check_instance_constant`) and refuses it by the rule above:
+
+- a function item's records are checked first in `instantiate`, at its
+  concrete arguments, and when any fails nothing of the item is copied, so no
+  stuck or negative constant reaches a type, a glue item or a layout, and no
+  item of its callees is made;
+- a struct's or an enum's records (a field's length, a payload's, a nested
+  type's argument) are checked once per concrete type, where `concrete_type`
+  meets it, through the type's parts and through each member's type at its
+  arguments, so a type only another type's field names (a default's instance)
+  is met too;
+- a value that no written node carried, inferred or forwarded into a
+  parameter whose type does not hold it, is refused where the item is made
+  (`function_item`), at the call, as `N is inferred as 300 here`.
+
+The message ends with where the instance is: `at this instance` for a
+function item (the instantiation clause follows, as above) and `in Q<-1>`,
+the type's own spelling, for a type. An instance of a recursion whose constant faults is
+refused at the first one that does, so the recursion stops there; one whose
+constant only grows is `mono.depth`. A body never instantiated is never
+checked (SL:open-questions D40). A constant faulting only in a type a callee's
+signature forms is refused at the callee's instance by the callee's own
+records.
 
 A refusal whose node lies in std or the builtin module is reported at the
 nearest call the program writes on the chain of items that reached it

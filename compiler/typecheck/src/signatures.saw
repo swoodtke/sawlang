@@ -1475,6 +1475,9 @@ extension TcProgram {
                 if not self.check_argument_kind(node, arg, d, k) {
                     arg = self.error_type
                 }
+                if g.is_const {
+                    self.note_instance_check(node, arg, TcConstPosition.Argument, d, k)
+                }
                 try! args.push(arg)
                 var j = 0
                 while j < g.bound_count {
@@ -1731,18 +1734,35 @@ extension TcProgram {
     //     build_generic
     //     check_inferred_constants
     public func check_constant_fit(&var self, node: Int, value: Int, const_type: Int, name: &String, inferred: Bool) -> Bool {
-        if const_type < 0 {
+        if not self.constant_misfit(value, const_type) {
             return true
         }
-        let d = self.types.ty(const_type).decl
-        if d < 0 {
-            return true
-        }
-        if tc_arith_fits(value, 64, true, self.const_width(const_type), not self.const_unsigned(const_type)) {
-            return true
-        }
-        var msg = StringBuilder()
         let written = self.text(self.current, node)
+        self.refuse(node, "type.mismatch", self.constant_fit_text(&written, value, const_type, &name, inferred))
+        false
+    }
+
+    // Whether constant `value` does not fit `const_type`, the declared type
+    // of a const parameter, at its width and signedness.
+    // ENTRY POINTS:
+    //     check_constant_fit
+    //     check_instance_constant (mono)
+    public func constant_misfit(&self, value: Int, const_type: Int) -> Bool {
+        if const_type < 0 || self.types.ty(const_type).decl < 0 {
+            return false
+        }
+        not tc_arith_fits(value, 64, true, self.const_width(const_type), not self.const_unsigned(const_type))
+    }
+
+    // The refusal sentence of a constant `value`, written as `written` (or
+    // solved for a call, `inferred`), that parameter `name` of type
+    // `const_type` cannot hold.
+    // ENTRY POINTS:
+    //     check_constant_fit
+    //     check_instance_constant (mono)
+    public func constant_fit_text(&self, written: &String, value: Int, const_type: Int, name: &String, inferred: Bool) -> String {
+        let d = self.types.ty(const_type).decl
+        var msg = StringBuilder()
         if inferred {
             try! msg.append("`")
             try! msg.append(name)
@@ -1764,8 +1784,71 @@ extension TcProgram {
         try! msg.append("`, the type of `")
         try! msg.append(name)
         try! msg.append("`")
-        self.refuse(node, "type.mismatch", msg.build())
-        false
+        msg.build()
+    }
+
+    // THE INSTANCE-CHECK RECORD: length, count or written argument `node`,
+    // whose type `t` names a const parameter, is a constant only an
+    // instantiation fixes, so each instance checks it (monomorphization,
+    // `check_instance_constant`). Kept once per node, with the declaration
+    // whose instances fix it; `owner` and `index` name the parameter an
+    // argument fills, -1 for a length or count.
+    // ENTRY POINTS:
+    //     const_parameter_value
+    //     apply_nominal
+    //     named_owner
+    //     finish_call
+    public func note_instance_check(&var self, node: Int, t: Int, use: TcConstPosition, owner: Int, index: Int) {
+        if t < 0 || not self.mentions_param(t) {
+            return
+        }
+        var k = 0
+        while k < self.instance_checks.len() {
+            if self.instance_checks[k] == node {
+                return
+            }
+            k = k + 1
+        }
+        let holder = self.instance_holder(node)
+        try! self.instance_checks.push(node)
+        try! self.instance_check_types.push(t)
+        try! self.instance_check_holders.push(holder)
+        try! self.instance_check_owners.push(owner)
+        try! self.instance_check_indexes.push(index)
+        try! self.instance_check_uses.push(use)
+    }
+
+    // The declaration whose instances fix the constant at `node`: the one of
+    // its module whose node holds `node` in the least width. A field or a
+    // case answers its type; -1 when no declaration holds it.
+    func instance_holder(&self, node: Int) -> Int {
+        let m = self.current
+        if m < 0 {
+            return -1
+        }
+        let info = self.res.modules[m]
+        let span = self.res.node(node)
+        var best = -1
+        var width = 0
+        var d = info.decl_first
+        while d < info.decl_first + info.decl_count {
+            let held = self.res.decls[d].node
+            if held >= 0 {
+                let s = self.res.node(held)
+                if s.start <= span.start && span.end <= s.end && (best < 0 || s.end - s.start < width) {
+                    best = d
+                    width = s.end - s.start
+                }
+            }
+            d = d + 1
+        }
+        if best >= 0 {
+            let kind = self.res.decls[best].kind
+            if kind == ResDeclKind.Field || kind == ResDeclKind.Case {
+                return self.res.decls[best].parent
+            }
+        }
+        best
     }
 
     // Whether const parameter `k` of `owner` sizes an array: written as a
@@ -1859,6 +1942,9 @@ extension TcProgram {
     func unevaluated_constant(&var self, node: Int, use: TcConstPosition) -> Int {
         let bare = self.bare_const_parameter(node)
         if bare >= 0 {
+            if use != TcConstPosition.Argument {
+                self.note_instance_check(node, bare, use, -1, -1)
+            }
             return bare
         }
         var msg = StringBuilder()
@@ -1949,6 +2035,15 @@ extension TcProgram {
     //     checked_length
     //     check_argument_kind
     func refuse_negative_length(&var self, at: Int, use: TcConstPosition, value: Int, why: String) {
+        self.refuse(at, "constant.negative-length", self.negative_length_text(use, value, &why))
+    }
+
+    // The sentence of a negative length or count `value` at `use`; `why`
+    // names where the value came from, or is empty.
+    // ENTRY POINTS:
+    //     refuse_negative_length
+    //     check_instance_constant (mono)
+    public func negative_length_text(&self, use: TcConstPosition, value: Int, why: &String) -> String {
         var msg = StringBuilder()
         try! msg.append(if use == TcConstPosition.Repeat { "repeat count" } else { "array length" })
         try! msg.append(" is negative (`")
@@ -1959,7 +2054,7 @@ extension TcProgram {
             try! msg.append(why)
         }
         try! msg.append("; a length counts elements, so it starts at 0")
-        self.refuse(at, "constant.negative-length", msg.build())
+        msg.build()
     }
 
     func build_tuple(&var self, t: Int, named: Bool) -> Int {

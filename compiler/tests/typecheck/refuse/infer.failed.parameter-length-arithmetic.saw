@@ -1,6 +1,6 @@
 // refuses: infer.failed at 12:11
 // errors: 1
-// message: it appears in this call's parameter types only inside a length such as `N + 1`
+// message: it appears in this call's parameter types only inside a length or an argument such as `N + 1`
 // An argument's length binds a bare `[T; N]` alone, so `[T; N + 1]` solves
 // nothing and the parameter is written on the call.
 
