@@ -1,0 +1,40 @@
+// probe: stated
+// about: the scheduler's walk stands on a group whose owner, `main`, takes the turn by the sleep order, joins its task and drops the group, twenty rounds over; the walk goes on with the group's successor and never reads the dropped group (SL-1109)
+// stage 0: runs it on its own std's executor, which gives no turn by the sleep order (SL-977)
+// speeds: -O0 -O2
+// prints: joined 20 of 20
+// Each round `main` sleeps a tick before its task first runs, so `main`'s
+// sleep is ahead of the task's in the sleep order. When the walk reaches the
+// task's expired sleep it gives the turn to `main`, which joins the task and
+// drops the group while the walk still stands on it. After the last round a
+// suspending call reuses the dropped group's storage in `main`'s frame.
+
+static ROUNDS: Int = 20
+static TICK_MS: UInt64 = 1
+
+func napper() -> Int {
+    sleep(Duration.ms(TICK_MS))
+    1
+}
+
+func settle(n: Int) {
+    var i = 0
+    while i < n {
+        sleep(Duration.ms(TICK_MS))
+        i = i + 1
+    }
+}
+
+func main() {
+    var total = 0
+    var round = 0
+    while round < ROUNDS {
+        var group = TaskGroup()
+        let t = group.spawn(napper())
+        sleep(Duration.ms(TICK_MS))
+        total = total + t.join()
+        round = round + 1
+    }
+    settle(5)
+    print("joined {total} of 20")
+}

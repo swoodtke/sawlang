@@ -10623,6 +10623,8 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   own children are structured-joined first). The single exception is the result
   slot, which is what `join()` moves out; a result whose handle is gone is
   dropped when the task completes, or at the handle's drop if that comes later.
+  The task's group may be torn down while that drop runs: the result no longer
+  belongs to the group's slot.
   So a group is a lifetime SCOPE, not a lifetime extender: a
   handler task's `TcpStream` closes its fd when the handler returns, an
   `accept`-loop server reclaims each connection as it finishes rather than

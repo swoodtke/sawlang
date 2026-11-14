@@ -30,7 +30,7 @@ fails. A blocked program is still built, and fails the lane once sawc builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 25 of its 26
-Stage 0 programs build; concurrency runs a program in 8 of its 8 categories,
+Stage 0 programs build; concurrency runs a program in 9 of its 9 categories,
 and 24 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
@@ -371,6 +371,17 @@ CONCURRENCY = (
             # A task cancelled during its offloaded call keeps its frame until
             # the call has written into it and the worker's take has returned.
             RUN_LANE + "offload_cancel_in_a_pool.saw",
+        ),
+        blocked=()),
+    Category(
+        "the scheduler's walk", "a group torn down by its owner during a turn while a sweep's walk stands on it",
+        # Stage 0's executor gives no turn by the sleep order, so none is a twin.
+        twins=(),
+        stand_ins=(
+            RUN_LANE + "probes/executor_walk_owner_takes_the_turn.saw",
+            RUN_LANE + "probes/executor_walk_successor_at_the_same_address.saw",
+            RUN_LANE + "probes/executor_walk_third_task_resumes_the_owner.saw",
+            RUN_LANE + "probes/executor_walk_result_deinit_resumes_the_owner.saw",
         ),
         blocked=()),
 )

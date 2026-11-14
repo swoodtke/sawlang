@@ -1,0 +1,59 @@
+// probe: stated
+// about: three tasks at the head of the group list each make and drop a whole group on every turn beside a task in an older group; the walk still reaches the older group within the pass, after each churner's first turn (SL-1109)
+// stage 0: runs it on its own std's executor, which keeps no group list (SL-1109)
+// speeds: -O0 -O2
+// prints: victim ran after 3 churning turns
+// The victim records how many churning turns had happened when it ran: an
+// event count, never a clock. The churners churn until they see the victim's
+// mark, and GIVE_UP turns in total is only the deadline (TESTING.md rule 3).
+// There are three churners because the op budget makes each churner's loop
+// cede once every 128 iterations in a turn with no churn in it: a walk that
+// went back to the list's head after every change would reach the victim only
+// when all three took that turn back to back.
+
+import std.task.*
+
+static VICTIM_RAN: Atomic<Int> = Atomic(0)
+static TURNS: Atomic<Int> = Atomic(0)
+static SEEN_AT: Atomic<Int> = Atomic(-1)
+static GIVE_UP: Int = 300000
+
+func nothing() -> Int {
+    1
+}
+
+// One whole group's life inside one turn: made, spawned into, joined, dropped.
+func churn_once() -> Int {
+    var g = TaskGroup()
+    let t = g.spawn(nothing())
+    t.join()
+}
+
+func churner() -> Int {
+    while VICTIM_RAN.load() == 0 {
+        if TURNS.load() >= GIVE_UP {
+            panic("fairness: the victim never ran in {} churning turns", TURNS.load())
+        }
+        let _ = churn_once()
+        let _ = TURNS.fetch_add(1)
+        yield_now()
+    }
+    0
+}
+
+func victim() -> Int {
+    SEEN_AT.store(TURNS.load())
+    VICTIM_RAN.store(1)
+    1
+}
+
+func main() {
+    var older = TaskGroup()
+    let v = older.spawn(victim())
+    var newer = TaskGroup()
+    let a = newer.spawn(churner())
+    let b = newer.spawn(churner())
+    let c = newer.spawn(churner())
+    let _ = a.join() + b.join() + c.join() + v.join()
+    print("victim ran after {SEEN_AT.load()} churning turns")
+}

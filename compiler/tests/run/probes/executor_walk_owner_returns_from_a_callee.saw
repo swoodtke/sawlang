@@ -1,0 +1,36 @@
+// probe: stated
+// about: the scheduler's walk stands on a group held in a callee's frame when the sleep order gives `main` the turn; the callee joins, returns and drops the group, and the walk never reads it again (SL-1109)
+// stage 0: runs it on its own std's executor, which gives no turn by the sleep order (SL-977)
+// speeds: -O0 -O2
+// prints: joined 1 of 1
+// `one_round` sleeps a tick before its task first runs, so its sleep is ahead
+// of the task's; given the turn, it joins the task and returns, dropping the
+// group, and the next suspending call's frame takes the group's place.
+
+static TICK_MS: UInt64 = 1
+
+func napper() -> Int {
+    sleep(Duration.ms(TICK_MS))
+    1
+}
+
+func one_round() -> Int {
+    var group = TaskGroup()
+    let t = group.spawn(napper())
+    sleep(Duration.ms(TICK_MS))
+    t.join()
+}
+
+func settle(n: Int) {
+    var i = 0
+    while i < n {
+        sleep(Duration.ms(TICK_MS))
+        i = i + 1
+    }
+}
+
+func main() {
+    let n = one_round()
+    settle(5)
+    print("joined {n} of 1")
+}

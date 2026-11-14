@@ -1045,6 +1045,12 @@ struct ExecutorRecord {
     // latch, by whichever thread tears each down: a cooperative sleep queue
     // built before the count moved may name a freed group (`next_sleeper`).
     regroups: Int
+    // The address of the innermost open sweep's walk cursor (`WalkCursor`),
+    // each linked to the one it is nested in, or 0 with no sweep open. Read
+    // and written under the latch by `TaskGroup.unregister`, which moves any
+    // cursor standing on the group it unlinks, and otherwise only by the
+    // record's own thread, as its sweeps open and close.
+    walks: Int
     // The timer parks of this thread's cooperative groups in the sleep order,
     // shared by every sweep on its stack and kept from one sweep to the next,
     // so a join's sweep does not rebuild it (`next_sleeper`). Only the
@@ -1237,7 +1243,7 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     let raw = exec_alloc(size, align, "executor")
     let fresh = raw as UnsafePointer<ExecutorRecord>
     fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1, latch: 0,
-                              turns: 0, current: 0, sleeps: 0, regroups: 0, wake: SleepQueue())
+                              turns: 0, current: 0, sleeps: 0, regroups: 0, walks: 0, wake: SleepQueue())
     var linked = false
     while not linked {
         let head = EXEC_RECORDS.load()
@@ -1822,10 +1828,31 @@ extension TaskGroup {
         let record = self.owner as UnsafePointer<ExecutorRecord>
         latch_take(record)
         self.registered = false
-        unlink_group(record, (&self) as UnsafePointer<TaskGroup> as Int, self.next)
+        let me = (&self) as UnsafePointer<TaskGroup> as Int
+        unlink_group(record, me, self.next)
         let regroups = (&record[0].regroups) as UnsafePointer<Int>
         store_word(regroups, load_word(regroups) + 1)
+        move_walks_past(record, me, self.next)
         latch_give(record)
+    }
+}
+
+// THE WALK RULE: a sweep's walk names the group it stands on only through its
+// cursor, and every unlink moves each cursor standing on the unlinked group
+// to that group's successor, so a walk never reads a group once it is
+// unlinked, and goes on with the groups that were after it.
+//
+// ENTRY POINTS:
+//   TaskGroup.unregister
+func move_walks_past(record: UnsafePointer<ExecutorRecord>, me: Int, after_me: Int) unsafe {
+    var at = record[0].walks
+    while at != 0 {
+        let c = at as UnsafePointer<WalkCursor>
+        if c[0].group == me {
+            c[0].group = after_me
+            c[0].slot = WALK_ENTER
+        }
+        at = c[0].outer
     }
 }
 
@@ -1910,15 +1937,19 @@ public(package) func __saw_exec_cancel_requested() unsafe -> Bool {
 // The claim and the outcome are each a section of the group's latch, and the
 // resume runs between them with no lock held: a walk on another thread sees
 // the slot parked, with its park word and the word it names alive, or active.
-// `record` is the sweeping thread's, which counts the resume.
-func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<ExecutorRecord>) unsafe {
+// `record` is the sweeping thread's, which counts the resume. Answers whether
+// the frame parked on a timer. Only a frame that finished retires anything,
+// and a finished task's unclaimed result is dropped after the section, by
+// code that may tear the group down; so a caller reads the group again only
+// on a true answer, after which nothing has run.
+func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     var g = at
     lock_queue(at)
     let s = g[0].slots[slot]
     let cell = g[0].cell_at(slot)
     guard let frame = s.frame else {
         unlock_queue(at)
-        return
+        return false
     }
     borrow var g[0].slots[slot].active = true
     borrow var g[0].slots[slot].runner = record as Int
@@ -1931,6 +1962,7 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     count_turn(record)
     borrow var g[0].slots[slot].active = false
     var retired = retired_none()
+    var parked = false
     match poll {
         case Ready -> { retired = g[0].complete(slot) },
         case Pending -> {
@@ -1943,12 +1975,14 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
             }
             if reason == ParkReason.Timer {
                 cell[0].slept = take_sleep_order((&record[0].sleeps) as UnsafePointer<UInt64>)
+                parked = true
             }
         }
     }
     unlock_queue(at)
     retire(retired)
     end_turn(record, outer)
+    parked
 }
 
 // Whether the sweep `sweep` was asked for is finished: with `waiter` nonzero,
@@ -2000,29 +2034,56 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
 // `waiter_order` is the drive point's own sleep's place in the sleep order
 // when its park at `waiter` is a timer (`next_sleeper`), and is read only
 // then. The sweep reads this thread's timer parks in that order from the
-// queue its record keeps (`ExecutorRecord.wake`).
+// queue its record keeps (`ExecutorRecord.wake`). Its walk keeps its place
+// across a turn in a cursor the unlink moves (`WalkCursor`), since a turn may
+// drop the group it stands on.
 func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64) unsafe {
     let record = this_executor()
     enter_executor(record)
     record[0].sweeps += 1
     let queue = (&record[0].wake) as UnsafePointer<SleepQueue>
-    sweep_passes(term_group, term_slot, term_gen, waiter, waiter_order, queue, record)
+    var cursor = WalkCursor(group: 0, slot: WALK_ENTER, outer: record[0].walks)
+    let at = (&cursor) as UnsafePointer<WalkCursor>
+    record[0].walks = at as Int
+    sweep_passes(term_group, term_slot, term_gen, waiter, waiter_order, queue, record, at)
+    record[0].walks = cursor.outer
     record[0].sweeps -= 1
     leave_executor(record)
 }
 
+// Where a sweep's walk stands: the group's address, 0 past the list's end, and
+// across a turn the slot the turn was taken at. A turn runs code that may
+// unlink any group no frame on this thread's stack belongs to, the one the
+// walk stands on included, so across a turn the walk keeps its place here,
+// where the unlink moves it (`move_walks_past`), and reads its locals again
+// only when the place is unmoved. Lives in its sweep's stack frame, linked
+// from `ExecutorRecord.walks` while the sweep is open.
+struct WalkCursor {
+    group: Int
+    slot: Int
+    outer: Int
+}
+
+// The slot of a cursor an unlink moved onto the next group, which the walk
+// has not entered; a slot a turn is taken at is 0 or more.
+static WALK_ENTER: Int = -2
+
 func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64,
-                  queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>) unsafe {
+                  queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>,
+                  cursor: UnsafePointer<WalkCursor>) unsafe {
     while not sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record) {
         var resumed = false
-        var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
-        while cur != 0 {
-            let g = cur as UnsafePointer<TaskGroup>
+        cursor[0].group = load_word((&record[0].groups) as UnsafePointer<Int>)
+        cursor[0].slot = WALK_ENTER
+        while cursor[0].group != 0 {
+            let g = cursor[0].group as UnsafePointer<TaskGroup>
             var i = -1
+            // A pool's frames are its workers', so the walk passes it by.
             if g[0].engine() == 0 {
                 i = g[0].next_live(0)
             }
-            while i >= 0 {
+            var moved = false
+            while i >= 0 && not moved {
                 if g[0].runnable(i) {
                     let turn = walk_turn(g, i, waiter, waiter_order, queue, record)
                     if turn.slot < 0 {
@@ -2031,21 +2092,29 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, w
                         let _ = sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record)
                         return
                     }
+                    cursor[0].slot = i
                     resume_queued(turn.group, turn.slot, queue, record)
                     resumed = true
                     if sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record) {
                         return
                     }
-                    // A turn given to another sleeper keeps the walk here,
-                    // where this slot's own sleep is still due.
-                    if turn.group == cur && turn.slot == i {
+                    if cursor[0].slot != i {
+                        // An unlink moved the cursor past `g`, which may be
+                        // gone: the walk goes on where the cursor stands.
+                        moved = true
+                    } else if turn.group == g as Int && turn.slot == i {
                         i = g[0].next_live(i + 1)
                     }
+                    // A turn given to another sleeper keeps the walk here,
+                    // where this slot's own sleep is still due.
                 } else {
                     i = g[0].next_live(i + 1)
                 }
             }
-            cur = g[0].next
+            if not moved {
+                cursor[0].group = g[0].next
+                cursor[0].slot = WALK_ENTER
+            }
         }
         if not resumed && not idle(waiter, record) {
             return
@@ -2078,10 +2147,11 @@ func sweep_finished(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
 func resume_queued(group: Int, slot: Int, queue: UnsafePointer<SleepQueue>,
                    record: UnsafePointer<ExecutorRecord>) unsafe {
     let g = group as UnsafePointer<TaskGroup>
-    resume_slot(g, slot, record)
-    if let entry = timer_parked(g, slot) {
-        var q = queue
-        q[0].note(entry)
+    if resume_slot(g, slot, record) {
+        if let entry = timer_parked(g, slot) {
+            var q = queue
+            q[0].note(entry)
+        }
     }
 }
 

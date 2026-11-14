@@ -1,0 +1,39 @@
+// probe: stated
+// about: the scheduler's walk stands on slot 1 of a group that its owner drops and rebuilds, with one slot, at the same address during the walk's turn; the walk never reads the old position in the new group (SL-1109)
+// stage 0: runs it on its own std's executor, which gives no turn by the sleep order (SL-977)
+// speeds: -O0 -O2
+// prints: joined 3 of 3
+// Round one's group holds two tasks, and the walk stands on slot 1 when
+// `main`'s earlier sleep takes the turn; `main` joins both, drops the group
+// and builds round two's, holding one task, in the same storage.
+
+static TICK_MS: UInt64 = 1
+
+func quick() -> Int {
+    1
+}
+
+func napper() -> Int {
+    sleep(Duration.ms(TICK_MS))
+    1
+}
+
+func main() {
+    var total = 0
+    var round = 0
+    while round < 2 {
+        var group = TaskGroup()
+        if round == 0 {
+            let a = group.spawn(quick())
+            let b = group.spawn(napper())
+            sleep(Duration.ms(TICK_MS))
+            total = total + a.join() + b.join()
+        } else {
+            let c = group.spawn(napper())
+            sleep(Duration.ms(TICK_MS))
+            total = total + c.join()
+        }
+        round = round + 1
+    }
+    print("joined {total} of 3")
+}

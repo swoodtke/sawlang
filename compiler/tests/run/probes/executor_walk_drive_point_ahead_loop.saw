@@ -1,0 +1,62 @@
+// probe: stated
+// about: a drive point's sweep, standing on `main`'s group, gives `main` its turn ahead of the drive point's own expired sleep, and `main` drops the group; the drive's sweep ends there and never reads the group again (SL-1109)
+// stage 0: runs it on its own std's executor, which gives no turn by the sleep order (SL-977)
+// speeds: -O0 -O2
+// prints: joined 1 and 1
+// A background task's sync helper drives a frame that sleeps 2 ms. Inside that
+// drive's sweep the walk stands on `main`'s group, whose `hog` holds the thread
+// until every deadline has passed; `main`'s 1 ms sleep is then ahead of the
+// drive point's, so `main` takes its turn first, joins `hog` and drops the
+// group.
+
+import std.task.*
+import std.time.{Instant}
+
+func hold(millis: UInt64) sync {
+    let start = Instant.now()
+    while start.elapsed().as_millis() < millis {}
+}
+
+func hog() -> Int {
+    yield_now()
+    yield_now()
+    hold(5)
+    1
+}
+
+func driven() -> Int {
+    sleep(Duration.ms(2))
+    1
+}
+
+func drive_it() -> Int {
+    __saw_drive(driven())
+}
+
+func driver() -> Int {
+    yield_now()
+    drive_it()
+}
+
+func one_round() -> Int {
+    var group = TaskGroup()
+    let t = group.spawn(hog())
+    sleep(Duration.ms(1))
+    t.join()
+}
+
+func settle(n: Int) {
+    var i = 0
+    while i < n {
+        sleep(Duration.ms(1))
+        i = i + 1
+    }
+}
+
+func main() {
+    let d = Task.spawn(driver())
+    let n = one_round()
+    settle(10)
+    let m = d.join()
+    print("joined {n} and {m}")
+}
