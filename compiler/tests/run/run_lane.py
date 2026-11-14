@@ -4418,7 +4418,56 @@ def check_volatile_accesses(failures, counts):
 # volatile probe's `.ll` is read before and after clang's optimizer. The
 # provider probes are built with `--runtime`, which no header states, and the
 # cooperative one's binary is read with `nm` for the seams it must not name.
+# `probes/main_error_bounded_no_hidden_alloc.saw`: its error's 5,000 bytes, and
+# the longest the bounded rendering writes (512 bytes of scratch holding the
+# rendering and its marker).
+MAIN_ERROR_BYTES = 5000
+MAIN_ERROR_BOUND = 512
+MAIN_ERROR_MARKER = "…".encode("utf-8")
+
+
+def check_main_error_bounded(failures, counts):
+    """`probes/main_error_bounded_no_hidden_alloc.saw` returns an `Err` of
+    5,000 bytes from `main`: built with `--no-hidden-alloc` its standard error
+    is `error: `, a prefix of the error cut within `MAIN_ERROR_BOUND` bytes
+    and ending in the marker, then a line break; built without the flag it
+    is the whole error. Both exit with status 1 and print `start`."""
+    probe = os.path.join(PROBES, "main_error_bounded_no_hidden_alloc.saw")
+    whole = b"0123456789" * 499 + b"--- END --"
+    assert len(whole) == MAIN_ERROR_BYTES
+    for flags, name in (([], "whole"), (["--no-hidden-alloc"], "bounded")):
+        for speed in ("-O0", "-O2"):
+            where = "run %s %s %s" % (rel(probe), " ".join(flags), speed)
+            binary = os.path.join(OUT, "main_error_" + name + speed[1:])
+            r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + flags + target_flags()
+                               + [rel(probe), "-o", binary], cwd=REPO, capture_output=True, text=True,
+                               timeout=BUILD_TIMEOUT)
+            said = (r.stdout + r.stderr).strip()
+            if r.returncode != 0 or said:
+                failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:300]))
+                continue
+            code, out, err = execute(binary)
+            if name == "whole":
+                right = err == b"error: " + whole + b"\n"
+            else:
+                body = err[len(b"error: "):-1]
+                right = (err.startswith(b"error: ") and err.endswith(MAIN_ERROR_MARKER + b"\n")
+                         and 0 < len(body) <= MAIN_ERROR_BOUND
+                         and whole.startswith(body[:-len(MAIN_ERROR_MARKER)]))
+            if code != 1 or out != b"start\n" or not right:
+                failures.append("%s: exit %s, standard output %r, %d bytes on standard error ending %r"
+                                % (where, code, out[:40], len(err), err[-24:]))
+                continue
+            counts["run main errors written whole or bounded"] = counts.get(
+                "run main errors written whole or bounded", 0) + 1
+            if name == "whole":
+                found = leak_problems(where, binary)
+                if found:
+                    failures.extend(found)
+
+
 CUSTOM_PROBES = {
+    "main_error_bounded_no_hidden_alloc.saw": check_main_error_bounded,
     OBJECT_PROBE: check_object_output,
     ATTRIBUTE_PROBE: check_attribute_groups,
     VOLATILE_PROBE: check_volatile_accesses,

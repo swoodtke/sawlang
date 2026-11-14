@@ -715,6 +715,9 @@ The `Err` line is `error: `, the rendered error and a line break, written as one
 line on standard error under the output lock, as a panic's message is. It is
 written once `main` has returned and the thread's background tasks have been
 cancelled and joined, so anything they print on their way out comes before it.
+The error is written whole, however long its rendering is. Under
+`--no-hidden-alloc` the rendering allocates nothing: it is made in 512 bytes of
+stack, and a longer one ends in `…`.
 
 ```saw
 import std.file

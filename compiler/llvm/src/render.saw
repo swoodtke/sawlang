@@ -132,6 +132,66 @@ extension LlEmitter {
         ll_parts_push(&var parts, LL_PART_RUN, scratch, len)
     }
 
+    // The bytes and the length of the String at `text`, read through the
+    // String roles.
+    public func string_bytes_of(&var self, mono: &var MonoProgram, text: String, node: Int) -> String {
+        if mono.bytes_item < 0 {
+            self.refuse_here(&var mono, node, "a String argument with no bytes role bound")
+            return "null"
+        }
+        var call = StringBuilder()
+        try! call.append("call ptr ")
+        let role = mono.bytes_item
+        try! call.append(self.plain_symbol(&var mono, role))
+        try! call.append("(ptr ")
+        try! call.append(text)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    public func string_length(&var self, mono: &var MonoProgram, text: String, node: Int) -> String {
+        if mono.length_item < 0 {
+            self.refuse_here(&var mono, node, "a String argument with no length role bound")
+            return "0"
+        }
+        var call = StringBuilder()
+        try! call.append("call ")
+        try! call.append(self.word)
+        try! call.append(" ")
+        let role = mono.length_item
+        try! call.append(self.plain_symbol(&var mono, role))
+        try! call.append("(ptr ")
+        try! call.append(text)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    // The value of type `t` at `at` rendered through its `Printable.format`
+    // into a growable builder, as an interpolation renders its one part, and
+    // the String built at `dest`, whatever its length. The String is the
+    // caller's to drop.
+    public func render_whole(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int, dest: String,
+                             node: Int) {
+        let item = mono.render_item(t)
+        let slot = mono.render_slot(t)
+        let made = mono.builder_new_item
+        let built = mono.builder_build_item
+        if (item < 0 && slot < 0) || made < 0 || built < 0 {
+            self.refuse_here(&var mono, node, "a rendering mono did not resolve")
+            return
+        }
+        let builder = self.item_result(&mono, made)
+        let bl = self.lay_at(&var mono, &var target, builder, node)
+        let sb = self.slot(bl.size, bl.align)
+        let none = Vector<String>()
+        let _ = self.call_item_direct(&var mono, &var target, made, &none, sb, node)
+        self.render_into(&var mono, &var target, item, slot, at, sb, node)
+        var from = Vector<String>()
+        try! from.push(ll_spelled("ptr", sb))
+        let _ = self.call_item_direct(&var mono, &var target, built, &from, dest, node)
+        self.drop_at(&var mono, builder, sb)
+    }
+
     // A String built at `dest` from interpolation `rv`'s parts, each rendered
     // through its `Printable.format` into a growable builder, in order.
     public func interpolation_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue,
@@ -257,8 +317,10 @@ extension LlEmitter {
     // THE ONE PLACE a `Result` from `main` becomes the C entry's `i32`
     // status (spec, The entry point): `Ok(n)` is `n`, checked by
     // `exit_status`, and `Ok(())` is 0; an `Err` writes `error: `, the error
-    // rendered as a format argument is, and a line break, as one line on
-    // standard error, and is 1. The Result at `at`, a plain `main`'s result
+    // rendered as an interpolation renders it (whole, through a String), and
+    // a line break, as one line on standard error, and is 1. Under
+    // `--no-hidden-alloc` the error renders as a format argument does, into
+    // stack scratch, cut and marked `…`. The Result at `at`, a plain `main`'s result
     // slot or a lowered one's frame result, is the entry's to drop once the
     // status is read.
     // ENTRY POINTS:
@@ -298,8 +360,20 @@ extension LlEmitter {
         let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, err_decl, 0)
         let payload = self.offset_addr(at, off)
         var parts = LlParts()
-        self.render_fixed(&var mono, &var target, payload, error, node, &var parts)
-        self.write_error_line("error: ", &parts)
+        if mono.dp.bc.mir.tc.no_hidden_alloc {
+            self.render_fixed(&var mono, &var target, payload, error, node, &var parts)
+            self.write_error_line("error: ", &parts)
+        } else {
+            let string = mono.dp.bc.mir.tc.string_type()
+            let sl = self.lay_at(&var mono, &var target, string, node)
+            let text = self.slot(sl.size, sl.align)
+            self.render_whole(&var mono, &var target, payload, error, text, node)
+            let bytes = self.string_bytes_of(&var mono, text, node)
+            let length = self.string_length(&var mono, text, node)
+            ll_parts_push(&var parts, LL_PART_RUN, bytes, length)
+            self.write_error_line("error: ", &parts)
+            self.drop_at(&var mono, string, text)
+        }
         self.store("i32", "1", status)
         self.jump(done)
         self.put_label(done)

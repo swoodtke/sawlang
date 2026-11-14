@@ -2111,39 +2111,6 @@ extension LlEmitter {
         self.put(line.build())
     }
 
-    // The bytes and the length of the String at `text`, read through the
-    // String roles.
-    func string_bytes_of(&var self, mono: &var MonoProgram, text: String, node: Int) -> String {
-        if mono.bytes_item < 0 {
-            self.refuse_here(&var mono, node, "a String argument with no bytes role bound")
-            return "null"
-        }
-        var call = StringBuilder()
-        try! call.append("call ptr ")
-        let role = mono.bytes_item
-        try! call.append(self.plain_symbol(&var mono, role))
-        try! call.append("(ptr ")
-        try! call.append(text)
-        try! call.append(")")
-        self.assign(call.build())
-    }
-
-    func string_length(&var self, mono: &var MonoProgram, text: String, node: Int) -> String {
-        if mono.length_item < 0 {
-            self.refuse_here(&var mono, node, "a String argument with no length role bound")
-            return "0"
-        }
-        var call = StringBuilder()
-        try! call.append("call ")
-        try! call.append(self.word)
-        try! call.append(" ")
-        let role = mono.length_item
-        try! call.append(self.plain_symbol(&var mono, role))
-        try! call.append("(ptr ")
-        try! call.append(text)
-        try! call.append(")")
-        self.assign(call.build())
-    }
 }
 
 // The OS-thread engine's spawn (runtime/ABI.md, "Threads"). A `Thread.spawn`
