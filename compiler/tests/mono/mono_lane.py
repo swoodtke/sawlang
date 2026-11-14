@@ -198,9 +198,11 @@ def check_own_targets(failures, counts, write):
 HEADER_RULE = fixture_headers.Rule(
     [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1,)),
      fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS", rows=(2,)),
+     fixture_headers.Header("errors", typecheck_lane._ERRORS.pattern, "// errors: N"),
      fixture_headers.Header("message", _MESSAGE.pattern, "// message: TEXT", repeat=True),
      fixture_headers.Header("stage 0", _STAGE0.pattern, "// stage 0: REASON", repeat=True, detect="stage ?0")],
-    misspelt={"messages": "message"})
+    misspelt={"error": "errors", "messages": "message"},
+    before=[("errors", "message")])
 
 
 def header_files():
@@ -293,6 +295,13 @@ def check_refusals(failures, counts):
                 if text not in message:
                     failures.append("mono refusal %s: the message does not hold %r: %s"
                                     % (rel(path), text, message))
+            stated = typecheck_lane.stated_errors(path)
+            printed = typecheck_lane.all_errors(got.get(rel(path), ""), rel(path))
+            if stated is not None and len(printed) != stated:
+                extra = ", ".join("%s at %s" % e for e in printed[stated:])
+                failures.append("mono refusal %s: %s at %s: %d errors stated, %d printed%s"
+                                % (rel(path), rule, header.group(2), stated, len(printed),
+                                   " (extra: %s)" % extra if extra else ""))
         for line in got.get(rel(path), "").split("\n"):
             if line.startswith("INVARIANT\t"):
                 failures.append("mono refusal %s: %s" % (rel(path), line))

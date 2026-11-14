@@ -1,0 +1,24 @@
+// refuses: constant.overflow at 17:38
+// errors: 1
+// message: overflows `Int`
+// message: E<9223372036854775807>
+// An enum payload's type holds the stuck value, which `take` meets through a match.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+enum E<const N: Int> { case One(z: Z<N + 1>) }
+func make<const K: Int>() -> E<K> { panic("unused") }
+func g<const K: Int>(e: E<K>) -> Int {
+    match e {
+        case One(z) -> take(z)
+    }
+}
+func main() { print(g<9223372036854775807>(e: make<9223372036854775807>())) }

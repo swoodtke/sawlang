@@ -1,0 +1,22 @@
+// refuses: constant.overflow at 17:31
+// errors: 1
+// message: overflows `Int`
+// message: S<9223372036854775807>
+// A struct field's type holds the stuck value, which `take` meets through `s.z`.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+struct S<const N: Int> { z: Z<N + 1> }
+func make<const K: Int>() -> S<K> { panic("unused") }
+func g<const K: Int>(s: S<K>) -> Int {
+    take(s.z)
+}
+func main() { print(g<9223372036854775807>(s: make<9223372036854775807>())) }

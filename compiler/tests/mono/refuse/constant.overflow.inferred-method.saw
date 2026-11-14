@@ -1,0 +1,25 @@
+// refuses: constant.overflow at 9:39
+// errors: 2
+// message: overflows `Int`
+// message: (in the instantiation `grow<9223372036854775807>`)
+// The stuck value reaches a method's own const parameter by inference.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+struct S { a: Int }
+extension S {
+    func m<const M: Int>(&self, z: Z<M>) -> Int { M }
+}
+func g<const K: Int>() -> Int {
+    let s = S(a: 1)
+    s.m(grow(Z<K>(x: 1)))
+}
+func main() { print(g<9223372036854775807>()) }

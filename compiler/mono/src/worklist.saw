@@ -22,7 +22,7 @@ import sawmono.program.{MONO_CHAIN_LIMIT, MONO_DEPTH_LIMIT, MONO_KEY_CONSTANT_CH
                             MONO_KEY_INSTANCE_CHECKED, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
                             MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
                             MONO_KEY_VTABLE, MonoItem,
-                            MonoItemKind, MonoProgram, MonoThreadSpawn, MonoVtable}
+                            MONO_KEY_STUCK_REPORTED, MonoItemKind, MonoProgram, MonoStuckMeeting, MonoThreadSpawn, MonoVtable}
 import sawtypecheck.arith.{TcFault, tc_arith_normalize, tc_arith_text}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.fold.{TcFold}
@@ -41,7 +41,7 @@ import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING,
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
-import sawtypecheck.types.{TC_HOLDS_UNFOLDED, TcKind}
+import sawtypecheck.types.{TC_HOLDS_UNFOLDED, TcKind, tc_kind_wraps}
 
 // Every rule monomorphization refuses by.
 public func mono_rules() -> Vector<String> {
@@ -126,6 +126,7 @@ extension MonoProgram {
             k = k + 1
         }
         self.current = -1
+        self.report_stuck_meetings()
         self.report_depth()
     }
 
@@ -511,7 +512,9 @@ extension MonoProgram {
     // item, "in `T`" for a nominal type). A constant an instantiation fixes
     // is refused here by the fault's own rule, at the expression written in
     // the generic declaration: a stuck value, a negative length or count, an
-    // argument its parameter's type does not hold. Answers whether it holds.
+    // argument its parameter's type does not hold. A stuck value it refuses is
+    // noted (`MONO_KEY_STUCK_REPORTED`), so a meeting with it where nothing
+    // is written adds nothing. Answers whether it holds.
     // ENTRY POINTS:
     //     instance_constants_hold
     //     check_nominal_instances
@@ -532,6 +535,9 @@ extension MonoProgram {
             try! msg.append(", ")
             try! msg.append(at)
             self.refuse(node, text.rule, msg.build())
+            if self.by_key.first(t, MONO_KEY_STUCK_REPORTED) < 0 {
+                self.by_key.add(t, MONO_KEY_STUCK_REPORTED, 1)
+            }
             return false
         }
         if info.kind != TcKind.ConstInt {
@@ -601,7 +607,9 @@ extension MonoProgram {
     // each struct or enum instance meets the constants its declaration
     // recorded, and its fields and payloads are walked at its arguments, so
     // a type only another one's member names (a default's instance) is met
-    // too.
+    // too. A type that holds a stuck value is not walked: the positions that
+    // wrote the value refuse it, and the type is kept for
+    // `report_stuck_meetings`.
     // ENTRY POINTS:
     //     concrete_type
     func check_nominal_instances(&var self, t: Int) {
@@ -616,6 +624,10 @@ extension MonoProgram {
             return
         }
         self.by_key.add(t, MONO_KEY_INSTANCE_CHECKED, 1)
+        if (info.holds & TC_HOLDS_UNFOLDED) != 0 {
+            try! self.stuck_meetings.push(MonoStuckMeeting(ty: t, node: -1, owner: -1, index: -1, current: self.current))
+            return
+        }
         var j = 0
         while j < info.count {
             self.check_nominal_instances(self.dp.bc.mir.tc.types.arg(t, j))
@@ -669,11 +681,97 @@ extension MonoProgram {
         }
     }
 
+    // Whether a refusal at a recorded position named stuck value `t`, or a
+    // stuck value `t` holds, in an argument or in the part a function, a
+    // reference, a slice or an array wraps.
+    func stuck_noted(&self, t: Int) -> Bool {
+        if self.by_key.first(t, MONO_KEY_STUCK_REPORTED) >= 0 {
+            return true
+        }
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        var j = 0
+        while j < info.count {
+            let a = self.dp.bc.mir.tc.types.arg(t, j)
+            if a >= 0 && (self.dp.bc.mir.tc.types.ty(a).holds & TC_HOLDS_UNFOLDED) != 0 && self.stuck_noted(a) {
+                return true
+            }
+            j = j + 1
+        }
+        if tc_kind_wraps(info.kind) && info.b >= 0 {
+            if (self.dp.bc.mir.tc.types.ty(info.b).holds & TC_HOLDS_UNFOLDED) != 0 && self.stuck_noted(info.b) {
+                return true
+            }
+        }
+        false
+    }
+
+    // THE STUCK-MEETING FUNNEL: each stuck constant value the worklist met
+    // where nothing writes one (`arguments_fit`'s inferred argument,
+    // `check_nominal_instances`'s type) is judged once every worklist item
+    // has been made, so the order the instances are made in does not
+    // matter. A value a refusal at a position that writes it named adds
+    // nothing. A meeting no refusal named is a consequence when mono has
+    // refused anything in this build: it adds nothing, since that refusal
+    // fails the build and the next build, with nothing else refused, reports
+    // a fault of the value's own. Only when mono has refused nothing does it
+    // speak: an inferred argument is refused at its call, by the fault's own
+    // rule; a type is a problem, since a type holds a stuck value only
+    // through some position that wrote it. The inferred arguments are judged
+    // first, so a call's refusal counts for every type.
+    // ENTRY POINTS:
+    //     run
+    func report_stuck_meetings(&var self) {
+        let quiet = self.diags.len() == 0
+        var i = 0
+        while i < self.stuck_meetings.len() {
+            let m = self.stuck_meetings[i]
+            i = i + 1
+            if m.owner < 0 || self.stuck_noted(m.ty) || not quiet {
+                continue
+            }
+            self.refuse_inferred_meeting(m)
+        }
+        i = 0
+        while i < self.stuck_meetings.len() {
+            let m = self.stuck_meetings[i]
+            i = i + 1
+            if m.owner >= 0 || self.stuck_noted(m.ty) || self.diags.len() > 0 {
+                continue
+            }
+            try! self.problems.push("a stuck constant reached a type no position wrote")
+        }
+    }
+
+    // Refuses the inferred argument of stuck meeting `m` at its call, by the
+    // fault's own rule, and notes the value.
+    func refuse_inferred_meeting(&var self, m: MonoStuckMeeting) {
+        let f = self.dp.bc.mir.tc.fold_const_expr(m.ty)
+        if f.v.ok {
+            try! self.problems.push("a stuck constant folds at its instance")
+            return
+        }
+        let fold = self.dp.bc.mir.tc.fault_fold(&f)
+        let text = self.dp.bc.mir.tc.constant_fault_text(&fold, f.into)
+        let s = self.dp.bc.mir.tc.sigs[m.owner]
+        let g = self.dp.bc.mir.tc.generics[s.generic_first + m.index]
+        let name = self.dp.bc.mir.tc.text(self.dp.bc.mir.tc.res.decls[m.owner].module, g.leaf)
+        var msg = StringBuilder()
+        try! msg.append(text.message)
+        try! msg.append(", and `")
+        try! msg.append(name)
+        try! msg.append("` is inferred here")
+        self.current = m.current
+        self.refuse(m.node, text.rule, msg.build())
+        self.current = -1
+        self.by_key.add(m.ty, MONO_KEY_STUCK_REPORTED, 1)
+    }
+
     // The values an instance's const parameters take where no written
     // position carried one the instance check could judge: a value inferred
     // or forwarded that its parameter's type does not hold is refused at the
-    // call `node`. A stuck value is a recorded position's, refused before
-    // this call was made.
+    // call `node`. A stuck value is kept for `report_stuck_meetings`, since
+    // the position that wrote it may not have been judged yet; no item is
+    // made for it.
     // ENTRY POINTS:
     //     function_item
     func arguments_fit(&var self, owner: Int, values: &Vector<Int>, node: Int) -> Bool {
@@ -692,7 +790,7 @@ extension MonoProgram {
             }
             let info = self.dp.bc.mir.tc.types.ty(v)
             if (info.holds & TC_HOLDS_UNFOLDED) != 0 {
-                try! self.problems.push("an instance's constant argument was not checked where it was written")
+                try! self.stuck_meetings.push(MonoStuckMeeting(ty: v, node: node, owner: owner, index: j - 1, current: self.current))
                 fits = false
             } else if info.kind == TcKind.ConstInt && self.dp.bc.mir.tc.constant_misfit(info.a, g.const_type) {
                 let name = self.dp.bc.mir.tc.text(self.dp.bc.mir.tc.res.decls[owner].module, g.leaf)

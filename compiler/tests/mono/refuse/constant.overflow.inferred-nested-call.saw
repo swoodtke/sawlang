@@ -1,0 +1,20 @@
+// refuses: constant.overflow at 9:39
+// errors: 2
+// message: overflows `Int`
+// message: (in the instantiation `grow<9223372036854775807>`)
+// The same, with the producing call written as `take`'s argument.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+func g<const K: Int>() -> Int {
+    take(grow(Z<K>(x: 1)))
+}
+func main() { print(g<9223372036854775807>()) }

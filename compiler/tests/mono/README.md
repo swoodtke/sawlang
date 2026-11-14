@@ -441,7 +441,9 @@ golden program's `--layouts` record for `aarch64-unknown-none-elf` equals its
 record for `aarch64-unknown-linux-gnu` (`SAME_LAYOUT_TARGETS`); that each
 fixture in `refuse/` is refused first at its header's position by the rule its
 name starts with, that refusal's message holding each `// message: TEXT` line
-of the fixture's leading comment, and every rule has a fixture; that each
+of the fixture's leading comment and its record holding exactly N `ERROR`
+lines when a `// errors: N` line (after `// refuses:` and `// flags:`, before
+`// message:`) states N, and every rule has a fixture; that each
 program in `backend/`, built by `sawc build --emit-ll`, is refused first at its
 header's position by its header's rule, holding each `// message:` line; that
 no refusal record holds one `ERROR` line twice; and that each type of a

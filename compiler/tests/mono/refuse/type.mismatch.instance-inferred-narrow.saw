@@ -1,0 +1,21 @@
+// refuses: type.mismatch at 19:10
+// errors: 1
+// message: `N` is inferred as 300 here, which does not fit `UInt8`, the type of `N`
+// message: (in the instantiation `h<300>`)
+// `narrow<300>` is never made, so the position that wrote `N + 1` is never judged: the refusal at
+// `narrow`'s call stands alone, and the stuck value it leaves at `take` adds nothing after it.
+
+struct Z<const N: Int> { x: Int }
+
+func narrow<const N: UInt8>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+func h<const K: Int>() -> Int {
+    take(narrow(Z<K>(x: 1)))
+}
+func main() { print(h<300>()) }

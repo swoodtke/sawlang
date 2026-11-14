@@ -1,0 +1,23 @@
+// refuses: constant.overflow at 9:39
+// errors: 2
+// message: overflows `Int`
+// message: (in the instantiation `grow<9223372036854775807>`)
+// The inferred stuck value also spells the callee's result type, `Holder<M>`: no error names that type.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+struct Holder<const N: Int> { z: Z<N> }
+func hold<const M: Int>(z: Z<M>) -> Holder<M> { Holder<M>(z: z) }
+func g<const K: Int>() -> Int {
+    let h = hold(grow(Z<K>(x: 1)))
+    h.z.x
+}
+func main() { print(g<9223372036854775807>()) }

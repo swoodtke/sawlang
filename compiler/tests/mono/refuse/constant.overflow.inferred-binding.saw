@@ -1,0 +1,22 @@
+// refuses: constant.overflow at 10:39
+// errors: 2
+// message: overflows `Int`
+// message: (in the instantiation `grow<9223372036854775807>`)
+// A stuck value `grow` produces reaches `take` by inference through a binding: the two positions that
+// wrote it are refused, and nothing is reported where nothing is written.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+func g<const K: Int>() -> Int {
+    let y = grow(Z<K>(x: 1))
+    take(y)
+}
+func main() { print(g<9223372036854775807>()) }

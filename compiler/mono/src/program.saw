@@ -209,6 +209,10 @@ public struct MonoProgram {
     // How many times the source was lowered to MIR to make this program: 1,
     // the one lowering the evaluator and every stage after it read.
     lowerings: Int
+    // Each stuck constant value the worklist met where nothing writes one,
+    // kept for the worklist's end (`report_stuck_meetings`), when every
+    // position that produces a stuck value has been judged.
+    stuck_meetings: Vector<MonoStuckMeeting>
 }
 
 extension MonoProgram: NoCopy {}
@@ -250,6 +254,21 @@ public static MONO_KEY_TRY_ERROR: Int = 13
 // members' ran (`check_nominal_instances`).
 public static MONO_KEY_CONSTANT_CHECK: Int = 14
 public static MONO_KEY_INSTANCE_CHECKED: Int = 15
+// (stuck type, 16) -> 1 once a recorded position's refusal named it
+// (`check_instance_constant`).
+public static MONO_KEY_STUCK_REPORTED: Int = 16
+
+// A stuck constant value met where no position writes it: `ty` the value's
+// type id, met in item `current` as the argument `index` of `owner`'s const
+// parameters at call `node`; an `owner` of -1 is a type that holds it, with
+// no call.
+public struct MonoStuckMeeting {
+    ty: Int
+    node: Int
+    owner: Int
+    index: Int
+    current: Int
+}
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).
@@ -286,7 +305,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 literal_pushes: Vector<Int>(), vtables: Vector<MonoVtable>(), vtable_slots: Vector<Int>(),
                 erase_vtables: Vector<Int>(), erase_allocs: Vector<Int>(), dispatch_slots: Vector<Int>(), depth_call: -1, depth_glue: -1, depth_chain: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: ResIndex(), derived: ResIndex(), export_items: Vector<Int>(),
-                placed_items: Vector<Int>(), lowerings: 0)
+                placed_items: Vector<Int>(), lowerings: 0, stuck_meetings: Vector<MonoStuckMeeting>())
 }
 
 extension MonoProgram {

@@ -1,0 +1,22 @@
+// refuses: constant.overflow at 9:39
+// errors: 2
+// message: overflows `Int`
+// message: (in the instantiation `grow<9223372036854775807>`)
+// The stuck value is passed on by inference twice, through `take2`.
+
+struct Z<const N: Int> { x: Int }
+
+func grow<const N: Int>(z: Z<N>) -> Z<N + 1> {
+    Z<N + 1>(x: z.x)
+}
+
+func take<const M: Int>(z: Z<M>) -> Int {
+    M
+}
+
+func take2<const M: Int>(z: Z<M>) -> Int { take(z) }
+func g<const K: Int>() -> Int {
+    let y = grow(Z<K>(x: 1))
+    take2(y)
+}
+func main() { print(g<9223372036854775807>()) }
