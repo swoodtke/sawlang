@@ -15,7 +15,6 @@ blade/src/builder.saw	refs.position	2	design 149, reaching the SOS image path (d
 blade/src/builder.saw	refs.position	1	design 149: `[package] runtime = true` says this package implements
 blade/src/builder.saw	refs.position	1	package whose only entry is `src/lib.saw` is a library. Design 143 hangs
 blade/src/builder.saw	refs.position	1	state (design 64 B4). This is the sanctioned way to change the lock after
-blade/src/cli.saw	refs.position	1	build (design 143). Empty is a safe way to say "unspecified" here: no triple
 blade/src/cli.saw	refs.position	1	design 139: `Run` carries an owned `Vector<String>`, so the enum names its
 blade/src/git.saw	refs.position	1	Git integration for Blade (design 64 B5) — shells out to the `git` CLI (no
 blade/src/lock.saw	history	1	The write half used to be discarded, so a lock file that failed halfway

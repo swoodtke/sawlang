@@ -1,0 +1,8 @@
+// `shared` is no dependency of this package: `blade build` reaches it only
+// through `--module-path shared=../shared`, and sawc refuses the import
+// without the flag.
+import shared
+
+func main() {
+    print(shared.answer())
+}

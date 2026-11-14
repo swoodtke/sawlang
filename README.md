@@ -793,6 +793,10 @@ make blade                     # builds with bin/sawc -> .build/blade
 
 ./.build/blade new myproject   # scaffold a new project
 ./.build/blade build           # resolve deps + compile (incremental; --force to rebuild)
+./.build/blade build --out-dir out --module-path extra=../extra
+                               # build into out/ and pass a module root to sawc
+./.build/blade build --target riscv32-unknown-none-elf --linker-script app.ld
+                               # an [sos] image, linked with app.ld
 ./.build/blade update          # re-resolve dependencies and rewrite Saw.lock
 ./.build/blade run             # build and run
 ./.build/blade test            # compile and run the project's tests/
@@ -801,6 +805,10 @@ make blade                     # builds with bin/sawc -> .build/blade
 ./.build/blade add foo --path ../foo         # add a path dependency
 ./.build/blade add bar --git <url> --version ^1.0.0   # add a git dependency
 ```
+
+Blade refuses a flag it does not know, a flag with no value and a stray word
+on every command (`blade build --targt x` is an error, not a host build), and
+`blade <command> --help` and `blade help <command>` print the help.
 
 A project declares dependencies in its `Saw.toml`:
 

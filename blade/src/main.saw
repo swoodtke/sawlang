@@ -46,6 +46,11 @@ func print_help() {
     print("Commands:")
     print("  build       Compile the current project (honors Saw.lock)")
     print("              --force rebuilds; --target <triple> cross-compiles")
+    print("              --out-dir <dir> puts the build in <dir>, not .build/<target>")
+    print("              (Saw.lock, .blade/deps and sawc's caches stay where they are)")
+    print("              --linker-script <file> replaces [sos.<triple>] linker-script")
+    print("              (an image build only)")
+    print("              --module-path NAME=DIR is passed to sawc, repeatable")
     print("  update      Re-resolve dependencies and rewrite Saw.lock")
     print("  run         Build and run the project")
     print("  test        Compile and run the project's tests/")
@@ -53,7 +58,7 @@ func print_help() {
     print("  tree        Print the resolved dependency graph")
     print("  add <name>  Add a dependency (--path <dir> | --git <url> [--version <req>])")
     print("  new <name>  Create a new Saw project")
-    print("  help        Show this help message")
+    print("  help [cmd]  Show this help message (cmd is one of the commands above)")
     print("  version     Show version information")
 }
 
@@ -152,11 +157,11 @@ func main() {
     match cli.Cli.parse() {
         case Ok(parsed_cli) -> {
             match parsed_cli.command {
-                case Build(force, target) -> {
+                case Build(options) -> {
                     match manifest.Manifest.load() {
                         case Ok(m) -> {
-                            let b = builder.Builder(m: m, target: target)
-                            match b.build(force) {
+                            let b = builder.Builder(m: m, options: options.copy())
+                            match b.build(options.force) {
                                 case Ok(_) -> {},
                                 case Err(e) -> fail(e.message, e.exit_code)
                             }

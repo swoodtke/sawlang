@@ -15527,6 +15527,24 @@ image tag for; the error names it.
 | `device-window` | string | machine | The base address of a memory-mapped window the image records, decimal or `0x`-prefixed hexadecimal. Default: no window. |
 | `device-window-size` | string | machine | The window's length in bytes, in the same two forms. Default: 4096. |
 
+`blade build` takes three flags beside `--target` and `--force`. `--linker-script
+<file>` replaces the selected machine's `linker-script` for that build; it is an
+error on a package with no `[sos]` table for the target, and when the file does
+not exist or is a directory. The script's content is part of what makes a build up to date, whether
+the manifest or the flag names it, so changing the script relinks. `--out-dir
+<dir>` makes `<dir>` the build directory in place of `.build/<triple>`: the image,
+the ELF, the objects and the up-to-date stamp are written there and nothing under
+`.build`. The target is part of the up-to-date check, so a build for a second
+target into the same `<dir>` compiles and replaces the first's output. `Saw.lock`, git checkouts under `.blade/deps` and sawc's caches are not
+build output and stay where they are. `--module-path NAME=DIR`, repeatable, is
+passed to `sawc` after the package's own and its dependencies' entries. It is an
+error when `DIR` is not a directory, when `NAME` is given twice, and when `NAME`
+is this package or a dependency. The `NAME`, the `DIR` as written and the `.saw`
+files under it are part of the up-to-date check. Each flag value follows its flag
+as a separate word or as `--flag=value`. A flag Blade does not know, a flag with
+no value, a flag given twice that does not repeat and a stray word are errors
+for every subcommand.
+
 Paths are passed to the tools as written. An empty `march`, `mabi` or CPU is
 not passed at all. For an `xtensa` triple the C compiler gets `-mcpu=esp32s3`
 and the default features of the Xtensa paragraph in Profiles, each as

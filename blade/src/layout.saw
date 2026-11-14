@@ -100,18 +100,38 @@ public struct BuildLayout {
     // hosted build; no triple is the empty string, so it cannot be mistaken for
     // one.
     private target: String
+    // The directory `--out-dir` named, or empty for `.build/<target>`. When set
+    // it IS the build directory: every artifact, the stamp and the test
+    // binaries live in it, and nothing is written under `.build/`.
+    private out_dir: String
 }
 
 extension BuildLayout {
     // The layout for a default hosted build.
     public init() -> BuildLayout {
-        BuildLayout(target: "")
+        BuildLayout(target: "", out_dir: "")
     }
 
     // The layout for an explicit sawc target triple. An empty `triple` is the
     // hosted default, which is how a command with no `--target` spells itself.
     public init(triple: String) -> BuildLayout {
-        BuildLayout(target: triple)
+        BuildLayout(target: triple, out_dir: "")
+    }
+
+    // The layout for a triple whose build directory is `out_dir` (empty for
+    // the `.build/<target>` default). An out-dir that begins with `-` is kept
+    // as `./-x`, so no path made from it reads as a flag to any tool.
+    public init(triple: String, out_dir: String) -> BuildLayout {
+        if out_dir.starts_with("-") {
+            return BuildLayout(target: triple, out_dir: "./{out_dir}")
+        }
+        return BuildLayout(target: triple, out_dir: out_dir)
+    }
+
+    // The same directory choice for another triple: an image build learns its
+    // triple from the manifest, after the layout was made.
+    public func retargeted(&self, triple: String) -> BuildLayout {
+        BuildLayout(target: triple, out_dir: self.out_dir)
     }
 
     // The directory segment naming this target: the triple, or `host`.
@@ -134,18 +154,23 @@ extension BuildLayout {
         }
     }
 
-    // `<package>/.build/<target>` — the directory holding this build.
+    // `<package>/.build/<target>`, or the `--out-dir` directory — the
+    // directory holding this build.
     public func dir(&self) -> String {
-        "{build_root()}/{self.target_name()}"
+        if not self.out_dir.is_empty() {
+            return self.out_dir
+        }
+        return "{build_root()}/{self.target_name()}"
     }
 
     public func artifact(&self, name: String) -> String {
         "{self.dir()}/{name}"
     }
 
-    // The incremental stamp: the content hash of the last successful build FOR
-    // THIS TARGET. Per-target is what makes it trustworthy — one shared stamp
-    // would let a build for one target report another's as up to date.
+    // The incremental stamp: the content hash of the last successful build in
+    // this directory. The hash names the target, so a build for another target
+    // never matches it, whether the directory is `.build/<target>` or an
+    // `--out-dir` two targets share.
     public func stamp(&self) -> String {
         "{self.dir()}/build-hash"
     }

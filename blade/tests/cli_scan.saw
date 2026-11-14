@@ -1,0 +1,183 @@
+// Test: the command-line scanner's table (SL-1098). Every subcommand has an
+// accept case and a refusal for each way a word can be wrong: an unknown or
+// single-dash flag, a value flag with no value or followed by a flag, a flag
+// that does not repeat given twice, a value given to a flag that takes none,
+// and a bare word the subcommand does not take.
+import blade.cli.{Cli, BladeCommand}
+
+func words(line: String) -> Vector<String> {
+    var args = Vector<String>()
+    try! args.push("blade")
+    for part in (try! line.split(" ")).iter() {
+        if not part.is_empty() {
+            try! args.push(part)
+        }
+    }
+    move args
+}
+
+// The refusal text for `blade <line>`, or "" when it was accepted.
+func refusal(line: String) -> String {
+    let args = words(line)
+    match Cli.parse_words(&args) {
+        case Ok(_) -> "",
+        case Err(e) -> e.message
+    }
+}
+
+func parsed(line: String) -> BladeCommand {
+    let args = words(line)
+    match Cli.parse_words(&args) {
+        case Ok(cli) -> cli.get_command(),
+        case Err(e) -> panic("`blade {line}` was refused: {e.message}")
+    }
+}
+
+func expect_refused(line: String, text: String) {
+    let got = refusal(line)
+    assert(got.equals(text), "`blade {line}`: expected `{text}`, got `{got}`")
+}
+
+func expect_accepted(line: String) {
+    let got = refusal(line)
+    assert(got.is_empty(), "`blade {line}` was refused: {got}")
+}
+
+func main() {
+    // ----------------------------------------------------------------- build
+    expect_accepted("build")
+    expect_accepted("build --force --target riscv32-unknown-none-elf")
+    expect_accepted("build --target=riscv32-unknown-none-elf --out-dir=o")
+    expect_accepted("build --out-dir o --linker-script l.ld --module-path a=x --module-path b=y")
+    expect_refused("build --x", "blade build: unknown flag `--x`")
+    expect_refused("build --targt x", "blade build: unknown flag `--targt`")
+    expect_refused("build -x", "blade build: unknown flag `-x`")
+    expect_refused("build -f", "blade build: unknown flag `-f`")
+    expect_refused("build stray", "blade build takes no arguments, got `stray`")
+    expect_refused("build --force stray", "blade build takes no arguments, got `stray`")
+    expect_refused("build --target", "blade build: `--target` requires a value")
+    expect_refused("build --target --force", "blade build: `--target` requires a value")
+    expect_refused("build --target=", "blade build: `--target` requires a value")
+    expect_refused("build --out-dir", "blade build: `--out-dir` requires a value")
+    expect_refused("build --linker-script", "blade build: `--linker-script` requires a value")
+    expect_refused("build --module-path", "blade build: `--module-path` requires a value")
+    expect_refused("build --force --force", "blade build: `--force` was given twice")
+    expect_refused("build --target a --target b", "blade build: `--target` was given twice")
+    expect_refused("build --out-dir a --out-dir=b", "blade build: `--out-dir` was given twice")
+    expect_refused("build --linker-script a --linker-script b", "blade build: `--linker-script` was given twice")
+    expect_refused("build --force=yes", "blade build: `--force` takes no value")
+    expect_refused("build --module-path nonequals", "blade build: `--module-path nonequals` must be NAME=DIR")
+    expect_refused("build --module-path =d", "blade build: `--module-path =d` has an empty NAME")
+    expect_refused("build --module-path n=", "blade build: `--module-path n=` has an empty DIR")
+    expect_refused("build --module-path a=x --module-path a=y", "blade build: `--module-path` names `a` twice")
+
+    match parsed("build --force --target t --out-dir o --linker-script l.ld --module-path a=x --module-path b=y/z") {
+        case Build(options) -> {
+            assert(options.force, "--force")
+            assert(options.target.equals("t"), "--target")
+            assert(options.out_dir.equals("o"), "--out-dir")
+            assert(options.linker_script.equals("l.ld"), "--linker-script")
+            assert(options.module_paths.len() == 2, "two module paths")
+            assert(options.module_paths[0].name.equals("a"), "first name")
+            assert(options.module_paths[0].dir.equals("x"), "first dir")
+            assert(options.module_paths[1].name.equals("b"), "second name")
+            assert(options.module_paths[1].dir.equals("y/z"), "second dir")
+        },
+        case _ -> panic("build did not parse as Build")
+    }
+    match parsed("build") {
+        case Build(options) -> {
+            assert(not options.force, "no --force")
+            assert(options.target.is_empty(), "no --target")
+            assert(options.out_dir.is_empty(), "no --out-dir")
+            assert(options.linker_script.is_empty(), "no --linker-script")
+            assert(options.module_paths.len() == 0, "no module paths")
+        },
+        case _ -> panic("build did not parse as Build")
+    }
+
+    // ----------------------------------------------------------------- clean
+    expect_accepted("clean")
+    expect_accepted("clean --target riscv32-unknown-none-elf")
+    expect_refused("clean --x", "blade clean: unknown flag `--x`")
+    expect_refused("clean --force", "blade clean: unknown flag `--force`")
+    expect_refused("clean --out-dir d", "blade clean: unknown flag `--out-dir`")
+    expect_refused("clean stray", "blade clean takes no arguments, got `stray`")
+    expect_refused("clean --target", "blade clean: `--target` requires a value")
+    expect_refused("clean --target a --target b", "blade clean: `--target` was given twice")
+
+    // ---------------------------------------------------- update, test, tree
+    expect_accepted("update")
+    expect_accepted("test")
+    expect_accepted("tree")
+    expect_refused("update --x", "blade update: unknown flag `--x`")
+    expect_refused("test --x", "blade test: unknown flag `--x`")
+    expect_refused("tree --x", "blade tree: unknown flag `--x`")
+    expect_refused("update stray", "blade update takes no arguments, got `stray`")
+    expect_refused("test stray", "blade test takes no arguments, got `stray`")
+    expect_refused("tree stray", "blade tree takes no arguments, got `stray`")
+
+    // ------------------------------------------------------------------- new
+    expect_accepted("new app")
+    expect_refused("new", "blade new requires a project name")
+    expect_refused("new a b", "blade new: unexpected argument `b`")
+    expect_refused("new --x", "blade new: unknown flag `--x`")
+    expect_refused("new --x app", "blade new: unknown flag `--x`")
+
+    // ------------------------------------------------------------------- add
+    expect_accepted("add dep --path ../dep")
+    expect_accepted("add dep --git https://example.com/dep.git --version 1.2.3")
+    expect_accepted("add --path ../dep dep")
+    expect_refused("add", "blade add requires a dependency name")
+    expect_refused("add --path ../dep", "blade add requires a dependency name")
+    expect_refused("add dep", "blade add requires --path <dir> or --git <url>")
+    expect_refused("add dep --x", "blade add: unknown flag `--x`")
+    expect_refused("add dep --path", "blade add: `--path` requires a value")
+    expect_refused("add dep --git --path x", "blade add: `--git` requires a value")
+    expect_refused("add dep --path a --path b", "blade add: `--path` was given twice")
+    expect_refused("add dep other --path a", "blade add: unexpected argument `other`")
+    expect_refused("add dep --path a --git b", "blade add: `--path` and `--git` name two sources; give one")
+    expect_refused("add dep --path a --version 1", "blade add: `--version` applies to a `--git` dependency")
+
+    // ------------------------------------------------------- help and version
+    expect_accepted("help")
+    expect_accepted("version")
+    expect_refused("help --x", "blade help: unknown flag `--x`")
+    expect_refused("version --x", "blade version: unknown flag `--x`")
+    // `help` takes zero or one word: a subcommand prints the one help text.
+    match parsed("help build") {
+        case Help -> {},
+        case _ -> panic("`blade help build` is not the help text")
+    }
+    expect_refused("help x", "blade help: unknown command `x`")
+    expect_refused("help build clean", "blade help: unexpected argument `clean`")
+    // --help after any subcommand asks for the help text, ahead of any
+    // refusal later in the line.
+    match parsed("build --help") {
+        case Help -> {},
+        case _ -> panic("`blade build --help` is not the help text")
+    }
+    match parsed("clean -h") {
+        case Help -> {},
+        case _ -> panic("`blade clean -h` is not the help text")
+    }
+    match parsed("add --help") {
+        case Help -> {},
+        case _ -> panic("`blade add --help` is not the help text")
+    }
+
+    // ------------------------------------------------------------------- run
+    // Everything after `run` is the program's own words: nothing is refused.
+    match parsed("run --x -h stray --target") {
+        case Run(args) -> assert(args.len() == 4, "run keeps every word"),
+        case _ -> panic("run did not parse as Run")
+    }
+
+    // ------------------------------------------------------- unknown command
+    match parsed("frob") {
+        case Unknown(cmd) -> assert(cmd.equals("frob"), "the unknown word"),
+        case _ -> panic("frob is no command")
+    }
+
+    print("cli_scan: ok")
+}

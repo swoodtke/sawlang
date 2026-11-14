@@ -43,6 +43,29 @@ func main() {
     let implied = BuildLayout(triple: "")
     assert(implied.dir().equals(host.dir()), "an empty target is the hosted one")
 
+    // -------------------------------------------------------------- out-dir
+    // `--out-dir` makes the directory itself the build directory: the
+    // artifact, the stamp and the test binaries are in it, and nothing names
+    // `.build`. It survives a retarget, which an image build does once the
+    // manifest has named its triple.
+    let moved = BuildLayout(triple: "riscv32-unknown-none-elf", out_dir: "out/one")
+    assert(moved.dir().equals("out/one"), "the out-dir is the build directory")
+    assert(moved.artifact("blade").equals("out/one/blade"), "artifact in the out-dir")
+    assert(moved.stamp().equals("out/one/build-hash"), "stamp in the out-dir")
+    assert(moved.tests_dir().equals("out/one/tests"), "test binaries too")
+    if let t = moved.triple() {
+        assert(t.equals("riscv32-unknown-none-elf"), "the triple still reaches sawc")
+    } else {
+        panic("an out-dir layout lost its triple")
+    }
+    let retargeted = BuildLayout(triple: "", out_dir: "out/two").retargeted("aarch64-unknown-none-elf")
+    assert(retargeted.dir().equals("out/two"), "a retarget keeps the out-dir")
+    assert(retargeted.target_name().equals("aarch64-unknown-none-elf"), "and takes the triple")
+    assert(BuildLayout(triple: "t", out_dir: "").dir().equals(".build/t"), "an empty out-dir is none")
+    // A directory that begins with `-` is made safe for every tool once, here.
+    assert(BuildLayout(triple: "t", out_dir: "-x").dir().equals("./-x"), "a leading `-` gets `./`")
+    assert(BuildLayout(triple: "t", out_dir: "-x").artifact("a").equals("./-x/a"), "and so does every path made from it")
+
     // ------------------------------------------------- create, fill, remove
     // A made-up target, so this never touches the directory the running test
     // binary was built into.

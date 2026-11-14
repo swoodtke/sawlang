@@ -1,0 +1,4 @@
+// A module root handed to `blade build --module-path shared=../shared`.
+public func answer() -> Int {
+    42
+}

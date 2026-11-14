@@ -7,11 +7,32 @@
 
 import std.env.{Env}
 import std.process.{Command}
-// `target` is a sawc target triple, or the empty string for the default hosted
-// build (design 143). Empty is a safe way to say "unspecified" here: no triple
-// is the empty string, so it can never be mistaken for one.
+
+/// One `--module-path NAME=DIR` as written: sawc's own flag, passed on.
+public struct ModulePath {
+    name: String
+    dir: String
+}
+
+/// What `blade build` was asked for beyond the package itself. An empty string
+/// is "not given" for the three paths and for `target`: no triple, no
+/// directory and no file name is the empty string, so it cannot be mistaken for
+/// one. `target` is a sawc target triple; empty is the default hosted build
+/// (design 143).
+public struct BuildOptions {
+    force: Bool
+    target: String
+    out_dir: String
+    linker_script: String
+    module_paths: Vector<ModulePath>
+}
+
+// A `Vector` member owns heap storage, so the struct names its transfer class.
+@synthesize
+extension BuildOptions: ExplicitCopy {}
+
 public enum BladeCommand {
-    case Build(force: Bool, target: String),
+    case Build(options: BuildOptions),
     case Update,
     case Run(args: Vector<String>),
     case Test,
@@ -45,31 +66,227 @@ extension ParseError {
     }
 }
 
+// `=` separates a flag from its value in `--name=value`.
+static EQUALS_SIGN: Byte = Byte(61)
+
+/// One flag a subcommand takes.
+public struct FlagSpec {
+    name: String
+    takes_value: Bool
+    repeats: Bool
+}
+
+/// Everything one subcommand accepts after its name: its flags, and how many
+/// bare words (positionals) it takes. `scan_args` refuses everything else.
+public struct CommandSpec {
+    command: String
+    flags: Vector<FlagSpec>
+    positionals: Int
+}
+
+extension CommandSpec: NoCopy {}
+
+extension CommandSpec {
+    public init(command: String, positionals: Int) -> CommandSpec {
+        CommandSpec(command: command, flags: Vector<FlagSpec>(), positionals: positionals)
+    }
+
+    func flag(&var self, name: String, takes_value: Bool, repeats: Bool) {
+        try! self.flags.push(FlagSpec(name: name, takes_value: takes_value, repeats: repeats))
+    }
+
+    func find(&self, name: String) -> FlagSpec? {
+        var i = 0
+        while i < self.flags.len() {
+            if let f = self.flags.get(i) {
+                if f.name.equals(name) {
+                    return f
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // The refusal prefix: `blade build`.
+    func label(&self) -> String {
+        "blade {self.command}"
+    }
+}
+
+/// The table: what each subcommand takes. `run` is not here, because everything
+/// after `run` belongs to the program it starts. None for a word that is no
+/// subcommand.
+public func command_spec(command: String) -> CommandSpec? {
+    if command.equals("build") {
+        var spec = CommandSpec(command: command, positionals: 0)
+        spec.flag("--target", true, false)
+        spec.flag("--force", false, false)
+        spec.flag("--out-dir", true, false)
+        spec.flag("--linker-script", true, false)
+        spec.flag("--module-path", true, true)
+        return move spec
+    }
+    if command.equals("clean") {
+        var spec = CommandSpec(command: command, positionals: 0)
+        spec.flag("--target", true, false)
+        return move spec
+    }
+    if command.equals("add") {
+        var spec = CommandSpec(command: command, positionals: 1)
+        spec.flag("--path", true, false)
+        spec.flag("--git", true, false)
+        spec.flag("--version", true, false)
+        return move spec
+    }
+    // `help` takes the subcommand it is asked about.
+    if command.equals("new") || command.equals("help") {
+        return CommandSpec(command: command, positionals: 1)
+    }
+    if command.equals("update") || command.equals("test") || command.equals("tree") ||
+       command.equals("version") {
+        return CommandSpec(command: command, positionals: 0)
+    }
+    None
+}
+
+/// What a subcommand's words said: each flag given, in order, beside its value
+/// (empty for a flag with none), the bare words, and whether `--help` or `-h`
+/// asked for the help text instead.
 public struct ScanResult {
-    flags: Map<String, String>
+    names: Vector<String>
+    values: Vector<String>
     positional: Vector<String>
+    help: Bool
 }
 
 extension ScanResult: NoCopy {}
 
-func scan_args(args: &Vector<String>, start: Int, value_flags: &Set<String>) -> ScanResult {
-    var flags: Map<String, String> = {:}
+extension ScanResult {
+    public func has(&self, flag: String) -> Bool {
+        var i = 0
+        while i < self.names.len() {
+            if (self.names.get(i) ?? "").equals(flag) {
+                return true
+            }
+            i = i + 1
+        }
+        false
+    }
+
+    // The value of the first `flag` given, or None when it was not.
+    public func value(&self, flag: String) -> String? {
+        var i = 0
+        while i < self.names.len() {
+            if (self.names.get(i) ?? "").equals(flag) {
+                return self.values.get(i)
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Every value `flag` was given, in order.
+    public func all(&self, flag: String) -> Vector<String> {
+        var found = Vector<String>()
+        var i = 0
+        while i < self.names.len() {
+            if (self.names.get(i) ?? "").equals(flag) {
+                try! found.push(self.values.get(i) ?? "")
+            }
+            i = i + 1
+        }
+        move found
+    }
+}
+
+/// Scan the words of one subcommand (from `start`) against its `spec`. Refuses
+/// an unknown flag (a single-dash word included), a value flag with no value
+/// or whose next word is another flag, a flag given twice that does not repeat,
+/// a value given to a flag that takes none, and a bare word beyond what the
+/// subcommand takes. A value flag also reads as `--name=value`, which is how a
+/// value that begins with `-` is passed. `--help` and `-h` end the scan.
+/// Each refusal names the subcommand and the word.
+public func scan_args(spec: &CommandSpec, args: &Vector<String>, start: Int) -> Result<ScanResult, ParseError> {
+    var names = Vector<String>()
+    var values = Vector<String>()
     var positional = Vector<String>()
     var i = start
     while i < args.len() {
-        if let a = args.get(i) {
-            if value_flags.contains(a) {
-                i = i + 1
-                let _ = try! flags.insert(a, args.get(i) ?? "")
-            } else if a.starts_with("--") {
-                let _ = try! flags.insert(a, "")
-            } else {
-                let _ = try! positional.push(a)
+        let word = args.get(i) ?? ""
+        i = i + 1
+        if word.equals("--help") || word.equals("-h") {
+            return ScanResult(names: move names, values: move values,
+                              positional: move positional, help: true)
+        }
+        if not word.starts_with("-") {
+            if positional.len() >= spec.positionals {
+                if spec.positionals == 0 {
+                    return ParseError(msg: "{spec.label()} takes no arguments, got `{word}`")
+                }
+                return ParseError(msg: "{spec.label()}: unexpected argument `{word}`")
+            }
+            try! positional.push(word)
+            continue
+        }
+        var name = word
+        var attached: String? = None
+        if word.starts_with("--") {
+            if let at = word.index_of(EQUALS_SIGN) {
+                name = word.substring(0, at)
+                attached = word.substring(at + 1, word.len())
             }
         }
-        i = i + 1
+        guard let flag = spec.find(name) else {
+            return ParseError(msg: "{spec.label()}: unknown flag `{name}`")
+        }
+        var value = ""
+        if flag.takes_value {
+            if let given = attached {
+                value = given
+            } else {
+                value = args.get(i) ?? ""
+                if i >= args.len() || value.starts_with("-") {
+                    return ParseError(msg: "{spec.label()}: `{name}` requires a value")
+                }
+                i = i + 1
+            }
+            if value.is_empty() {
+                return ParseError(msg: "{spec.label()}: `{name}` requires a value")
+            }
+        } else if attached != None {
+            return ParseError(msg: "{spec.label()}: `{name}` takes no value")
+        }
+        if not flag.repeats {
+            var seen = 0
+            while seen < names.len() {
+                if (names.get(seen) ?? "").equals(name) {
+                    return ParseError(msg: "{spec.label()}: `{name}` was given twice")
+                }
+                seen = seen + 1
+            }
+        }
+        try! names.push(name)
+        try! values.push(value)
     }
-    ScanResult(flags: move flags, positional: move positional)
+    ScanResult(names: move names, values: move values, positional: move positional, help: false)
+}
+
+/// `NAME=DIR` as written after `--module-path`. Refuses a word with no `=`, an
+/// empty NAME and an empty DIR.
+public func parse_module_path(text: String) -> Result<ModulePath, ParseError> {
+    guard let at = text.index_of(EQUALS_SIGN) else {
+        return ParseError(msg: "blade build: `--module-path {text}` must be NAME=DIR")
+    }
+    let name = text.substring(0, at)
+    let dir = text.substring(at + 1, text.len())
+    if name.is_empty() {
+        return ParseError(msg: "blade build: `--module-path {text}` has an empty NAME")
+    }
+    if dir.is_empty() {
+        return ParseError(msg: "blade build: `--module-path {text}` has an empty DIR")
+    }
+    return ModulePath(name: name, dir: dir)
 }
 
 public struct Cli {
@@ -81,11 +298,71 @@ public struct Cli {
 @synthesize
 extension Cli: ExplicitCopy {}
 
+// The `build` words, scanned: `--module-path` entries parsed, a repeated NAME
+// refused.
+func build_command(scanned: &ScanResult) -> Result<Cli, ParseError> {
+    var module_paths = Vector<ModulePath>()
+    let given = scanned.all("--module-path")
+    var i = 0
+    while i < given.len() {
+        let entry = try parse_module_path(given.get(i) ?? "")
+        var j = 0
+        while j < module_paths.len() {
+            if let earlier = module_paths.get(j) {
+                if earlier.name.equals(entry.name) {
+                    return ParseError(msg: "blade build: `--module-path` names `{entry.name}` twice")
+                }
+            }
+            j = j + 1
+        }
+        try! module_paths.push(entry)
+        i = i + 1
+    }
+    let options = BuildOptions(force: scanned.has("--force"),
+                               target: scanned.value("--target") ?? "",
+                               out_dir: scanned.value("--out-dir") ?? "",
+                               linker_script: scanned.value("--linker-script") ?? "",
+                               module_paths: move module_paths)
+    return Cli(command: BladeCommand.Build(options: move options))
+}
+
+// The `add` words, scanned: the dependency's source and what the manifest line
+// says.
+func add_command(scanned: &ScanResult) -> Result<Cli, ParseError> {
+    guard let name = scanned.positional.get(0) else {
+        return ParseError(msg: "blade add requires a dependency name")
+    }
+    if scanned.has("--path") && scanned.has("--git") {
+        return ParseError(msg: "blade add: `--path` and `--git` name two sources; give one")
+    }
+    var kind = ""
+    var loc = ""
+    if let path_loc = scanned.value("--path") {
+        kind = "path"
+        loc = path_loc
+    } else if let git_loc = scanned.value("--git") {
+        kind = "git"
+        loc = git_loc
+    }
+    if kind.is_empty() {
+        return ParseError(msg: "blade add requires --path <dir> or --git <url>")
+    }
+    if kind.equals("path") && scanned.has("--version") {
+        return ParseError(msg: "blade add: `--version` applies to a `--git` dependency")
+    }
+    let version = scanned.value("--version") ?? ""
+    return Cli(command: BladeCommand.Add(name: name, kind: kind, loc: loc, version: version))
+}
+
 extension Cli {
     // Parse command line arguments into a Cli struct
     public static func parse() -> Result<Cli, ParseError> {
         let args = try! Env.args()
+        return Cli.parse_words(&args)
+    }
 
+    /// The same over a given argument list, `args[0]` being the program.
+    public static func parse_words(args: &Vector<String>) -> Result<Cli, ParseError> {
         if args.len() < 2 {
             return Cli(command: BladeCommand.Help)
         }
@@ -94,66 +371,70 @@ extension Cli {
             return ParseError(msg: "No command provided")
         }
 
-        if cmd.equals("build") {
-            let value_flags = try! Set<String>.of("--target")
-            let scanned = scan_args(&args, 2, &value_flags)
-            let force = scanned.flags.contains_key("--force")
-            let target = scanned.flags.get("--target") ?? ""
-            Cli(command: BladeCommand.Build(force: force, target: target))
-        } else if cmd.equals("clean") {
-            let value_flags = try! Set<String>.of("--target")
-            let scanned = scan_args(&args, 2, &value_flags)
-            let target = scanned.flags.get("--target") ?? ""
-            Cli(command: BladeCommand.Clean(target: target))
-        } else if cmd.equals("update") {
-            Cli(command: BladeCommand.Update)
-        } else if cmd.equals("run") {
-            // Collect remaining args after "run"
+        if cmd.equals("--help") || cmd.equals("-h") {
+            return Cli(command: BladeCommand.Help)
+        }
+        if cmd.equals("--version") || cmd.equals("-V") {
+            return Cli(command: BladeCommand.Version)
+        }
+        if cmd.equals("run") {
+            // Everything after "run" is the program's own arguments.
             var run_args = Vector<String>()
             var i = 2
             while i < args.len() {
                 if let arg = args.get(i) {
-                    let _ = try! run_args.push(arg)
+                    try! run_args.push(arg)
                 }
                 i = i + 1
             }
-            Cli(command: BladeCommand.Run(args: move run_args))
-        } else if cmd.equals("test") {
-            Cli(command: BladeCommand.Test)
-        } else if cmd.equals("tree") {
-            Cli(command: BladeCommand.Tree)
-        } else if cmd.equals("add") {
-            guard let name = args.get(2) else {
-                return ParseError(msg: "blade add requires a dependency name")
-            }
-            let value_flags: Set<String> = {"--path", "--git", "--version"}
-            let scanned = scan_args(&args, 3, &value_flags)
-            var kind = ""
-            var loc = ""
-            if let path_loc = scanned.flags.get("--path") {
-                kind = "path"
-                loc = path_loc
-            } else if let git_loc = scanned.flags.get("--git") {
-                kind = "git"
-                loc = git_loc
-            }
-            let version = scanned.flags.get("--version") ?? ""
-            if kind.is_empty() {
-                return ParseError(msg: "blade add requires --path <dir> or --git <url>")
-            }
-            Cli(command: BladeCommand.Add(name: name, kind: kind, loc: loc, version: version))
-        } else if cmd.equals("new") {
-            guard let name = args.get(2) else {
+            return Cli(command: BladeCommand.Run(args: move run_args))
+        }
+        guard let spec = command_spec(cmd) else {
+            return Cli(command: BladeCommand.Unknown(cmd: cmd))
+        }
+        let scanned = try scan_args(&spec, &args, 2)
+        if scanned.help {
+            return Cli(command: BladeCommand.Help)
+        }
+
+        if cmd.equals("build") {
+            return build_command(&scanned)
+        }
+        if cmd.equals("clean") {
+            return Cli(command: BladeCommand.Clean(target: scanned.value("--target") ?? ""))
+        }
+        if cmd.equals("add") {
+            return add_command(&scanned)
+        }
+        if cmd.equals("new") {
+            guard let name = scanned.positional.get(0) else {
                 return ParseError(msg: "blade new requires a project name")
             }
-            Cli(command: BladeCommand.New(name: name))
-        } else if cmd.equals("help") || cmd.equals("--help") || cmd.equals("-h") {
-            Cli(command: BladeCommand.Help)
-        } else if cmd.equals("version") || cmd.equals("--version") || cmd.equals("-V") {
-            Cli(command: BladeCommand.Version)
-        } else {
-            Cli(command: BladeCommand.Unknown(cmd: cmd))
+            return Cli(command: BladeCommand.New(name: name))
         }
+        if cmd.equals("update") {
+            return Cli(command: BladeCommand.Update)
+        }
+        if cmd.equals("test") {
+            return Cli(command: BladeCommand.Test)
+        }
+        if cmd.equals("help") {
+            if let topic = scanned.positional.get(0) {
+                var known = topic.equals("run")
+                match command_spec(topic) {
+                    case Some(_) -> { known = true },
+                    case None -> {}
+                }
+                if not known {
+                    return ParseError(msg: "blade help: unknown command `{topic}`")
+                }
+            }
+            return Cli(command: BladeCommand.Help)
+        }
+        if cmd.equals("version") {
+            return Cli(command: BladeCommand.Version)
+        }
+        return Cli(command: BladeCommand.Tree)
     }
 
     // Get the parsed command. Hands out an owned copy — `self` is borrowed, so

@@ -11,6 +11,7 @@
 // source, and the up-to-date stamp lives there too — so it answers for one
 // target only.
 
+import blade.cli.{BuildOptions, ModulePath}
 import blade.layout.*
 import blade.manifest.*
 import blade.resolver.*
@@ -91,6 +92,37 @@ func append_dir_saw(b: &var StringBuilder, dir: String) {
     }
 }
 
+// Append the contents of every `*.saw` file under `dir`, subdirectories
+// included, to `b`: a module path names a module root, and its imports reach
+// below it.
+func append_tree_saw(b: &var StringBuilder, dir: String) {
+    let entries = match Directory.list(Path(s: dir)) {
+        case Ok(v) -> move v,
+        case Err(_) -> { return }
+    }
+    var i = 0
+    while i < entries.len() {
+        if let e = entries.get(i) {
+            // Listing is the directory test (`Directory.exists` answers true
+            // for a file too): opendir(3) on a regular file fails.
+            let is_directory = match Directory.list(e) {
+                case Ok(_) -> true,
+                case Err(_) -> false
+            }
+            if is_directory {
+                append_tree_saw(&var b, e.as_string())
+            } else if let ext = e.file_extension() {
+                if ext.equals("saw") {
+                    try! b.append(e.as_string())
+                    try! b.append("\n")
+                    try! b.append(read_file(e.as_string()))
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
 // =============================================================================
 // Build avoidance (freshness stamp)
 // =============================================================================
@@ -128,19 +160,39 @@ public struct Builder {
     // layout's directory name: an SOS package may carry a `[sos.<triple>]`
     // section per machine, and selecting one needs the request itself.
     private requested_target: String
+    // `--linker-script`, or empty: replaces the selected `[sos.<triple>]`
+    // section's `linker-script` for an image build.
+    private linker_script: String
+    // `--module-path NAME=DIR`, passed to sawc after the dependencies' own.
+    private module_paths: Vector<ModulePath>
 }
+
+@synthesize
+extension Builder: ExplicitCopy {}
 
 extension Builder {
     // A builder for the default hosted build.
     public init(m: Manifest) -> Builder {
-        Builder(manifest: m, layout: BuildLayout(), requested_target: "")
+        Builder(manifest: m, layout: BuildLayout(), requested_target: "",
+                linker_script: "", module_paths: Vector<ModulePath>())
     }
 
     // A builder for an explicit sawc target triple; an empty `target` is the
     // hosted default, which is how a command with no `--target` spells itself.
     public init(m: Manifest, target: String) -> Builder {
         Builder(manifest: m, layout: BuildLayout(triple: target),
-                requested_target: target)
+                requested_target: target, linker_script: "",
+                module_paths: Vector<ModulePath>())
+    }
+
+    // A builder for `blade build`'s options: target, build directory, linker
+    // script and module paths.
+    public init(m: Manifest, options: BuildOptions) -> Builder {
+        Builder(manifest: m,
+                layout: BuildLayout(triple: options.target, out_dir: options.out_dir),
+                requested_target: options.target,
+                linker_script: options.linker_script,
+                module_paths: options.module_paths.copy())
     }
 
     // The compiler command. Honours a `SAWC` override so an in-tree compiler can
@@ -221,7 +273,17 @@ extension Builder {
     // Content hash of everything the build reads: Saw.toml, Saw.lock, and every
     // reachable `*.saw` source (root + each dependency checkout), plus a compiler
     // marker. Hashes CONTENT, not mtimes.
-    public func build_hash(&self, res: &Resolution) -> String {
+    //
+    // `linker_script` is the script an image build links with ("" for none):
+    // its path and content are part of the hash, so changing the script, or
+    // naming another with `--linker-script`, relinks. The `--module-path`
+    // entries follow: each NAME, DIR as written and the `*.saw` content under
+    // DIR.
+    //
+    // `layout` is the one the build writes through: its target is in the hash,
+    // because an out-dir is the caller's and one stamp may be asked about by
+    // builds for different targets.
+    public func build_hash(&self, res: &Resolution, layout: &BuildLayout, linker_script: String) -> String {
         var b = StringBuilder()
         try! b.append("sawc-1;")
         try! b.append(read_file("Saw.toml"))
@@ -232,7 +294,66 @@ extension Builder {
             append_dir_saw(&var b, "{self.dep_dir(&res, i)}/src")
             i = i + 1
         }
+        try! b.append("\ntarget={layout.target_name()}\n")
+        if not linker_script.is_empty() {
+            try! b.append("\nlinker-script={linker_script}\n")
+            try! b.append(read_file(linker_script))
+        }
+        var m = 0
+        while m < self.module_paths.len() {
+            if let entry = self.module_paths.get(m) {
+                try! b.append("\nmodule-path={entry.name}={entry.dir}\n")
+                append_tree_saw(&var b, entry.dir)
+            }
+            m = m + 1
+        }
         hash_string(b.build())
+    }
+
+    // Refuse a `--module-path` before anything is compiled: a DIR that does not
+    // exist, and a NAME a package of this build already has (the package
+    // itself or a resolved dependency), naming both sources.
+    func check_module_paths(&self, res: &Resolution) -> Result<Void, BuildError> {
+        var m = 0
+        while m < self.module_paths.len() {
+            guard let entry = self.module_paths.get(m) else {
+                break
+            }
+            if not Directory.exists(Path(s: entry.dir)) {
+                return BuildError(msg: "blade build: `--module-path {entry.name}={entry.dir}`: no such directory `{entry.dir}`")
+            }
+            match Directory.list(Path(s: entry.dir)) {
+                case Ok(_) -> {},
+                case Err(_) -> {
+                    return BuildError(msg: "blade build: `--module-path {entry.name}={entry.dir}`: `{entry.dir}` is not a directory")
+                }
+            }
+            if entry.name.equals(self.manifest.name()) {
+                return BuildError(msg: "blade build: `--module-path {entry.name}={entry.dir}` names this package, which maps `{entry.name}` to its own src")
+            }
+            var i = 0
+            while i < res.len() {
+                if res.name(i).equals(entry.name) {
+                    return BuildError(msg: "blade build: `--module-path {entry.name}={entry.dir}` names a dependency already: `{entry.name}` is `{self.dep_dir(&res, i)}/src` from Saw.toml")
+                }
+                i = i + 1
+            }
+            m = m + 1
+        }
+        return
+    }
+
+    // Pass the `--module-path` entries on to sawc, after the package's own and
+    // its dependencies'.
+    func add_module_paths(&self, cmd: &var Command) {
+        var m = 0
+        while m < self.module_paths.len() {
+            if let entry = self.module_paths.get(m) {
+                try! cmd.arg("--module-path")
+                try! cmd.arg("{entry.name}={entry.dir}")
+            }
+            m = m + 1
+        }
     }
 
     // Resolve dependencies for a BUILD, honoring Saw.lock (design 64 B4).
@@ -357,12 +478,31 @@ extension Builder {
         // accommodates this target by construction — a package cross-built for
         // two architectures gets two directories instead of two `.sosimg`
         // files fighting over one name.
-        let layout = BuildLayout(triple: cfg.target)
+        let layout = self.layout.retargeted(cfg.target)
         let image = layout.artifact("{name}.sosimg")
 
-        let res = try self.resolve_deps()
+        // `--linker-script` replaces the manifest's; either way it must exist
+        // before anything compiles, and its content is hashed.
+        let script = if self.linker_script.is_empty() {
+            cfg.linker_script
+        } else {
+            self.linker_script
+        }
+        if not File.exists(Path(s: script)) {
+            return BuildError(msg: "blade build: linker script `{script}` does not exist")
+        }
+        // Listing is the directory test, as in `check_module_paths`.
+        match Directory.list(Path(s: script)) {
+            case Ok(_) -> {
+                return BuildError(msg: "blade build: linker script `{script}` is a directory")
+            },
+            case Err(_) -> {}
+        }
 
-        let hash = self.build_hash(&res)
+        let res = try self.resolve_deps()
+        try self.check_module_paths(&res)
+
+        let hash = self.build_hash(&res, &layout, script)
         if not force && is_up_to_date(&layout, &hash, image) {
             print("    Finished {image} (up to date)")
             return 0
@@ -407,6 +547,7 @@ extension Builder {
             try! saw.arg("{res.name(i)}={self.dep_dir(&res, i)}/src")
             i = i + 1
         }
+        self.add_module_paths(&var saw)
         try self.run_tool(&saw, "sawc")
 
         var objects = Vector<String>()
@@ -444,7 +585,7 @@ extension Builder {
 
         var ld = Command(program: sos_ld(recorded))
         try! ld.arg("-T")
-        try! ld.arg(cfg.linker_script)
+        try! ld.arg(script)
         try! ld.arg("--gc-sections")
         try! ld.arg("-o")
         try! ld.arg(elf)
@@ -490,6 +631,9 @@ extension Builder {
         if let cfg = sos_cfg {
             return self.build_sos_image(&cfg, force)
         }
+        if not self.linker_script.is_empty() {
+            return BuildError(msg: "blade build: `--linker-script` applies to an image build ([sos] in Saw.toml), and this package builds no image for {self.layout.target_name()}")
+        }
 
         guard let source_file = self.find_source_file() else {
             return BuildError(msg: "No main.saw or lib.saw found")
@@ -499,13 +643,14 @@ extension Builder {
 
         // Resolve dependencies + write the lock.
         let res = try self.resolve_deps()
+        try self.check_module_paths(&res)
 
         // Build avoidance: skip the compile when nothing reachable changed AND
         // this target's artifact is actually there. Both halves are per-target,
         // so a build for one target never reports another's work as its own —
         // and an artifact left over from an older layout, sitting beside the
         // source where Blade used to put it, is simply not consulted.
-        let hash = self.build_hash(&res)
+        let hash = self.build_hash(&res, &self.layout, "")
         if not force && is_up_to_date(&self.layout, &hash, output_path) {
             print("    Finished {output_path} (up to date)")
             return 0
@@ -549,6 +694,7 @@ extension Builder {
             try! cmd.arg("{name}={self.dep_dir(&res, i)}/src")
             i = i + 1
         }
+        self.add_module_paths(&var cmd)
 
         let exit_code = match cmd.wait() {
             case Ok(code) -> code,
