@@ -54,14 +54,16 @@ gate_python() {
     fi
 }
 
-# Succeeds when the gate leaves room for this run. A status it cannot read
-# turns yielding off for the rest of the acquire and succeeds, so an
-# unreachable tracker degrades to the plain acquire rather than a wait forever.
+# Succeeds when the gate leaves room for this run. Exit 0 is clear and 3 is
+# busy; every other code, 1 (the interpreter's own failures) included, is a
+# status it cannot read. That turns yielding off for the rest of the acquire
+# and succeeds, so an unreachable tracker or a broken script degrades to the
+# plain acquire rather than a wait forever.
 gate_clear() {
     gate=$("$(gate_python)" "$TOOLS/gate_status.py" "$GATE_PROJECT" 2>&1)
     case $? in
         0) return 0 ;;
-        1) why=gate; return 1 ;;
+        3) why=gate; return 1 ;;
     esac
     say "cannot read the server's $GATE_PROJECT gate (${gate:-no output}); falling back to the plain acquire"
     yield=0

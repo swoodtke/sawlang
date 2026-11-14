@@ -4,10 +4,12 @@ run queued.
 
     python tools/gate_status.py PROJECT
 
-Exit 0: idle. Exit 1: busy, with one line naming the running and queued runs.
-Exit 2: unknown, with one line saying why. `suite_lock.sh acquire
---yield-to-gate` waits on 1 and falls back to the plain acquire on 2, so a
-tracker it cannot read never costs a local run more than the plain lock would.
+Exit 0: idle. Exit 3: busy, with one line naming the running and queued runs.
+Exit 2: unknown, with one line saying why. Any other code is unknown too.
+`suite_lock.sh acquire --yield-to-gate` waits on 3 only and falls back to the
+plain acquire on everything else, so a tracker it cannot read never costs a
+local run more than the plain lock would. Busy is not 1 because 1 is what the
+interpreter answers for its own failures (a syntax error, a failed import).
 
 SAW_GATE_STATUS_CMD replaces `sawtracker gate --project PROJECT --json`, which
 is how tools/test_suite_lock.py stands a fixture in for the tracker.
@@ -21,6 +23,8 @@ import sys
 # A tracker that accepts the connection and never answers would otherwise
 # stall the waiter, which polls this, for good.
 TIMEOUT = 30
+
+BUSY = 3
 
 
 def query(project):
@@ -89,12 +93,12 @@ def main(argv):
     if queued:
         parts.append("%d queued: %s" % (len(queued), ", ".join(queued)))
     print("; ".join(parts))
-    return 1
+    return BUSY
 
 
 def guarded(argv):
     """main's exit code, or 2 for any failure it did not anticipate: an
-    uncaught exception would exit 1, which is the busy answer."""
+    uncaught exception would exit 1, which no reader takes as busy."""
     try:
         return main(argv)
     except Exception as e:

@@ -376,6 +376,45 @@ def yield_status_failure(root):
         lock_tool(lock, "release")
 
 
+def status_exit_codes(root):
+    """gate_status.py answers 0 idle and 3 busy; 1 is the interpreter's own."""
+    tracker = Tracker(root, "codes")
+    for report, want in ((gate_report(), 0), (gate_report(running="SL-1.p1"), 3),
+                         (gate_report(queued=["SL-2.p1"]), 3)):
+        tracker.answer(report)
+        r = subprocess.run([sys.executable, os.path.join(REPO, "tools", "gate_status.py"), "SL"],
+                           cwd=REPO, env=tracker.env(os.path.join(root, "codes-lock")),
+                           capture_output=True, text=True)
+        check(r.returncode == want, "gate_status.py exits %d for this report, not %d" % (want, r.returncode),
+              r.stdout + r.stderr)
+
+
+def yield_broken_script(root):
+    """A status script the interpreter cannot run exits 1 on its own account;
+    that is not a busy gate, so the acquire falls back and takes the lock."""
+    tools = os.path.join(root, "broken-tools")
+    os.mkdir(tools)
+    shutil.copy(LOCK_TOOL, tools)
+    with open(os.path.join(tools, "gate_status.py"), "w") as fh:
+        fh.write("def main(:\n")
+    lock = os.path.join(root, "yield-broken")
+    proc = subprocess.Popen(["sh", os.path.join(tools, "suite_lock.sh"), "acquire",
+                             "--yield-to-gate", "--pid", ME, "broken script"],
+                            cwd=REPO, env=env_for(lock), stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    try:
+        rc, out = finish(proc)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        rc, out = finish(proc)
+        out = "(waited, never fell back)\n" + out
+    check(rc == 0 and "cannot read the server's SL gate (" in out and "SyntaxError" in out
+          and "falling back to the plain acquire" in out and "acquired" in out
+          and "suite lock: yielding" not in out and "now yielding" not in out,
+          "a status script that is a syntax error falls back to the plain acquire", out)
+    lock_tool(lock, "release")
+
+
 def gate_stub(root):
     """An interpreter for build.sh that records that the gate ran, then fails."""
     stub = os.path.join(root, "stub_python")
@@ -505,7 +544,8 @@ def main():
         for case in (free_lock, held_lock, unknown_holder, build_sh, orphaned_waiter,
                      term_releases, term_while_waiting, dead_owner_at_acquire, yield_idle,
                      yield_queued, yield_held, yield_running, yield_gives_back, yield_behind_holder,
-                     yield_fallback, yield_status_failure):
+                     yield_fallback, yield_status_failure, status_exit_codes,
+                     yield_broken_script):
             case(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -516,7 +556,7 @@ def main():
     print("suite lock: OK: holder, heartbeat, wait, unknown holder, build.sh, orphaned waiter, "
           "TERMed gate, TERMed waiter, dead owner, yield to an idle/queued/held/running gate, "
           "give back on a race, yield behind a holder, fallback, "
-          "a failing status command")
+          "a failing status command, the exit codes, a status script that is broken")
     return 0
 
 
