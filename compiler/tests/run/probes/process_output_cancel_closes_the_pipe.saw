@@ -10,16 +10,29 @@
 // The child writes forever, so the pipe always has bytes and the drain never
 // parks: the cancel is seen between two reads. A drain that ignored it would
 // never return. With the read end closed, the child's next write raises
-// SIGPIPE, which ends it; the sweep then reaps it.
+// SIGPIPE, which ends it; the sweep then reaps it. Each spawn sweeps the orphan
+// list, so the program spawns again until `waitid` with `WNOWAIT`, which reaps
+// nothing, says the process has no child left: std reaped the child.
+// `waitpid(-1, WNOHANG)` then counts what no one reaped.
 
 import std.process.{Command, CommandOutput}
 import std.systemerror.{SystemErrorKind}
 
 extern "C" {
     func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+    func waitid(kind: Int32, id: Int32, info: UnsafePointer<UInt8>, options: Int32) -> Int32
 }
 
 static WNOHANG: Int32 = 1
+static WEXITED: Int32 = 4
+static P_ALL: Int32 = 0
+// `WNOWAIT` by host, which `uname -s` names (sys/wait.h on each).
+static WNOWAIT_DARWIN: Int32 = 0x20
+static WNOWAIT_LINUX: Int32 = 0x01000000
+static WNOWAIT: Atomic<Int> = Atomic(0)
+// The sweeps below tick every millisecond for at most 10 s.
+static TICK_MS: UInt64 = 1
+static DEADLINE_TICKS: Int = 10_000
 
 func chatty() -> Bool {
     var c = Command(program: "/bin/sh")
@@ -50,17 +63,57 @@ func leftovers() unsafe -> Int {
     count
 }
 
+// Picks `WNOWAIT` for the host `uname -s` names. Its child is reaped by the call.
+func choose_wait_flag() {
+    var uname = Command(program: "uname")
+    try! uname.arg("-s")
+    let name = match uname.output() {
+        case Ok(out) -> out.stdout.trim(),
+        case Err(_) -> panic("uname -s did not run")
+    }
+    if name == "Darwin" {
+        WNOWAIT.store(WNOWAIT_DARWIN as Int)
+    } else if name == "Linux" {
+        WNOWAIT.store(WNOWAIT_LINUX as Int)
+    } else {
+        panic("no WNOWAIT value for the host {}", name)
+    }
+}
+
+// Whether the process has a child, running or not yet reaped; nothing is reaped.
+func has_children() unsafe -> Bool {
+    var info: [UInt8; 256] = [0; 256]
+    waitid(P_ALL, 0, (&info) as UnsafePointer<UInt8>, WEXITED | WNOHANG | (WNOWAIT.load() as Int32)) == 0
+}
+
+// Spawns a child that exits at once, which sweeps the orphan list, until the
+// process has no child left, a tick between turns.
+func sweep_until_childless() unsafe {
+    var ticks = 0
+    while true {
+        var sweeper = Command(program: "/bin/sh")
+        try! sweeper.arg("-c")
+        try! sweeper.arg("exit 0")
+        let _ = try! sweeper.wait()
+        if not has_children() {
+            return
+        }
+        if ticks == DEADLINE_TICKS {
+            return
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
+}
+
 func main() {
+    choose_wait_flag()
     var g = TaskGroup()
     let t = g.spawn(chatty())
     sleep(Duration.ms(50))
     t.cancel()
     print("interrupted: {}", t.join())
-    sleep(Duration.ms(300))
-    var sweeper = Command(program: "/bin/sh")
-    try! sweeper.arg("-c")
-    try! sweeper.arg("exit 0")
-    let _ = try! sweeper.wait()
+    sweep_until_childless()
     print("zombies left for nobody: {}", leftovers())
     print("children still running after the sweep: {}", running_children())
 }

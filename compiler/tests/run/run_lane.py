@@ -382,15 +382,27 @@ def masked(stdout):
     return "\n".join(_PANIC.sub("panic at ?: ", line) for line in lines)
 
 
-def first_difference(a, b):
+def first_difference(a, b, names=("sawc", "Stage 0")):
     la = a.decode("utf-8", "replace").split("\n")
     lb = b.decode("utf-8", "replace").split("\n")
     for k in range(max(len(la), len(lb))):
         x = la[k] if k < len(la) else "<end>"
         y = lb[k] if k < len(lb) else "<end>"
         if x != y:
-            return "line %d: sawc %r, Stage 0 %r" % (k + 1, x, y)
+            return "line %d: %s %r, %s %r" % (k + 1, names[0], x, names[1], y)
     return "no line differs"
+
+
+def output_difference(printed, expected):
+    """Where what a program printed (bytes, or text) departs from what it
+    should have, so a message never shows only a cut that may end before the
+    difference: the first differing line, then both lengths."""
+    if isinstance(printed, str):
+        printed = printed.encode("utf-8")
+    if isinstance(expected, str):
+        expected = expected.encode("utf-8")
+    return "%s (%d bytes printed, %d expected)" % (
+        first_difference(printed, expected, ("printed", "expected")), len(printed), len(expected))
 
 
 def check_case(src):
@@ -971,8 +983,8 @@ def check_executable_path(failures, counts):
                            timeout=RUN_TIMEOUT)
         want = os.path.realpath(binary) + "\n"
         if r.returncode != 0 or r.stdout != want:
-            failures.append("run executable path: %s's probe, run as `%s` through PATH, prints %r, not %r"
-                            % (who, name, r.stdout[:300], want))
+            failures.append("run executable path: %s's probe, run as `%s` through PATH, exits %s and prints a "
+                            "different output: %s" % (who, name, r.returncode, output_difference(r.stdout, want)))
         counts["run executable paths resolved"] = counts.get("run executable paths resolved", 0) + 1
 
 
@@ -1018,8 +1030,8 @@ def check_default_std_root(failures, counts):
     else:
         code, out, _ = execute(exe)
         if code != 0 or out != b"the new std\n":
-            failures.append("run default std: the program built with no --std-root prints %r, exit %s"
-                            % (out[:200], code))
+            failures.append("run default std: the program built with no --std-root exits %s: %s"
+                            % (code, output_difference(out, b"the new std\n")))
     mem = os.path.join(build.RT_ROOT, "common", "mem.saw")
     r = subprocess.run([build.SAWC, "runtime", "--target", TARGET or build.host_triple(), "--emit-ll", mem],
                        cwd=elsewhere, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
@@ -1279,8 +1291,8 @@ def check_codegen_units(failures, counts):
     def ran(binary, where):
         code, out, err = execute(binary)
         if code != 0 or out != CODEGEN_UNITS_OUTPUT:
-            failures.append("run codegen units: %s exits %s printing %r, not 0 printing %r"
-                            % (where, code, out[:200], CODEGEN_UNITS_OUTPUT))
+            failures.append("run codegen units: %s exits %s, not 0: %s"
+                            % (where, code, output_difference(out, CODEGEN_UNITS_OUTPUT)))
 
     def left(binary, where):
         units = binary + ".units"
@@ -1884,7 +1896,8 @@ def check_object_cache(failures, counts):
         if out:
             code, stdout, _ = execute(os.path.join(work, out))
             if code != 0 or stdout != CODEGEN_UNITS_OUTPUT:
-                failures.append("run object cache: %s's program exits %s printing %r" % (where, code, stdout[:200]))
+                failures.append("run object cache: %s's program exits %s: %s"
+                                % (where, code, output_difference(stdout, CODEGEN_UNITS_OUTPUT)))
         return found
 
     def entries(directory=cache):
@@ -2026,7 +2039,7 @@ def check_object_cache(failures, counts):
         compiled = [u for u, c in ((m.group(1), m.group(2)) for m in OBJECT_CACHE_UNIT.finditer(r.stderr)) if not c]
         if code != 0 or stdout != CODEGEN_UNITS_OUTPUT or len(compiled) != 3:
             failures.append("run object cache: past a truncated, an unreadable and a flipped entry the program exits "
-                            "%s printing %r, compiling %r" % (code, stdout[:200], compiled))
+                            "%s: %s, compiling %r" % (code, output_difference(stdout, CODEGEN_UNITS_OUTPUT), compiled))
         expect(sawc(["-O0", "-g0"], "after-repair", repair), "the build after the repair", True, "after-repair")
     checked += 3
     # The switches, and the builds no cache serves.
@@ -3165,9 +3178,10 @@ def held_probe(src, header):
             said = "".join(line + "\n" for line in header.get("stderr", [])).encode()
             code, out, err = execute(binary)
             if code != status or out != want:
-                failures.append("%s: exit %s, prints %r, not exit %d printing %r" % (where, code, out[:300], status, want))
+                failures.append("%s: exit %s (expected %d); output: %s"
+                                % (where, code, status, output_difference(out, want)))
             elif "stderr" in header and err != said:
-                failures.append("%s: writes %r on standard error, not %r" % (where, err[:300], said))
+                failures.append("%s: standard error differs: %s" % (where, output_difference(err, said)))
             elif "leaks" in header:
                 found = leak_problems(where, binary)
                 if found is None:
@@ -3182,8 +3196,10 @@ def held_probe(src, header):
             said = lines_of(masked(err))
             if code != -signal.SIGABRT or printed != want or not said or not panic_dump_ok(said[1:]) \
                     or not said[0].startswith("panic at ?: ") or panic not in said[0]:
-                failures.append("%s: exit %s, prints %r and %r on standard error, not %r then a panic holding %r "
-                                "on standard error" % (where, code, out[:300], err[:300], want, panic))
+                failures.append("%s: exit %s (expected %d); output: %s; %r on standard error, not a panic holding "
+                                "%r" % (where, code, -signal.SIGABRT,
+                                        output_difference(masked(out), "".join(line + "\n" for line in want)),
+                                        err[:300], panic))
         ll_failures += ll_problems(where, ll, header)
     counts = {}
     if not failures:
@@ -3834,8 +3850,8 @@ def check_runtime_provider(failures, counts):
                 continue
             code, out, _ = execute(binary)
             if code != 0 or out != PROVIDER_LINE:
-                failures.append("%s: the binary prints %r and exits %s, not %r and 0"
-                                % (where, out[:200], code, PROVIDER_LINE))
+                failures.append("%s: the binary exits %s, not 0: %s"
+                                % (where, code, output_difference(out, PROVIDER_LINE)))
                 continue
             counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
     problem = bare_metal_record_problem(rel(probe))
@@ -3951,8 +3967,8 @@ def check_cooperative_provider(failures, counts):
             continue
         code, out, _ = execute(binary)
         if code != 0 or out != COOPERATIVE_LINE:
-            failures.append("%s: the binary prints %r and exits %s, not %r and 0"
-                            % (where, out[:200], code, COOPERATIVE_LINE))
+            failures.append("%s: the binary exits %s, not 0: %s"
+                            % (where, code, output_difference(out, COOPERATIVE_LINE)))
             continue
         counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
 

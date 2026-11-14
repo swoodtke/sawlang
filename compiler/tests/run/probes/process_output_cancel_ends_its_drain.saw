@@ -21,8 +21,12 @@
 // descriptors, so the program puts that write end at its own standard error
 // while it launches a child, and puts its own back once the byte has come.
 // Closing the gate ends every child, and the second pipe then reads end of
-// file exactly when every child holding it has exited. One more spawn sweeps
-// the orphan list, and `waitpid(-1, WNOHANG)` then counts what no one reaped.
+// file once every child holding it has closed its standard error, which a
+// child does on its way out, before `waitpid` can reap it. So the end of file
+// is not an exit. Each spawn sweeps the orphan list, so the program spawns
+// again until `waitid` with `WNOWAIT`, which reaps nothing, says the process
+// has no child left: std reaped every one. `waitpid(-1, WNOHANG)` then counts
+// what no one reaped.
 
 import std.process.{Command, CommandOutput, CommandByteOutput}
 import std.systemerror.{SystemError, SystemErrorKind}
@@ -32,6 +36,7 @@ struct PollFd { fd: Int32, events: Int16, revents: Int16 }
 
 extern "C" {
     func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+    func waitid(kind: Int32, id: Int32, info: UnsafePointer<UInt8>, options: Int32) -> Int32
     func pipe(ends: UnsafePointer<Int32>) -> Int32
     func dup(fd: Int32) -> Int32
     func dup2(from: Int32, to: Int32) -> Int32
@@ -42,6 +47,14 @@ extern "C" {
 }
 
 static WNOHANG: Int32 = 1
+static WEXITED: Int32 = 4
+static P_ALL: Int32 = 0
+// The `siginfo_t` buffer `waitid` fills, larger than the struct on macOS and Linux.
+static SIGINFO_BYTES: Int = 256
+// `WNOWAIT` by host, which `uname -s` names (sys/wait.h on each).
+static WNOWAIT_DARWIN: Int32 = 0x20
+static WNOWAIT_LINUX: Int32 = 0x01000000
+static WNOWAIT: Atomic<Int> = Atomic(0)
 static POLLIN: Int16 = 1
 static STANDARD_INPUT: Int32 = 0
 static STANDARD_ERROR: Int32 = 2
@@ -214,7 +227,51 @@ func leftovers() unsafe -> Int {
     count
 }
 
+// Picks `WNOWAIT` for the host `uname -s` names. Its child is reaped by the call.
+func choose_wait_flag() {
+    var uname = Command(program: "uname")
+    try! uname.arg("-s")
+    let name = match uname.output() {
+        case Ok(out) -> out.stdout.trim(),
+        case Err(_) -> panic("uname -s did not run")
+    }
+    if name == "Darwin" {
+        WNOWAIT.store(WNOWAIT_DARWIN as Int)
+    } else if name == "Linux" {
+        WNOWAIT.store(WNOWAIT_LINUX as Int)
+    } else {
+        panic("no WNOWAIT value for the host {}", name)
+    }
+}
+
+// Whether the process has a child, running or not yet reaped; nothing is reaped.
+func has_children() unsafe -> Bool {
+    var info: [UInt8; 256] = [0; 256]
+    waitid(P_ALL, 0, (&info) as UnsafePointer<UInt8>, WEXITED | WNOHANG | (WNOWAIT.load() as Int32)) == 0
+}
+
+// Spawns a child that exits at once, which sweeps the orphan list, until the
+// process has no child left, a tick between turns.
+func sweep_until_childless() unsafe {
+    var ticks = 0
+    while true {
+        var sweeper = Command(program: "/bin/sh")
+        try! sweeper.arg("-c")
+        try! sweeper.arg("exit 0")
+        let _ = try! sweeper.wait()
+        if not has_children() {
+            return
+        }
+        if ticks == DEADLINE_TICKS {
+            return
+        }
+        sleep(Duration.ms(TICK_MS))
+        ticks = ticks + 1
+    }
+}
+
 func main() {
+    choose_wait_flag()
     open_pipes()
     cancelled_cell("output, silent child", "printf x >&2; read gate", false)
     cancelled_cell("output, child wrote first", "echo hi; printf x >&2; read gate", false)
@@ -225,10 +282,7 @@ func main() {
     GATE_CLOSED.store(1)
     let _ = close(GATE_WRITE.load() as Int32)
     await_exits()
-    var sweeper = Command(program: "/bin/sh")
-    try! sweeper.arg("-c")
-    try! sweeper.arg("exit 0")
-    let _ = try! sweeper.wait()
+    sweep_until_childless()
     print("zombies left for nobody: {}", leftovers())
     print("children still running after the sweep: {}", running_children())
     print("deinits={}", DEINITS.load())
