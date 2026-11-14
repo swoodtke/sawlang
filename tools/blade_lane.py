@@ -12,6 +12,9 @@ Steps, each printed, the first failure ending the run:
      the ones sawc writes for the Saw half (`--emit-ll`, no clang needed).
   5. Blade refuses an unknown flag or word; `--module-path`, `--out-dir` and
      `--linker-script` reach the build and its freshness check.
+  5b. Each input a build reads or chooses (nested sources, a root main.saw, a
+     dependency's manifest, native units, the tool and compiler choices, the
+     compiler's version) changes the freshness check.
   6. `blade new` and `blade run` make and run a package in a directory under
      `.build/`.
 
@@ -507,6 +510,144 @@ def check_blade_image_module_path(binary=None):
     blade_ok(binary, flags + flag, package, "Compiling")
 
 
+def append_text(path, text):
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(text)
+
+
+def write_script(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(path, 0o755)
+
+
+def fake_compiler(directory, version="sawc 9.0.0"):
+    """A `SAWC` script in `directory` that compiles with `build.SAWC`; its
+    `--version` is the first line of `version.txt` beside it (`FAIL` exits 1,
+    `EMPTY` prints nothing) and `sawc tools` prints `tools.txt` when there is
+    one. Returns the script's path."""
+    os.makedirs(directory, exist_ok=True)
+    script = os.path.join(directory, "fakesawc.sh")
+    write_script(script, (
+        '#!/bin/bash\nD=$(dirname "$0")\n'
+        'if [ "$1" = "--version" ] && [ -f "$D/version.txt" ]; then\n'
+        '  v=$(cat "$D/version.txt")\n'
+        '  if [ "$v" = FAIL ]; then exit 1; fi\n'
+        '  if [ "$v" = EMPTY ]; then exit 0; fi\n'
+        '  echo "$v"; exit 0\n'
+        'fi\n'
+        'if [ "$1" = tools ] && [ -f "$D/tools.txt" ]; then cat "$D/tools.txt"; exit 0; fi\n'
+        'exec "%s" "$@"\n' % build.SAWC))
+    set_version(directory, version)
+    return script
+
+
+def set_version(directory, text):
+    with open(os.path.join(directory, "version.txt"), "w", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+
+def rebuilds_after(binary, name, args, package, change, before_env=None, after_env=None):
+    """One row of the freshness matrix: a build that is up to date, then `change()` to
+    the one input, and the next build prints `Compiling` and not `(up to date)`; an
+    unchanged build after that is up to date again."""
+    print("blade: a changed %s rebuilds" % name, flush=True)
+    code, out = run_blade(binary, args, package, before_env)
+    if code != 0:
+        raise Failure("blade %s before changing %s exited %s\n%s" % (" ".join(args), name, code, out))
+    blade_ok(binary, args, package, "(up to date)", before_env)
+    change()
+    after_env = after_env if after_env is not None else before_env
+    out = blade_ok(binary, args, package, "Compiling", after_env)
+    if "(up to date)" in out:
+        raise Failure("a changed %s left the build up to date\n%s" % (name, out))
+    blade_ok(binary, args, package, "(up to date)", after_env)
+
+
+def check_blade_freshness_hosted(binary=None):
+    """A hosted build is up to date only while every input the build reads or
+    chooses is unchanged: a source in a subdirectory of the package's `src` or a
+    dependency's `src`, a root `main.saw`, a dependency's `Saw.toml`, the `SAWC`
+    command and the compiler's version. A compiler whose version cannot be
+    read is never up to date."""
+    binary = binary or SELF_BUILT
+    work = os.path.join(WORK_DIR, "freshness")
+    shutil.rmtree(work, ignore_errors=True)
+    shutil.copytree(os.path.join(BLADE_DIR, "tests", "fixtures", "freshness"), work)
+    package = os.path.join(work, "app")
+    root_main = os.path.join(work, "rootmain")
+    rows = (
+        ("source below the package's src", package, os.path.join(package, "src", "net", "tcp.saw"), "// edited\n"),
+        ("source below a dependency's src", package, os.path.join(work, "lib", "src", "inner", "helper.saw"), "// edited\n"),
+        ("dependency Saw.toml", package, os.path.join(work, "lib", "Saw.toml"), "# edited\n"),
+        ("root main.saw", root_main, os.path.join(root_main, "main.saw"), "// edited\n"),
+    )
+    for name, directory, path, text in rows:
+        rebuilds_after(binary, name, ["build"], directory, lambda p=path, t=text: append_text(p, t))
+    first, second = os.path.join(work, "compiler1"), os.path.join(work, "compiler2")
+    rebuilds_after(binary, "SAWC command", ["build"], package, lambda: None,
+                   blade_environment({"SAWC": fake_compiler(first)}),
+                   blade_environment({"SAWC": fake_compiler(second)}))
+    versioned = os.path.join(work, "versioned")
+    env = blade_environment({"SAWC": fake_compiler(versioned)})
+    rebuilds_after(binary, "compiler version", ["build"], package,
+                   lambda: set_version(versioned, "sawc 9.0.1"), env)
+    for state in ("FAIL", "EMPTY"):
+        print("blade: a compiler whose --version is %s is never up to date" % state, flush=True)
+        set_version(versioned, state)
+        for attempt in (1, 2):
+            out = blade_ok(binary, ["build"], package, "Compiling", env)
+            if "(up to date)" in out:
+                raise Failure("a build with a compiler whose --version is %s was up to date\n%s" % (state, out))
+        set_version(versioned, "sawc 9.0.1")
+        blade_ok(binary, ["build"], package, "Compiling", env)
+        blade_ok(binary, ["build"], package, "(up to date)", env)
+
+
+def check_blade_freshness_images(binary=None):
+    """An image build is up to date only while its native units (C and assembly,
+    not their headers), `SOS_CLANG`, `SOS_LD` and the tools `sawc tools` records
+    for the target are unchanged."""
+    binary = binary or SELF_BUILT
+    triple = "riscv32-unknown-none-elf"
+    if not has_sawc_record(triple):
+        print("blade: no sawc record for %s: the freshness of an image build is not checked" % triple, flush=True)
+        return
+    package, root = image_package()
+    args = ["build", "--target", triple]
+    unset = blade_environment()
+    for name in ("SOS_CLANG", "SOS_LD"):
+        unset.pop(name, None)
+    rebuilds_after(binary, "native C unit", args, package,
+                   lambda: append_text(os.path.join(root, "hal", "support.c"), "// edited\n"), unset)
+    rebuilds_after(binary, "native assembly unit", args, package,
+                   lambda: append_text(os.path.join(root, "hal", "riscv32", "boot.S"), "// edited\n"), unset)
+    with open(os.path.join(os.path.dirname(build.SAWC), "sawc-runtime-%s.txt" % triple), encoding="utf-8") as f:
+        recorded = f.read()
+    clang = re.search(r"^clang (.+)$", recorded, re.M)
+    linker = shutil.which("ld.lld", path=unset.get("PATH"))
+    if not clang or not linker:
+        raise Failure("the lane found no clang in the sawc record for %s or no ld.lld on PATH" % triple)
+    other_clang = os.path.join(root, "other-clang.sh")
+    write_script(other_clang, '#!/bin/bash\nexec "%s" "$@"\n' % clang.group(1))
+    other_linker = os.path.join(root, "other-ld.sh")
+    write_script(other_linker, '#!/bin/bash\nexec "%s" "$@"\n' % linker)
+    with_clang = dict(unset)
+    with_clang["SOS_CLANG"] = other_clang
+    rebuilds_after(binary, "SOS_CLANG", args, package, lambda: None, unset, with_clang)
+    with_linker = dict(unset)
+    with_linker["SOS_LD"] = other_linker
+    rebuilds_after(binary, "SOS_LD", args, package, lambda: None, unset, with_linker)
+    compiler = os.path.join(root, "recording")
+    env = blade_environment({"SAWC": fake_compiler(compiler)})
+    for name in ("SOS_CLANG", "SOS_LD"):
+        env.pop(name, None)
+    write_script(os.path.join(compiler, "tools.txt"), "clang %s\nobjcopy /unused\n" % clang.group(1))
+    rebuilds_after(binary, "clang the target's record names", args, package,
+                   lambda: write_script(os.path.join(compiler, "tools.txt"), "clang %s\nobjcopy /unused\n" % other_clang),
+                   env)
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -532,6 +673,8 @@ def lane():
         check_blade_out_dir_and_linker_script()
         check_blade_out_dir_names_target()
         check_blade_image_module_path()
+        check_blade_freshness_hosted()
+        check_blade_freshness_images()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

@@ -810,6 +810,16 @@ Blade refuses a flag it does not know, a flag with no value and a stray word
 on every command (`blade build --targt x` is an error, not a host build), and
 `blade <command> --help` and `blade help <command>` print the help.
 
+`blade build` prints `(up to date)` and skips the compile only when a hash of
+what the build reads and chooses matches the one the last build recorded: the
+manifest and lock, every `.saw` file under the package's `src` and each
+dependency's `src`, a root `main.saw`, each dependency's `Saw.toml`, an image's
+native units, the `SAWC` command, the C compiler and linker an image build
+runs, and the first line of `sawc --version`. A header a native unit includes
+is not tracked, and neither is a compiler whose version is unchanged (a
+rebuilt development compiler, an edited `std/`): `--force` rebuilds in both
+cases.
+
 A project declares dependencies in its `Saw.toml`:
 
 ```toml

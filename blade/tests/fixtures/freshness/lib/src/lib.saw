@@ -1,0 +1,5 @@
+import freshlib.inner.helper
+
+public func depth() -> Int {
+    helper.base()
+}

@@ -1,0 +1,8 @@
+// The freshness fixture: a nested source in the package, and a dependency
+// with a nested source and a manifest of its own.
+import freshlib
+import freshapp.net.tcp
+
+func main() {
+    print(freshlib.depth() + tcp.port())
+}

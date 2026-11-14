@@ -1,0 +1,4 @@
+// The entry file lives at the package root, not under src.
+func main() {
+    print("root")
+}

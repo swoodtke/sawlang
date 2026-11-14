@@ -15540,7 +15540,11 @@ build output and stay where they are. `--module-path NAME=DIR`, repeatable, is
 passed to `sawc` after the package's own and its dependencies' entries. It is an
 error when `DIR` is not a directory, when `NAME` is given twice, and when `NAME`
 is this package or a dependency. The `NAME`, the `DIR` as written and the `.saw`
-files under it are part of the up-to-date check. Each flag value follows its flag
+files under it are part of the up-to-date check. So are an image's native units
+(`native`, by path and content: a header a unit includes is not tracked, and
+`--force` rebuilds), the C compiler and linker the build will run, the `SAWC`
+command and the first line of `sawc --version`; a compiler whose version cannot
+be read is never up to date. Each flag value follows its flag
 as a separate word or as `--flag=value`. A flag Blade does not know, a flag with
 no value, a flag given twice that does not repeat and a stray word are errors
 for every subcommand.

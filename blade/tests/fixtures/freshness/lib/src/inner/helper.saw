@@ -1,0 +1,3 @@
+public func base() -> Int {
+    2
+}
