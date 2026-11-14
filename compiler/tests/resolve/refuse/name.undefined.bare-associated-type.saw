@@ -1,5 +1,6 @@
-// refuses: name.undefined at 13:37
+// refuses: name.undefined at 14:37
 // an associated type named bare in a generic body, refused with the fix-it `T.Item`
+// message: an associated type of a bound is named through its type parameter, as `T.Item`
 
 trait Container {
     type Item

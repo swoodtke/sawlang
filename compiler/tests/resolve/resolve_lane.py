@@ -43,6 +43,11 @@ import build  # noqa: E402
 sys.path.insert(0, HERE)
 import interface_pin  # noqa: E402
 
+# The `// message:` header reader is the typecheck lane's, so a header means the
+# same in every lane that has one.
+sys.path.insert(0, os.path.join(TESTS, "typecheck"))
+from typecheck_lane import first_message, fixture_messages  # noqa: E402
+
 GOLDEN = os.path.join(HERE, "golden")
 MULTI = os.path.join(HERE, "multi")
 PACKAGE = os.path.join(HERE, "package")
@@ -78,6 +83,23 @@ BUILT_DIR = os.path.join(REPO, ".build", "resolve-lane")
 PARSE_REFUSED_ENTRY = "import broken.{thing}\n\nfunc f() -> Int {\n    thing()\n}\n"
 PARSE_REFUSED_MODULE = "public func thing() -> Int {\n    let = 1\n}\n"
 PARSE_REFUSED_AT = "broken.saw:2:9"
+# Entry files the parser refuses, whose own refusal a later stage reports with
+# the parser's words. Each carries the `// refuses:` and `// message:` headers a
+# refusal fixture does, and is written under .build because a tracked file the
+# grammar refuses would need a grammar-corpus row (SL-1037).
+PARSE_MESSAGE_CASES = {
+    "two-diagnostics": (
+        "// refuses: resolve.parse-refused at 5:13\n"
+        "// message: this bracket is never closed (syntax.lex.unclosed-bracket); the parser refuses `\n"
+        "// message: `, so its declarations are not available, and 1 more refusal follows: `sawc parse --check \n"
+        "func main() {\n    let a = [1, 2\n}\n"),
+    "with-hint": (
+        "// refuses: resolve.parse-refused at 5:1\n"
+        "// message: a mutable static is `unsafe static var`, and `unsafe` marks a mutable one (syntax.decl.refused-static): \n"
+        "// message: write `unsafe static var X: T = \n"
+        "// message: ; the parser refuses `\n"
+        "static var a: Int = 1\n\nfunc main() {\n}\n"),
+}
 
 
 def rel(path):
@@ -283,6 +305,12 @@ def check_refusals(failures, counts, fill):
         elif at and found[1] != at:
             failures.append("resolve refusal %s: %s at %s, expected at %s"
                             % (rel(path), rule, found[1], at))
+        else:
+            message = first_message(record)
+            for text in fixture_messages(path):
+                if text not in message:
+                    failures.append("resolve refusal %s: the message does not hold %r: %s"
+                                    % (rel(path), text, message))
         counts["resolve refusal fixtures"] = counts.get("resolve refusal fixtures", 0) + 1
     return named
 
@@ -321,6 +349,29 @@ def check_catalog(failures, counts, named):
     counts["resolve rules"] = len(catalog)
 
 
+def check_parse_message_case(failures, name, source):
+    """One PARSE_MESSAGE_CASES entry: refused by the rule at the position its
+    header names, with the message its `// message:` lines name."""
+    case = os.path.join(BUILT_DIR, "parse-message-" + name)
+    os.makedirs(case, exist_ok=True)
+    entry = os.path.join(case, "main.saw")
+    with open(entry, "w") as fh:
+        fh.write(source)
+    code, out = sawc(["--check", rel(entry)])
+    record = records(out).get(rel(entry), "")
+    found = first_error(record, rel(entry))
+    m = header_of(entry)
+    if found != (m.group(1), m.group(2)):
+        failures.append("resolve parse message %s: refused as %r, expected %s at %s"
+                        % (name, found, m.group(1), m.group(2)))
+        return
+    message = first_message(record)
+    for text in fixture_messages(entry):
+        if text not in message:
+            failures.append("resolve parse message %s: the message does not hold %r: %s"
+                            % (name, text, message))
+
+
 def check_built_cases(failures, counts):
     """The refusals no tracked fixture holds, written under .build: a missing
     entry file and an imported module the parser refuses."""
@@ -341,7 +392,9 @@ def check_built_cases(failures, counts):
     if found != ("resolve.parse-refused", PARSE_REFUSED_AT):
         failures.append("resolve: an imported module the parser refuses gives %r, expected "
                         "resolve.parse-refused at %s" % (found, PARSE_REFUSED_AT))
-    counts["resolve built cases"] = 2
+    for name, source in sorted(PARSE_MESSAGE_CASES.items()):
+        check_parse_message_case(failures, name, source)
+    counts["resolve built cases"] = 2 + len(PARSE_MESSAGE_CASES)
     check_identity_cases(failures, counts)
 
 

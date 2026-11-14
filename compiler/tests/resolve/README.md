@@ -241,7 +241,10 @@ whose `main.saw` is the entry (SL:testing §5). A fixture's first line is
 ```
 
 and its first `ERROR` must carry that rule at that position; a position in
-another module of the fixture is written `FILE.saw:L:C`. The second line says
+another module of the fixture is written `FILE.saw:L:C`. Any number of
+`// message: TEXT` lines in the leading comment each name text the first
+`ERROR`'s message must hold, so a message that teaches a spelling is pinned
+(the reader is the typecheck lane's `fixture_messages`). The second line says
 what the fixture shows, unless it is `// flags: ...`, whose flags the fixture
 is resolved with.
 
@@ -294,6 +297,10 @@ so no fixture holds the mismatch (`WAIVED`).
 - every rule the resolver's source refuses by has a fixture, but the ones its
   `WAIVED` table names, and a missing entry file is refused as
   `import.unreadable`;
+- two entry files the parser refuses, written under `.build` (a tracked one
+  would need a grammar-corpus row), are refused as `resolve.parse-refused`
+  with the parser's message: one with a hint, and one whose refusal has a
+  second diagnostic after it (`PARSE_MESSAGE_CASES`, headers as above);
 - each golden record leaves out the `std.` modules' dumps and holds its entry
   module's own;
 - the compiler's own source resolves with no refusal: the sawc build, with

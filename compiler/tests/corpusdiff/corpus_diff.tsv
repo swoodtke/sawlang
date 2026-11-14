@@ -65,7 +65,7 @@ array_length_nonconst_error.saw	pass	-	static.not-constant: array length is not 
 array_length_nonint_static_error.saw	pass	-	static.not-constant: array length is not a compile-time constant: the `Bool` static `ENABLED` is not allowed here; a static is a constant here when it is an immutable static of an integer type whose o
 array_length_runtime_local_error.saw	pass	-	static.not-constant: array length is not a compile-time constant: `n` names a binding whose value is known only at run time
 array_literal_move_in.saw	pass	-	-
-array_no_extension_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/array_no_extension_error.saw` (syntax.decl.refused-array-extension), so its declarations are not available
+array_no_extension_error.saw	pass	-	resolve.parse-refused: a fixed array takes no extension (syntax.decl.refused-array-extension): write a free function instead; the parser refuses `tests/corpus/array_no_extension_error.saw`, so its dec
 array_nocopy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `[array_nocopy_requires_move.F; 2]`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 array_string_field.saw	pass	-	-
 array_struct_containment.saw	pass	-	copy.undeclared-policy: `Holder` holds `Holder.files` of type `[array_struct_containment.F; 2]`, which is NoCopy, so it declares its own policy: `extension Holder: NoCopy {}`, or `@synthesize` an Expl
@@ -87,16 +87,16 @@ async_main_nested_sleep.saw	pass	-	-
 async_main_sleep_yield.saw	pass	-	-
 atomic_field_self_method.saw	pass	-	-
 atomic_nocopy_cell_clause.saw	pass	-	-
-attr_bad_arity_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_bad_arity_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-attr_duplicate_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_duplicate_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-attr_export_on_extension_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_export_on_extension_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-attr_on_local_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_on_local_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-attr_on_method_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_on_method_error.saw` (parse-error), so its declarations are not available
-attr_on_struct_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_on_struct_error.saw` (parse-error), so its declarations are not available
-attr_synthesize_arg_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_synthesize_arg_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-attr_synthesize_on_func_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_synthesize_on_func_error.saw` (syntax.rule.attribute-position), so its declarations are not available
+attr_bad_arity_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)` or `@align(n)` (syntax.rule.attribute-position); the parser refuses `tests
+attr_duplicate_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+attr_export_on_extension_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+attr_on_local_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+attr_on_method_error.saw	pass	-	resolve.parse-refused: a member takes no attribute but `@synthesize(shared)` (parse-error); the parser refuses `tests/corpus/attr_on_method_error.saw`, so its declarations are not available
+attr_on_struct_error.saw	pass	-	resolve.parse-refused: this declaration takes no attribute (parse-error); the parser refuses `tests/corpus/attr_on_struct_error.saw`, so its declarations are not available
+attr_synthesize_arg_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)` or `@align(n)` (syntax.rule.attribute-position); the parser refuses `tests
+attr_synthesize_on_func_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
 attr_synthesize_parses.saw	pass	-	-
-attr_unknown_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_unknown_error.saw` (syntax.rule.attribute-position), so its declarations are not available
+attr_unknown_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)` or `@align(n)` (syntax.rule.attribute-position); the parser refuses `tests
 autowrap_diverging_arm.saw	pass	-	-
 autowrap_err_no_premature_free.saw	pass	-	-
 autowrap_ok_no_premature_free.saw	pass	-	-
@@ -631,7 +631,7 @@ const_generic_basic.saw	pass	-	-
 const_generic_default_and_arith.saw	refused	typecheck slice.not-yet	`syntax.const.term` is not in the bootstrap slice yet
 const_generic_enum_and_function.saw	pass	-	-
 const_generic_infer_length.saw	pass	-	-
-const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/const_generic_specialized_extension_unsupported.saw` (parse-error), so its declarations are not available
+const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused: expected a generic parameter's name (parse-error); the parser refuses `tests/corpus/const_generic_specialized_extension_unsupported.saw`, so its declarations are not available
 const_generic_type_for_value_error.saw	pass	-	type.argument-kind: this argument's parameter takes a value, and a type is written
 const_generic_value_for_type_error.saw	pass	-	type.argument-kind: this argument's parameter takes a type, and a value is written
 const_length_grammar_bool_error.saw	refused	typecheck slice.not-yet	`syntax.expr.bitand` is not in the bootstrap slice yet
@@ -925,13 +925,13 @@ discard_forms_release_matrix.saw	stage0-wrong	annotated SL-513	sawc meets its di
 discard_let_deinit_immediate.saw	pass	-	-
 discard_let_read_error.saw	refused	resolve name.undefined	cannot find `_` in scope
 discard_let_two_same_scope.saw	pass	-	-
-discard_var_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/discard_var_error.saw` (syntax.stmt.refused-var-discard), so its declarations are not available
+discard_var_error.saw	pass	-	resolve.parse-refused: `_` binds nothing, so there is nothing to mutate (syntax.stmt.refused-var-discard): write `let _ = e`; the parser refuses `tests/corpus/discard_var_error.saw`, so its declaratio
 distinct_type_value_access_error.saw	refused	typecheck member.unknown	`Int` has no member `value` this module can see
 div_by_zero_modulo.saw	pass	-	-
 div_by_zero_panics.saw	pass	-	-
 doc_comment_attachment.saw	pass	-	-
-doc_comment_module_placement_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/doc_comment_module_placement_error.saw` (syntax.lex.module-doc), so its declarations are not available
-doc_comment_unattached_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/doc_comment_unattached_error.saw` (syntax.lex.doc-attach), so its declarations are not available
+doc_comment_module_placement_error.saw	pass	-	resolve.parse-refused: a `//!` comment stands only before the file's first token (syntax.lex.module-doc): make it a `//` comment, or move it to the top; the parser refuses `tests/corpus/doc_comment_mo
+doc_comment_unattached_error.saw	pass	-	resolve.parse-refused: this doc comment documents no declaration (syntax.lex.doc-attach): make it a `//` comment, or move it before a declaration; the parser refuses `tests/corpus/doc_comment_unattach
 doc_emit_borrows.saw	refused	driver driver.usage	sawc build takes no --emit-docs
 doc_emit_effect.saw	refused	driver driver.usage	sawc build takes no --emit-docs
 doc_emit_json.saw	refused	driver driver.usage	sawc build takes no --emit-docs
@@ -1014,8 +1014,8 @@ error_any_box.saw	pass	-	-
 error_split_conformance.saw	pass	-	-
 errors/align_above_cap.saw	pass	-	constant.align: `@align` on the local `body` is `8192`, above the largest alignment Saw will request (`4096`): `4096` is one page on every target Saw builds for, and a stack slot or an ordinary global
 errors/align_non_constant.saw	pass	-	static.not-constant: `width` is not a constant, and an `@align` argument is a constant expression: it names a binding whose value is known only at run time
-errors/align_on_function.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/align_on_function.saw` (syntax.rule.attribute-position), so its declarations are not available
-errors/align_on_struct_field.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/align_on_struct_field.saw` (parse-error), so its declarations are not available
+errors/align_on_function.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+errors/align_on_struct_field.saw	pass	-	resolve.parse-refused: expected a field's name (parse-error); the parser refuses `tests/corpus/errors/align_on_struct_field.saw`, so its declarations are not available
 errors/alloc_try_twins_are_retired.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `try_push` this module can see
 errors/alloc_type_distinct.saw	pass	-	conformance.signature: `LoudAlloc.alloc` does not meet `Allocator.alloc`, as `LoudAlloc` conforms to `Allocator` needs: the requirement declares `unsafe`, so the implementation must too
 errors/any_associated_type.saw	pass	-	erasure.not-object-safe: cannot form `any any_associated_type.Producer`: `Producer` has the associated type `Producer.Item`, which an erased value cannot name; a trait that is not object-safe is a gen
@@ -1048,7 +1048,7 @@ errors/borrowing_struct_value_positions.saw	pass	-	borrowing.containment: `b.ite
 errors/borrows_bare_cross_module_use.saw	pass	judged by its own directives (no oracle)	borrows.result: `Slab.[]` is declared `borrows`, and lends `Int`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &Int` if a use site may only RE
 errors/borrows_bare_return_type.saw	pass	judged by its own directives (edited since its oracle)	borrows.result: `Grid.at` is declared `borrows`, and lends `Cell`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &Cell` if a use site may only
 errors/borrows_body_never_lends.saw	pass	-	lend.missing: this path through the `borrows` body of `at` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value
-errors/borrows_effect_slot_order.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/borrows_effect_slot_order.saw` (syntax.rule.effect-slot), so its declarations are not available
+errors/borrows_effect_slot_order.saw	pass	-	resolve.parse-refused: effect words stand once each, in one order (syntax.rule.effect-slot): write `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` or `blocking` in `s
 errors/borrows_function_type_rejected.saw	wrong	accepts a refusal test	Parse error at 10:21: a function TYPE may not be `borrows` (design 141 v1): a borrows call yields a place for a window, and a place is never a value, so there is nothing to bind, store or erase. Call
 errors/borrows_lend_coverage_partial.saw	refused	mir slice.not-yet	an accessor whose code after `lend` is reachable without lending is not lowered to MIR in the bootstrap slice yet
 errors/borrows_lend_in_loop.saw	refused	mir slice.not-yet	an accessor whose code after `lend` is reachable without lending is not lowered to MIR in the bootstrap slice yet
@@ -1067,8 +1067,8 @@ errors/capture_assign_escaping.saw	pass	-	mutability.immutable: this assignment 
 errors/capture_assign_non_escaping.saw	pass	-	mutability.immutable: this assignment writes `sum`, and `sum` is captured by value, which makes it a `let` in the closure's body: to write the caller's binding, capture it with `[&var sum]`; to change
 errors/capture_borrow_escaping.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `sum` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or co
 errors/capture_exclusivity_receiver.saw	pass	-	loan.closure-carrier: `b` is borrowed here while the closure capture at 22:12 holds `b` exclusively until the closure's last call; the closure carries the borrow from its creation to its last call
-errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_move_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
-errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
+errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: `self` is captured only by borrowing it (syntax.expr.refused-capture-self): write `[&self]` or `[&var self]`; the parser refuses `tests/corpus/errors/capture_self_move_requires_
+errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: `self` is captured only by borrowing it (syntax.expr.refused-capture-self): write `[&self]` or `[&var self]`; the parser refuses `tests/corpus/errors/capture_self_requires_borro
 errors/cast170_const_out_of_range.saw	pass	-	constant.cast-range: `1000` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)
 errors/cast170_from_bad_label.saw	pass	-	call.label: an integer's `from` takes an unlabeled argument, or `truncating:`
 errors/channel_not_send.saw	pass	-	type.bound: `channel_not_send.Handle` does not satisfy `Send`, the bound on `T` of `Channel`
@@ -1085,14 +1085,14 @@ errors/consumes_beside_borrows.saw	pass	-	loan.move-while-borrowed: `self` is mo
 errors/consumes_conformance_method.saw	pass	-	conformance.signature: `Builder.finish` does not meet `Ender.finish`, as `Builder` conforms to `Ender` needs: a requirement is never met by a `consumes` method
 errors/consumes_field_move_in_a_loop.saw	pass	-	consumes.some-paths: a `consumes` body leaves `self.a` moved out on some paths to a return and not on others; move it on every path or on none, or assign it again where it stays out, since the receive
 errors/consumes_field_move_outside_a_consuming_body.saw	pass	-	consumes.move-self: `move` out of `self` is legal only in a `consumes` method, whose receiver ends with the call: declare the method `consumes`, or take the value with `take()` or `swap_out`
-errors/consumes_free_function.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_free_function.saw` (syntax.rule.effect-slot), so its declarations are not available
-errors/consumes_function_type.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_function_type.saw` (syntax.type.refused-func-consumes), so its declarations are not available
-errors/consumes_needs_a_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_needs_a_receiver.saw` (syntax.rule.effect-slot), so its declarations are not available
-errors/consumes_needs_var_self.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_needs_var_self.saw` (syntax.rule.effect-slot), so its declarations are not available
+errors/consumes_free_function.saw	pass	-	resolve.parse-refused: `consumes` stands only on a method whose receiver is `&var self` (syntax.rule.effect-slot): declare the function as a method whose receiver is `&var self`; the parser refuses `t
+errors/consumes_function_type.saw	pass	-	resolve.parse-refused: `consumes` ends a method's receiver, and a function type has none (syntax.type.refused-func-consumes): call the method; the parser refuses `tests/corpus/errors/consumes_function
+errors/consumes_needs_a_receiver.saw	pass	-	resolve.parse-refused: `consumes` stands only on a method whose receiver is `&var self` (syntax.rule.effect-slot): declare the function as a method whose receiver is `&var self`; the parser refuses `t
+errors/consumes_needs_var_self.saw	pass	-	resolve.parse-refused: `consumes` stands only on a method whose receiver is `&var self` (syntax.rule.effect-slot): declare the function as a method whose receiver is `&var self`; the parser refuses `t
 errors/consumes_receiver_through_a_field_or_place.saw	pass	-	transfer.partial-move: cannot move out of field `b` of `h`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; move the whole value, or keep the part in a binding of i
 errors/consumes_suspending_field_move.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 errors/consumes_suspending_handwritten_deinit.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
-errors/consumes_trait_requirement.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_trait_requirement.saw` (syntax.rule.requirement-borrows), so its declarations are not available
+errors/consumes_trait_requirement.saw	pass	-	resolve.parse-refused: a trait requirement is never `consumes` (syntax.rule.requirement-borrows): declare the consuming method in an extension; the parser refuses `tests/corpus/errors/consumes_trait_r
 errors/copy_bound_missing.saw	pass	-	type.bound: `T` has no `copy()`: no bound makes it `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
 errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: `silent` is declared `sync`, and a copy of `copy_policy_hook_suspends_in_sync_fn.Heavy` happens here, and `Heavy.copy()` suspends
 errors/coro_assign_rhs_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc meets its directives
@@ -1287,12 +1287,12 @@ errors/result_none_tail_needs_an_optional_ok.saw	pass	-	result.discarded: the re
 errors/retired_task_handle_names.saw	pass	-	name.retired: undefined type `TaskHandle`: `TaskHandle<T>` is `Task<T>` (design 242); the cooperative engine owns the `Task` vocabulary, and `Thread<T>` is what `Thread.spawn` hands back
 errors/runtime_provider_bad_signature.saw	pass	-	export.seam-signature: `@export` seam `__saw_rt_clock_monotonic_nanos` does not match the runtime ABI: it is `() -> word`, and runtime/ABI.md freezes it as `() -> i64`; a runtime is a link-time swap,
 errors/section_macho_specifier_error.saw	pass	-	section.invalid: `@section(".vector_table")` is not a valid section on this target: mach-O names a section by SEGMENT and section, separated by a comma; write the two-part form — `@section("__TEXT,vec
-errors/semicolon_at_end_of_file.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_end_of_file.saw` (syntax.rule.declaration-separator), so its declarations are not available
-errors/semicolon_at_line_start.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_line_start.saw` (syntax.rule.statement-separator), so its declarations are not available
-errors/semicolon_before_closing_brace.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_before_closing_brace.saw` (syntax.rule.statement-separator), so its declarations are not available
-errors/semicolon_before_newline.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_before_newline.saw` (syntax.rule.statement-separator), so its declarations are not available
-errors/semicolon_between_declarations.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_between_declarations.saw` (syntax.rule.declaration-separator), so its declarations are not available
-errors/semicolon_doubled.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_doubled.saw` (syntax.rule.statement-separator), so its declarations are not available
+errors/semicolon_at_end_of_file.saw	pass	-	resolve.parse-refused: declarations are not joined by `;`; put each on its own line (syntax.rule.declaration-separator); the parser refuses `tests/corpus/errors/semicolon_at_end_of_file.saw`, so its d
+errors/semicolon_at_line_start.saw	pass	-	resolve.parse-refused: a `;` joins two statements on one line; it does not end one (syntax.rule.statement-separator): put the next statement after the `;`, or drop the `;`; the parser refuses `tests/c
+errors/semicolon_before_closing_brace.saw	pass	-	resolve.parse-refused: a `;` joins two statements on one line; it does not end one (syntax.rule.statement-separator): put the next statement after the `;`, or drop the `;`; the parser refuses `tests/c
+errors/semicolon_before_newline.saw	pass	-	resolve.parse-refused: a `;` joins two statements on one line; it does not end one (syntax.rule.statement-separator): put the next statement after the `;`, or drop the `;`; the parser refuses `tests/c
+errors/semicolon_between_declarations.saw	pass	-	resolve.parse-refused: declarations are not joined by `;`; put each on its own line (syntax.rule.declaration-separator); the parser refuses `tests/corpus/errors/semicolon_between_declarations.saw`, so
+errors/semicolon_doubled.saw	pass	-	resolve.parse-refused: a `;` joins two statements on one line; it does not end one (syntax.rule.statement-separator): put the next statement after the `;`, or drop the `;`; the parser refuses `tests/c
 errors/send_bound_not_satisfied.saw	pass	-	type.bound: `send_bound_not_satisfied.RawHandle` does not satisfy `Send`, the bound on `T` of `needs_send`
 errors/send_explicit_conformance.saw	pass	-	conformance.derived-only: cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler, so `Foo` is `Send` exactly when its members are; where an unsafe-typed member b
 errors/serde169_deserialize_not_any.saw	pass	-	name.not-in-prelude: `Decoder` is not in the prelude and must be imported: `import std.serialize.{Decoder}` selects it
@@ -1300,7 +1300,7 @@ errors/serde169_underivable_field.saw	pass	-	synthesize.member: cannot derive `s
 errors/shadow_closure_param.saw	pass	-	name.shadowing: `total` shadows the binding declared at tests/corpus/errors/shadow_closure_param.saw:12:9, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_for_nested_loop.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_for_nested_loop.saw:9:9 without deriving from it; pick another name, or mention `x` in the initializer
 errors/shadow_for_nonderived.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_for_nonderived.saw:10:9 without deriving from it; pick another name, or mention `x` in the initializer
-errors/shadow_for_tuple_pattern.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/shadow_for_tuple_pattern.saw` (syntax.expr.refused-for-tuple), so its declarations are not available
+errors/shadow_for_tuple_pattern.saw	pass	-	resolve.parse-refused: a `for` head binds one name (syntax.expr.refused-for-tuple): bind the element and destructure it in the body: `for p in v { let (a, b) = p }`; the parser refuses `tests/corpus/e
 errors/shadow_inner_let.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_inner_let.saw:12:9 without deriving from it; pick another name, or mention `x` in the initializer
 errors/shadow_match_pattern.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/errors/shadow_match_pattern.saw:12:9, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_param.saw	pass	-	name.shadowing: `count` shadows the binding declared at tests/corpus/errors/shadow_param.saw:9:8, which a pattern, a parameter or a closure parameter may not do; pick another name
@@ -1323,33 +1323,33 @@ errors/spawn_result_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the c
 errors/specialized_method_wrong_type.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `join` this module can see
 errors/spinlock_needs_atomics.saw	pass	judged by its own directives (edited since its oracle)	atomics.target: `SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none without the `A` extension: a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics — add
 errors/spinlock_suspending_body.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
-errors/statement_juxtaposition_in_closure_and_module_scope.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw` (syntax.rule.juxtaposition), so its declarations are not available
-errors/statement_juxtaposition_in_control_flow_bodies.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw` (syntax.rule.juxtaposition), so its declarations are not available
-errors/statement_juxtaposition_in_declaration_lists.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_declaration_lists.saw` (syntax.rule.declaration-separator), so its declarations are not available
-errors/statement_juxtaposition_in_function_and_method_bodies.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_function_and_method_bodies.saw` (syntax.rule.juxtaposition), so its declarations are not available
-errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw` (syntax.rule.juxtaposition), so its declarations are not available
+errors/statement_juxtaposition_in_closure_and_module_scope.saw	pass	-	resolve.parse-refused: two statements on one line need a `;` between them (syntax.rule.juxtaposition): put the second statement on a line of its own, or after a `;`; the parser refuses `tests/corpus/e
+errors/statement_juxtaposition_in_control_flow_bodies.saw	pass	-	resolve.parse-refused: two statements on one line need a `;` between them (syntax.rule.juxtaposition): put the second statement on a line of its own, or after a `;`; the parser refuses `tests/corpus/e
+errors/statement_juxtaposition_in_declaration_lists.saw	pass	-	resolve.parse-refused: two declarations on one line need a line break between them (syntax.rule.declaration-separator); the parser refuses `tests/corpus/errors/statement_juxtaposition_in_declaration_l
+errors/statement_juxtaposition_in_function_and_method_bodies.saw	pass	-	resolve.parse-refused: two statements on one line need a `;` between them (syntax.rule.juxtaposition): put the second statement on a line of its own, or after a `;`; the parser refuses `tests/corpus/e
+errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw	pass	-	resolve.parse-refused: two statements on one line need a `;` between them (syntax.rule.juxtaposition): put the second statement on a line of its own, or after a `;`; the parser refuses `tests/corpus/e
 errors/static236_conformance_instance_requirement_static_impl.saw	pass	-	conformance.signature: `Point.label` does not meet `Namer.label`, as `Point` conforms to `Namer` needs: one is static and the other is not
 errors/static236_conformance_static_requirement_instance_impl.saw	pass	-	conformance.signature: `Point.make` does not meet `Maker.make`, as `Point` conforms to `Maker` needs: one is static and the other is not
-errors/static236_enum_method_no_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_enum_method_no_receiver.saw` (syntax.rule.receiver-and-static), so its declarations are not available
-errors/static236_generic_extension_no_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_generic_extension_no_receiver.saw` (syntax.rule.receiver-and-static), so its declarations are not available
-errors/static236_static_init.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_static_init.saw` (syntax.decl.refused-member-static), so its declarations are not available
-errors/static236_static_with_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_static_with_receiver.saw` (syntax.rule.receiver-and-static), so its declarations are not available
-errors/static236_struct_method_no_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_struct_method_no_receiver.saw` (syntax.rule.receiver-and-static), so its declarations are not available
-errors/static236_trait_default_no_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_trait_default_no_receiver.saw` (syntax.rule.receiver-and-static), so its declarations are not available
-errors/static236_trait_requirement_no_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static236_trait_requirement_no_receiver.saw` (syntax.rule.receiver-and-static), so its declarations are not available
+errors/static236_enum_method_no_receiver.saw	pass	-	resolve.parse-refused: a method that is not `static` takes a receiver (syntax.rule.receiver-and-static): declare `&self` or `&var self` first, or declare the method `static`; the parser refuses `tests
+errors/static236_generic_extension_no_receiver.saw	pass	-	resolve.parse-refused: a method that is not `static` takes a receiver (syntax.rule.receiver-and-static): declare `&self` or `&var self` first, or declare the method `static`; the parser refuses `tests
+errors/static236_static_init.saw	pass	-	resolve.parse-refused: an initializer takes no receiver by construction, and `static` follows the visibility (syntax.decl.refused-member-static): write `init(…)`, or `public static func`; the parser r
+errors/static236_static_with_receiver.saw	pass	-	resolve.parse-refused: a receiver is a method's first parameter, and only a method that is not `static` takes one (syntax.rule.receiver-and-static): declare `&self` or `&var self` first, or declare th
+errors/static236_struct_method_no_receiver.saw	pass	-	resolve.parse-refused: a method that is not `static` takes a receiver (syntax.rule.receiver-and-static): declare `&self` or `&var self` first, or declare the method `static`; the parser refuses `tests
+errors/static236_trait_default_no_receiver.saw	pass	-	resolve.parse-refused: a method that is not `static` takes a receiver (syntax.rule.receiver-and-static): declare `&self` or `&var self` first, or declare the method `static`; the parser refuses `tests
+errors/static236_trait_requirement_no_receiver.saw	pass	-	resolve.parse-refused: a method that is not `static` takes a receiver (syntax.rule.receiver-and-static): declare `&self` or `&var self` first, or declare the method `static`; the parser refuses `tests
 errors/static_assign_element.saw	pass	-	mutability.immutable: this assignment writes `TABLE[0]`, and a `static` is immutable: only an `unsafe static var` is written (design 149)
 errors/static_assign_field.saw	pass	-	mutability.immutable: this assignment writes `ORIGIN.x`, and a `static` is immutable: only an `unsafe static var` is written (design 149)
 errors/static_assign_whole.saw	pass	-	mutability.immutable: this assignment writes `X`, and a `static` is immutable: only an `unsafe static var` is written (design 149)
 errors/static_forward_reference.saw	wrong	accepts a refusal test	static `LATER` is declared after this point
-errors/static_in_function.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static_in_function.saw` (parse-error), so its declarations are not available
+errors/static_in_function.saw	pass	-	resolve.parse-refused: expected an expression (parse-error); the parser refuses `tests/corpus/errors/static_in_function.saw`, so its declarations are not available
 errors/static_lend_var.saw	pass	-	mutability.immutable: this exclusive borrow of `X` would let it be written, and a `static` is immutable: only an `unsafe static var` is written (design 149)
 errors/static_non_const.saw	pass	-	static.not-constant: `compute()` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeo
 errors/static_non_sync.saw	pass	-	static.not-sync: the static `P` has type `UnsafePointer<Int>`, which is not `Sync`, and a static is reachable from every thread; give the static a `Sync` type, such as `Atomic<Int>` or a `SpinLock`, o
 errors/static_string_not_const.saw	pass	-	static.not-constant: `"hello"` is not a constant, and a static's initializer is a constant expression: a `String` is never a constant; state that has to be computed wants `static X: Once<T>`, set once
 errors/static_user_init_not_const.saw	pass	-	static.not-constant: `Region(pages: 1)` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction,
-errors/static_var_without_unsafe.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/static_var_without_unsafe.saw` (syntax.decl.refused-static), so its declarations are not available
-errors/string_interpolation_unescaped_brace.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/string_interpolation_unescaped_brace.saw` (parse-error), so its declarations are not available
-errors/string_unknown_escape.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/string_unknown_escape.saw` (syntax.lex.escape), so its declarations are not available
+errors/static_var_without_unsafe.saw	pass	-	resolve.parse-refused: a mutable static is `unsafe static var`, and `unsafe` marks a mutable one (syntax.decl.refused-static): write `unsafe static var X: T = …`, or `static X: T = …`; the parser refu
+errors/string_interpolation_unescaped_brace.saw	pass	-	resolve.parse-refused: Unexpected character (parse-error); the parser refuses `tests/corpus/errors/string_interpolation_unescaped_brace.saw`, so its declarations are not available
+errors/string_unknown_escape.saw	pass	-	resolve.parse-refused: unknown escape in a string literal (syntax.lex.escape); the parser refuses `tests/corpus/errors/string_unknown_escape.saw`, so its declarations are not available
 errors/subscript_must_be_borrows.saw	wrong	accepts a refusal test	Parse error at 12:35: a `[]` subscript must be `borrows` — `v[i]` names a PLACE in the container, not a value read out of it. Write `func [](&var self, ...) borrows -> &var T`; a value-returning looku
 errors/suspend_in_deinit.saw	pass	-	effect.sync: `Resource.deinit` is a `deinit`, which runs where nothing may suspend, and it calls `__saw_suspend`, which may suspend
 errors/sync_blocking_extern.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `slow_read`, which may suspend
@@ -1374,7 +1374,7 @@ errors/synthesize_required_explicit_copy.saw	pass	-	synthesize.required: `Holder
 errors/synthesize_required_hashable.saw	pass	-	synthesize.required: `Keyed` conforms to `Hashable` with no `Hashable.hash` written: write it, or mark the extension `@synthesize` to derive it
 errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot spawn `work`: parameter `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is not `Send`; the function type `() sync -> Int` is not `sendable`: a
 errors/thread_body_reports_both_violations.saw	pass	judged by its own directives (edited since its oracle)	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a s
-errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
+errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: a float needs a digit after its point (syntax.lex.float-point): write `7.0`; the parser refuses `tests/corpus/errors/trailing_dot_float.saw`, so its declarations are not availab
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
 errors/two_exclusive_only_windows_conflict.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `b` is borrowed exclusively here while the window of `tally` opened at 42:18 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the ro
 errors/type_mismatch.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
@@ -1385,29 +1385,29 @@ errors/unary_minus_unsigned.saw	wrong	accepts a refusal test	operator `-` cannot
 errors/undefined_enum.saw	refused	resolve name.undefined	cannot find `Undefined` in scope
 errors/undefined_var.saw	refused	resolve name.undefined	cannot find `x` in scope
 errors/undefined_variant.saw	refused	typecheck member.unknown	`undefined_variant.Status` has no member `Unknown` this module can see
-errors/unknown_directive.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unknown_directive.saw` (syntax.lex.directive), so its declarations are not available
+errors/unknown_directive.saw	pass	-	resolve.parse-refused: unknown directive after `#` (syntax.lex.directive); the parser refuses `tests/corpus/errors/unknown_directive.saw`, so its declarations are not available
 errors/unknown_generic_type_name.saw	refused	resolve name.undefined	cannot find `Frobnicate` in scope
 errors/unnamed_lend_conflict_in_statement.saw	pass	judged by its own directives (no oracle)	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 18:10 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root
 errors/unsafe_closure_in_safe_function.saw	pass	-	unsafe.undeclared: `read_byte` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafePointer<Int8>`) at 16:16: write `unsafe` after its parameter list, where every caller can see
 errors/unsafe_contact_intake.saw	pass	-	unsafe.undeclared: `peek` is not declared `unsafe`, but its body names a value of unsafe type (`unsafe_contact_intake.UnsafeTag`) at 36:21: write `unsafe` after its parameter list, where every caller
-errors/unsafe_effect_slot_order.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_effect_slot_order.saw` (syntax.rule.effect-slot), so its declarations are not available
-errors/unsafe_expression_marker_removed.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_expression_marker_removed.saw` (syntax.expr.refused-unsafe), so its declarations are not available
+errors/unsafe_effect_slot_order.saw	pass	-	resolve.parse-refused: effect words stand once each, in one order (syntax.rule.effect-slot): write `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` or `blocking` in `s
+errors/unsafe_expression_marker_removed.saw	pass	-	resolve.parse-refused: unsafety belongs to a declaration, not to an expression (syntax.expr.refused-unsafe): mark the enclosing function `unsafe`, after its parameters; the parser refuses `tests/corpu
 errors/unsafe_fn_type_missing_effect.saw	pass	-	unsafe.function-type: the function type `(unsafe_fn_type_missing_effect.UnsafeMmioReg) sync -> Int` names an unsafe type (`unsafe_fn_type_missing_effect.UnsafeMmioReg`) but its effect slot does not sa
 errors/unsafe_fn_type_safe_signature.saw	pass	-	unsafe.function-type: the function type `(Int) unsafe sync -> Int` declares `unsafe` but its signature names no unsafe type: a function taking only safe types must be sound for every input
-errors/unsafe_keyword_before_decl.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_keyword_before_decl.saw` (syntax.decl.refused-effect-prefix), so its declarations are not available
+errors/unsafe_keyword_before_decl.saw	pass	-	resolve.parse-refused: a function's effects are written after its parameters (syntax.decl.refused-effect-prefix): move the word into the effect slot: `func f(…) unsafe -> T`, `func f(…) blocking -> T`
 errors/unsafe_mem_bad_use.saw	pass	-	memory.intent: `UnsafeMemory<Int, unsafe_mem_bad_use.Foo>` names `unsafe_mem_bad_use.Foo` as its intent, which is `Device` (a register block, accessed volatile) or `Normal` (plain memory)
 errors/unsafe_mem_device_region_accessor.saw	pass	-	memory.region-accessor: `ptr()` is a region accessor of a `Normal` view, and `UnsafeMemory<unsafe_mem_device_region_accessor.Regs, Device>` is not one: a register block is reached through `read()` and
 errors/unsafe_mem_device_whole_struct.saw	pass	-	memory.device-whole: `read()` of `UnsafeMemory<unsafe_mem_device_whole_struct.Regs, Device>` reaches a whole `unsafe_mem_device_whole_struct.Regs`, and a `Device` view reaches one scalar register at a
 errors/unsafe_mem_missing_use.saw	pass	-	type.arity: `UnsafeMemory` takes 2 type arguments, and 1 are written
 errors/unsafe_mem_ro_write.saw	pass	-	memory.read-only: `write(v)` of `UnsafeMemory<ReadOnly<UInt32>, Device>`, a `ReadOnly` field: the marker forbids it whatever the view's intent
 errors/unsafe_mem_wo_read.saw	pass	-	memory.write-only: `read()` of `UnsafeMemory<WriteOnly<UInt32>, Device>`, a `WriteOnly` field: the marker forbids it whatever the view's intent
-errors/unsafe_modifier_on_enum.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_modifier_on_enum.saw` (syntax.decl.refused-unsafe-prefix), so its declarations are not available
-errors/unsafe_prefix_on_init.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_prefix_on_init.saw` (syntax.decl.refused-effect-prefix), so its declarations are not available
+errors/unsafe_modifier_on_enum.saw	pass	-	resolve.parse-refused: an enum, a trait or an extension is not unsafe as a whole (syntax.decl.refused-unsafe-prefix): mark `unsafe` in the effect slot of each function that needs it; the parser refuse
+errors/unsafe_prefix_on_init.saw	pass	-	resolve.parse-refused: a function's effects are written after its parameters (syntax.decl.refused-effect-prefix): move the word into the effect slot: `func f(…) unsafe -> T`, `func f(…) blocking -> T`
 errors/unsafe_reference_param_triggers.saw	pass	-	unsafe.undeclared: `peek` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int8>`): write `unsafe` after its parameter list, where every caller can see it
 errors/unsafe_send_not_erasable.saw	pass	-	erasure.not-object-safe: cannot form `any UnsafeSend`: `UnsafeSend` is a declared thread-safety assertion, written only in a conformance header, and as a marker trait it has no requirement to dispatch
 errors/unsafe_static_needs_deinit.saw	pass	-	static.immortal: the static `HELD` has type `unsafe_static_needs_deinit.Guard`, which owns a resource (Deinit) through `unsafe_static_needs_deinit.Guard`, whose `deinit` is written by hand; statics ar
 errors/unsafe_static_trigger.saw	pass	-	unsafe.undeclared: `peek_owner` is not declared `unsafe`, but its body names an unsafe static (`TABLE`): write `unsafe` after its parameter list, where every caller can see it
-errors/unsafe_static_without_var.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_static_without_var.saw` (syntax.decl.refused-static), so its declarations are not available
+errors/unsafe_static_without_var.saw	pass	-	resolve.parse-refused: a mutable static is `unsafe static var`, and `unsafe` marks a mutable one (syntax.decl.refused-static): write `unsafe static var X: T = …`, or `static X: T = …`; the parser refu
 errors/unsafe_struct_name_not_prefixed.saw	pass	-	unsafe.type-name: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`: rename it to `UnsafeMmioReg`, or drop `unsafe` if the type is safe to name, hold and pass
 errors/unsafe_sync_already_derives.saw	pass	-	conformance.assertion-derives: `Plain` already derives `Sync`, so `UnsafeSync` asserts nothing: an assertion is legal only where the derivation fails, and one beside a type that derives cleanly tells
 errors/unsafe_sync_cell_static_undeclared.saw	pass	-	static.not-sync: the static `SHARED` has type `unsafe_sync_cell_static_undeclared.Cell`, which is not `Sync`, and a static is reachable from every thread: `Cell` holds an interior cell in `Cell.slot`
@@ -1428,7 +1428,7 @@ errors/use_after_move_shadow_outer.saw	pass	-	name.shadowing: `f` shadows the bi
 errors/value_if_branch_without_value.saw	pass	-	type.mismatch: this branch produces no value, and the branches merge into `Int`
 errors/value_match_arm_without_value.saw	pass	-	type.mismatch: this branch produces no value, and the branches merge into `Int`
 errors/var_ref_into_shared_self.saw	pass	-	mutability.immutable: this exclusive borrow of `self.slot` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reache
-errors/var_self_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/var_self_receiver.saw` (syntax.decl.refused-receiver), so its declarations are not available
+errors/var_self_receiver.saw	pass	-	resolve.parse-refused: a receiver is a reference (syntax.decl.refused-receiver): write `&self` or `&var self`; the parser refuses `tests/corpus/errors/var_self_receiver.saw`, so its declarations are n
 errors/vector_copy_nocopy_elem.saw	pass	-	name.not-in-prelude: `File` is not in the prelude and must be imported: `import std.file.{File}` selects it
 errors/vector_get_nocopy_alias.saw	pass	-	type.bound: `std.vector.Vector<vector_get_nocopy_alias.Item, std.alloc.GlobalAllocator>` has no member `get`: it is declared where `T: Copy`, and `vector_get_nocopy_alias.Item` does not satisfy `Copy`
 errors/vector_iter_requires_copy.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
@@ -1448,7 +1448,7 @@ errors/wrong_args.saw	pass	-	call.arity: too many arguments: add(a: Int, b: Int)
 errors/yield_now_bare_gated.saw	pass	-	name.not-in-prelude: `yield_now` is not in the prelude and must be imported: `import std.task.{yield_now}` selects it
 escaping_closure_borrow_capture_local_container.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `n`, a reference (`&Int`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not esc
 escaping_closure_borrow_capture_stored.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `n`, a reference (`&Int`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not esc
-escaping_on_declaration_rejected.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/escaping_on_declaration_rejected.saw` (syntax.decl.refused-escaping), so its declarations are not available
+escaping_on_declaration_rejected.saw	pass	-	resolve.parse-refused: `escaping` describes a closure's environment, and a named function has none (syntax.decl.refused-escaping): write `escaping` on the function type instead; the parser refuses `te
 escaping_variance_safe.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 exclusivity_assign_rhs_allowed_shapes.saw	pass	-	-
 exclusivity_assign_rhs_borrow.saw	pass	-	assign.rhs-borrow: `p.x` is written by this assignment while its right-hand side borrows `p` exclusively at 28:16; the right-hand side runs first, so what it writes through that borrow is overwritten
@@ -1470,7 +1470,7 @@ explicit_copy_derive.saw	pass	-	-
 explicit_copy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `explicit_copy_requires_move.Buf`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move a` to take it, `a.copy()` for a cop
 export229_chain_error.saw	pass	-	import.unknown-symbol: `export229_leaf` is not defined in `modules.export229_wall`
 export229_facade.saw	pass	-	-
-export229_scoped_import_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/export229_scoped_import_error.saw` (syntax.decl.refused-scoped-import), so its declarations are not available
+export229_scoped_import_error.saw	pass	-	resolve.parse-refused: an import takes no scoped visibility (syntax.decl.refused-scoped-import): `public import` is the only re-export form: write `public import m`; the parser refuses `tests/corpus/e
 export229_selective_error.saw	pass	-	import.not-reexported: `leaf_make` is imported by `modules.export229_wall` but not re-exported: add `public import` there, or import it directly
 export229_selective_facade_qualifier_error.saw	pass	-	import.unknown-symbol: `export229_leaf` is not defined in `modules.export229_facade`
 export229_std_through_module_error.saw	pass	-	import.not-reexported: `data` is imported by `modules.export229_wall` but not re-exported: add `public import` there, or import it directly
@@ -1483,7 +1483,7 @@ export_duplicate_symbol_with_spawn_error.saw	pass	-	export.duplicate: duplicate 
 export_generic_error.saw	pass	-	export.generic: cannot `@export` the generic function `ident`: a C symbol has no type parameters; export a concrete wrapper instead
 export_in_entry_module_with_spawn.saw	pass	-	-
 export_never_noreturn.saw	pass	-	-
-export_outside_init_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/export_outside_init_error.saw` (syntax.decl.refused-export), so its declarations are not available
+export_outside_init_error.saw	pass	-	resolve.parse-refused: an `export` declaration is not Saw's re-export (syntax.decl.refused-export): write `public import m.{name}`, `public import m.{name as alias}` or `public import m.*`; the parser
 export_overload_named_ok.saw	pass	-	-
 export_overload_two_unnamed_error.saw	pass	-	export.duplicate: duplicate `@export` symbol `combine`, already exported by `combine`: an unmangled C symbol is unique across the program
 export_reserved_symbol_error.saw	pass	-	export.reserved: `@export` symbol `saw_thing` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`); choose another with `@export("name")`
@@ -1540,8 +1540,8 @@ ext254_facade_overload_set.saw	pass	-	-
 ext254_facade_selective.saw	pass	-	-
 ext254_facade_visibility_error.saw	refused	typecheck member.unknown	`modules.ext254_panel.Panel` has no method `hidden` this module can see
 ext254_plain_import_no_forward_error.saw	refused	typecheck member.unknown	`modules.ext254_panel.Panel` has no method `kind` this module can see
-extension_head_visibility_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/extension_head_visibility_error.saw` (syntax.decl.refused-visibility-prefix), so its declarations are not available
-extension_head_visibility_package_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/extension_head_visibility_package_error.saw` (syntax.decl.refused-visibility-prefix), so its declarations are not available
+extension_head_visibility_error.saw	pass	-	resolve.parse-refused: an extension has no name to be visible (syntax.decl.refused-visibility-prefix): put the visibility on each member instead; the parser refuses `tests/corpus/extension_head_visibi
+extension_head_visibility_package_error.saw	pass	-	resolve.parse-refused: an extension has no name to be visible (syntax.decl.refused-visibility-prefix): put the visibility on each member instead; the parser refuses `tests/corpus/extension_head_visibi
 extension_init.saw	pass	-	-
 extension_method_duplicate_on_imported_type_error.saw	pass	-	overload.indistinguishable: `Reading.doubled()` is already declared at 17:10 as `Reading.doubled()`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in h
 extension_method_tie_break_distinguishes_nested_module_paths.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -1722,7 +1722,7 @@ init_generic_param_released.saw	pass	-	-
 init_receiver_return_spellings.saw	pass	-	-
 int_abs_min_panics.saw	pass	-	-
 int_limits.saw	pass	-	-
-int_literal_out_of_range.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/int_literal_out_of_range.saw` (syntax.lex.int-range), so its declarations are not available
+int_literal_out_of_range.saw	pass	-	resolve.parse-refused: integer literal out of range for a 64-bit integer (syntax.lex.int-range); the parser refuses `tests/corpus/int_literal_out_of_range.saw`, so its declarations are not available
 int_methods.saw	pass	-	-
 int_narrowing_transfer_through_platform_int.saw	pass	-	type.mismatch: expected `Int8`, the type of the annotated binding, and found `Int`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)`
 int_parse_to_uint.saw	pass	-	-
@@ -1801,11 +1801,11 @@ let_tuple_destructure.saw	pass	-	-
 let_tuple_destructure_owning_move.saw	pass	-	-
 let_tuple_destructure_use_after_move_error.saw	pass	-	move.use-after: `pair` is used after it may have been moved (moved at 13:5); a moved value is gone until it is assigned again
 let_var_self_method_error.saw	pass	-	mutability.immutable: this exclusive borrow of `c` would let it be written, and `c` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
-lexer_unterminated_interpolation.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/lexer_unterminated_interpolation.saw` (syntax.lex.unterminated-string), so its declarations are not available
+lexer_unterminated_interpolation.saw	pass	-	resolve.parse-refused: unterminated string: this interpolation holds an odd number of quotes, so it took the literal's closing quote (syntax.lex.unterminated-string): write `\{` for a literal brace; t
 link_dead_strip.saw	pass	judged by its own directives (edited since its oracle)	-
 literal_coercion_positions.saw	pass	-	-
 literal_suffix_basic.saw	pass	-	-
-literal_suffix_out_of_range_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/literal_suffix_out_of_range_error.saw` (syntax.lex.int-range), so its declarations are not available
+literal_suffix_out_of_range_error.saw	pass	-	resolve.parse-refused: integer literal out of range for its suffix (syntax.lex.int-range); the parser refuses `tests/corpus/literal_suffix_out_of_range_error.saw`, so its declarations are not availabl
 literal_suffix_overflow_panic.saw	pass	-	-
 literal_suffix_type_mismatch_error.saw	pass	-	type.mismatch: expected `Int8`, the type of the annotated binding, and found `UInt16`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...
 logical_ops.saw	pass	-	-
@@ -1910,7 +1910,7 @@ module_tests/test_df3_module_wrap.saw	pass	-	-
 module_tests/test_enum_variant_access.saw	pass	-	-
 module_tests/test_function_contexts.saw	pass	-	-
 module_tests/test_guard_contexts.saw	pass	-	-
-module_tests/test_import_alias_collision_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/module_tests/test_import_alias_collision_error.saw` (syntax.rule.import-names), so its declarations are not available
+module_tests/test_import_alias_collision_error.saw	pass	-	resolve.parse-refused: this import binds a name the list already binds (syntax.rule.import-names): import each name once, and give a second one its own alias; the parser refuses `tests/corpus/module_t
 module_tests/test_import_module_alias.saw	pass	-	-
 module_tests/test_import_symbol_alias.saw	pass	-	-
 module_tests/test_lib_all_contexts.saw	pass	-	-
@@ -1941,8 +1941,8 @@ mutex_static_inline.saw	pass	-	-
 named_tuple_basic.saw	refused	typecheck subscript.role	`(x: Int, y: Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
 named_tuple_different_names_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(a: Int, b: Int)`
 named_tuple_equality.saw	pass	-	-
-named_tuple_mixed_labeling_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/named_tuple_mixed_labeling_error.saw` (syntax.expr.refused-partial-named-tuple), so its declarations are not available
-named_tuple_pattern_deferred_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/named_tuple_pattern_deferred_error.saw` (syntax.pat.refused-named-tuple), so its declarations are not available
+named_tuple_mixed_labeling_error.saw	pass	-	resolve.parse-refused: a named tuple labels every element or none (syntax.expr.refused-partial-named-tuple): label every element, or none; the parser refuses `tests/corpus/named_tuple_mixed_labeling_e
+named_tuple_pattern_deferred_error.saw	pass	-	resolve.parse-refused: patterns destructure tuples by position only (syntax.pat.refused-named-tuple): drop the labels, as in `(a, b)`; the parser refuses `tests/corpus/named_tuple_pattern_deferred_err
 named_tuple_positional_destructure.saw	pass	-	-
 named_tuple_reorder_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(y: Int, x: Int)`
 nested_closure_captures_frame_local.saw	stage0-wrong	annotated SL-525	sawc meets its directives
@@ -1995,12 +1995,12 @@ net_write_to_closed_peer_is_an_error.saw	stage0-wrong	annotated SL-768	sawc meet
 never_extern_module_abi.saw	pass	-	-
 newline_braces_stay_significant.saw	pass	-	-
 newline_comparison_unaffected.saw	pass	-	-
-newline_generic_call_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_call_trailing_comma_error.saw` (syntax.generic.refused-arg-comma), so its declarations are not available
-newline_generic_param_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_param_trailing_comma_error.saw` (syntax.generic.refused-param-comma), so its declarations are not available
-newline_generic_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_trailing_comma_error.saw` (syntax.generic.refused-arg-comma), so its declarations are not available
-newline_unclosed_bracket_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_unclosed_bracket_error.saw` (syntax.lex.unclosed-bracket), so its declarations are not available
-newline_unclosed_paren_at_brace_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_unclosed_paren_at_brace_error.saw` (syntax.lex.unclosed-bracket), so its declarations are not available
-newline_unclosed_paren_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_unclosed_paren_error.saw` (syntax.lex.unclosed-bracket), so its declarations are not available
+newline_generic_call_trailing_comma_error.saw	pass	-	resolve.parse-refused: a generic argument list takes no trailing comma (syntax.generic.refused-arg-comma): drop the comma; the parser refuses `tests/corpus/newline_generic_call_trailing_comma_error.sa
+newline_generic_param_trailing_comma_error.saw	pass	-	resolve.parse-refused: a generic parameter list takes no trailing comma (syntax.generic.refused-param-comma): drop the comma; the parser refuses `tests/corpus/newline_generic_param_trailing_comma_erro
+newline_generic_trailing_comma_error.saw	pass	-	resolve.parse-refused: a generic argument list takes no trailing comma (syntax.generic.refused-arg-comma): drop the comma; the parser refuses `tests/corpus/newline_generic_trailing_comma_error.saw`, s
+newline_unclosed_bracket_error.saw	pass	-	resolve.parse-refused: this bracket is never closed (syntax.lex.unclosed-bracket); the parser refuses `tests/corpus/newline_unclosed_bracket_error.saw`, so its declarations are not available, and 1 mo
+newline_unclosed_paren_at_brace_error.saw	pass	-	resolve.parse-refused: this bracket is never closed (syntax.lex.unclosed-bracket); the parser refuses `tests/corpus/newline_unclosed_paren_at_brace_error.saw`, so its declarations are not available, a
+newline_unclosed_paren_error.saw	pass	-	resolve.parse-refused: this bracket is never closed (syntax.lex.unclosed-bracket); the parser refuses `tests/corpus/newline_unclosed_paren_error.saw`, so its declarations are not available, and 1 more
 newline_wrapped_call.saw	pass	-	-
 newline_wrapped_generics.saw	pass	-	-
 newline_wrapped_literals.saw	pass	-	-
@@ -2133,7 +2133,7 @@ panic_message_truncated.saw	pass	-	-
 panic_never_diverges.saw	pass	-	-
 panic_non_string_error.saw	wrong	accepts a refusal test	`panic` expects a String message, got `Int`
 panic_source_location.saw	pass	-	-
-parse_recovery_two_errors.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/parse_recovery_two_errors.saw` (parse-error), so its declarations are not available
+parse_recovery_two_errors.saw	pass	-	resolve.parse-refused: expected a type (parse-error); the parser refuses `tests/corpus/parse_recovery_two_errors.saw`, so its declarations are not available, and 1 more refusal follows: `sawc parse --
 path_simple.saw	pass	judged by its own directives (edited since its oracle)	-
 payload_derived_binding_fills_default_type_args.saw	refused	mir slice.not-yet	a `for` over an iterator place is not lowered to MIR in the bootstrap slice yet
 place_abstract_value_read.saw	pass	-	-
@@ -2519,8 +2519,8 @@ try_optional.saw	pass	-	-
 try_optional_void_result.saw	pass	-	-
 try_propagate.saw	pass	-	-
 try_routing_clause.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
-try_routing_clause_needs_a_case.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/try_routing_clause_needs_a_case.saw` (syntax.rule.try-route-case), so its declarations are not available
-try_routing_clause_refusals.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/try_routing_clause_refusals.saw` (syntax.expr.refused-try-route), so its declarations are not available
+try_routing_clause_needs_a_case.saw	pass	-	resolve.parse-refused: a routing clause names an enum and a case (syntax.rule.try-route-case): write the case with its enum: `try(as ConfigError.Alloc)`; the parser refuses `tests/corpus/try_routing_c
+try_routing_clause_refusals.saw	pass	-	resolve.parse-refused: only a plain `try` routes its error, and a routed `try` takes no `catch` (syntax.expr.refused-try-route): write `try(as E.Case) f()` alone; the parser refuses `tests/corpus/try_
 tuple_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
 tuple_index_member_access.saw	pass	-	-
 tuples.saw	pass	-	-
@@ -2536,7 +2536,7 @@ type_alias_construction_arity_error.saw	pass	-	call.arity: an alias is construct
 type_alias_construction_type_error.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 type_alias_cross_module.saw	pass	-	-
 type_alias_cross_module_sibling_error.saw	wrong	accepts a refusal test	argument `h` expects `SystemHandle` but got `ChannelHandle`
-type_alias_in_function_body_refused.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/type_alias_in_function_body_refused.saw` (syntax.stmt.refused-local-type-alias), so its declarations are not available
+type_alias_in_function_body_refused.saw	pass	-	resolve.parse-refused: a type alias is declared at module level (syntax.stmt.refused-local-type-alias): declare the alias at module level, or as an associated type; the parser refuses `tests/corpus/ty
 type_alias_no_implicit_from_underlying.saw	wrong	accepts a refusal test	argument `x` expects `MyInt` but got `Int`
 type_alias_of_enum_error.saw	pass	-	type.mismatch: expected `Int`, the type of the field, and found `type_alias_of_enum_error.Tag`
 type_alias_sibling_arg_error.saw	wrong	accepts a refusal test	argument `o` expects `OrderId` but got `UserId`
@@ -2552,9 +2552,9 @@ uint_modulo_signedness.saw	pass	-	-
 unary_minus_fixed_width.saw	pass	-	-
 unary_minus_int8_min_panics.saw	pass	-	-
 unicode_escape_basic.saw	pass	-	-
-unicode_escape_malformed_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/unicode_escape_malformed_error.saw` (syntax.lex.escape), so its declarations are not available
-unicode_escape_oversized_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/unicode_escape_oversized_error.saw` (syntax.lex.escape), so its declarations are not available
-unicode_escape_surrogate_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/unicode_escape_surrogate_error.saw` (syntax.lex.escape), so its declarations are not available
+unicode_escape_malformed_error.saw	pass	-	resolve.parse-refused: Unicode escape must contain 1-6 hexadecimal digits (syntax.lex.escape); the parser refuses `tests/corpus/unicode_escape_malformed_error.saw`, so its declarations are not availab
+unicode_escape_oversized_error.saw	pass	-	resolve.parse-refused: Unicode escape is greater than the maximum scalar 0x10FFFF (syntax.lex.escape); the parser refuses `tests/corpus/unicode_escape_oversized_error.saw`, so its declarations are not
+unicode_escape_surrogate_error.saw	pass	-	resolve.parse-refused: Unicode escape is a surrogate code point (syntax.lex.escape); the parser refuses `tests/corpus/unicode_escape_surrogate_error.saw`, so its declarations are not available
 unknown_type_name_diagnostic.saw	refused	resolve name.undefined	cannot find `MissingAlias` in scope
 unsafe_closure_domain.saw	pass	-	-
 unsafe_conformance_effects.saw	pass	-	-
@@ -2634,7 +2634,7 @@ vis258_field_inherits_public.saw	pass	-	-
 vis258_inherited_field_needs_public_type_error.saw	wrong	accepts a refusal test	field `hidden` of `Shipment` is public, but its type names `Ledger`, which is private — a public API needs public types
 vis258_private_is_an_ordinary_identifier.saw	pass	-	-
 vis258_private_narrows_error.saw	refused	typecheck member.unknown	`modules.vis258.Crate` has no member `seal` this module can see
-vis258_private_on_a_function_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/vis258_private_on_a_function_error.saw` (syntax.decl.refused-visibility-prefix), so its declarations are not available
+vis258_private_on_a_function_error.saw	pass	-	resolve.parse-refused: a declaration with no modifier is already module-private (syntax.decl.refused-visibility-prefix): delete `private`; the parser refuses `tests/corpus/vis258_private_on_a_function
 vis80_field_literal_error.saw	pass	-	call.label: no parameter is labeled `label` in Gadget.init(seed: Int) [modules.members80]
 vis80_field_read_error.saw	refused	typecheck member.unknown	`modules.members80.Gadget` has no member `secret` this module can see
 vis80_field_write_error.saw	refused	typecheck member.unknown	`modules.members80.Gadget` has no member `secret` this module can see
@@ -2643,7 +2643,7 @@ vis80_public_members_ok.saw	pass	-	-
 vis80_same_module_ok.saw	pass	-	-
 vis80_static_private_error.saw	refused	typecheck member.unknown	`modules.members80.Gadget` has no method `secret_make` this module can see
 vis80_vector_length_invariant.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no member `length` this module can see
-visibility_invalid.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/visibility_invalid.saw` (parse-error), so its declarations are not available
+visibility_invalid.saw	pass	-	resolve.parse-refused: expected a declaration (parse-error); the parser refuses `tests/corpus/visibility_invalid.saw`, so its declarations are not available
 visibility_package.saw	pass	-	-
 visibility_package_access.saw	pass	-	-
 visibility_parent.saw	pass	-	-
@@ -2662,7 +2662,7 @@ while_infinite.saw	pass	-	-
 while_let_channel_drain.saw	pass	-	-
 while_let_drain.saw	pass	-	-
 while_let_move_scrutinee.saw	pass	-	move.use-after: `slot` is used after it may have been moved (moved at 16:5); a moved value is gone until it is assigned again
-while_let_no_else_clause.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/while_let_no_else_clause.saw` (syntax.expr.refused-while-let-else), so its declarations are not available
+while_let_no_else_clause.saw	pass	-	resolve.parse-refused: a `while let` loop takes no `else`: it ends when the binding fails (syntax.expr.refused-while-let-else): write `if let … else` for a single test; the parser refuses `tests/corpu
 while_let_non_optional_scrutinee.saw	pass	-	operator.undefined: an optional binding unwraps an Optional, and this is `Int`
 while_let_payload_read_tier.saw	pass	-	transfer.implicit-copy: this reads a place of type `while_let_payload_read_tier.Token`, which is NoCopy, by value: only a Copy type copies silently; match a `move` of the value when its binding owns i
 while_let_shadow_rules.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/while_let_shadow_rules.saw:14:9 without deriving from it; pick another name, or mention `x` in the initializer

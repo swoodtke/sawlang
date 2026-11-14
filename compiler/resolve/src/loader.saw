@@ -662,16 +662,37 @@ extension ResProgram {
         let refused = if info.interface_only { not res_interface_intact(&parser) } else { parser.diagnostics.len() > 0 }
         if refused {
             var msg = StringBuilder()
-            try! msg.append("the parser refuses `")
-            try! msg.append(path)
             var at = 0
             if parser.diagnostics.len() > 0 {
                 let first = parser.diagnostics[0]
                 at = first.start
-                try! msg.append("` (")
+                try! msg.append(first.message)
+                try! msg.append(" (")
                 try! msg.append(diagnostic_id(&first))
-                try! msg.append("), so its declarations are not available")
+                try! msg.append(")")
+                if first.hint.len() > 0 {
+                    try! msg.append(": ")
+                    try! msg.append(first.hint)
+                }
+                try! msg.append("; the parser refuses `")
+                try! msg.append(path)
+                try! msg.append("`, so its declarations are not available")
+                let more = parser.diagnostics.len() - 1
+                if more > 0 {
+                    try! msg.append(", and ")
+                    if more == 1 {
+                        try! msg.append("1 more refusal follows")
+                    } else {
+                        try! msg.append(more.to_string())
+                        try! msg.append(" more refusals follow")
+                    }
+                    try! msg.append(": `sawc parse --check ")
+                    try! msg.append(path)
+                    try! msg.append("` lists them")
+                }
             } else {
+                try! msg.append("the parser refuses `")
+                try! msg.append(path)
                 try! msg.append("`: its interface breaks the arena's invariants")
             }
             self.refuse_at(m, at, "resolve.parse-refused", msg.build(), info.interface_only)
