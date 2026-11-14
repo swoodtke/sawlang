@@ -2011,8 +2011,8 @@ extension TcProgram {
     // It answers the fold of `e`, which is not `ok` when `e` is refused,
     // deferred or constant but unfolded; a caller that needs the value
     // (`repeat_expr`) reads `refused_within(e)` to tell the first from the
-    // rest. A repeat count is never deferred, since its value fixes the
-    // array's type where it is written.
+    // rest. A repeat count and an array length are never deferred, since
+    // their value fixes the array's type where it is written.
     //
     // ENTRY POINTS (check_constant_position):
     //     check_static_body
@@ -2021,6 +2021,7 @@ extension TcProgram {
     //     check_align_local
     //     check_static_assert
     //     repeat_expr
+    //     type_length_ahead
     func check_constant_position(&var self, e: Int, pos: TcConstPosition, d: Int, message: Int) -> TcFold {
         let none = TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         if e < 0 || self.refused_within(e) {
@@ -2056,7 +2057,7 @@ extension TcProgram {
         if pos == TcConstPosition.Static && d >= 0 && self.refuse_static_cycle(d, e) {
             return none
         }
-        if pos != TcConstPosition.Static && pos != TcConstPosition.Repeat {
+        if pos != TcConstPosition.Static && pos != TcConstPosition.Repeat && pos != TcConstPosition.Length {
             let early = self.fold_constant(e)
             if self.awaits_typing(&early) {
                 self.defer_constant(TcPendingConstant.Position(e: e, pos: pos, d: d, message: message))
@@ -6336,11 +6337,10 @@ extension TcProgram {
 
     // The length repeat count `count`, typed, stands for: the value the
     // constant-position funnel folds, at the count's own integer type and
-    // then converted to `Int` (a negative one is `constant.negative-length`,
-    // one past `Int` `type.mismatch`), or the error type once refused. A
-    // count naming a const parameter, and one the fold leaves unfolded
-    // without a refusal (a raw case whose enum is declared below the count),
-    // stay with the small folder, which refuses what it cannot fold.
+    // then converted to `Int` (`fold_length`), or the error type once
+    // refused. A count naming a const parameter, and one the fold leaves
+    // unfolded without a refusal, stay with the small folder, which refuses
+    // what it cannot fold.
     func repeat_length(&var self, count: Int) -> Int {
         if self.const_parameters_named(count).len() > 0 {
             return self.build_length(count, TcConstPosition.Repeat)
@@ -6352,32 +6352,72 @@ extension TcProgram {
         if not v.ok {
             return self.build_length(count, TcConstPosition.Repeat)
         }
+        let length = self.fold_length(count, TcConstPosition.Repeat, &v)
+        if self.raw_case_named(count) >= 0 && not self.has_error(length) {
+            // A count that is a lone raw-backed case is its backing value in
+            // an integer position, which the evaluator reads as an integer.
+            let word = self.int_type()
+            self.adopt_lone_case(count, word)
+        }
+        length
+    }
+
+    // THE LENGTH CONVERSION: the length expression `node` at `use` stands
+    // for, from its fold `v`: the integer value converted to `Int` (one past
+    // `Int` is `type.mismatch`, a negative one `constant.negative-length`),
+    // or the error type once refused. A value of another type is no length.
+    // ENTRY POINTS:
+    //     repeat_length
+    //     type_length_ahead
+    public func fold_length(&var self, node: Int, use: TcConstPosition, v: &TcFold) -> Int {
         if not self.is_integer(v.ty) {
             var msg = StringBuilder()
-            try! msg.append("a repeat count is an integer, and `")
-            try! msg.append(self.text(self.node_module(count), count))
+            try! msg.append(tc_const_use_phrase(use))
+            try! msg.append(" is an integer, and `")
+            try! msg.append(self.text(self.node_module(node), node))
             try! msg.append("` is a `")
             try! msg.append(self.type_text(v.ty))
             try! msg.append("`")
-            self.refuse(count, "type.mismatch", msg.build())
+            self.refuse(node, "type.mismatch", msg.build())
             return self.error_type
         }
         let word = self.int_type()
         let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(word), true)
         if not r.ok {
             var msg = StringBuilder()
-            try! msg.append("a repeat count is ")
+            try! msg.append(tc_const_use_phrase(use))
+            try! msg.append(" is ")
             try! msg.append(tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty)))
             try! msg.append(", which does not fit `Int`")
-            self.refuse(count, "type.mismatch", msg.build())
+            self.refuse(node, "type.mismatch", msg.build())
             return self.error_type
         }
-        if self.raw_case_named(count) >= 0 {
-            // A count that is a lone raw-backed case is its backing value in
-            // an integer position, which the evaluator reads as an integer.
-            self.adopt_lone_case(count, word)
+        self.folded_length(node, use, r.bits)
+    }
+
+    // Array length expression `node`, typed ahead of the signature that
+    // holds it (`evaluate_length`) and judged by the constant-position
+    // funnel: the length its fold stands for (`fold_length`), the error type
+    // once refused, or -1 when the fold leaves it unfolded without a
+    // refusal. The expression keeps its own integer type, as a repeat
+    // count does, and no body is open around it.
+    public func type_length_ahead(&var self, node: Int) -> Int {
+        self.ensure_body_tables()
+        let saved = self.save_context()
+        self.enter_module(self.node_module(node))
+        self.reset_body(node)
+        let _ = self.expr(node, TC_WANT_NONE)
+        self.consume(node)
+        let v = self.check_constant_position(node, TcConstPosition.Length, -1, -1)
+        var length = -1
+        if self.refused_within(node) {
+            length = self.error_type
+        } else if v.ok {
+            length = self.fold_length(node, TcConstPosition.Length, &v)
         }
-        self.folded_length(count, TcConstPosition.Repeat, r.bits)
+        self.restore_context(saved)
+        self.current_root = -1
+        length
     }
 
     // Whether repeat literal `e`'s element type `t`, read from `value`, is

@@ -1,0 +1,12 @@
+// refuses: static.not-constant at 7:16
+// `sizeof` of a struct in an array length, whose layout only code generation knows (spec, Layout in a constant)
+// message: an array length is a constant expression
+struct Pair { a: Int, b: Int }
+
+struct Table {
+    a: [UInt8; sizeof<Pair>()]
+}
+
+func main() {
+    print("{}", 0)
+}

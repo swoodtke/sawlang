@@ -1,0 +1,11 @@
+// refuses: operator.undefined at 6:19
+// a bit operator over `Bool` operands in an array length, which the typer refuses as it does anywhere (SL-457)
+// message: a bit operator takes integers
+
+struct Flags {
+    bits: [UInt8; true & false]
+}
+
+func main() {
+    print("{}", 0)
+}

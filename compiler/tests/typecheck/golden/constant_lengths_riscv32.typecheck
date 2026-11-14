@@ -1,0 +1,62 @@
+(Module constant_lengths_riscv32
+  (declarations
+    (static BYTES 8:8 private Int)
+    (static HIGH 9:8 private Int)
+    (struct Big 11:8 private)
+    (field Big.shifted 12:5 private [UInt8; 1073741824])
+    (field Big.named 13:5 private [UInt8; 1073741824])
+    (field Big.sum 14:5 private [UInt8; 1073741824])
+    (field Big.word 15:5 private [UInt8; 4])
+    (field Big.words 16:5 private [UInt8; 16])
+    (field Big.limit 17:5 private [UInt8; 7])
+    (static T_SHIFTED 20:8 private [UInt8; 1073741824])
+    (static T_WORD 21:8 private [UInt8; 4])
+    (func take 23:6 private (signature (params (a [UInt8; 1073741824] owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 27:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (constant_lengths_riscv32.Big
+      (field shifted [UInt8; 1073741824] private declared)
+      (field named [UInt8; 1073741824] private declared)
+      (field sum [UInt8; 1073741824] private declared)
+      (field word [UInt8; 4] private declared)
+      (field words [UInt8; 16] private declared)
+      (field limit [UInt8; 7] private declared)))
+  (views
+    (constant_lengths_riscv32.Big shifted named sum word words limit))
+  (conformances)
+  (copy-tier
+    (constant_lengths_riscv32.Big Copy))
+  (bodies
+    (BYTES 8:8
+      (8:21-8:23 IntLit Int value temp))
+    (HIGH 9:8
+      (9:20-9:27 Binary Int value temp (op <<))
+      (9:20-9:21 IntLit Int value temp)
+      (9:25-9:27 IntLit Int value temp))
+    (T_SHIFTED 20:8
+      (20:38-20:50 Repeat [UInt8; 1073741824] value temp)
+      (20:39-20:40 IntLit Int (adopt UInt8) value temp)
+      (20:42-20:49 Binary Int value temp (op <<))
+      (20:42-20:43 IntLit Int value temp)
+      (20:47-20:49 IntLit Int value temp))
+    (T_WORD 21:8
+      (21:29-21:48 Repeat [UInt8; 4] value temp)
+      (21:30-21:31 IntLit Int (adopt UInt8) value temp)
+      (21:33-21:47 Call.paren Int value temp (builtin sizeof)))
+    (take 23:6
+      (24:5-24:12 Call.paren Int value temp (builtin len))
+      (24:5-24:6 Name [UInt8; 1073741824] (borrow &[UInt8; 1073741824]) place borrow))
+    (main 27:6
+      (28:9-28:14 BindingName [UInt8; 1073741824] place temp)
+      (28:24-28:31 Binary Int value temp (op <<))
+      (28:24-28:25 IntLit Int value temp)
+      (28:29-28:31 IntLit Int value temp)
+      (28:35-28:44 Repeat [UInt8; 1073741824] value temp)
+      (28:36-28:37 IntLit Int (adopt UInt8) value temp)
+      (28:39-28:43 Name Int place copy)
+      (29:5-29:29 Call.paren Void value temp (builtin print))
+      (29:11-29:15 Interp String value temp)
+      (29:17-29:28 Call.paren Int value borrow (call constant_lengths_riscv32.take(a: [UInt8; 1073741824])))
+      (29:22-29:27 Name [UInt8; 1073741824] place copy)))
+  (string-positions
+    (29:11 format std.stringbuilder.StringBuilder)))

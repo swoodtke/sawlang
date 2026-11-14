@@ -1,0 +1,27 @@
+// A raw case and a static of another module, named in an array length and in
+// a repeat count (SL-457): imported bare and through the module, in a struct
+// field, a parameter's type, a static's type and a local's annotation. The
+// repeat literal of each length builds the same type.
+
+import sizes
+import sizes.{PAGE_SHIFT, Size}
+
+struct Page {
+    bare: [UInt8; Size.Large]
+    qualified: [UInt8; sizes.Size.Small + 1]
+    shifted: [UInt8; 1 << PAGE_SHIFT]
+    qualified_shifted: [UInt8; 1 << sizes.PAGE_SHIFT]
+}
+
+static TABLE: [UInt8; Size.Large] = [0; Size.Large]
+static QUALIFIED: [UInt8; sizes.Size.Small] = [0; sizes.Size.Small]
+
+func total(a: [UInt8; Size.Large], b: [UInt8; 1 << sizes.PAGE_SHIFT]) -> Int {
+    a.len() + b.len()
+}
+
+func main() {
+    let local: [UInt8; Size.Small] = [0; Size.Small]
+    let page = Page(bare: [0; Size.Large], qualified: [0; 5], shifted: [0; 16], qualified_shifted: [0; 16])
+    print("{} {} {} {}", total([0; 12], [0; 16]), local.len(), page.bare.len(), TABLE.len() + QUALIFIED.len())
+}

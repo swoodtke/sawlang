@@ -73,6 +73,7 @@
       (55:5-55:9 Name (UInt8, UInt8) place project)
       (55:14-55:16 IntLit Int (adopt UInt8) value temp)
       (56:9-56:15 BindingName [UInt8; 2] place temp)
+      (56:25-56:26 IntLit Int value temp)
       (56:30-56:38 Array [UInt8; 2] value temp)
       (56:31-56:33 IntLit Int (adopt UInt8) value temp)
       (56:35-56:37 IntLit Int (adopt UInt8) value temp)

@@ -1,0 +1,12 @@
+// refuses: constant.overflow at 7:16
+// an array length whose raw-backed case overflows its `UInt8` backing: a length keeps its own integer type (SL-457)
+// message: overflows `UInt8`
+enum E: UInt8 { case A = 8 }
+
+struct Table {
+    a: [UInt8; E.A + 250]
+}
+
+func main() {
+    print("{}", 0)
+}

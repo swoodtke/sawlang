@@ -1,0 +1,11 @@
+// refuses: constant.shift-range at 6:16
+// an array length that shifts by the shifted type's width, folded by the constant-position funnel (SL-457)
+// message: shifts a value of type `Int` by a count outside its width
+
+struct Table {
+    a: [UInt8; 1 << 64]
+}
+
+func main() {
+    print("{}", 0)
+}

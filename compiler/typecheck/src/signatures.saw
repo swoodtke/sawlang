@@ -32,7 +32,7 @@ import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORR
                                TC_EFFECT_UNSAFE, TC_FLAG_ALIAS_BUILDING, TC_FLAG_BLOCKING,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
-                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcConstPosition, TcGeneric, TcHeadKind,
+                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TC_LENGTH_PENDING, TcConstPosition, TcGeneric, TcHeadKind,
                                TcLend, TcObligation, TcParam, TcReceiver, TcSig, TcStaticTyping, TcStaticVerdict}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
@@ -1081,7 +1081,7 @@ extension TcProgram {
                 let inner = self.res.first_node_child(t)
                 let element = self.build_type(inner)
                 let length_node = self.res.last_node_child(t)
-                let length = self.build_length(length_node, TcConstPosition.Length)
+                let length = self.array_length(length_node)
                 self.mk_array(element, length)
             },
             case Type_Tuple_Unit -> self.build_tuple(t, false),
@@ -1401,9 +1401,8 @@ extension TcProgram {
     // static is no constant, and neither is one whose initializer does not
     // fold or whose value does not fit an `Int`; each refusal names the
     // static and why; one whose own declaration is refused is the error type
-    // here, reported once there. One that measures a layout is not folded
-    // yet. A static whose own initializer is being typed is reached again
-    // only through itself, which is a cycle.
+    // here, reported once there. A static whose own initializer is being
+    // typed is reached again only through itself, which is a cycle.
     // ENTRY POINTS:
     //     constant_named
     //     build_const
@@ -1418,15 +1417,6 @@ extension TcProgram {
         let m = self.current
         if verdict == TcStaticVerdict.NotConstant {
             self.refuse_not_compile_time(at, use, self.static_reasons.get(d) ?? "")
-            return self.error_type
-        }
-        if verdict == TcStaticVerdict.NotYet {
-            var msg = StringBuilder()
-            try! msg.append(self.static_reasons.get(d) ?? "")
-            try! msg.append(", so naming it as ")
-            try! msg.append(tc_const_use_phrase(use))
-            try! msg.append(" is not in the bootstrap slice yet")
-            self.refuse(at, "slice.not-yet", msg.build())
             return self.error_type
         }
         if verdict == TcStaticVerdict.Unfit {
@@ -1587,16 +1577,46 @@ extension TcProgram {
         false
     }
 
-    // An array length at `node`, folded by the small folder: a constant that
-    // is not negative (`refuse_negative_length`).
+    // The length of the array type whose length expression is `node`. The
+    // pre-signature pass typed and folded it through the constant-position
+    // funnel and left its type at `node` (`evaluate_length`); one it did not
+    // type, a const parameter's, a local's or any form outside the constant
+    // grammar, goes to the small folder, which refuses what it cannot fold.
+    func array_length(&var self, node: Int) -> Int {
+        let ahead = self.node_types[node]
+        if ahead >= 0 {
+            return ahead
+        }
+        if ahead == TC_LENGTH_PENDING {
+            let m = self.current
+            let leaf = self.length_static_leaf(node)
+            var msg = StringBuilder()
+            if leaf >= 0 {
+                try! msg.append("the value of the static `")
+                try! msg.append(self.text(m, leaf))
+                try! msg.append("` depends on itself, through a type its own initializer names")
+            } else {
+                try! msg.append("the array length `")
+                try! msg.append(self.text(m, node))
+                try! msg.append("` depends on itself, through a static whose type holds it")
+            }
+            self.refuse(if leaf >= 0 { leaf } else { node }, "static.cycle", msg.build())
+            return self.error_type
+        }
+        self.build_length(node, TcConstPosition.Length)
+    }
+
+    // An array length or repeat count at `node` that names a const
+    // parameter, folded by the small folder: a constant that is not negative
+    // (`refuse_negative_length`).
     public func build_length(&var self, node: Int, use: TcConstPosition) -> Int {
         let v = self.build_const(node, use)
         return self.checked_length(node, use, v)
     }
 
-    // A repeat count at `node` whose value the constant-position funnel
-    // folded, already an `Int`: the length it stands for, or the error type
-    // once refused.
+    // An array length or repeat count at `node` whose value the
+    // constant-position funnel folded, already an `Int`: the length it stands
+    // for, or the error type once refused (`fold_length`).
     public func folded_length(&var self, node: Int, use: TcConstPosition, value: Int) -> Int {
         let v = self.mk_const(value)
         return self.checked_length(node, use, v)
@@ -1664,7 +1684,10 @@ extension TcProgram {
     }
 
     // A constant expression at use `use`, folded: an integer literal, a const
-    // parameter, and `+`, `-`, `*` and negation over them.
+    // parameter, and `+`, `-`, `*` and negation over them. A constant
+    // generic argument, a count or a length that names a const parameter,
+    // and a length outside the constant grammar reach it; every other
+    // length and count is the funnel's.
     public func build_const(&var self, node: Int, use: TcConstPosition) -> Int {
         guard let alt = self.node_alt(node) else {
             return self.error_type

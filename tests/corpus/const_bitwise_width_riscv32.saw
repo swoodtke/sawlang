@@ -11,7 +11,7 @@ static_assert((1 << 31) == Int.min, "the sign bit of a 32-bit word")
 static_assert((1 << 30) == 1073741824, "one below it still fits")
 static_assert(~0 == -1, "all ones is -1 at every width")
 static_assert((~0 & 0xFFFF) == 65535, "and masks down to a half word")
-static_assert((0x80000000 >> 16) == 32768, "an unsigned-looking constant")
+static_assert(Int.max == 0x7FFFFFFF, "the largest literal a 32-bit word holds")
 
 // A page table's arithmetic, which is what this profile writes.
 static PAGE_SHIFT: Int = 12

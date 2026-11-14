@@ -1842,7 +1842,6 @@ let sized = [0; 2 * 128]                 // type `[Int; 256]`
 // region's size is written:
 static REGION_SIZE: Int = 65536
 var region: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
-// (`/` in a length is not built in `sawc` yet, SL-457)
 var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
 
 // A length that folds to a negative number is a compile error:
@@ -2347,8 +2346,7 @@ enum, not to the instantiation, and only a payload type could differ between
 them.
 
 A case of a backed enum is a compile-time constant, so it may be a
-`static_assert` operand, an array length (the array-length form is not built in
-`sawc` yet, SL-457), or an operand of the bit operators in
+`static_assert` operand, an array length, or an operand of the bit operators in
 a constant. A combination of cases is the **backing integer**, not the enum; see
 "Flag enums".
 
@@ -8776,8 +8774,7 @@ knows which side is the source, and general assignability does not.
   compile-time constants wherever their operands are, so a bit position or a
   mask is an array length, a repeat count or a `static_assert` operand, and a
   const generic argument through a named constant, since a generic list takes
-  no bitwise operator (the six don't fold in an array length or a repeat count
-  in `sawc` yet, SL-457). See "Compile-Time Evaluation" for the grammar and for
+  no bitwise operator. See "Compile-Time Evaluation" for the grammar and for
   the width the folding uses.
 
 #### Flag enums
@@ -8785,7 +8782,7 @@ knows which side is the source, and general assignability does not.
 A raw-backed enum's case is a compile-time constant (see "Raw backings"), so a
 combination of cases folds in any constant position:
 
-```saw-pending SL-457
+```saw
 enum Perm: UInt8 {
     case Read = 0x01,
     case Write = 0x02,
@@ -13277,7 +13274,7 @@ repeat-literal count `[v; N]`, a const generic argument, and a
 `static_assert` condition. Constant arithmetic composes over it, so one
 declaration can size a region and everything derived from it:
 
-```saw-pending SL-457
+```saw
 static PAGE_SHIFT: Int = 12
 static PAGE_SIZE: Int = 1 << PAGE_SHIFT      // derived from the one above
 static PAGE_MASK: Int = PAGE_SIZE - 1
@@ -14302,8 +14299,8 @@ a `static` initializer, an array length, a repeat count, a const generic
 argument, `@align(N)`, and a `static_assert` — for every `T` whose layout the
 target alone fixes: the integers, `Bool`, `Float`, `String`, and any
 `UnsafePointer<T>` / `UnsafeConstPointer<T>`. A distinct alias measures as its
-underlying type, so `sizeof<Byte>()` is 1 (`sawc` checks such a static but does
-not build it yet, SL-457). Write the size once and derive the rest:
+underlying type, so `sizeof<Byte>()` is 1. Write the size once and derive the
+rest:
 
 ```saw-fragment
 static PIPE_BODY_BYTES: Int = 4096
@@ -14362,8 +14359,7 @@ func f() {
 The two length positions take the same expression grammar. `[T; N]` used to
 parse a smaller one and fail at the parser on anything outside it, while the
 repeat count beside it gave a semantic answer; both now parse everything and the
-evaluator gives the one answer (a call or a shift in a length is not built in
-`sawc` yet, SL-457).
+evaluator gives the one answer.
 
 ```saw-fragment
 // Const functions evaluated at compile time (planned)

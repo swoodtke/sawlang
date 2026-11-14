@@ -1,0 +1,11 @@
+// refuses: constant.negative-length at 6:16
+// an array length `1 << 63`, which is `Int.min` at a 64-bit `Int` (SL-457)
+// message: array length is negative
+
+struct Table {
+    a: [UInt8; 1 << 63]
+}
+
+func main() {
+    print("{}", 0)
+}

@@ -46,6 +46,7 @@
       (24:14-24:15 Name copy_free_reads.Point place copy)
       (24:17-24:18 IntLit Int value temp)
       (25:9-25:10 BindingName [copy_free_reads.Point; 2] place temp)
+      (25:20-25:21 IntLit Int value temp)
       (25:25-25:31 Repeat [copy_free_reads.Point; 2] value temp)
       (25:26-25:27 Name copy_free_reads.Point place copy)
       (25:29-25:30 IntLit Int value temp)

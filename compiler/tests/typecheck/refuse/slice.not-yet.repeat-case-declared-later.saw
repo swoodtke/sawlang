@@ -1,9 +1,0 @@
-// refuses: slice.not-yet at 5:18
-// a raw case named in a repeat count before its enum is declared is not folded yet (SL-457)
-
-func main() {
-    let xs = [0; E.A]
-    print("{}", xs.len())
-}
-
-enum E: UInt8 { case A = 8 }

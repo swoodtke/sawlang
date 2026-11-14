@@ -19,6 +19,7 @@
       (7:27-7:28 IntLit Int value temp)
       (7:30-7:31 IntLit Int value temp)
       (8:9-8:10 BindingName [Int8; 2] place temp)
+      (8:19-8:20 IntLit Int value temp)
       (8:24-8:30 Array [Int8; 2] value temp)
       (8:25-8:26 IntLit Int (adopt Int8) value temp)
       (8:28-8:29 IntLit Int (adopt Int8) value temp)

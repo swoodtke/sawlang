@@ -1,0 +1,30 @@
+// flags: --std-root std --target riscv32-unknown-none-elf
+// An array length folds at the program's word (SL-457): at riscv32 `Int` is
+// 32 bits, so a length of a billion elements builds, `sizeof<UInt>()` is 4,
+// and `Int.max` is 2147483647. The repeat literal of each length builds the
+// same type. refuse/constant.overflow.length-word-riscv32.saw is the product
+// that no longer fits.
+
+static BYTES: Int = 64
+static HIGH: Int = 1 << 30
+
+struct Big {
+    shifted: [UInt8; 1 << 30]
+    named: [UInt8; HIGH]
+    sum: [UInt8; 0x3fffffff + 1]
+    word: [UInt8; sizeof<UInt>()]
+    words: [UInt8; BYTES / sizeof<UInt>()]
+    limit: [UInt8; Int.max >> 28]
+}
+
+static T_SHIFTED: [UInt8; 1 << 30] = [0; 1 << 30]
+static T_WORD: [UInt8; 4] = [0; sizeof<UInt>()]
+
+func take(a: [UInt8; HIGH]) -> Int {
+    a.len()
+}
+
+func main() {
+    let local: [UInt8; 1 << 30] = [0; HIGH]
+    print("{}", take(local))
+}

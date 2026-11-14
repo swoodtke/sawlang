@@ -1,12 +1,12 @@
-// The statics a type fixes a constant from (spec, Module-level statics, "A
-// static is a constant where a constant is required"): an array length, a
-// repeat count, a constant generic argument and a const parameter's default
-// may name an integer static whose initializer folds. A type is built while
-// signatures are, before any body is typed, and the value comes from the one
-// fold over a typed initializer (`fold.saw`), so each such static's
-// initializer is typed and folded first, here, ahead of the staged order
-// (SL:architecture §3.10). A program naming no static in those positions is
-// left exactly as the staged order would check it.
+// The constants a type fixes (spec, Module-level statics, "A static is a
+// constant where a constant is required"): an array length, a repeat count,
+// a constant generic argument and a const parameter's default may name an
+// integer static whose initializer folds, and an array length is itself a
+// constant expression. A type is built while signatures are, before any body
+// is typed, and the value comes from the one fold over a typed expression
+// (`fold.saw`), so each such static's initializer, each array length and
+// each raw-backed case's value is typed and folded first, here, ahead of the
+// staged order (SL:architecture §3.10).
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
@@ -19,7 +19,7 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcFold}
-import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR, TcStaticTyping, TcStaticVerdict}
+import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR, TC_LENGTH_PENDING, TcStaticTyping, TcStaticVerdict}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcArgSlot}
 import sawtypecheck.spell.{tc_effects_text}
@@ -28,8 +28,10 @@ import sawtypecheck.typeops.{TcClient}
 // What the walk finds about const parameters that size arrays: the
 // declaring leaf of each written bare as a length or a repeat count, and each
 // passed bare as an argument, from `params[k]` into parameter `indexes[k]`
-// of declaration `targets[k]`.
+// of declaration `targets[k]`; and every array type's length expression,
+// `nodes`.
 struct TcLengthFlow {
+    nodes: Vector<Int>
     lengths: Vector<Int>
     params: Vector<Int>
     targets: Vector<Int>
@@ -38,7 +40,8 @@ struct TcLengthFlow {
 
 extension TcLengthFlow: NoCopy {}
 
-// Evaluates every static a type position of `layer`'s modules names, before
+// Evaluates every static a type position of `layer`'s modules names, types
+// and folds every array length, and readies every raw-backed case, before
 // signatures are built.
 public func tc_evaluate_constant_statics(p: &var TcProgram, layer: &FrontLayer) {
     p.evaluate_constant_statics(&layer)
@@ -50,13 +53,15 @@ func tc_static_hint() -> String {
 }
 
 extension TcProgram {
-    // Each static named where a type fixes a constant, evaluated in turn, the
-    // statics its initializer names first.
+    // Each array length folded, each static named where a type fixes a
+    // constant evaluated in turn (the statics its initializer names first),
+    // and each raw-backed case's value readied: a case is named from a body
+    // that precedes its enum, and a body cannot ready one on demand.
     // The same walk records each const parameter that sizes an array.
     func evaluate_constant_statics(&var self, layer: &FrontLayer) {
         var found = Vector<Int>()
-        var flow = TcLengthFlow(lengths: Vector<Int>(), params: Vector<Int>(), targets: Vector<Int>(),
-                                indexes: Vector<Int>())
+        var flow = TcLengthFlow(nodes: Vector<Int>(), lengths: Vector<Int>(), params: Vector<Int>(),
+                                targets: Vector<Int>(), indexes: Vector<Int>())
         var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
@@ -67,9 +72,35 @@ extension TcProgram {
         }
         self.record_length_params(&flow)
         var k = 0
+        while k < flow.nodes.len() {
+            self.evaluate_length(flow.nodes[k])
+            k = k + 1
+        }
+        k = 0
         while k < found.len() {
             self.evaluate_static(found[k])
             k = k + 1
+        }
+        m = layer.module_first
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available && not info.interface_only {
+                self.evaluate_module_cases(info.decl_first, info.decl_count)
+            }
+            m = m + 1
+        }
+    }
+
+    // Each case among declarations `first` for `count` that states a raw
+    // value, evaluated; a case of an enum with no integer backing is left to
+    // its own declaration.
+    func evaluate_module_cases(&var self, first: Int, count: Int) {
+        var d = first
+        while d < first + count {
+            if self.res.decls[d].kind == ResDeclKind.Case && self.raw_value_node(d) >= 0 {
+                self.evaluate_raw_case(d)
+            }
+            d = d + 1
         }
     }
 
@@ -81,6 +112,12 @@ extension TcProgram {
     func collect_constant_statics(&self, e: Int, inside: Bool, out: &var Vector<Int>, flow: &var TcLengthFlow) {
         if e < 0 {
             return
+        }
+        if self.has_alt(e, Alt.Type_Array) {
+            let length = self.res.last_node_child(e)
+            if length >= 0 {
+                try! flow.nodes.push(length)
+            }
         }
         if self.has_alt(e, Alt.Type_Array) || self.has_alt(e, Alt.Expr_Repeat) {
             let param = self.bare_param(self.res.last_node_child(e))
@@ -223,7 +260,7 @@ extension TcProgram {
             } else if kind == ResDeclKind.Case {
                 self.evaluate_raw_case(b.decl)
             } else {
-                self.build_decl(b.decl)
+                self.build_ready(b.decl)
             }
             return
         }
@@ -247,8 +284,8 @@ extension TcProgram {
         if parent < 0 {
             return
         }
-        self.build_decl(parent)
-        self.build_decl(c)
+        self.build_ready(parent)
+        self.build_ready(c)
         let backing = self.sigs[parent].result
         let value = self.raw_value_node(c)
         if backing < 0 || not self.is_integer(backing) || value < 0 || not self.constant_shape(value) {
@@ -258,6 +295,90 @@ extension TcProgram {
         self.prepare_ahead(value, c)
         self.type_raw_case_ahead(c)
         self.static_typing[c] = TcStaticTyping.Typed
+    }
+
+    // Declaration `d`'s signature, built once every array length its types
+    // hold is typed, since a type built earlier would take the small folder.
+    // A type alias named in them is read through, as building one builds its
+    // type.
+    // ENTRY POINTS:
+    //     prepare_ahead
+    //     evaluate_raw_case
+    //     evaluate_static
+    func build_ready(&var self, d: Int) {
+        var seen = Vector<Int>()
+        try! seen.push(d)
+        self.ready_lengths(self.res.decls[d].node, &var seen)
+        self.build_decl(d)
+    }
+
+    // Each array length under node `e`, evaluated, and through each alias
+    // `e` names, `seen` the declarations walked.
+    func ready_lengths(&var self, e: Int, seen: &var Vector<Int>) {
+        if e < 0 {
+            return
+        }
+        if self.is_leaf(e) {
+            let b = self.binding_at(e)
+            if b.kind == ResBindKind.Decl && b.decl >= 0 && not tc_contains(&seen, b.decl) {
+                let kind = self.res.decls[b.decl].kind
+                if kind == ResDeclKind.Alias || kind == ResDeclKind.TypeAssign {
+                    try! seen.push(b.decl)
+                    self.ready_lengths(self.res.decls[b.decl].node, &var seen)
+                }
+            }
+            return
+        }
+        if self.has_alt(e, Alt.Type_Array) {
+            self.evaluate_length(self.res.last_node_child(e))
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            self.ready_lengths(c, &var seen)
+        }
+    }
+
+    // Array length expression `node`, typed ahead, folded by the
+    // constant-position funnel and left as its length type at `node` in
+    // `node_types`, where `build_type` reads it (`array_length`). One the
+    // constant grammar does not shape (a const parameter's, a local's), one
+    // that names a static that is no constant, and one the fold leaves
+    // unfolded stay with the small folder, which words each refusal.
+    func evaluate_length(&var self, node: Int) {
+        if node < 0 || self.node_types[node] != -1 || not self.shaped(node, true) {
+            return
+        }
+        self.node_types[node] = TC_LENGTH_PENDING
+        self.prepare_ahead(node, -1)
+        if self.names_unfolded_static(node) {
+            self.node_types[node] = -1
+            return
+        }
+        self.node_types[node] = self.type_length_ahead(node)
+    }
+
+    // Whether expression `e` names a static whose verdict is not a folded
+    // value.
+    func names_unfolded_static(&self, e: Int) -> Bool {
+        if e < 0 {
+            return false
+        }
+        if self.is_leaf(e) {
+            let d = self.static_bound(e)
+            return d >= 0 && self.static_verdicts[d] != TcStaticVerdict.Folds
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            if self.names_unfolded_static(self.child(e, k)) {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     // The static leaf `leaf` binds, or -1.
@@ -282,7 +403,7 @@ extension TcProgram {
         if self.static_typing[d] != TcStaticTyping.Untyped && not typed {
             return
         }
-        self.build_decl(d)
+        self.build_ready(d)
         let s = self.sigs[d]
         let info = self.res.decls[d]
         let m = info.module
@@ -361,7 +482,7 @@ extension TcProgram {
     }
 
     // Whether initializer `e` is shaped as an integer constant: integer
-    // literals, statics, raw-backed cases and the integer limits, under the
+    // literals, `#line`, statics, raw-backed cases and the integer limits, under the
     // arithmetic and bit operators, casts, `sizeof`, `alignof` and a type
     // alias's construction. Only such an initializer is typed ahead, since
     // nothing in it asks a conformance or a member table, neither of which
@@ -369,6 +490,14 @@ extension TcProgram {
     // only make a `Bool`); any other is no integer constant, which its own
     // declaration refuses.
     func constant_shape(&self, e: Int) -> Bool {
+        self.shaped(e, false)
+    }
+
+    // `constant_shape`, and with `bools` the `Bool` forms an array length may
+    // be written with, which the funnel refuses by name: `true`, `false`,
+    // `not`, `&&`, `||` and a comparison of constant-shaped operands. A
+    // comparison between integers needs no conformance.
+    func shaped(&self, e: Int, bools: Bool) -> Bool {
         if e < 0 {
             return false
         }
@@ -377,16 +506,23 @@ extension TcProgram {
         }
         match alt {
             case Expr_Int -> true,
-            case Expr_Paren -> self.constant_shaped_parts(e),
-            case Expr_Unary_Negate -> self.constant_shaped_parts(e),
-            case Expr_Unary_Complement -> self.constant_shaped_parts(e),
-            case Expr_Additive -> self.constant_shaped_parts(e),
-            case Expr_Multiplicative -> self.constant_shaped_parts(e),
-            case Expr_Shift -> self.constant_shaped_parts(e),
-            case Expr_Bitand -> self.constant_shaped_parts(e),
-            case Expr_Bitor -> self.constant_shaped_parts(e),
-            case Expr_Bitxor -> self.constant_shaped_parts(e),
-            case Expr_Cast -> self.constant_shaped_parts(e),
+            case Expr_SourceLocation_Line -> true,
+            case Expr_Bool_True -> bools,
+            case Expr_Bool_False -> bools,
+            case Expr_Unary_Not -> bools && self.shaped_parts(e, bools),
+            case Expr_And -> bools && self.shaped_parts(e, bools),
+            case Expr_Or -> bools && self.shaped_parts(e, bools),
+            case Expr_Compare_Pair -> bools && self.shaped_pair(e, bools),
+            case Expr_Paren -> self.shaped_parts(e, bools),
+            case Expr_Unary_Negate -> self.shaped_parts(e, bools),
+            case Expr_Unary_Complement -> self.shaped_parts(e, bools),
+            case Expr_Additive -> self.shaped_parts(e, bools),
+            case Expr_Multiplicative -> self.shaped_parts(e, bools),
+            case Expr_Shift -> self.shaped_parts(e, bools),
+            case Expr_Bitand -> self.shaped_parts(e, bools),
+            case Expr_Bitor -> self.shaped_parts(e, bools),
+            case Expr_Bitxor -> self.shaped_parts(e, bools),
+            case Expr_Cast -> self.shaped_parts(e, bools),
             case Expr_Name -> self.static_bound(self.res.first_leaf(e)) >= 0,
             case Expr_Member -> self.constant_shaped_member(e),
             case Expr_Call_Paren -> self.constant_shaped_call(e),
@@ -394,9 +530,15 @@ extension TcProgram {
         }
     }
 
-    // Whether each expression child of `e` is constant-shaped; a type among
-    // them, a cast's, is no part.
-    func constant_shaped_parts(&self, e: Int) -> Bool {
+    // Whether comparison `e`'s two operands are shaped; the operator between
+    // them is a node of its own.
+    func shaped_pair(&self, e: Int, bools: Bool) -> Bool {
+        self.shaped(self.res.first_node_child(e), bools) && self.shaped(self.res.last_node_child(e), bools)
+    }
+
+    // Whether each expression child of `e` is shaped; a type among them, a
+    // cast's, is no part.
+    func shaped_parts(&self, e: Int, bools: Bool) -> Bool {
         let n = self.child_count(e)
         var k = 0
         while k < n {
@@ -405,7 +547,7 @@ extension TcProgram {
             if self.is_leaf(c) || res_is_type_alt(self.node_alt(c)) {
                 continue
             }
-            if not self.constant_shape(c) {
+            if not self.shaped(c, bools) {
                 return false
             }
         }

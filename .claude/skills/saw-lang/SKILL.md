@@ -2483,7 +2483,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `static.not-constant` naming it, and a local of the same name wins and is
   refused as the run-time value it is. One whose initializer uses
   `sizeof`/`alignof` of an integer, `Bool`, `Float`, `String` or raw pointer folds
-  there (a struct's layout does not, SL-457); defaults compose with design 37
+  there (a struct's layout does not, SL-1095); defaults compose with design 37
   (`<const N: Int = 4>`, so `Ring()` means `Ring<4>`); structs, enums and free
   functions all take them. Explicit at the use site except for ONE inference
   case — a `[T; N]` PARAMETER binds N from the argument's length:
@@ -5364,14 +5364,18 @@ construct in the owner and lend `&driver` down.
   `static_assert` operand — with const arithmetic composing over it. Write the
   size once and derive the rest; the named-array-type-plus-`sizeof` workaround
   is retired.
-  ```saw-pending SL-457
+  ```saw
   static PAGE_SHIFT: Int = 12
   static REGION_SIZE: Int = 1 << (PAGE_SHIFT + 4)      // derives, design 186
   static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
   struct Region { bytes: [UInt8; REGION_SIZE] }
   static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
-  var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]   // in a body
   static HANDLE_MASK: UInt = (1 << 12) - 1             // derives at ANY width
+
+  func main() {
+      var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]   // in a body
+      print(half.len())
+  }
   ```
   The derived static may be a `UInt` (or any fixed width) since design 257 §1,
   and it range-checks there — before Aug 31 only the fixed widths adopted, so

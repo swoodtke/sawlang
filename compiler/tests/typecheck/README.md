@@ -760,7 +760,8 @@ defence in depth (`compiler/tests/eval/README.md`).
 | a raw case's value | `check_raw_value` | names no static and no other enum's case (spec, Raw backings) | constant_positions; static.not-constant.raw-static, .raw-case |
 | an `@align` argument on a static | `check_align_attribute` | none, so no const parameter; its value a power of two from 1 to 4096 | constant_positions; constant.align.above-cap |
 | an `@align` argument on a local | `check_align_local` | none, so no const parameter; its value a power of two from 1 to 4096; never on `let _` | constant_positions; static.not-constant.align, .align-const-parameter; constant.align, .zero, .negative; attribute.align-no-storage |
-| a repeat count | `repeat_expr` | none beyond the shared one; a const parameter or a measurement is left to `build_const` | constant_repeat_counts; constant.shift-range.repeat, constant.overflow.repeat, constant.overflow.repeat-word-riscv32, constant.divide-by-zero.repeat, constant.negative-length.repeat, .repeat-shift; type.mismatch.repeat-bool; static.not-constant.repeat-struct-layout, .repeat-count-range; slice.not-yet.repeat-case-declared-later |
+| a repeat count | `repeat_expr` | none beyond the shared one; a const parameter is left to `build_const` | constant_repeat_counts; constant.shift-range.repeat, constant.overflow.repeat, constant.overflow.repeat-word-riscv32, constant.divide-by-zero.repeat, constant.negative-length.repeat, .repeat-shift; type.mismatch.repeat-bool; static.not-constant.repeat-struct-layout, .repeat-count-range |
+| an array length | `type_length_ahead` | none beyond the shared one, and a `Bool` form is judged as the integer a length is; a const parameter, a local and a static that is no constant are left to `build_const`, which words them | constant_lengths, constant_lengths_riscv32, multi/constant_length_modules; constant.shift-range.length, constant.overflow.length, constant.overflow.length-word-riscv32, constant.divide-by-zero.length, constant.negative-length.shift; type.mismatch.length-bool, .length-literal-word-riscv32; operator.undefined.length-bool-bit; static.not-constant.length-struct-layout |
 | a `static_assert` condition, at the top and in every body kind | `check_static_assert` | a const parameter in scope | constant_positions, constant_faults; static_assert.failed, .function, .method, .init, .closure, .default-body, .test-case, .declared-later, .declared-later-module; static.not-constant.assert-local; constant.overflow.assert, constant.shift-range |
 
 The shared grammar is the fold's: integer and `Bool` literals, `#line`, module
@@ -781,9 +782,17 @@ description's layout on every triple; golden `static_constants` names such a
 static as a length and a repeat count. The
 repeat-count position is judged by the funnel (`repeat_expr`; its count keeps
 its own integer type and converts to `Int`; golden `constant_repeat_counts`;
-a measurement of any other type is `static.not-constant`). The array-length and
-const-argument positions are folded by `build_const` (SL-457) and do not reach
-the funnel; it refuses every `sizeof` there, of any type, as `slice.not-yet`.
+a measurement of any other type is `static.not-constant`). The array-length
+position is judged by the funnel too: the pre-signature pass (`statics.saw`)
+types each length expression ahead of the signature that holds it
+(`evaluate_length`, through `type_length_ahead`), converts its fold to a length
+by the one conversion a repeat count uses (`fold_length`), and leaves it at the
+node for `build_type` to read; golden `constant_lengths`. The same pass
+evaluates every raw-backed case, so a count or a length may name a case of an
+enum declared after it. A length or count that names a const parameter, a local
+or a static that is no constant stays with `build_const` (SL-457), which words
+the refusal; so do the const-argument positions, which refuse every `sizeof`
+there, of any type, as `slice.not-yet`.
 
 ### The certain-fault funnel
 
@@ -858,12 +867,12 @@ holds its judgment only when the fold stops at a node no body has typed yet
 the order of refusals is unchanged. A held judgment whose expression holds a
 refusal already is not made again. A static's initializer holds nothing: it
 may name only the statics above it (spec, Compile-Time Evaluation), which is
-the declaration-order rule's to refuse. A repeat count never waits: its value
-fixes the array's type where it is written, so it folds at once and a raw case
-declared below its body is `slice.not-yet`. The array-length and
-const-argument positions fold in `build_const`, which takes a static only
-through `static_constant`, its value evaluated before signatures, so nothing
-there waits on a body.
+the declaration-order rule's to refuse. A repeat count and an array length
+never wait: their value fixes the array's type where it is written, so it folds
+at once, a static and a raw case declared below them having been evaluated
+before signatures. The const-argument positions fold in `build_const`, which
+takes a static only through `static_constant`, so nothing there waits on a
+body.
 
 | judgment | entry point | refused, through a later static or case | covered by |
 |---|---|---|---|

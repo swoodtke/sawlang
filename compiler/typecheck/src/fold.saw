@@ -196,7 +196,10 @@ extension TcProgram {
 
     // `A(x)` for a type alias `A`: `x`'s value at the type `A` names, which
     // typecheck already made `x` adopt or convert to, so the construction is
-    // the identity. Any other call is no constant.
+    // the identity. A `sizeof` or `alignof` of a type the target alone lays
+    // out (`scalar_layout`) folds here too, and a layout a `static_assert`
+    // measures reads the value its check supplies. Any other call is no
+    // constant.
     func fold_alias_construct(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         // A layout a `static_assert` measures, while its check supplies it
         // (SL:open-questions D40).

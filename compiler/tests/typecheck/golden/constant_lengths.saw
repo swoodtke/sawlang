@@ -1,0 +1,238 @@
+// An array length is a constant position, folded by the constant-position
+// funnel (SL-457): every form of the constant grammar that folds to an
+// integer, in a struct field, a parameter's type, a static's type and a
+// local's annotation. Each row's value is held twice: by the type it
+// writes in the dump, and by the repeat literal of that length that must
+// build the same type. The orders: a static and a raw case declared above
+// the length, a static (`LATE`) and a raw case (`LATE_E`) declared below
+// it, and a case of an enum in another module is
+// multi/constant_length_modules.
+
+type Count = Int
+
+static S8: Int = 8
+static SHIFT: Int = 3
+static SU8: UInt = 8
+static BYTES: Int = 64
+
+enum E: UInt8 {
+    case A = 8
+    case B = 4
+}
+
+enum P: UInt8 {
+    case R = 1
+    case W = 2
+}
+
+struct Fields {
+    f_literal: [UInt8; 8]
+    f_hex: [UInt8; 0x8]
+    f_plus_times: [UInt8; 2 * 3 + 2]
+    f_div: [UInt8; 16 / 2]
+    f_rem: [UInt8; 17 % 9]
+    f_shl: [UInt8; 1 << 3]
+    f_shr: [UInt8; 64 >> 3]
+    f_and: [UInt8; 0xF & 0x8]
+    f_or: [UInt8; 8 | 0]
+    f_xor: [UInt8; 12 ^ 4]
+    f_not: [UInt8; ~(-9)]
+    f_negate: [UInt8; -(-8)]
+    f_paren: [UInt8; (8)]
+    f_static: [UInt8; S8]
+    f_static_times: [UInt8; S8 * 2]
+    f_static_shift: [UInt8; 1 << SHIFT]
+    f_static_div: [UInt8; BYTES / S8]
+    f_uint_static: [UInt8; SU8]
+    f_uint_static_div: [UInt8; SU8 / 2]
+    f_case: [UInt8; E.A]
+    f_case_sum: [UInt8; E.A + E.B]
+    f_case_or: [UInt8; P.R | P.W]
+    f_case_cast: [UInt8; E.A as Int]
+    f_cast: [UInt8; 8 as Int]
+    f_alias: [UInt8; Count(8)]
+    f_limit: [UInt8; Int8.max >> 4]
+    f_sizeof: [UInt8; sizeof<UInt64>()]
+    f_alignof: [UInt8; alignof<UInt32>()]
+    f_sizeof_div: [UInt8; BYTES / sizeof<UInt>()]
+    f_static_below: [UInt8; LATE + 1]
+    f_case_below: [UInt8; LATE_E.C + 1]
+    f_static_below_shift: [UInt8; 1 << LATE]
+}
+
+static T_LITERAL: [UInt8; 8] = [0; 8]
+static T_HEX: [UInt8; 0x8] = [0; 8]
+static T_PLUS_TIMES: [UInt8; 2 * 3 + 2] = [0; 8]
+static T_DIV: [UInt8; 16 / 2] = [0; 8]
+static T_REM: [UInt8; 17 % 9] = [0; 8]
+static T_SHL: [UInt8; 1 << 3] = [0; 8]
+static T_SHR: [UInt8; 64 >> 3] = [0; 8]
+static T_AND: [UInt8; 0xF & 0x8] = [0; 8]
+static T_OR: [UInt8; 8 | 0] = [0; 8]
+static T_XOR: [UInt8; 12 ^ 4] = [0; 8]
+static T_NOT: [UInt8; ~(-9)] = [0; 8]
+static T_NEGATE: [UInt8; -(-8)] = [0; 8]
+static T_PAREN: [UInt8; (8)] = [0; 8]
+static T_STATIC: [UInt8; S8] = [0; 8]
+static T_STATIC_TIMES: [UInt8; S8 * 2] = [0; 16]
+static T_STATIC_SHIFT: [UInt8; 1 << SHIFT] = [0; 8]
+static T_STATIC_DIV: [UInt8; BYTES / S8] = [0; 8]
+static T_UINT_STATIC: [UInt8; SU8] = [0; 8]
+static T_UINT_STATIC_DIV: [UInt8; SU8 / 2] = [0; 4]
+static T_CASE: [UInt8; E.A] = [0; 8]
+static T_CASE_SUM: [UInt8; E.A + E.B] = [0; 12]
+static T_CASE_OR: [UInt8; P.R | P.W] = [0; 3]
+static T_CASE_CAST: [UInt8; E.A as Int] = [0; 8]
+static T_CAST: [UInt8; 8 as Int] = [0; 8]
+static T_ALIAS: [UInt8; Count(8)] = [0; 8]
+static T_LIMIT: [UInt8; Int8.max >> 4] = [0; 7]
+static T_SIZEOF: [UInt8; sizeof<UInt64>()] = [0; 8]
+static T_ALIGNOF: [UInt8; alignof<UInt32>()] = [0; 4]
+static T_SIZEOF_DIV: [UInt8; BYTES / sizeof<UInt>()] = [0; 8]
+static T_STATIC_BELOW: [UInt8; LATE + 1] = [0; 5]
+static T_CASE_BELOW: [UInt8; LATE_E.C + 1] = [0; 7]
+static T_STATIC_BELOW_SHIFT: [UInt8; 1 << LATE] = [0; 16]
+
+func p_literal(a: [UInt8; 8]) -> Int { a.len() }
+func p_hex(a: [UInt8; 0x8]) -> Int { a.len() }
+func p_plus_times(a: [UInt8; 2 * 3 + 2]) -> Int { a.len() }
+func p_div(a: [UInt8; 16 / 2]) -> Int { a.len() }
+func p_rem(a: [UInt8; 17 % 9]) -> Int { a.len() }
+func p_shl(a: [UInt8; 1 << 3]) -> Int { a.len() }
+func p_shr(a: [UInt8; 64 >> 3]) -> Int { a.len() }
+func p_and(a: [UInt8; 0xF & 0x8]) -> Int { a.len() }
+func p_or(a: [UInt8; 8 | 0]) -> Int { a.len() }
+func p_xor(a: [UInt8; 12 ^ 4]) -> Int { a.len() }
+func p_not(a: [UInt8; ~(-9)]) -> Int { a.len() }
+func p_negate(a: [UInt8; -(-8)]) -> Int { a.len() }
+func p_paren(a: [UInt8; (8)]) -> Int { a.len() }
+func p_static(a: [UInt8; S8]) -> Int { a.len() }
+func p_static_times(a: [UInt8; S8 * 2]) -> Int { a.len() }
+func p_static_shift(a: [UInt8; 1 << SHIFT]) -> Int { a.len() }
+func p_static_div(a: [UInt8; BYTES / S8]) -> Int { a.len() }
+func p_uint_static(a: [UInt8; SU8]) -> Int { a.len() }
+func p_uint_static_div(a: [UInt8; SU8 / 2]) -> Int { a.len() }
+func p_case(a: [UInt8; E.A]) -> Int { a.len() }
+func p_case_sum(a: [UInt8; E.A + E.B]) -> Int { a.len() }
+func p_case_or(a: [UInt8; P.R | P.W]) -> Int { a.len() }
+func p_case_cast(a: [UInt8; E.A as Int]) -> Int { a.len() }
+func p_cast(a: [UInt8; 8 as Int]) -> Int { a.len() }
+func p_alias(a: [UInt8; Count(8)]) -> Int { a.len() }
+func p_limit(a: [UInt8; Int8.max >> 4]) -> Int { a.len() }
+func p_sizeof(a: [UInt8; sizeof<UInt64>()]) -> Int { a.len() }
+func p_alignof(a: [UInt8; alignof<UInt32>()]) -> Int { a.len() }
+func p_sizeof_div(a: [UInt8; BYTES / sizeof<UInt>()]) -> Int { a.len() }
+func p_static_below(a: [UInt8; LATE + 1]) -> Int { a.len() }
+func p_case_below(a: [UInt8; LATE_E.C + 1]) -> Int { a.len() }
+func p_static_below_shift(a: [UInt8; 1 << LATE]) -> Int { a.len() }
+
+static LATE: Int = 4
+
+enum LATE_E: UInt8 {
+    case C = 6
+}
+
+func main() {
+    let l_literal: [UInt8; 8] = [0; 8]
+    let l_hex: [UInt8; 0x8] = [0; 8]
+    let l_plus_times: [UInt8; 2 * 3 + 2] = [0; 8]
+    let l_div: [UInt8; 16 / 2] = [0; 8]
+    let l_rem: [UInt8; 17 % 9] = [0; 8]
+    let l_shl: [UInt8; 1 << 3] = [0; 8]
+    let l_shr: [UInt8; 64 >> 3] = [0; 8]
+    let l_and: [UInt8; 0xF & 0x8] = [0; 8]
+    let l_or: [UInt8; 8 | 0] = [0; 8]
+    let l_xor: [UInt8; 12 ^ 4] = [0; 8]
+    let l_not: [UInt8; ~(-9)] = [0; 8]
+    let l_negate: [UInt8; -(-8)] = [0; 8]
+    let l_paren: [UInt8; (8)] = [0; 8]
+    let l_static: [UInt8; S8] = [0; 8]
+    let l_static_times: [UInt8; S8 * 2] = [0; 16]
+    let l_static_shift: [UInt8; 1 << SHIFT] = [0; 8]
+    let l_static_div: [UInt8; BYTES / S8] = [0; 8]
+    let l_uint_static: [UInt8; SU8] = [0; 8]
+    let l_uint_static_div: [UInt8; SU8 / 2] = [0; 4]
+    let l_case: [UInt8; E.A] = [0; 8]
+    let l_case_sum: [UInt8; E.A + E.B] = [0; 12]
+    let l_case_or: [UInt8; P.R | P.W] = [0; 3]
+    let l_case_cast: [UInt8; E.A as Int] = [0; 8]
+    let l_cast: [UInt8; 8 as Int] = [0; 8]
+    let l_alias: [UInt8; Count(8)] = [0; 8]
+    let l_limit: [UInt8; Int8.max >> 4] = [0; 7]
+    let l_sizeof: [UInt8; sizeof<UInt64>()] = [0; 8]
+    let l_alignof: [UInt8; alignof<UInt32>()] = [0; 4]
+    let l_sizeof_div: [UInt8; BYTES / sizeof<UInt>()] = [0; 8]
+    let l_static_below: [UInt8; LATE + 1] = [0; 5]
+    let l_case_below: [UInt8; LATE_E.C + 1] = [0; 7]
+    let l_static_below_shift: [UInt8; 1 << LATE] = [0; 16]
+    let fields = Fields(
+        f_literal: [0; 8],
+        f_hex: [0; 8],
+        f_plus_times: [0; 8],
+        f_div: [0; 8],
+        f_rem: [0; 8],
+        f_shl: [0; 8],
+        f_shr: [0; 8],
+        f_and: [0; 8],
+        f_or: [0; 8],
+        f_xor: [0; 8],
+        f_not: [0; 8],
+        f_negate: [0; 8],
+        f_paren: [0; 8],
+        f_static: [0; 8],
+        f_static_times: [0; 16],
+        f_static_shift: [0; 8],
+        f_static_div: [0; 8],
+        f_uint_static: [0; 8],
+        f_uint_static_div: [0; 4],
+        f_case: [0; 8],
+        f_case_sum: [0; 12],
+        f_case_or: [0; 3],
+        f_case_cast: [0; 8],
+        f_cast: [0; 8],
+        f_alias: [0; 8],
+        f_limit: [0; 7],
+        f_sizeof: [0; 8],
+        f_alignof: [0; 4],
+        f_sizeof_div: [0; 8],
+        f_static_below: [0; 5],
+        f_case_below: [0; 7],
+        f_static_below_shift: [0; 16]
+    )
+    print("{}", p_literal([0; 8]))
+    print("{}", p_hex([0; 8]))
+    print("{}", p_plus_times([0; 8]))
+    print("{}", p_div([0; 8]))
+    print("{}", p_rem([0; 8]))
+    print("{}", p_shl([0; 8]))
+    print("{}", p_shr([0; 8]))
+    print("{}", p_and([0; 8]))
+    print("{}", p_or([0; 8]))
+    print("{}", p_xor([0; 8]))
+    print("{}", p_not([0; 8]))
+    print("{}", p_negate([0; 8]))
+    print("{}", p_paren([0; 8]))
+    print("{}", p_static([0; 8]))
+    print("{}", p_static_times([0; 16]))
+    print("{}", p_static_shift([0; 8]))
+    print("{}", p_static_div([0; 8]))
+    print("{}", p_uint_static([0; 8]))
+    print("{}", p_uint_static_div([0; 4]))
+    print("{}", p_case([0; 8]))
+    print("{}", p_case_sum([0; 12]))
+    print("{}", p_case_or([0; 3]))
+    print("{}", p_case_cast([0; 8]))
+    print("{}", p_cast([0; 8]))
+    print("{}", p_alias([0; 8]))
+    print("{}", p_limit([0; 7]))
+    print("{}", p_sizeof([0; 8]))
+    print("{}", p_alignof([0; 4]))
+    print("{}", p_sizeof_div([0; 8]))
+    print("{}", p_static_below([0; 5]))
+    print("{}", p_case_below([0; 7]))
+    print("{}", p_static_below_shift([0; 16]))
+    print("{}", fields.f_literal.len())
+}
+
+// `#line` is an integer constant: this static's length is its own line minus 100.
+static T_LINE: [UInt8; #line - 100] = [0; 138]

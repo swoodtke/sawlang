@@ -1,3 +1,5 @@
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:35:32	`WIDTH` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known
+ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:35:51	`Code.B` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known
 ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_refusals.saw:20:21	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
 ERROR	constant.divide-by-zero	compiler/tests/typecheck/golden/constant_refusals.saw:21:24	constant expression divides by zero
 ERROR	constant.cast-range	compiler/tests/typecheck/golden/constant_refusals.saw:22:28	`300` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)` to get `None` instead
@@ -5,8 +7,6 @@ ERROR	static.cycle	compiler/tests/typecheck/golden/constant_refusals.saw:23:17	s
 ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:30:22	`seven()` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `alignof` and a static's memberwise construction are constants; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`
 ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:31:27	`(1, 2)` is not a constant, and a static's initializer is a constant expression: a constant is built from literals, statics, raw-backed cases and the integer limits, under operators, casts between integers and a type alias's construction; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`
 ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:32:21	`Mode.Fast` is not a constant, and a static's initializer is a constant expression: it is a case of an enum with no raw backing, which has no constant value; state that has to be computed wants `static X: Once<T>`, set once, or an `unsafe static var`
-ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:35:32	`WIDTH` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known
-ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:35:51	`Code.B` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, before either is known
 ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:42:19	`n` is not a constant, and a `static_assert` condition is a constant expression: it names a binding whose value is known only at run time
 ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw:43:19	static assertion failed: false in a body
 ERROR	static.not-constant	compiler/tests/typecheck/golden/constant_refusals.saw:44:12	`n` is not a constant, and an `@align` argument is a constant expression: it names a binding whose value is known only at run time
@@ -145,6 +145,7 @@ ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw
       (43:23-43:24 IntLit Int value borrow)
       (44:12-44:13 Name Int place copy)
       (45:9-45:12 BindingName [UInt8; 4] place temp)
+      (45:22-45:23 IntLit Int value temp)
       (45:27-45:33 Repeat [UInt8; 4] value temp)
       (45:28-45:29 IntLit Int (adopt UInt8) value temp)
       (45:31-45:32 IntLit Int value temp)

@@ -24,9 +24,9 @@ positions, each a MIR function of its own (`compiler/tests/mir/README.md`):
 - an `@align` argument;
 - a `static_assert`'s condition, which must evaluate `true`.
 
-Const-generic arguments, array lengths and repeat counts are folded by
-typecheck's other folder, `build_const`, and have no MIR body yet; SL-457
-owns lowering them to MIR and evaluating them here.
+Array lengths and repeat counts are folded by typecheck's
+constant-position funnel, and const-generic arguments by its small folder,
+`build_const`; none has a MIR body yet, and SL-457 owns what becomes of that.
 
 The evaluator runs the MIR as it would run, at the target's integer widths:
 integer and `Bool` literals (a literal is written at the type its expression

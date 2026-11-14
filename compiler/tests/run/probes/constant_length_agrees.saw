@@ -1,0 +1,74 @@
+// probe: stated
+// about: an array length folds, in a type, to the number the evaluator computes for the same expression in a static's initializer (SL-457)
+// stage 0: builds it and prints the same lines; a probe because Stage 0 folds lengths with a smaller grammar
+// speeds: -O0 -O2
+// prints: shl 8 8
+// prints: shr 8 8
+// prints: or 9 9
+// prints: and 9 9
+// prints: xor 8 8
+// prints: not 8 8
+// prints: div 14 14
+// prints: rem 2 2
+// prints: cast 300 300
+// prints: case 12 12
+// prints: flags 7 7
+// prints: sizeof 4 4
+// prints: alignof 2 2
+// prints: static 10 10
+static SHIFT: Int = 3
+enum E: UInt8 {
+    case A = 5
+    case B = 12
+}
+enum P: UInt8 {
+    case R = 1
+    case W = 2
+    case X = 4
+}
+
+static T_SHL: [UInt8; 1 << 3]
+static L_SHL: Int = 1 << 3
+static T_SHR: [UInt8; 64 >> 3]
+static L_SHR: Int = 64 >> 3
+static T_OR: [UInt8; 8 | 1]
+static L_OR: Int = 8 | 1
+static T_AND: [UInt8; 0xF & 0x9]
+static L_AND: Int = 0xF & 0x9
+static T_XOR: [UInt8; 12 ^ 4]
+static L_XOR: Int = 12 ^ 4
+static T_NOT: [UInt8; ~(-9)]
+static L_NOT: Int = ~(-9)
+static T_DIV: [UInt8; 100 / 7]
+static L_DIV: Int = 100 / 7
+static T_REM: [UInt8; 100 % 7]
+static L_REM: Int = 100 % 7
+static T_CAST: [UInt8; 300 as UInt16 as Int]
+static L_CAST: Int = 300 as UInt16 as Int
+static T_CASE: [UInt8; E.B]
+static L_CASE: Int = E.B
+static T_FLAGS: [UInt8; P.R | P.W | P.X]
+static L_FLAGS: Int = P.R | P.W | P.X
+static T_SIZEOF: [UInt8; sizeof<UInt32>()]
+static L_SIZEOF: Int = sizeof<UInt32>()
+static T_ALIGNOF: [UInt8; alignof<UInt16>()]
+static L_ALIGNOF: Int = alignof<UInt16>()
+static T_STATIC: [UInt8; (1 << SHIFT) + 2]
+static L_STATIC: Int = (1 << SHIFT) + 2
+
+func main() {
+    print("shl {} {}", T_SHL.len(), L_SHL)
+    print("shr {} {}", T_SHR.len(), L_SHR)
+    print("or {} {}", T_OR.len(), L_OR)
+    print("and {} {}", T_AND.len(), L_AND)
+    print("xor {} {}", T_XOR.len(), L_XOR)
+    print("not {} {}", T_NOT.len(), L_NOT)
+    print("div {} {}", T_DIV.len(), L_DIV)
+    print("rem {} {}", T_REM.len(), L_REM)
+    print("cast {} {}", T_CAST.len(), L_CAST)
+    print("case {} {}", T_CASE.len(), L_CASE)
+    print("flags {} {}", T_FLAGS.len(), L_FLAGS)
+    print("sizeof {} {}", T_SIZEOF.len(), L_SIZEOF)
+    print("alignof {} {}", T_ALIGNOF.len(), L_ALIGNOF)
+    print("static {} {}", T_STATIC.len(), L_STATIC)
+}

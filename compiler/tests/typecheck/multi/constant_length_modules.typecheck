@@ -1,0 +1,104 @@
+(Module main
+  (declarations
+    (struct Page 9:8 private)
+    (field Page.bare 10:5 private [UInt8; 12])
+    (field Page.qualified 11:5 private [UInt8; 5])
+    (field Page.shifted 12:5 private [UInt8; 16])
+    (field Page.qualified_shifted 13:5 private [UInt8; 16])
+    (static TABLE 16:8 private [UInt8; 12])
+    (static QUALIFIED 17:8 private [UInt8; 4])
+    (func total 19:6 private (signature (params (a [UInt8; 12] owned) (b [UInt8; 16] owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (main.Page
+      (field bare [UInt8; 12] private declared)
+      (field qualified [UInt8; 5] private declared)
+      (field shifted [UInt8; 16] private declared)
+      (field qualified_shifted [UInt8; 16] private declared)))
+  (views
+    (main.Page bare qualified shifted qualified_shifted)
+    (sizes.Size Small Large from))
+  (conformances)
+  (copy-tier
+    (main.Page Copy))
+  (bodies
+    (TABLE 16:8
+      (16:37-16:52 Repeat [UInt8; 12] value temp)
+      (16:38-16:39 IntLit Int (adopt UInt8) value temp)
+      (16:41-16:51 Member sizes.Size (adopt Int) value temp (case sizes.Size.Large (owner sizes.Size))))
+    (QUALIFIED 17:8
+      (17:47-17:68 Repeat [UInt8; 4] value temp)
+      (17:48-17:49 IntLit Int (adopt UInt8) value temp)
+      (17:51-17:67 Member sizes.Size (adopt Int) value temp (case sizes.Size.Small (owner sizes.Size))))
+    (total 19:6
+      (20:5-20:22 Binary Int value temp (op +))
+      (20:5-20:12 Call.paren Int value temp (builtin len))
+      (20:5-20:6 Name [UInt8; 12] (borrow &[UInt8; 12]) place borrow)
+      (20:15-20:22 Call.paren Int value temp (builtin len))
+      (20:15-20:16 Name [UInt8; 16] (borrow &[UInt8; 16]) place borrow))
+    (main 23:6
+      (24:9-24:14 BindingName [UInt8; 4] place temp)
+      (24:24-24:34 Member sizes.Size value temp (case sizes.Size.Small (owner sizes.Size)))
+      (24:38-24:53 Repeat [UInt8; 4] value temp)
+      (24:39-24:40 IntLit Int (adopt UInt8) value temp)
+      (24:42-24:52 Member sizes.Size (adopt Int) value temp (case sizes.Size.Small (owner sizes.Size)))
+      (25:9-25:13 BindingName main.Page place temp)
+      (25:16-25:108 Call.paren main.Page value temp (memberwise main.Page (owner main.Page)))
+      (25:27-25:42 Repeat [UInt8; 12] value temp)
+      (25:28-25:29 IntLit Int (adopt UInt8) value temp)
+      (25:31-25:41 Member sizes.Size (adopt Int) value temp (case sizes.Size.Large (owner sizes.Size)))
+      (25:55-25:61 Repeat [UInt8; 5] value temp)
+      (25:56-25:57 IntLit Int (adopt UInt8) value temp)
+      (25:59-25:60 IntLit Int value temp)
+      (25:72-25:79 Repeat [UInt8; 16] value temp)
+      (25:73-25:74 IntLit Int (adopt UInt8) value temp)
+      (25:76-25:78 IntLit Int value temp)
+      (25:100-25:107 Repeat [UInt8; 16] value temp)
+      (25:101-25:102 IntLit Int (adopt UInt8) value temp)
+      (25:104-25:106 IntLit Int value temp)
+      (26:5-26:111 Call.paren Void value temp (builtin print))
+      (26:11-26:24 Interp String value temp)
+      (26:26-26:49 Call.paren Int value borrow (call main.total(a: [UInt8; 12], b: [UInt8; 16])))
+      (26:32-26:39 Repeat [UInt8; 12] value temp)
+      (26:33-26:34 IntLit Int (adopt UInt8) value temp)
+      (26:36-26:38 IntLit Int value temp)
+      (26:41-26:48 Repeat [UInt8; 16] value temp)
+      (26:42-26:43 IntLit Int (adopt UInt8) value temp)
+      (26:45-26:47 IntLit Int value temp)
+      (26:51-26:62 Call.paren Int value borrow (builtin len))
+      (26:51-26:56 Name [UInt8; 4] (borrow &[UInt8; 4]) place borrow)
+      (26:64-26:79 Call.paren Int value borrow (builtin len))
+      (26:64-26:73 Member [UInt8; 12] (borrow &[UInt8; 12]) place borrow)
+      (26:64-26:68 Name main.Page place project)
+      (26:81-26:110 Binary Int value borrow (op +))
+      (26:81-26:92 Call.paren Int value temp (builtin len))
+      (26:81-26:86 Name [UInt8; 12] (borrow &[UInt8; 12]) place borrow)
+      (26:95-26:110 Call.paren Int value temp (builtin len))
+      (26:95-26:104 Name [UInt8; 4] (borrow &[UInt8; 4]) place borrow)))
+  (string-positions
+    (26:11 format std.stringbuilder.StringBuilder)))
+
+(Module sizes
+  (declarations
+    (enum Size 1:13 public (raw UInt8))
+    (case Size.Small 2:10)
+    (case Size.Large 3:10)
+    (static PAGE_SHIFT 6:15 public Int))
+  (members
+    (sizes.Size
+      (case Small public declared)
+      (case Large public declared)
+      (static from public (synthesized raw))))
+  (views
+    (main.Page)
+    (sizes.Size Small Large from))
+  (conformances)
+  (copy-tier
+    (sizes.Size Copy))
+  (bodies
+    (Size.Small 2:10
+      (2:18-2:19 IntLit Int (adopt UInt8) value temp))
+    (Size.Large 3:10
+      (3:18-3:20 IntLit Int (adopt UInt8) value temp))
+    (PAGE_SHIFT 6:15
+      (6:33-6:34 IntLit Int value temp))))

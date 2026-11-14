@@ -1,0 +1,11 @@
+// refuses: constant.divide-by-zero at 6:16
+// an array length that divides by zero, folded by the constant-position funnel (SL-457)
+// message: divides by zero
+
+struct Table {
+    a: [UInt8; 8 / 0]
+}
+
+func main() {
+    print("{}", 0)
+}

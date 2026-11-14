@@ -236,7 +236,7 @@ extension TcProgram {
     // types itself, and a test holds the two equal on every triple.
     // ENTRY POINTS:
     //     fold_alias_construct
-    //     EvalProgram.next_block
+    //     EvalProgram.measurement
     public func scalar_layout(&self, t: Int) -> TcScalarLayout {
         if t < 0 || not self.target_fixes_layout(t) {
             return TcScalarLayout(known: false, size: 0, align: 0)

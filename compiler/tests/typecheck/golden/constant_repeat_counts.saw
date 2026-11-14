@@ -2,8 +2,7 @@
 // funnel (SL-457): every form of the constant grammar that folds to an
 // integer, in a body and in a static's initializer. Each row's annotation
 // holds the folded value. The orders: a static and a raw case declared above
-// the count, and a static declared below it; a raw case declared below a
-// body is refuses/slice.not-yet.repeat-case-declared-later.
+// the count, and a static and a raw case (`LATE_E`) declared below it.
 
 type Count = Int
 
@@ -53,6 +52,7 @@ static T_LIMIT: [UInt8; 7] = [0; Int8.max >> 4]
 static T_SIZEOF: [UInt8; 8] = [0; sizeof<UInt64>()]
 static T_ALIGNOF: [UInt8; 4] = [0; alignof<UInt32>()]
 static T_SIZEOF_DIV: [UInt8; 8] = [0; BYTES / sizeof<UInt>()]
+static T_CASE_BELOW: [UInt8; 6] = [0; LATE_E.C]
 
 func main() {
     let b_literal: [UInt8; 8] = [0; 8]
@@ -85,4 +85,9 @@ func main() {
     let b_alignof: [UInt8; 4] = [0; alignof<UInt32>()]
     let b_sizeof_div: [UInt8; 8] = [0; BYTES / sizeof<UInt>()]
     let b_static_below: [UInt8; 5] = [0; LATE + 1]
+    let b_case_below: [UInt8; 7] = [0; LATE_E.C + 1]
+}
+
+enum LATE_E: UInt8 {
+    case C = 6
 }

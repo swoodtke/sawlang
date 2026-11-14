@@ -121,6 +121,7 @@
       (59:29-59:30 IntLit Int value borrow)
       (60:12-60:16 Name Int place copy)
       (61:9-61:12 BindingName [UInt8; 8] place temp)
+      (61:22-61:23 IntLit Int value temp)
       (61:27-61:33 Repeat [UInt8; 8] value temp)
       (61:28-61:29 IntLit Int (adopt UInt8) value temp)
       (61:31-61:32 IntLit Int value temp)

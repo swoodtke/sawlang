@@ -1,0 +1,12 @@
+// refuses: constant.overflow at 7:16
+// flags: --std-root std --target riscv32-unknown-none-elf
+// an array length of `65536 * 65536`, which overflows a 32-bit `Int` (SL-457)
+// message: overflows `Int` (range -2147483648..=2147483647)
+
+struct Big {
+    a: [UInt8; 65536 * 65536]
+}
+
+func main() {
+    print("{}", 0)
+}

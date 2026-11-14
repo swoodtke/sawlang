@@ -377,7 +377,6 @@ compiler/typecheck/src/refpositions.saw	refs.position	1	raw pointer, the one cro
 compiler/typecheck/src/signatures.saw	refs.position	1	(SL:open-questions D14), so `extension Vector<String>` is about
 compiler/typecheck/src/signatures.saw	refs.position	1	formed, written, inferred or synthesized (design 109). Nothing else
 compiler/typecheck/src/spell.saw	refs.position	1	every nominal type by its identity (design 144). The dump and every
-compiler/typecheck/src/statics.saw	refs.position	1	(SL:architecture §3.10). A program naming no static in those positions is
 compiler/typecheck/src/strings.saw	refs.position	1	The String positions (SL-456): every expression where the compiler makes or
 compiler/typecheck/src/summaries.saw	refs.count	1	type parameters its body needs on the Copy tier (design 219). A generic
 compiler/typecheck/src/summaries.saw	refs.position	1	Phase 2 of type checking (SL:architecture §3.4, "Order"): the summaries

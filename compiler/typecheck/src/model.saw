@@ -584,8 +584,9 @@ public struct TcItem {
 // initializer, a raw case's value, an `@align` argument, a `static_assert`
 // condition, and the three a type fixes at compile time, an array length, a
 // repeat count, and a constant generic argument or a const parameter's
-// default. The constant-position funnel judges every one of them but Length
-// and Argument, which the small folder of `signatures.saw` still serves.
+// default. The constant-position funnel judges every one of them but
+// Argument, which the small folder of `signatures.saw` still serves, and a
+// length or count that names a const parameter.
 public enum TcConstPosition: UInt8 {
     case Static = 0,
     case RawValue = 1,
@@ -607,8 +608,7 @@ public enum TcStaticTyping: UInt8 {
 
 // What a static stands for where a type fixes a constant: not evaluated (it
 // is named in no such position), the constant it folds to, a static that is
-// no constant, one whose value does not fit an `Int`, or one whose value
-// needs a layout the bootstrap slice does not fold yet, each with its
+// no constant, or one whose value does not fit an `Int`, each with its
 // reason; or one whose type or initializer was refused already, which its
 // own declaration reports.
 public enum TcStaticVerdict: UInt8 {
@@ -616,9 +616,13 @@ public enum TcStaticVerdict: UInt8 {
     case Folds = 1,
     case NotConstant = 2,
     case Unfit = 3,
-    case NotYet = 4,
-    case Poisoned = 5
+    case Poisoned = 4
 }
+
+// What `node_types` holds at an array length's expression while the
+// pre-signature pass types it: a length reached again through itself is a
+// cycle.
+public static TC_LENGTH_PENDING: Int = -2
 
 // A constant judgment held until every body is typed, by the nodes its check
 // reads: its operand may fold through a static or a raw-backed case declared

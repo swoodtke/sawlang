@@ -622,8 +622,8 @@ const_bitwise_fold.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is no
 const_bitwise_negative_length_error.saw	pass	-	constant.negative-length: repeat count is negative (`-9223372036854775808`); a length counts elements, so it starts at 0
 const_bitwise_shift_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
 const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
-const_bitwise_width_riscv32.saw	refused	typecheck type.mismatch	integer literal 0x80000000 does not fit in `Int` (range -2147483648..=2147483647)
-const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
+const_bitwise_width_riscv32.saw	pass	judged by its own directives (edited since its oracle)	built
+const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.const.layout-query.size` is not in the bootstrap slice yet
 const_expression_adopts_an_operand_width.saw	pass	-	-
 const_generic_arg_notations.saw	pass	-	-
 const_generic_bad_value_type_error.saw	pass	-	type.const-parameter: a const parameter is `Int` or `UInt` or another integer type, and `Name` is declared `String`
@@ -634,15 +634,15 @@ const_generic_infer_length.saw	pass	-	-
 const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused: expected a generic parameter's name (parse-error); the parser refuses `tests/corpus/const_generic_specialized_extension_unsupported.saw`, so its declarations are not available
 const_generic_type_for_value_error.saw	pass	-	type.argument-kind: this argument's parameter takes a value, and a type is written
 const_generic_value_for_type_error.saw	pass	-	type.argument-kind: this argument's parameter takes a type, and a value is written
-const_length_grammar_bool_error.saw	refused	typecheck slice.not-yet	`syntax.expr.bitand` is not in the bootstrap slice yet
+const_length_grammar_bool_error.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `Bool`
 const_length_grammar_unified.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
-const_qualified_length.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
-const_sizeof_agrees_across_phases.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
+const_qualified_length.saw	pass	-	-
+const_sizeof_agrees_across_phases.saw	pass	-	-
 const_static_generic_arg.saw	pass	-	-
 const_static_leaf_at_struct_type.saw	refused	llvm backend.not-yet	a static whose initializer the constant evaluator does not hold is not in the backend slice yet
 const_static_length.saw	pass	-	-
 const_static_length_crossmodule.saw	pass	-	-
-const_static_length_freestanding.saw	refused	typecheck slice.not-yet	`syntax.expr.multiplicative` is not in the bootstrap slice yet
+const_static_length_freestanding.saw	pass	-	built
 const_static_length_shadow.saw	pass	-	static.not-constant: array length is not a compile-time constant: `REGION_SIZE` names a binding whose value is known only at run time
 const_static_static_assert_error.saw	pass	-	static_assert.failed: static assertion failed: the region must be page-aligned
 constructor_infers_type_arguments.saw	pass	-	-
@@ -1075,7 +1075,7 @@ errors/channel_not_send.saw	pass	-	type.bound: `channel_not_send.Handle` does no
 errors/closure_statement_never_called.saw	pass	-	closure.discarded: this closure literal is never called: there is no bare block statement, so a `{ ... }` standing as a statement builds a closure and drops it, and nothing inside it runs; call it, as
 errors/comparison_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 200 does not fit in `Int8` (range -128..=127)
 errors/compound_assign_immutable.saw	pass	-	mutability.immutable: this compound assignment writes `x`, and `x` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
-errors/const_builtin_aggregate_length_error.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
+errors/const_builtin_aggregate_length_error.saw	pass	-	static.not-constant: `sizeof<Region>()` is not a constant, and an array length is a constant expression: `const_builtin_aggregate_length_error.Region` is laid out only by code generation, so `sizeof`
 errors/const_operand_does_not_fit_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt8` by a count outside its width
 errors/const_static_leaf_names_mutable_error.saw	pass	-	static.not-constant: `LIVE` is not a constant, and a static's initializer is a constant expression: it names an `unsafe static var`, whose value belongs to the running program; state that has to be co
 errors/constructor_inference_bound_violated.saw	pass	-	type.bound: `constructor_inference_bound_violated.Res` does not satisfy `Copy`, the bound on `T` of `NeedsCopy`
@@ -1578,7 +1578,7 @@ fixed_width_return_out_of_range_error.saw	pass	-	type.mismatch: integer literal 
 fixed_width_value_positions.saw	pass	-	-
 fixedbuf_get_out_of_range_none.saw	pass	-	-
 fixedbuf_set_oob_panic.saw	pass	-	-
-flag_enum_const.saw	refused	typecheck slice.not-yet	`syntax.expr.bitand` is not in the bootstrap slice yet
+flag_enum_const.saw	refused	typecheck operator.undefined	`~` complements an integer, and this is `flag_enum_const.Perm`
 flat_and_nested_module_paths_are_distinct.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 flat_and_nested_modules_declare_distinct_types.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 float_integer_operand_mix.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Float`; convert one with `as`
@@ -2358,7 +2358,7 @@ static_assert_pass.saw	pass	-	-
 static_assert_statement_fail_error.saw	pass	-	static_assert.failed: static assertion failed: statement-position check
 static_atomic_counter.saw	pass	-	-
 static_atomic_threaded.saw	stage0-wrong	annotated SL-765	sawc meets its directives
-static_const_declaration_order.saw	refused	typecheck slice.not-yet	`syntax.expr.multiplicative` is not in the bootstrap slice yet
+static_const_declaration_order.saw	pass	-	-
 static_const_expr_init.saw	pass	-	-
 static_derived_from_imported_const.saw	pass	-	-
 static_generic_struct_const_init.saw	pass	-	-

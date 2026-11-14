@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 6:16
+// an array length that folds to a `Bool`: a length is an integer (SL-457)
+// message: an array length is an integer
+
+struct Table {
+    a: [UInt8; 1 < 2]
+}
+
+func main() {
+    print("{}", 0)
+}

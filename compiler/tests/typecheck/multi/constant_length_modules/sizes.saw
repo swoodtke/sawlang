@@ -1,0 +1,6 @@
+public enum Size: UInt8 {
+    case Small = 4
+    case Large = 12
+}
+
+public static PAGE_SHIFT: Int = 4
