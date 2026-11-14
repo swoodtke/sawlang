@@ -1,0 +1,13 @@
+// refuses: static.not-constant at 7:17
+// errors: 1
+// A repeat count over a const parameter is an integer expression: a
+// comparison is no part of the constant grammar there.
+
+func f<const N: Int>() -> Int {
+    let a = [0; N > 2]
+    a.len()
+}
+
+func main() {
+    print(f<4>())
+}

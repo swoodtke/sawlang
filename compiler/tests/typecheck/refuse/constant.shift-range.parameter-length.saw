@@ -1,0 +1,12 @@
+// refuses: constant.shift-range at 6:38
+// errors: 1
+// A part of a type-position length that names no parameter faults where the
+// type is written, once, whatever `N` is.
+
+func f<const N: Int>(a: [UInt8; N + (1 << 64)]) -> Int {
+    a.len()
+}
+
+func main() {
+    print(0)
+}

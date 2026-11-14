@@ -175,6 +175,10 @@ extension TcProgram {
                 let length = self.subst(written, &s)
                 self.mk_array(element, length)
             },
+            case ConstExpr -> {
+                var args = self.subst_args(t, &s)
+                self.mk_const_expr(info.a, info.b, info.decl, &args)
+            },
             case _ -> t
         }
     }

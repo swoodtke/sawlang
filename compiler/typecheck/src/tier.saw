@@ -578,6 +578,7 @@ extension TcProgram {
             case Slice -> tc_summary(false, 0),
             case Func -> tc_summary(false, 0),
             case ConstInt -> tc_summary(false, 0),
+            case ConstExpr -> tc_summary(false, 0),
             case _ -> tc_summary(q == TC_WALK_CELL, 0)
         }
     }
@@ -926,6 +927,7 @@ extension TcProgram {
         match info.kind {
             case Error -> true,
             case ConstInt -> true,
+            case ConstExpr -> true,
             // An associated type carries no bound, so its projection meets none.
             case Projection -> false,
             case Param -> self.param_satisfies(info.decl, info.a, tr, env_decl, env_ext),

@@ -1,0 +1,128 @@
+// Arithmetic over a const parameter is a symbolic constant: in every position
+// a bare parameter takes, `N + 1` is one type, folded to a value once `N` has
+// one (SL-457). The dump holds each position written with a `ConstExpr`; the
+// run probes const_param_arithmetic and const_param_arithmetic_identity build
+// the same programs and print what each instance holds.
+
+static S8: Int = 8
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+// A field length, a local's annotation with its repeat count, a parameter's
+// and a return type's length, a repeat count, a generic argument and a call's
+// argument, each over `N`.
+struct Field<const N: Int> {
+    d: [UInt8; N + 1]
+    e: [UInt8; N * 2]
+    f: [UInt8; 1 << N]
+    g: [UInt8; N & 3]
+    h: [UInt8; (N as UInt8) as Int]
+    i: [UInt8; -N + 8]
+    j: [UInt8; N + S8]
+    k: [UInt8; N * sizeof<UInt32>()]
+}
+
+func local<const N: Int>() -> Int {
+    var a: [UInt8; N + 1] = [0; N + 1]
+    a[0] = 1
+    a.len()
+}
+
+func parameter<const N: Int>(a: [UInt8; N - 1]) -> Int {
+    a.len()
+}
+
+func result<const N: Int>() -> [UInt8; N / 2] {
+    [0; N / 2]
+}
+
+func counted<const N: Int>() -> Int {
+    let a = [0u8; N % 3]
+    a.len()
+}
+
+func argument<const N: Int>() -> Int {
+    let b = Buf<N + 1>(d: [0; N + 1])
+    b.d.len() + cap<(N + 1)>()
+}
+
+// Two spellings written alike are one type, with a part that names no
+// parameter folded: `N + 2 * 3` is `N + 6`, `N + S8` is `N + 8`, and
+// `1 + 2 + N` is `3 + N`.
+func identity<const N: Int>() -> Int {
+    let a: [UInt8; N + 2 * 3] = [0; N + 6]
+    let b: [UInt8; N + S8] = [0; N + 8]
+    let c: [UInt8; 1 + 2 + N] = [0; 3 + N]
+    let d: [UInt8; (N)] = [0; N]
+    a.len() + b.len() + c.len() + d.len()
+}
+
+// A value of one declaration's parameter type, forwarded into another's:
+// substitution forms the same type `g` writes itself.
+func shifted<const N: Int>(a: [Int; N + 1]) -> Int {
+    N
+}
+
+func forwards<const K: Int>() -> Int {
+    let x: [Int; K + 1] = [0; K + 1]
+    shifted<K>(x)
+}
+
+// Inference reads a bare `N` alone; an expression is written on the call.
+func bare<const N: Int>(a: [Int; N]) -> Int {
+    N
+}
+
+func inferred() -> Int {
+    bare([1, 2, 3]) + shifted<2>([1, 2, 3])
+}
+
+// A closure over the parameter, and a method of the type's own.
+func closure<const N: Int>() -> Int {
+    let f = {
+        let a = [0u8; N + 1]
+        a.len()
+    }
+    f()
+}
+
+extension Buf<N> {
+    func twice(&self) -> Int {
+        let a = [0u8; N * 2]
+        a.len()
+    }
+}
+
+struct Nested<const N: Int> {
+    b: Buf<N + 1>
+}
+
+struct Ring<const N: Int> {
+    head: Int
+}
+
+func grow<const N: Int>(r: Ring<N>) -> Ring<N + 1> {
+    Ring<N + 1>(head: r.head)
+}
+
+func main() {
+    print(local<4>())
+    print(parameter<4>([0; 3]))
+    print(result<4>().len())
+    print(counted<4>())
+    print(argument<4>())
+    print(identity<4>())
+    print(forwards<3>())
+    print(inferred())
+    print(closure<4>())
+    print(Buf<4>(d: [0; 4]).twice())
+    print(sizeof<Field<4>>())
+    print(sizeof<Nested<4>>())
+    print(grow<4>(Ring<4>(head: 1)).head)
+}

@@ -537,7 +537,7 @@ that covers it.
 
 | outside the slice | refused as |
 |---|---|
-| arithmetic over a const parameter, which folds only per instantiation | `slice.not-yet` |
+| arithmetic over a const parameter | a symbolic constant, folded per instance (golden `constant_parameter_lengths`) |
 | a constant argument written with `/`, `%`, a shift, a bit operator, a call or a member | `slice.not-yet` (the alternative) |
 | a generic type alias | `slice.not-yet` (`syntax.decl.type-alias`) |
 | an extension of a declaration that is not a struct, an enum or a builtin type | `slice.not-yet` (`syntax.decl.extension`) |
@@ -790,9 +790,17 @@ by the one conversion a repeat count uses (`fold_length`), and leaves it at the
 node for `build_type` to read; golden `constant_lengths`. The same pass
 evaluates every raw-backed case, so a count or a length may name a case of an
 enum declared after it. A length or count that names a const parameter, a local
-or a static that is no constant stays with `build_const` (SL-457), which words
-the refusal; so do the const-argument positions, which refuse every `sizeof`
-there, of any type, as `slice.not-yet`.
+or a static that is no constant stays with `const_parameter_value`. For a
+const parameter it is the symbolic constant `parameter_constant` builds: a
+`ConstExpr` type (an operator, the integer type it computes at, its operands)
+formed by `mk_const_expr`, which folds it to a `ConstInt` the moment every
+operand is a value, so `subst` turns `[UInt8; N + 1]` at `N = 3` into
+`[UInt8; 4]`; a fault in a part that names no parameter is refused where it is
+written, and one that depends on the parameter leaves a node that holds
+`TC_HOLDS_UNFOLDED`; goldens `constant_parameter_lengths`. A local or a static
+that is no constant is worded there as `static.not-constant`; the
+const-argument positions refuse every `sizeof` there, of any type, as
+`slice.not-yet`.
 
 ### The certain-fault funnel
 
@@ -870,9 +878,9 @@ may name only the statics above it (spec, Compile-Time Evaluation), which is
 the declaration-order rule's to refuse. A repeat count and an array length
 never wait: their value fixes the array's type where it is written, so it folds
 at once, a static and a raw case declared below them having been evaluated
-before signatures. The const-argument positions fold in `build_const`, which
-takes a static only through `static_constant`, so nothing there waits on a
-body.
+before signatures. The const-argument positions fold in `const_parameter_value`,
+which takes a static only through `static_constant`, so nothing there waits on
+a body.
 
 | judgment | entry point | refused, through a later static or case | covered by |
 |---|---|---|---|

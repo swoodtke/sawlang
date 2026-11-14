@@ -1,0 +1,13 @@
+// refuses: type.default at 7:33
+// errors: 1
+// message: the default of `M` names a type parameter; a default is a ground type
+// A const default that computes from an earlier parameter is refused as a
+// bare one is: a default is a ground type.
+
+struct Ring<const N: Int, const M: Int = N + 1> {
+    d: [UInt8; M]
+}
+
+func main() {
+    print(sizeof<Ring<4>>())
+}

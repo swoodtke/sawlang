@@ -185,6 +185,10 @@ public struct MonoProgram {
     // is one.
     depth_call: Int
     depth_glue: Int
+    // Where a chain of calls first met `MONO_CHAIN_LIMIT` instances of one
+    // function, or -1: a generic that instantiates itself at a changing
+    // constant nests no type deeper.
+    depth_chain: Int
     // The item being resolved or emitted, or -1: a refusal inside std is
     // reported at the user's call that reached it.
     current: Int
@@ -246,6 +250,11 @@ public static MONO_KEY_TRY_ERROR: Int = 13
 // instantiation has no identity cycle to detect (SL-507).
 public static MONO_DEPTH_LIMIT: Int = 64
 
+// How many instances of one function a chain of calls may hold: twice
+// `MONO_DEPTH_LIMIT`, so a type that grows meets the nesting refusal first
+// (SL-507).
+public static MONO_CHAIN_LIMIT: Int = 128
+
 public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
     let first = dp.bc.mir.funcs.len()
     var values = Vector<EvalValue>()
@@ -270,7 +279,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), vtables: Vector<MonoVtable>(), vtable_slots: Vector<Int>(),
-                erase_vtables: Vector<Int>(), erase_allocs: Vector<Int>(), dispatch_slots: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
+                erase_vtables: Vector<Int>(), erase_allocs: Vector<Int>(), dispatch_slots: Vector<Int>(), depth_call: -1, depth_glue: -1, depth_chain: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: ResIndex(), derived: ResIndex(), export_items: Vector<Int>(),
                 placed_items: Vector<Int>(), lowerings: 0)
 }

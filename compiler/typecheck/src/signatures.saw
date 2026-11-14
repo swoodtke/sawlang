@@ -26,7 +26,8 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
 import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.arith.{tc_arith_fits}
+import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_convert, tc_arith_fits, tc_arith_shift,
+                               tc_arith_unary}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE, TC_FLAG_ALIAS_BUILDING, TC_FLAG_BLOCKING,
@@ -35,7 +36,8 @@ import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORR
                                TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TC_LENGTH_PENDING, TcConstPosition, TcGeneric, TcHeadKind,
                                TcLend, TcObligation, TcParam, TcReceiver, TcSig, TcStaticTyping, TcStaticVerdict}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
+import sawtypecheck.types.{TC_CONST_ADOPT, TC_CONST_CAST, TC_CONST_NEG, TC_CONST_NOT, TC_CONST_SHL, TC_CONST_SHR,
+                               TC_HOLDS_PARAM, TcKind, TcType, tc_const_op_text}
 import sawtypecheck.walks.{TC_WALK_EXT_SELF, TC_WALK_NESTING}
 
 // The generic parameters of every declaration, keyed by where each is declared.
@@ -49,6 +51,16 @@ public enum TcArgSlot {
     case Type,
     case Value,
     case Unknown
+}
+
+// A constant expression's fold: its value or fault (`v`, whose `bits` is the
+// value as a signed 64-bit integer, or for `NotFit` the value that did not
+// fit), `ty` the type the faulting operation ran at, and for `NotFit` `into`
+// the type the value did not fit.
+public struct TcConstFold {
+    v: TcValue
+    ty: Int
+    into: Int
 }
 
 // What a refusal calls the position a constant serves, with no article.
@@ -689,6 +701,148 @@ extension TcProgram {
         let unlabeled = Vector<Int>()
         self.types.intern(TcKind.ConstInt, -1, value, 0, &none, &unlabeled)
     }
+
+    // THE CONST-EXPRESSION FUNNEL: the type of operator `op` at integer type
+    // `ty` over `args`, `aux` the operand's own type for a shift count or a
+    // conversion. Every `ConstExpr` is formed here, so one whose operands are
+    // all values is folded here and is that value's `ConstInt`; one whose
+    // arithmetic faults stays a `ConstExpr` with no parameter, which holds
+    // `TC_HOLDS_UNFOLDED`. An operand that is the error type makes the error
+    // type. (SL-457)
+    // ENTRY POINTS:
+    //     subst
+    //     symbolic_operator
+    //     symbolic_convert
+    //     parameter_constant
+    public func mk_const_expr(&var self, op: Int, ty: Int, aux: Int, args: &Vector<Int>) -> Int {
+        var values = true
+        var k = 0
+        while k < args.len() {
+            let a = args[k]
+            if a < 0 || self.types.ty(a).kind == TcKind.Error {
+                return self.error_type
+            }
+            if self.types.ty(a).kind != TcKind.ConstInt {
+                values = false
+            }
+            k = k + 1
+        }
+        if values {
+            let r = self.fold_const_node(op, ty, aux, &args)
+            if r.v.ok {
+                return self.mk_const(r.v.bits)
+            }
+        }
+        let none = Vector<Int>()
+        self.types.intern(TcKind.ConstExpr, aux, op, ty, &args, &none)
+    }
+
+    // `int_width`'s answer for integer type `t`, which this module cannot
+    // import: `Int` and `UInt` are the target's word.
+    func const_width(&self, t: Int) -> Int {
+        let d = self.types.ty(t).decl
+        let k = self.known
+        if d == k.int8 || d == k.uint8 {
+            return 8
+        }
+        if d == k.int16 || d == k.uint16 {
+            return 16
+        }
+        if d == k.int32 || d == k.uint32 {
+            return 32
+        }
+        if d == k.int || d == k.uint {
+            return self.target.word_bits
+        }
+        64
+    }
+
+    func const_unsigned(&self, t: Int) -> Bool {
+        let d = self.types.ty(t).decl
+        let k = self.known
+        d == k.uint || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64
+    }
+
+    // Value `v`, held as a signed 64-bit integer, read as a value of integer
+    // type `t`: itself, or a `NotFit` when `t` cannot hold it.
+    func const_read(&self, v: Int, t: Int) -> TcValue {
+        if tc_arith_fits(v, 64, true, self.const_width(t), not self.const_unsigned(t)) {
+            return TcValue(value: v)
+        }
+        TcValue(ok: false, bits: v, fault: TcFault.NotFit)
+    }
+
+    // The fold of operator `op` over operands that are all `ConstInt`: its
+    // value as a signed 64-bit integer, or the fault. `args` is one operand
+    // for a unary operator, a cast or an adoption, two otherwise.
+    public func fold_const_node(&var self, op: Int, ty: Int, aux: Int, args: &Vector<Int>) -> TcConstFold {
+        let w = self.const_width(ty)
+        let signed = not self.const_unsigned(ty)
+        let text = tc_const_op_text(op)
+        let first = self.const_read(self.types.ty(args[0]).a, if op == TC_CONST_CAST || op == TC_CONST_ADOPT { aux } else { ty })
+        if not first.ok {
+            return TcConstFold(v: first, ty: ty, into: if op == TC_CONST_CAST || op == TC_CONST_ADOPT { aux } else { ty })
+        }
+        var r = TcValue(fault: TcFault.NotConstant)
+        if op == TC_CONST_CAST || op == TC_CONST_ADOPT {
+            r = tc_arith_convert(first.bits, self.const_width(aux), not self.const_unsigned(aux), w, signed)
+            if not r.ok {
+                return TcConstFold(v: r, ty: aux, into: ty)
+            }
+        } else if op == TC_CONST_NEG || op == TC_CONST_NOT {
+            r = tc_arith_unary(&text, first.bits, w, signed)
+        } else if args.len() == 2 {
+            let shift = op == TC_CONST_SHL || op == TC_CONST_SHR
+            let count_type = if shift { aux } else { ty }
+            let second = self.const_read(self.types.ty(args[1]).a, count_type)
+            if not second.ok {
+                return TcConstFold(v: second, ty: ty, into: count_type)
+            }
+            if shift {
+                r = tc_arith_shift(&text, first.bits, w, signed, second.bits, self.const_width(aux),
+                                   not self.const_unsigned(aux))
+            } else {
+                r = tc_arith_binary(&text, first.bits, second.bits, w, signed)
+            }
+        }
+        if not r.ok {
+            return TcConstFold(v: r, ty: ty, into: ty)
+        }
+        let back = tc_arith_convert(r.bits, w, signed, 64, true)
+        if not back.ok {
+            let none = Vector<Int>()
+            let wide = self.mk_nominal(self.known.int64, &none)
+            return TcConstFold(v: back, ty: ty, into: wide)
+        }
+        TcConstFold(v: back, ty: ty, into: ty)
+    }
+
+    // Type `t`'s fold: a constant is its value, an expression folds its
+    // operands first, and a fault stops at once; a parameter has no value.
+    // ENTRY POINTS:
+    //     mk_const_expr (through fold_const_node)
+    //     symbolic_operator
+    public func fold_const_expr(&var self, t: Int) -> TcConstFold {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.ConstInt {
+            return TcConstFold(v: TcValue(value: info.a), ty: -1, into: -1)
+        }
+        if info.kind != TcKind.ConstExpr {
+            return TcConstFold(v: TcValue(fault: TcFault.NotConstant), ty: -1, into: -1)
+        }
+        var operands = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            let part = self.types.arg(t, k)
+            let f = self.fold_const_expr(part)
+            if not f.v.ok {
+                return f
+            }
+            try! operands.push(self.mk_const(f.v.bits))
+            k = k + 1
+        }
+        self.fold_const_node(info.a, info.b, info.decl, &operands)
+    }
 }
 
 // Generic parameter lists, built once per declaration, lazily, since a
@@ -778,7 +932,7 @@ extension TcProgram {
     }
 
     // Whether parameter `k` of type `target` is a const parameter.
-    func target_param_is_const(&var self, target: Int, k: Int) -> Bool {
+    public func target_param_is_const(&var self, target: Int, k: Int) -> Bool {
         self.ensure_generic_list(target)
         let s = self.sigs[target]
         if k >= s.generic_count {
@@ -819,6 +973,47 @@ extension TcProgram {
         self.restore_context(saved)
     }
 
+    // The declared type of const parameter `index` of `owner`, or -1 for a
+    // type parameter, built alone when the parameter list is not built yet:
+    // typing an expression over the parameter must not build the list's
+    // defaults, one of which may be that very expression.
+    public func const_parameter_declared_type(&var self, owner: Int, index: Int) -> Int {
+        self.ensure_generic_list(owner)
+        let s = self.sigs[owner]
+        if index < 0 || index >= s.generic_count {
+            return -1
+        }
+        let at = s.generic_first + index
+        let g = self.generics[at]
+        if not g.is_const {
+            return -1
+        }
+        if g.const_type >= 0 || g.node < 0 {
+            return g.const_type
+        }
+        let n = self.child_count(g.node)
+        var built = g
+        var k = 0
+        while k < n {
+            let c = self.child(g.node, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                if self.text(self.res.decls[owner].module, c).equals("=") {
+                    break
+                }
+            } else if res_is_type_alt(self.node_alt(c)) {
+                let saved = self.save_context()
+                self.enter_decl(owner)
+                built.const_type = self.build_type(c)
+                self.refuse_const_parameter_type(&var built, c)
+                self.restore_context(saved)
+                break
+            }
+        }
+        self.generics[at] = built
+        built.const_type
+    }
+
     // One parameter's bounds, default and const type. A parameter after a
     // defaulted one needs a default too, and a default names no parameter.
     func build_generic(&var self, g: &var TcGeneric, d: Int, index: Int, seen_default: Bool) {
@@ -856,8 +1051,10 @@ extension TcProgram {
                     try! self.traits.push(t)
                 }
             } else if g.is_const && res_is_type_alt(self.node_alt(c)) {
-                g.const_type = self.build_type(c)
-                self.refuse_const_parameter_type(&var g, c)
+                if g.const_type < 0 {
+                    g.const_type = self.build_type(c)
+                    self.refuse_const_parameter_type(&var g, c)
+                }
             } else if res_is_type_alt(self.node_alt(c)) {
                 let _ = self.build_type(c)
             }
@@ -1494,7 +1691,7 @@ extension TcProgram {
         let g = self.generics[s.generic_first + k]
         let info = self.types.ty(arg)
         let param = info.kind == TcKind.Param && self.target_param_is_const(info.decl, info.a)
-        let constant = info.kind == TcKind.ConstInt || param
+        let constant = info.kind == TcKind.ConstInt || info.kind == TcKind.ConstExpr || param
         if g.is_const && not constant {
             self.kind_mismatch(node, "a value")
             return false
@@ -1541,21 +1738,7 @@ extension TcProgram {
         if d < 0 {
             return true
         }
-        let k = self.known
-        // `int_width`'s answer, which this module cannot import: `Int` and
-        // `UInt` are the target's word.
-        var width = 64
-        if d == k.int8 || d == k.uint8 {
-            width = 8
-        } else if d == k.int16 || d == k.uint16 {
-            width = 16
-        } else if d == k.int32 || d == k.uint32 {
-            width = 32
-        } else if d == k.int || d == k.uint {
-            width = self.target.word_bits
-        }
-        let unsigned = d == k.uint || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64
-        if tc_arith_fits(value, 64, true, width, not unsigned) {
+        if tc_arith_fits(value, 64, true, self.const_width(const_type), not self.const_unsigned(const_type)) {
             return true
         }
         var msg = StringBuilder()
@@ -1719,7 +1902,7 @@ extension TcProgram {
     }
 
     // Length or count `v`, a constant or not: itself unless it is negative.
-    func checked_length(&var self, node: Int, use: TcConstPosition, v: Int) -> Int {
+    public func checked_length(&var self, node: Int, use: TcConstPosition, v: Int) -> Int {
         let info = self.types.ty(v)
         if info.kind != TcKind.ConstInt || info.a >= 0 {
             return v

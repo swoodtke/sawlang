@@ -1,0 +1,103 @@
+// probe: stated
+// about: arithmetic over a const parameter is a symbolic constant folded at each instance, in a field, a local's annotation, a repeat count, a parameter's and a return type's length, a generic argument and a call's argument (SL-457)
+// stage 0: not run: Stage 0 refuses arithmetic over a const parameter
+// speeds: -O0 -O2
+// prints: 5 8 16 2 12 4
+// prints: 8 14 128 3 15 1
+// prints: 5 5 5 5 5 5
+// prints: 8 16 2 12 4 4
+// prints: 8 8 8 8 8 8
+// prints: 14 128 3 15 1 7
+// prints: 2
+
+static S8: Int = 8
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+struct Plus<const N: Int> {
+    d: [UInt8; N + 1]
+}
+
+struct Times<const N: Int> {
+    d: [UInt8; N * 2]
+}
+
+struct Shifted<const N: Int> {
+    d: [UInt8; 1 << N]
+}
+
+struct Half<const N: Int> {
+    d: [UInt8; N / 2]
+}
+
+struct Added<const N: Int> {
+    d: [UInt8; N + S8]
+}
+
+struct Negated<const N: Int> {
+    d: [UInt8; -N + 8]
+}
+
+func local<const N: Int>() -> Int {
+    var a: [UInt8; N + 1] = [0; N + 1]
+    a[0] = 1
+    a.len()
+}
+
+func parameter<const N: Int>(a: [UInt8; N + 1]) -> Int {
+    a.len()
+}
+
+func result<const N: Int>() -> [UInt8; N + 1] {
+    [0; N + 1]
+}
+
+func counted<const N: Int>() -> Int {
+    let a = [0u8; N + 1]
+    a.len()
+}
+
+func argument<const N: Int>() -> Int {
+    let b = Buf<N + 1>(d: [0; N + 1])
+    b.d.len()
+}
+
+func value<const N: Int>() -> Int {
+    cap<N + 1>()
+}
+
+func explicit<const N: Int>(a: [Int; N + 1]) -> Int {
+    N
+}
+
+func forms<const N: Int>() {
+    let times = [0u8; N * 2]
+    let shifted = [0u8; 1 << N]
+    let half = [0u8; N / 2]
+    let added = [0u8; N + S8]
+    let negated = [0u8; -N + 8]
+    print("{} {} {} {} {} {}", times.len(), shifted.len(), half.len(), added.len(), negated.len(), N)
+}
+
+func positions<const N: Int>() {
+    print("{} {} {} {} {} {}", local<N>(), parameter<N>([0; N + 1]), result<N>().len(), counted<N>(),
+          argument<N>(), value<N>())
+}
+
+func main() {
+    print("{} {} {} {} {} {}", sizeof<Plus<4>>(), sizeof<Times<4>>(), sizeof<Shifted<4>>(), sizeof<Half<4>>(),
+          sizeof<Added<4>>(), sizeof<Negated<4>>())
+    print("{} {} {} {} {} {}", sizeof<Plus<7>>(), sizeof<Times<7>>(), sizeof<Shifted<7>>(), sizeof<Half<7>>(),
+          sizeof<Added<7>>(), sizeof<Negated<7>>())
+    positions<4>()
+    forms<4>()
+    positions<7>()
+    forms<7>()
+    print("{}", explicit<2>([1, 2, 3]))
+}

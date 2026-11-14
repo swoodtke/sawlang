@@ -17,7 +17,7 @@ import sawmono.dump.{mono_dump_layouts}
 import sawparse.grammar.{Alt}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
-import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
+import sawmono.program.{MONO_CHAIN_LIMIT, MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
                             MONO_KEY_EXTERN, MONO_KEY_FUNCTION, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
                             MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
                             MONO_KEY_VTABLE, MonoItem,
@@ -228,7 +228,7 @@ extension MonoProgram {
         let none = Vector<Int>()
         let d = self.dp.bc.mir.tc.res.lang_item(ResLang.ExecRunMainFunction)
         // The worklist's run already made its one depth refusal, if any.
-        let reported = self.depth_call >= 0 || self.depth_glue >= 0
+        let reported = self.depth_call >= 0 || self.depth_glue >= 0 || self.depth_chain >= 0
         var k = self.items.len()
         self.exec_item = self.root_item(d, &none)
         while k < self.items.len() {
@@ -254,7 +254,7 @@ extension MonoProgram {
         }
         let none = Vector<Int>()
         let d = self.dp.bc.mir.tc.res.lang_item(ResLang.PrintFailureFunction)
-        let reported = self.depth_call >= 0 || self.depth_glue >= 0
+        let reported = self.depth_call >= 0 || self.depth_glue >= 0 || self.depth_chain >= 0
         var k = self.items.len()
         self.print_failure_item = self.root_item(d, &none)
         while k < self.items.len() {
@@ -327,6 +327,9 @@ extension MonoProgram {
             }
             j = j + 1
         }
+        if self.chain_exceeded(source, origin, node) {
+            return -1
+        }
         let args_first = self.item_types.len()
         j = 0
         while j < args.len() {
@@ -388,14 +391,45 @@ extension MonoProgram {
         true
     }
 
+    // Whether the chain of items from `origin` back to a root already holds
+    // `MONO_CHAIN_LIMIT` instances of `source`: a constant that grows at each
+    // call (`f<N + 1>()`) nests no type deeper, so `depth_exceeded` never
+    // sees it. The first call it meets at is kept for `report_depth`.
+    func chain_exceeded(&var self, source: Int, origin: Int, node: Int) -> Bool {
+        var count = 0
+        var o = origin
+        while o >= 0 {
+            if self.items[o].source == source {
+                count = count + 1
+            }
+            o = self.items[o].origin
+        }
+        if count < MONO_CHAIN_LIMIT {
+            return false
+        }
+        if self.depth_chain < 0 {
+            self.depth_chain = node
+        }
+        true
+    }
+
     // The depth limit's one refusal: at the first call that met it, else at
-    // the first drop or copy.
+    // the first drop or copy, else at the first chain of instances of one
+    // function that grew past its limit.
     func report_depth(&var self) {
         var node = self.depth_call
         var what = "this call instantiates"
         if node < 0 {
             node = self.depth_glue
             what = "this value has"
+        }
+        if node < 0 && self.depth_chain >= 0 {
+            var msg = StringBuilder()
+            try! msg.append("this call instantiates a function more than ")
+            try! msg.append(MONO_CHAIN_LIMIT)
+            try! msg.append(" times along one chain of calls, each at different arguments: a generic that instantiates itself at a changing constant has no finite set of instances (SL-507)")
+            self.refuse(self.depth_chain, "mono.depth", msg.build())
+            return
         }
         if node < 0 {
             return

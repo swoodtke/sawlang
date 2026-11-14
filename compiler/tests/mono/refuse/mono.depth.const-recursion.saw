@@ -1,0 +1,12 @@
+// refuses: mono.depth at 7:5
+// message: along one chain of calls, each at different arguments
+// A generic that instantiates itself at a changing constant nests no type
+// deeper, so the chain of instances of one function is what is bounded.
+
+func count<const N: Int>() -> Int {
+    count<N + 1>()
+}
+
+func main() {
+    print("{}", count<0>())
+}

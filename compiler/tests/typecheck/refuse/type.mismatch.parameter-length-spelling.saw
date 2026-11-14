@@ -1,0 +1,14 @@
+// refuses: type.mismatch at 8:29
+// errors: 1
+// message: expected `[UInt8; N + N]`, the type of the annotated binding, and found `[UInt8; 2 * N]`
+// An expression over a const parameter is one type with another exactly when
+// the two are written alike, so `N + N` is not `2 * N`.
+
+func f<const N: Int>() -> Int {
+    let a: [UInt8; N + N] = [0; 2 * N]
+    a.len()
+}
+
+func main() {
+    print(f<4>())
+}

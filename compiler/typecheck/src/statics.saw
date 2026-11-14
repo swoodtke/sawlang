@@ -436,7 +436,11 @@ extension TcProgram {
         if node < 0 || self.node_types[node] != -1 {
             return
         }
-        if not self.shaped(node, pos == TcConstPosition.Length) {
+        if self.bare_const_parameter(node) >= 0 {
+            self.node_types[node] = self.parameter_value_in_module(node, pos)
+            return
+        }
+        if not self.shaped(node, pos == TcConstPosition.Length, true) {
             self.node_types[node] = self.parameter_value_in_module(node, pos)
             return
         }
@@ -568,15 +572,16 @@ extension TcProgram {
     // exists before signatures (a comparison would ask `Equatable`, and can
     // only make a `Bool`); any other is no integer constant, which its own
     // declaration refuses.
-    func constant_shape(&self, e: Int) -> Bool {
-        self.shaped(e, false)
+    func constant_shape(&var self, e: Int) -> Bool {
+        self.shaped(e, false, false)
     }
 
     // `constant_shape`, and with `bools` the `Bool` forms an array length may
     // be written with, which the funnel refuses by name: `true`, `false`,
     // `not`, `&&`, `||` and a comparison of constant-shaped operands. A
-    // comparison between integers needs no conformance.
-    func shaped(&self, e: Int, bools: Bool) -> Bool {
+    // comparison between integers needs no conformance. With `params` a const
+    // parameter is a leaf too.
+    func shaped(&var self, e: Int, bools: Bool, params: Bool) -> Bool {
         if e < 0 {
             return false
         }
@@ -588,42 +593,59 @@ extension TcProgram {
             case Expr_SourceLocation_Line -> true,
             case Expr_Bool_True -> bools,
             case Expr_Bool_False -> bools,
-            case Expr_Unary_Not -> bools && self.shaped_parts(e, bools),
-            case Expr_And -> bools && self.shaped_parts(e, bools),
-            case Expr_Or -> bools && self.shaped_parts(e, bools),
-            case Expr_Compare_Pair -> bools && self.shaped_pair(e, bools),
-            case Expr_Paren -> self.shaped_parts(e, bools),
-            case Expr_Unary_Negate -> self.shaped_parts(e, bools),
-            case Expr_Unary_Complement -> self.shaped_parts(e, bools),
-            case Expr_Additive -> self.shaped_parts(e, bools),
-            case Expr_Multiplicative -> self.shaped_parts(e, bools),
-            case Expr_Shift -> self.shaped_parts(e, bools),
-            case Expr_Bitand -> self.shaped_parts(e, bools),
-            case Expr_Bitor -> self.shaped_parts(e, bools),
-            case Expr_Bitxor -> self.shaped_parts(e, bools),
-            case Expr_Cast -> self.shaped_parts(e, bools),
-            case Const_Expr -> self.shaped_parts(e, bools),
-            case Const_Term -> self.shaped_parts(e, bools),
-            case Const_Negate -> self.shaped_parts(e, bools),
+            case Expr_Unary_Not -> bools && self.shaped_parts(e, bools, params),
+            case Expr_And -> bools && self.shaped_parts(e, bools, params),
+            case Expr_Or -> bools && self.shaped_parts(e, bools, params),
+            case Expr_Compare_Pair -> bools && self.shaped_pair(e, bools, params),
+            case Expr_Paren -> self.shaped_parts(e, bools, params),
+            case Expr_Unary_Negate -> self.shaped_parts(e, bools, params),
+            case Expr_Unary_Complement -> self.shaped_parts(e, bools, params),
+            case Expr_Additive -> self.shaped_parts(e, bools, params),
+            case Expr_Multiplicative -> self.shaped_parts(e, bools, params),
+            case Expr_Shift -> self.shaped_parts(e, bools, params),
+            case Expr_Bitand -> self.shaped_parts(e, bools, params),
+            case Expr_Bitor -> self.shaped_parts(e, bools, params),
+            case Expr_Bitxor -> self.shaped_parts(e, bools, params),
+            case Expr_Cast -> self.shaped_parts(e, bools, params),
+            case Const_Expr -> self.shaped_parts(e, bools, params),
+            case Const_Term -> self.shaped_parts(e, bools, params),
+            case Const_Negate -> self.shaped_parts(e, bools, params),
             case Const_LayoutQuery_Size -> true,
             case Const_LayoutQuery_Align -> true,
-            case Type_Path -> self.constant_shaped_path(e),
-            case Expr_Name -> self.static_bound(self.res.first_leaf(e)) >= 0,
+            case Type_Path -> self.constant_shaped_path(e) || (params && self.const_param_leaf(self.res.last_leaf_of(e))),
+            case Expr_Name -> {
+                let leaf = self.res.first_leaf(e)
+                self.static_bound(leaf) >= 0 || (params && self.const_param_leaf(leaf))
+            },
             case Expr_Member -> self.constant_shaped_member(e),
-            case Expr_Call_Paren -> self.constant_shaped_call(e),
+            case Expr_Call_Paren -> self.constant_shaped_call(e, params),
             case _ -> false
         }
     }
 
+    // Whether `leaf` binds a const parameter.
+    func const_param_leaf(&var self, leaf: Int) -> Bool {
+        if leaf < 0 {
+            return false
+        }
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.TypeParam {
+            return false
+        }
+        let owner = self.param_owner(b.node)
+        let index = self.param_index(b.node)
+        owner >= 0 && index >= 0 && self.target_param_is_const(owner, index)
+    }
+
     // Whether comparison `e`'s two operands are shaped; the operator between
     // them is a node of its own.
-    func shaped_pair(&self, e: Int, bools: Bool) -> Bool {
-        self.shaped(self.res.first_node_child(e), bools) && self.shaped(self.res.last_node_child(e), bools)
+    func shaped_pair(&var self, e: Int, bools: Bool, params: Bool) -> Bool {
+        self.shaped(self.res.first_node_child(e), bools, params) && self.shaped(self.res.last_node_child(e), bools, params)
     }
 
     // Whether each expression child of `e` is shaped; a type among them, a
     // cast's, is no part.
-    func shaped_parts(&self, e: Int, bools: Bool) -> Bool {
+    func shaped_parts(&var self, e: Int, bools: Bool, params: Bool) -> Bool {
         let n = self.child_count(e)
         var k = 0
         while k < n {
@@ -632,7 +654,7 @@ extension TcProgram {
             if self.is_leaf(c) || res_is_type_alt(self.node_alt(c)) {
                 continue
             }
-            if not self.shaped(c, bools) {
+            if not self.shaped(c, bools, params) {
                 return false
             }
         }
@@ -674,7 +696,7 @@ extension TcProgram {
 
     // `sizeof<T>()`, `alignof<T>()`, and a type alias's construction over a
     // constant-shaped argument.
-    func constant_shaped_call(&self, e: Int) -> Bool {
+    func constant_shaped_call(&var self, e: Int, params: Bool) -> Bool {
         let callee = self.res.first_node_child(e)
         if callee < 0 || not self.has_alt(callee, Alt.Expr_Name) {
             return false
@@ -703,7 +725,7 @@ extension TcProgram {
             }
             args = args + 1
             let value = if self.has_alt(c, Alt.Expr_Argument_Positional) { self.res.first_node_child(c) } else { c }
-            if not self.constant_shape(value) {
+            if not self.shaped(value, false, params) {
                 return false
             }
         }

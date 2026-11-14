@@ -49,8 +49,17 @@ import sawtypecheck.strings.{TcStringPosition}
 // For the extension writing `satisfies`.
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
+import sawtypecheck.types.{TC_CONST_ADOPT, TC_CONST_CAST, TC_CONST_NEG, TC_CONST_NOT, TC_CONST_SHL, TC_CONST_SHR,
+                               TC_HOLDS_PARAM, TC_HOLDS_UNFOLDED, TcKind, TcType, tc_const_op_of, tc_kind_wraps}
 import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
+
+// A constant over const parameters as typecheck's type for it, `t`, and the
+// integer type its value has, `ty`; `t` is -1 outside what folds per instance
+// (`symbolic_part`).
+public struct TcSymbolic {
+    t: Int
+    ty: Int
+}
 
 // Checks every body of each of `layer`'s modules checked in full.
 public func tc_check_bodies(p: &var TcProgram, layer: &FrontLayer) {
@@ -3785,11 +3794,9 @@ extension TcProgram {
         let owner = self.param_owner(b.node)
         let index = self.param_index(b.node)
         if owner >= 0 && index >= 0 {
-            self.ensure_generics(owner)
-            let s = self.sigs[owner]
-            let g = self.generics[s.generic_first + index]
-            if g.is_const && g.const_type >= 0 {
-                return self.set_type(e, g.const_type, false)
+            let declared = self.const_parameter_declared_type(owner, index)
+            if declared >= 0 {
+                return self.set_type(e, declared, false)
             }
         }
         self.refuse_not_a_value(e, leaf)
@@ -5095,10 +5102,7 @@ extension TcProgram {
         if owner < 0 || index < 0 {
             return -1
         }
-        self.ensure_generics(owner)
-        let s = self.sigs[owner]
-        let g = self.generics[s.generic_first + index]
-        if g.is_const { g.const_type } else { -1 }
+        self.const_parameter_declared_type(owner, index)
     }
 
     // Whether expression `e` names a type or const parameter, or has a part
@@ -6544,14 +6548,11 @@ extension TcProgram {
     // unfolded without a refusal, stay with `const_parameter_value`, which
     // refuses what it cannot fold.
     func repeat_length(&var self, count: Int) -> Int {
-        if self.const_parameters_named(count).len() > 0 {
-            return self.const_parameter_value(count, TcConstPosition.Repeat)
-        }
         let v = self.check_constant_position(count, TcConstPosition.Repeat, self.current_decl, -1)
         if self.refused_within(count) || v.fault == TcFault.Cycle {
             return self.error_type
         }
-        if not v.ok {
+        if self.const_parameters_named(count).len() > 0 || not v.ok {
             return self.const_parameter_value(count, TcConstPosition.Repeat)
         }
         let length = self.fold_length(count, TcConstPosition.Repeat, &v)
@@ -6567,8 +6568,8 @@ extension TcProgram {
     // THE CONST-PARAMETER FOLDER, what the constant-position funnel does not
     // judge in a length, a count or a constant argument `node` at use `use`:
     // a bare const parameter, which is the parameter itself and no fold, and
-    // arithmetic over one, which folds only per instantiation and is refused.
-    // Anything else the funnel could not type or fold is no constant, and
+    // arithmetic over one, which is the symbolic constant `parameter_constant`
+    // builds. Anything else the funnel could not type or fold is no constant, and
     // refused by name. Answers the constant type, or the error type once
     // refused.
     // ENTRY POINTS:
@@ -6593,9 +6594,14 @@ extension TcProgram {
             return self.error_type
         }
         if named > 0 {
-            self.refuse(node, "slice.not-yet",
-                        "arithmetic over a const parameter, which folds only per instantiation, is not in the bootstrap slice yet")
-            try! self.skipped.push(node)
+            let symbolic = self.parameter_constant(node, use)
+            if symbolic >= 0 {
+                if use != TcConstPosition.Argument {
+                    return self.checked_length(node, use, symbolic)
+                }
+                return symbolic
+            }
+            self.refuse_unfolded_constant(node, use)
             return self.error_type
         }
         if self.holds_unresolved_name(node) {
@@ -6604,6 +6610,253 @@ extension TcProgram {
         }
         self.refuse_unfolded_constant(node, use)
         self.error_type
+    }
+
+    // The symbolic constant arithmetic over const parameters at `node` stands
+    // for, an integer converted to `Int` as every length and argument is: a
+    // `ConstExpr` or a const parameter, folded to a `ConstInt` once its
+    // parameters have values (`mk_const_expr`). -1 when `node` is outside what
+    // folds per instance, the error type once refused.
+    func parameter_constant(&var self, node: Int, use: TcConstPosition) -> Int {
+        let s = self.symbolic_part(node)
+        if s.t < 0 {
+            return -1
+        }
+        if self.types.ty(s.t).kind == TcKind.Error {
+            return self.error_type
+        }
+        if not self.is_integer(s.ty) {
+            self.refuse_non_integer_constant(node, use, s.ty)
+            return self.error_type
+        }
+        let word = self.int_type()
+        if s.ty == word {
+            return s.t
+        }
+        self.symbolic_convert(node, TC_CONST_ADOPT, word, s).t
+    }
+
+    // The symbolic type of expression `e`, and the integer type its value has;
+    // `t` is a `ConstInt`, a const parameter, a `ConstExpr`, the error type
+    // once refused, or -1 outside what folds per instance. It mirrors
+    // `fold_at` arm for arm. A part naming no parameter is folded to its
+    // value, and a fault there is refused at the declaration, once.
+    func symbolic_part(&var self, e: Int) -> TcSymbolic {
+        let none = TcSymbolic(t: -1, ty: -1)
+        if e < 0 || e >= self.expr_types.len() || self.expr_types[e] < 0 {
+            return none
+        }
+        if self.const_parameters_named(e).len() == 0 {
+            return self.symbolic_free_part(e)
+        }
+        guard let alt = self.node_alt(e) else {
+            return none
+        }
+        var s = none
+        let bare = self.bare_const_parameter(e)
+        if bare >= 0 {
+            let info = self.types.ty(bare)
+            let declared = self.const_parameter_declared_type(info.decl, info.a)
+            if declared < 0 {
+                return none
+            }
+            if self.types.ty(declared).kind == TcKind.Error {
+                return TcSymbolic(t: self.error_type, ty: self.error_type)
+            }
+            s = TcSymbolic(t: bare, ty: declared)
+        } else if alt == Alt.Expr_Paren {
+            s = self.symbolic_part(self.res.first_node_child(e))
+        } else if alt == Alt.Expr_Additive || alt == Alt.Expr_Multiplicative || alt == Alt.Expr_Shift || alt == Alt.Expr_Bitand || alt == Alt.Expr_Bitor || alt == Alt.Expr_Bitxor || alt == Alt.Const_Expr || alt == Alt.Const_Term {
+            s = self.symbolic_chain(e)
+        } else if alt == Alt.Expr_Unary_Negate || alt == Alt.Const_Negate || alt == Alt.Expr_Unary_Complement {
+            let inner = self.symbolic_part(self.res.first_node_child(e))
+            if inner.t < 0 || self.types.ty(inner.t).kind == TcKind.Error || not self.is_integer(inner.ty) {
+                return inner
+            }
+            let op = if alt == Alt.Expr_Unary_Complement { TC_CONST_NOT } else { TC_CONST_NEG }
+            s = self.symbolic_operator(e, op, inner.ty, -1, inner.t, -1)
+        } else if alt == Alt.Expr_Cast {
+            let inner = self.symbolic_part(self.res.first_node_child(e))
+            s = self.symbolic_convert(e, TC_CONST_CAST, self.expr_types[e], inner)
+        } else if alt == Alt.Expr_Call_Paren {
+            let arg = self.alias_argument(e)
+            if arg < 0 {
+                return none
+            }
+            s = self.symbolic_convert(e, TC_CONST_ADOPT, self.expr_types[e], self.symbolic_part(arg))
+        }
+        if s.t < 0 || self.types.ty(s.t).kind == TcKind.Error {
+            return s
+        }
+        var a = self.adj_head[e]
+        while a >= 0 {
+            let adj = self.adjusts[a]
+            a = adj.next
+            if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen {
+                return none
+            }
+            s = self.symbolic_convert(e, TC_CONST_ADOPT, adj.to, s)
+            if s.t < 0 || self.types.ty(s.t).kind == TcKind.Error {
+                return s
+            }
+        }
+        s
+    }
+
+    // A part of a symbolic constant that names no parameter: its folded value,
+    // as a signed 64-bit integer.
+    func symbolic_free_part(&var self, e: Int) -> TcSymbolic {
+        let none = TcSymbolic(t: -1, ty: -1)
+        let v = self.fold_constant(e)
+        if v.fault == TcFault.Cycle {
+            return TcSymbolic(t: self.error_type, ty: self.error_type)
+        }
+        if v.fault == TcFault.NotConstant {
+            return none
+        }
+        if not v.ok {
+            let _ = self.check_constant_faults(e)
+            return TcSymbolic(t: self.error_type, ty: self.error_type)
+        }
+        if not self.is_integer(v.ty) {
+            return TcSymbolic(t: self.mk_const(v.bits), ty: v.ty)
+        }
+        let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), 64, true)
+        if not r.ok {
+            var msg = StringBuilder()
+            try! msg.append("constant `")
+            try! msg.append(self.text(self.node_module(e), e))
+            try! msg.append("` is ")
+            try! msg.append(tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty)))
+            try! msg.append(", which an expression over a const parameter cannot hold: its parts are held in `Int64`")
+            self.refuse(e, "type.mismatch", msg.build())
+            return TcSymbolic(t: self.error_type, ty: self.error_type)
+        }
+        TcSymbolic(t: self.mk_const(r.bits), ty: v.ty)
+    }
+
+    // A flat operator chain over symbolic parts, left to right, each operator
+    // at its left operand's type and a shift's count at its own, as
+    // `fold_operators` folds one.
+    func symbolic_chain(&var self, e: Int) -> TcSymbolic {
+        let none = TcSymbolic(t: -1, ty: -1)
+        let m = self.node_module(e)
+        var acc = none
+        var started = false
+        var op = ""
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                op = self.text(m, c)
+                continue
+            }
+            let part = self.symbolic_part(c)
+            if part.t < 0 || self.types.ty(part.t).kind == TcKind.Error {
+                return part
+            }
+            if not started {
+                acc = part
+                started = true
+                continue
+            }
+            let code = tc_const_op_of(&op)
+            if code == 0 || not self.is_integer(acc.ty) || not self.is_integer(part.ty) {
+                return none
+            }
+            if code == TC_CONST_SHL || code == TC_CONST_SHR {
+                acc = self.symbolic_operator(e, code, acc.ty, part.ty, acc.t, part.t)
+            } else if acc.ty != part.ty {
+                return none
+            } else {
+                acc = self.symbolic_operator(e, code, acc.ty, -1, acc.t, part.t)
+            }
+            if acc.t < 0 || self.types.ty(acc.t).kind == TcKind.Error {
+                return acc
+            }
+        }
+        acc
+    }
+
+    // Operator `op` at integer type `ty` over `a` and, for a binary one, `b`,
+    // `aux` the shift count's own type, formed by the funnel.
+    func symbolic_operator(&var self, e: Int, op: Int, ty: Int, aux: Int, a: Int, b: Int) -> TcSymbolic {
+        var args = Vector<Int>()
+        try! args.push(a)
+        if b >= 0 {
+            try! args.push(b)
+        }
+        let t = self.mk_const_expr(op, ty, aux, &args)
+        self.symbolic_checked(e, t, ty)
+    }
+
+    // The conversion of `s` into integer type `to`: `s` itself at that type
+    // already, none when `to` is no integer.
+    func symbolic_convert(&var self, e: Int, op: Int, to: Int, s: TcSymbolic) -> TcSymbolic {
+        if s.t < 0 || self.types.ty(s.t).kind == TcKind.Error {
+            return s
+        }
+        if not self.is_integer(to) || not self.is_integer(s.ty) {
+            return TcSymbolic(t: -1, ty: -1)
+        }
+        if s.ty == to {
+            return s
+        }
+        var args = Vector<Int>()
+        try! args.push(s.t)
+        let t = self.mk_const_expr(op, to, s.ty, &args)
+        self.symbolic_checked(e, t, to)
+    }
+
+    // Constant `t`, formed at `e`: itself at integer type `ty`, or the error
+    // type once refused when its operands are values and its arithmetic
+    // faults, a fault no instance changes.
+    func symbolic_checked(&var self, e: Int, t: Int, ty: Int) -> TcSymbolic {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Error {
+            return TcSymbolic(t: t, ty: t)
+        }
+        if (info.holds & TC_HOLDS_UNFOLDED) == 0 {
+            return TcSymbolic(t: t, ty: ty)
+        }
+        let f = self.fold_const_expr(t)
+        let fold = TcFold(ok: false, bits: f.v.bits, ty: f.ty, fault: f.v.fault, at: e)
+        self.refuse_constant_fault(&fold, e, f.into)
+        TcSymbolic(t: self.error_type, ty: self.error_type)
+    }
+
+    // The one argument of expression `e` when it is a type alias's
+    // construction, `Count(N)`, or -1.
+    func alias_argument(&self, e: Int) -> Int {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return -1
+        }
+        let c = self.calls[at]
+        if c.role != TcRole.Conversion || c.spelling < 0 || not self.name_text(c.spelling).equals("alias") {
+            return -1
+        }
+        let callee = self.res.first_node_child(e)
+        var arg = -1
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let child = self.child(e, k)
+            k = k + 1
+            if child == callee || self.is_leaf(child) {
+                continue
+            }
+            if arg >= 0 {
+                return -1
+            }
+            arg = child
+            if self.has_alt(child, Alt.Expr_Argument_Positional) {
+                arg = self.res.first_node_child(child)
+            }
+        }
+        arg
     }
 
     // Whether expression `e` names something resolve refused as unbound.
@@ -6695,14 +6948,7 @@ extension TcProgram {
     //     type_constant_ahead
     public func fold_length(&var self, node: Int, use: TcConstPosition, v: &TcFold) -> Int {
         if not self.is_integer(v.ty) {
-            var msg = StringBuilder()
-            try! msg.append(tc_const_use_phrase(use))
-            try! msg.append(" is an integer, and `")
-            try! msg.append(self.text(self.node_module(node), node))
-            try! msg.append("` is a `")
-            try! msg.append(self.type_text(v.ty))
-            try! msg.append("`")
-            self.refuse(node, "type.mismatch", msg.build())
+            self.refuse_non_integer_constant(node, use, v.ty)
             return self.error_type
         }
         let word = self.int_type()
@@ -6720,6 +6966,19 @@ extension TcProgram {
             return self.mk_const(r.bits)
         }
         self.folded_length(node, use, r.bits)
+    }
+
+    // The refusal of length, count or argument `node` at `use` whose value is
+    // of type `ty`, no integer.
+    func refuse_non_integer_constant(&var self, node: Int, use: TcConstPosition, ty: Int) {
+        var msg = StringBuilder()
+        try! msg.append(tc_const_use_phrase(use))
+        try! msg.append(" is an integer, and `")
+        try! msg.append(self.text(self.node_module(node), node))
+        try! msg.append("` is a `")
+        try! msg.append(self.type_text(ty))
+        try! msg.append("`")
+        self.refuse(node, "type.mismatch", msg.build())
     }
 
     // Length or constant argument expression `node`, typed ahead of the
@@ -12989,13 +13248,23 @@ extension TcProgram {
                     solve.sol[k] = g.default_type
                 } else {
                     var msg = StringBuilder()
-                    try! msg.append("cannot infer type argument `")
-                    try! msg.append(self.name_text(g.name))
-                    try! msg.append("` of `")
-                    try! msg.append(self.res.decl_path(owner))
-                    try! msg.append("`: nothing in the call determines it; write it, as `<")
-                    try! msg.append(self.name_text(g.name))
-                    try! msg.append(" = ...>` does for a type")
+                    if tc_contains(&solve.symbolic, k) && solve.symbolic_type >= 0 {
+                        try! msg.append("cannot infer `")
+                        try! msg.append(self.name_text(g.name))
+                        try! msg.append("` of `")
+                        try! msg.append(self.res.decl_path(owner))
+                        try! msg.append("`: it appears in this call's parameter types only inside a length such as `")
+                        try! msg.append(self.type_text(solve.symbolic_type))
+                        try! msg.append("`, and an argument's length binds a bare `[T; N]` alone; write it on the call")
+                    } else {
+                        try! msg.append("cannot infer type argument `")
+                        try! msg.append(self.name_text(g.name))
+                        try! msg.append("` of `")
+                        try! msg.append(self.res.decl_path(owner))
+                        try! msg.append("`: nothing in the call determines it; write it, as `<")
+                        try! msg.append(self.name_text(g.name))
+                        try! msg.append(" = ...>` does for a type")
+                    }
                     self.refuse(e, "infer.failed", msg.build())
                     solve.sol[k] = self.error_type
                 }

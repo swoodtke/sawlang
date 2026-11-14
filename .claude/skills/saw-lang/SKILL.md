@@ -2442,7 +2442,9 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   Per CHAIN, not a cap on how many instantiations a program has, so wide code is
   untouched (the compiler's own corpus is single digits deep). It refuses only
   what could not compile anyway: before the limit landed this HUNG the compiler
-  (DF-258b), so an older build gives no diagnostic at all.
+  (DF-258b), so an older build gives no diagnostic at all. A constant that grows
+  is bounded too: `f<N + 1>()` calling itself holds more than 128 instances of
+  `f` along one chain and is `mono.depth`.
 - **CONST GENERICS: a parameter that carries a VALUE (design 148).** `const` in
   the parameter position is what keeps it visually distinct from a bounded type
   param — and `<N: Int>`, the natural guess, is a clean error
@@ -2477,7 +2479,10 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `FixedBuf<256>` — folded before mangling; `+ - * / %`, unary `-`, parentheses and
   `sizeof<T>()`/`alignof<T>()` of a target-fixed type go through the same constant fold as
   an array length, so `Ring<BYTES / sizeof<UInt64>()>` builds; arithmetic over a const
-  PARAMETER (`Buf<N * 2>`, `[0; N + 1]`) is still `slice.not-yet`), and a module `static` counts as a
+  PARAMETER (`Buf<N * 2>`, `[0; N + 1]`, `[UInt8; 1 << N]`) folds once `N` has a value; two such
+  expressions are one type only when written alike, parameter-free parts folded
+  (`N + 2 * 3` is `N + 6`, `N + N` is NOT `2 * N`), and inference binds a bare
+  `[T; N]` only, so `[T; N + 1]` is written on the call), and a module `static` counts as a
   constant there too (DF-172j: `FixedBuf<CAP>` IS `FixedBuf<16>` for a
   `static CAP: Int = 16`). sawc takes it at every position (SL-920): an
   annotation, a construction's head `Slab<T, MAX>(…)`, a field, a static's

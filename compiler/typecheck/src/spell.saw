@@ -8,7 +8,10 @@ import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORR
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_CONST_ADD, TC_CONST_ADOPT, TC_CONST_AND, TC_CONST_CAST, TC_CONST_DIV, TC_CONST_MUL,
+                               TC_CONST_NEG, TC_CONST_NOT, TC_CONST_OR, TC_CONST_REM, TC_CONST_SHL, TC_CONST_SHR,
+                               TC_CONST_SUB, TC_CONST_WRAP_ADD, TC_CONST_WRAP_MUL, TC_CONST_WRAP_SUB, TC_CONST_XOR,
+                               TcKind, TcType, tc_const_op_text}
 
 // The effect words of `effects`, in the slot's order, each after a space.
 public func tc_effects_text(effects: Int) -> String {
@@ -132,8 +135,97 @@ extension TcProgram {
                 try! out.append(self.nominal_name(info.decl))
             },
             case ConstInt -> try! out.append(info.a),
+            case ConstExpr -> self.append_const_expr(&var out, t),
             case Error -> try! out.append("(error)")
         }
+    }
+
+    // A constant expression as an author writes it: an implicit conversion
+    // is no spelling, so it prints its operand alone.
+    func append_const_expr(&self, out: &var StringBuilder, t: Int) {
+        let info = self.types.ty(t)
+        let first = self.types.arg(t, 0)
+        if info.a == TC_CONST_ADOPT {
+            self.append_type(&var out, first)
+            return
+        }
+        if info.a == TC_CONST_NEG || info.a == TC_CONST_NOT {
+            try! out.append(tc_const_op_text(info.a))
+            self.append_const_operand(&var out, first, 0, false)
+            return
+        }
+        if info.a == TC_CONST_CAST {
+            self.append_const_operand(&var out, first, 0, false)
+            try! out.append(" as ")
+            self.append_type(&var out, info.b)
+            return
+        }
+        let class = self.const_class(t)
+        self.append_const_operand(&var out, first, class, true)
+        try! out.append(" ")
+        try! out.append(tc_const_op_text(info.a))
+        try! out.append(" ")
+        self.append_const_operand(&var out, self.types.arg(t, 1), class, false)
+    }
+
+    // Operand `t` of a parent of precedence `class` (0 for a unary operator
+    // or a cast): parenthesized when it is a binary expression, unless it is
+    // the left operand of a parent in its own class, and when it is a cast
+    // under a binary parent or a negative constant.
+    func append_const_operand(&self, out: &var StringBuilder, t: Int, class: Int, left: Bool) {
+        let own = self.const_class(t)
+        let info = self.types.ty(t)
+        var parens = false
+        if own > 0 {
+            parens = not (left && own == class)
+        } else if own < 0 {
+            parens = class > 0
+        } else if info.kind == TcKind.ConstInt {
+            parens = info.a < 0
+        }
+        if parens {
+            try! out.append("(")
+        }
+        self.append_type(&var out, t)
+        if parens {
+            try! out.append(")")
+        }
+    }
+
+    // The precedence class of the expression `t` prints as: 1 for `+ - &+ &-`,
+    // 2 for `* / % &*`, then `<< >>`, `&`, `|` and `^`; -1 for a cast; 0 for
+    // anything else, an implicit conversion looked through.
+    func const_class(&self, t: Int) -> Int {
+        let info = self.types.ty(t)
+        if info.kind != TcKind.ConstExpr {
+            return 0
+        }
+        let op = info.a
+        if op == TC_CONST_ADOPT {
+            return self.const_class(self.types.arg(t, 0))
+        }
+        if op == TC_CONST_CAST {
+            return -1
+        }
+        if op == TC_CONST_ADD || op == TC_CONST_SUB || op == TC_CONST_WRAP_ADD || op == TC_CONST_WRAP_SUB {
+            return 1
+        }
+        if op == TC_CONST_MUL || op == TC_CONST_DIV || op == TC_CONST_REM || op == TC_CONST_WRAP_MUL {
+            return 2
+        }
+        if op == TC_CONST_SHL || op == TC_CONST_SHR {
+            return 3
+        }
+        if op == TC_CONST_AND {
+            return 4
+        }
+        if op == TC_CONST_OR {
+            return 5
+        }
+        if op == TC_CONST_XOR {
+            return 6
+        }
+        0
     }
 
     // A nominal type: `T?` for Optional, else its name and its arguments.

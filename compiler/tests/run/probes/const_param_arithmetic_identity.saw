@@ -1,0 +1,49 @@
+// probe: stated
+// about: two lengths written alike over a const parameter are one type, with every part that names no parameter folded, and an expression folds to the plain length once the parameter has a value (SL-457)
+// stage 0: not run: Stage 0 refuses arithmetic over a const parameter
+// speeds: -O0 -O2
+// prints: 5 10 12 7 4
+// prints: 3
+// prints: 4
+// prints: 8 8
+
+static S8: Int = 8
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+func pairs<const N: Int>() {
+    let same: [UInt8; N + 1] = [0; N + 1]
+    let folded: [UInt8; N + 2 * 3] = [0; N + 6]
+    let fixed: [UInt8; N + S8] = [0; N + 8]
+    let prefix: [UInt8; 1 + 2 + N] = [0; 3 + N]
+    let paren: [UInt8; (N)] = [0; N]
+    print("{} {} {} {} {}", same.len(), folded.len(), fixed.len(), prefix.len(), paren.len())
+}
+
+func shifted<const N: Int>(a: [Int; N + 1]) -> Int {
+    N
+}
+
+func forwards<const K: Int>() -> Int {
+    let x: [Int; K + 1] = [0; K + 1]
+    shifted<K>(x)
+}
+
+func plain<const N: Int>(a: [UInt8; N + 1]) -> Int {
+    a.len()
+}
+
+func doubled<const N: Int>() -> Buf<N * 2> {
+    Buf<N * 2>(d: [0; N * 2])
+}
+
+func main() {
+    pairs<4>()
+    print("{}", forwards<3>())
+    let b: [UInt8; 4] = [0; 4]
+    print("{}", plain<3>(b))
+    let d: Buf<8> = doubled<4>()
+    print("{} {}", d.d.len(), sizeof<Buf<8>>())
+}

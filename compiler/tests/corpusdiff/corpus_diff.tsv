@@ -618,7 +618,7 @@ conformance/k74_refused_at_the_call.saw	pass	-	type.bound: `k74_refused_at_the_c
 conformance/k74_refused_unbounded.saw	pass	-	spawn.send: cannot `Thread.spawn`: captured `v` of type `T` is not `Send`. Only Send values may cross to another thread; share through `Arc` (and `Mutex` for mutation)
 conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw	pass	-	effect.sync: `nap` is declared `sync`, and it calls `__saw_rt_blocking_sleep`, which may suspend
 conformance_in_the_traits_module_is_program_wide.saw	pass	-	-
-const_bitwise_fold.saw	refused	typecheck slice.not-yet	arithmetic over a const parameter, which folds only per instantiation, is not in the bootstrap slice yet
+const_bitwise_fold.saw	pass	-	-
 const_bitwise_negative_length_error.saw	pass	-	constant.negative-length: repeat count is negative (`-9223372036854775808`); a length counts elements, so it starts at 0
 const_bitwise_shift_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
 const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
@@ -635,7 +635,7 @@ const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused
 const_generic_type_for_value_error.saw	pass	-	type.argument-kind: this argument's parameter takes a value, and a type is written
 const_generic_value_for_type_error.saw	pass	-	type.argument-kind: this argument's parameter takes a type, and a value is written
 const_length_grammar_bool_error.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `Bool`
-const_length_grammar_unified.saw	refused	typecheck slice.not-yet	arithmetic over a const parameter, which folds only per instantiation, is not in the bootstrap slice yet
+const_length_grammar_unified.saw	pass	-	-
 const_qualified_length.saw	pass	-	-
 const_sizeof_agrees_across_phases.saw	pass	-	-
 const_static_generic_arg.saw	pass	-	-

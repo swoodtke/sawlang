@@ -1,0 +1,17 @@
+// refuses: static.not-constant at 11:21
+// errors: 1
+// A call runs only at run time, so it is no part of a length over a const
+// parameter.
+
+func ident(n: Int) -> Int {
+    n
+}
+
+func f<const N: Int>() -> Int {
+    let a = [0; N + ident(4)]
+    a.len()
+}
+
+func main() {
+    print(f<4>())
+}

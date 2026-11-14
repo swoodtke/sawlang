@@ -20,6 +20,10 @@ public struct TcSolve {
     conflict_index: Int
     conflict_a: Int
     conflict_b: Int
+    // Each parameter of `owner` met only inside a constant expression, which
+    // binds nothing, and the first such expression.
+    symbolic: Vector<Int>
+    symbolic_type: Int
 }
 
 extension TcSolve: NoCopy {}
@@ -32,7 +36,8 @@ public func tc_solve(owner: Int, count: Int) -> TcSolve {
         try! sol.push(-1)
         k = k + 1
     }
-    TcSolve(owner: owner, sol: move sol, conflict_index: -1, conflict_a: -1, conflict_b: -1)
+    TcSolve(owner: owner, sol: move sol, conflict_index: -1, conflict_a: -1, conflict_b: -1,
+            symbolic: Vector<Int>(), symbolic_type: -1)
 }
 
 extension TcProgram {
@@ -104,6 +109,12 @@ extension TcProgram {
         if self.is_never(a) {
             return true
         }
+        // An expression over a const parameter binds none: the argument
+        // check after substitution reports a mismatch.
+        if pi.kind == TcKind.ConstExpr {
+            self.note_symbolic_params(p, &var s)
+            return true
+        }
         let ai = self.types.ty(a)
         if pi.kind == TcKind.Nominal && pi.decl == self.known.optional && not self.is_optional(a) {
             let inner = self.types.arg(p, 0)
@@ -144,6 +155,28 @@ extension TcProgram {
             }
         }
         agreed
+    }
+
+    // Records each parameter of `s.owner` that constant expression `p` names.
+    func note_symbolic_params(&self, p: Int, s: &var TcSolve) {
+        let info = self.types.ty(p)
+        if info.kind == TcKind.Param {
+            if info.decl == s.owner && s.owner >= 0 {
+                try! s.symbolic.push(info.a)
+            }
+            return
+        }
+        if info.kind != TcKind.ConstExpr {
+            return
+        }
+        if s.symbolic_type < 0 {
+            s.symbolic_type = p
+        }
+        var k = 0
+        while k < info.count {
+            self.note_symbolic_params(self.types.arg(p, k), &var s)
+            k = k + 1
+        }
     }
 
     // Whether `t` mentions a parameter of `s.owner` that is not solved yet.

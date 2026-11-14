@@ -14077,6 +14077,12 @@ Scope, deliberately narrow in this version:
   of the grammar in this position: an argument list is closed by `>`, which is
   also the shift token. Write the multiplicative form (`FixedBuf<2 * 128>`) or
   a `static`. An array length is closed by `]` and takes the full grammar.
+  Arithmetic over a const parameter (`[0; N + 1]`, `Buf<N * 2>`,
+  `[UInt8; 1 << N]`) is a constant that folds once `N` has a value. Two such
+  expressions are one type exactly when they are written alike, after every
+  part that names no parameter is folded: `N + 2 * 3` is `N + 6` and
+  `N + S8` is `N + 8` for a `static S8: Int = 8`, but `N + N` is not `2 * N`
+  and `N + 1` is not `1 + N`.
 - **A module `static`** may be the argument on the same terms, so
   `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
   layout and one symbol. See Module-level statics for which statics fold.
@@ -14087,9 +14093,12 @@ Scope, deliberately narrow in this version:
 - **Defaults** compose with default type arguments: `struct Ring<const N: Int =
   4>` lets `Ring()` mean `Ring<4>`. A parameter's default value may read a
   const parameter, `func pad<const N: Int>(x: Int, by: Int = N)`, and takes
-  the calling instance's value.
+  the calling instance's value. A const parameter's own default that names
+  another parameter, `const M: Int = N + 1`, is refused as a type default
+  that names one is: a default is a ground type.
 - **Inference**: explicit in this version, with one exception. A `[T; N]`
-  parameter binds `N` from the argument's length:
+  parameter binds `N` from the argument's length; an expression such as
+  `[T; N + 1]` binds nothing, and `N` is written on the call:
 
   ```saw-body
   func width<const N: Int>(xs: [Int; N]) -> Int { N }

@@ -1,0 +1,15 @@
+// refuses: type.mismatch at 9:27
+// errors: 1
+// message: a length fixed only at each instantiation: write a repeat literal
+// A list literal cannot fill an array whose length is an expression over a
+// const parameter either: its element count is fixed in the source and the
+// length is not.
+
+func filled<const N: Int>() -> Int {
+    let a: [Int; N + 1] = [1, 2]
+    a[N]
+}
+
+func main() {
+    print(filled<1>())
+}

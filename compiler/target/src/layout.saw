@@ -12,6 +12,7 @@
 
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
+import sawtypecheck.arith.{tc_arith_max}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.spell.{tc_effects_text}
@@ -497,6 +498,19 @@ extension Target {
         self.reasons.get(l.reason) ?? ""
     }
 
+    // The most bytes a type may hold: the largest value of the target's
+    // `Int`, so every size and offset the layout computes fits one.
+    func size_limit(&self) -> Int {
+        tc_arith_max(self.word * 8, true)
+    }
+
+    // Whether `n` rounded up to `align`, and then grown by `size`, stays within
+    // `size_limit`.
+    func holds_bytes(&self, n: Int, align: Int, size: Int) -> Bool {
+        let limit = self.size_limit()
+        n <= limit - align && size <= limit - target_align_up(n, align)
+    }
+
     func unsupported(&var self, why: String) -> TargetLayout {
         var l = TargetLayout.blank(TargetKind.Unsupported)
         l.reason = self.reasons.len()
@@ -541,6 +555,22 @@ extension Target {
                 let lt = tc.types.ty(length_type)
                 if lt.kind != TcKind.ConstInt {
                     return self.unsupported("an array whose length is not a folded constant")
+                }
+                if lt.a < 0 {
+                    var why = StringBuilder()
+                    try! why.append("an array whose length is negative (`")
+                    try! why.append(lt.a)
+                    try! why.append("`)")
+                    return self.unsupported(why.build())
+                }
+                if el.size > 0 && lt.a > self.size_limit() / el.size {
+                    var why = StringBuilder()
+                    try! why.append("an array of ")
+                    try! why.append(lt.a)
+                    try! why.append(" elements of ")
+                    try! why.append(el.size)
+                    try! why.append(" bytes, more bytes than `Int` counts on this target")
+                    return self.unsupported(why.build())
                 }
                 var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Array
@@ -647,6 +677,9 @@ extension Target {
             if m.kind == TargetKind.Unsupported {
                 return m
             }
+            if not self.holds_bytes(at, m.align, m.size) {
+                return self.unsupported("a type of more bytes than `Int` counts on this target")
+            }
             at = target_align_up(at, m.align)
             try! offs.push(at)
             at = at + m.size
@@ -654,6 +687,9 @@ extension Target {
                 align = m.align
             }
             k = k + 1
+        }
+        if not self.holds_bytes(at, align, 0) {
+            return self.unsupported("a type of more bytes than `Int` counts on this target")
         }
         var l = TargetLayout.blank(TargetKind.Memory)
         l.shape = TargetShape.Record
@@ -778,6 +814,9 @@ extension Target {
                 let written = tc.params[s.param_first + j].ty
                 let pt = target_member_type(&var tc, t, written)
                 let pl = self.layout(&var tc, pt)
+                if not self.holds_bytes(at, pl.align, pl.size) {
+                    return self.unsupported("a type of more bytes than `Int` counts on this target")
+                }
                 at = target_align_up(at, pl.align)
                 try! offs.push(at)
                 at = at + pl.size
@@ -803,6 +842,9 @@ extension Target {
         var align = tag
         if payload_align > align {
             align = payload_align
+        }
+        if not self.holds_bytes(end, align, 0) {
+            return self.unsupported("a type of more bytes than `Int` counts on this target")
         }
         var l = TargetLayout.blank(TargetKind.Memory)
         l.shape = TargetShape.Enum

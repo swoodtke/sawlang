@@ -16,6 +16,29 @@ static TC_TYPE_MASK: Int = 0xFFFF_FFFF
 // type, and a type parameter or `Self`, whose projections hold their base.
 public static TC_HOLDS_ERROR: Int = 1
 public static TC_HOLDS_PARAM: Int = 2
+// A constant expression whose operands are all values and whose arithmetic
+// faults: it names no parameter and has no value.
+public static TC_HOLDS_UNFOLDED: Int = 4
+
+// The operators of a `TcKind.ConstExpr`, by `a`. `tc_const_op_text` spells one.
+public static TC_CONST_ADD: Int = 1
+public static TC_CONST_SUB: Int = 2
+public static TC_CONST_MUL: Int = 3
+public static TC_CONST_DIV: Int = 4
+public static TC_CONST_REM: Int = 5
+public static TC_CONST_SHL: Int = 6
+public static TC_CONST_SHR: Int = 7
+public static TC_CONST_AND: Int = 8
+public static TC_CONST_OR: Int = 9
+public static TC_CONST_XOR: Int = 10
+public static TC_CONST_WRAP_ADD: Int = 11
+public static TC_CONST_WRAP_SUB: Int = 12
+public static TC_CONST_WRAP_MUL: Int = 13
+public static TC_CONST_NEG: Int = 20
+public static TC_CONST_NOT: Int = 21
+// A written `as`, and an implicit conversion no one wrote.
+public static TC_CONST_CAST: Int = 30
+public static TC_CONST_ADOPT: Int = 31
 
 public enum TcKind: UInt8 {
     // A struct, enum or builtin type applied to arguments: `decl`, the args.
@@ -45,7 +68,13 @@ public enum TcKind: UInt8 {
     // A constant argument: `a` its value.
     case ConstInt = 10,
     // A type that could not be formed; a refusal says why.
-    case Error = 11
+    case Error = 11,
+    // An integer computed from const parameters, folded once each has a value:
+    // `a` its operator (`TC_CONST_*`), `b` the integer type it computes at,
+    // `decl` the operand's own type for a shift count or a conversion (-1
+    // otherwise), its operands as args: a const parameter, a constant, or
+    // another `ConstExpr`.
+    case ConstExpr = 12
 }
 
 public struct TcType {
@@ -126,8 +155,51 @@ public func tc_kind_code(kind: TcKind) -> Int {
         case Any -> 10,
         case ConstInt -> 11,
         case Error -> 12,
-        case Projection -> 13
+        case Projection -> 13,
+        case ConstExpr -> 14
     }
+}
+
+// The spelling of constant operator `op`, or "" for a code that is none.
+public func tc_const_op_text(op: Int) -> String {
+    match op {
+        case 1 -> "+",
+        case 2 -> "-",
+        case 3 -> "*",
+        case 4 -> "/",
+        case 5 -> "%",
+        case 6 -> "<<",
+        case 7 -> ">>",
+        case 8 -> "&",
+        case 9 -> "|",
+        case 10 -> "^",
+        case 11 -> "&+",
+        case 12 -> "&-",
+        case 13 -> "&*",
+        case 20 -> "-",
+        case 21 -> "~",
+        case 30 -> "as",
+        case 31 -> "",
+        case _ -> ""
+    }
+}
+
+// The binary operator spelled `text`, or 0 for a spelling that is none.
+public func tc_const_op_of(text: &String) -> Int {
+    if text.equals("+") { return TC_CONST_ADD }
+    if text.equals("-") { return TC_CONST_SUB }
+    if text.equals("*") { return TC_CONST_MUL }
+    if text.equals("/") { return TC_CONST_DIV }
+    if text.equals("%") { return TC_CONST_REM }
+    if text.equals("<<") { return TC_CONST_SHL }
+    if text.equals(">>") { return TC_CONST_SHR }
+    if text.equals("&") { return TC_CONST_AND }
+    if text.equals("|") { return TC_CONST_OR }
+    if text.equals("^") { return TC_CONST_XOR }
+    if text.equals("&+") { return TC_CONST_WRAP_ADD }
+    if text.equals("&-") { return TC_CONST_WRAP_SUB }
+    if text.equals("&*") { return TC_CONST_WRAP_MUL }
+    0
 }
 
 extension TcTypes {
@@ -214,6 +286,9 @@ extension TcTypes {
                 try! self.labels.push(-1)
             }
             k = k + 1
+        }
+        if kind == TcKind.ConstExpr && (holds & TC_HOLDS_PARAM) == 0 {
+            holds = holds | TC_HOLDS_UNFOLDED
         }
         try! self.types.push(TcType(kind: kind, decl: decl, a: a, b: b, first: first,
                                     count: args.len(), labeled: labels.len() > 0, hash: h,

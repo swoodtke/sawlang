@@ -1,0 +1,13 @@
+// refuses: backend.not-yet at 11:9
+// message: more bytes than `Int` counts on this target
+// A type whose size in bytes does not fit the target's `Int` is refused by the
+// layout, where it once overflowed the compiler's own arithmetic.
+
+struct Huge {
+    d: [UInt64; 2305843009213693952]
+}
+
+func main() {
+    let h = Huge(d: [0; 2305843009213693952])
+    print("{}", h.d.len())
+}

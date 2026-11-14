@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 7:19
+// errors: 1
+// A part of the length that names no parameter faults at the declaration, once:
+// `Int.max + 1` overflows whatever `N` is.
+
+func f<const N: Int>() -> Int {
+    let a = [0u8; Int.max + 1 + N]
+    a.len()
+}
+
+func main() {
+    print(f<4>())
+}
