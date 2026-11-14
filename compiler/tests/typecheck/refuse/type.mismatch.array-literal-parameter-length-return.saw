@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 7:5
+// errors: 1
+// message: a length fixed only at each instantiation: write a repeat literal
+// A returned list literal meets a parameter length in the return type.
+
+func filled<const N: Int>() -> [Int; N] {
+    [1, 2]
+}

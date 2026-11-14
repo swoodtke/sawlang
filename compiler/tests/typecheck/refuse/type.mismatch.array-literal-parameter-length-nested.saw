@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 8:29
+// errors: 1
+// message: a length fixed only at each instantiation: write a repeat literal
+// The outer literal's length is known and the inner arrays' is a const
+// parameter: each inner literal is refused where it stands.
+
+func rows<const N: Int>() -> Int {
+    let a: [[Int; N]; 1] = [[1, 2]]
+    a.len()
+}

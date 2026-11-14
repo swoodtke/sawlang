@@ -6469,6 +6469,28 @@ extension TcProgram {
                 try! msg.append("` holds ")
                 try! msg.append(li.a)
                 self.refuse(e, "type.mismatch", msg.build())
+            } else if li.kind != TcKind.ConstInt && li.kind != TcKind.Error {
+                // A parameter length is fixed only at each instantiation, so a
+                // literal's element count cannot be checked against it and the
+                // array would be read where no element was written.
+                var msg = StringBuilder()
+                try! msg.append("this array literal has ")
+                if values.len() == 0 {
+                    try! msg.append("no elements")
+                } else if values.len() == 1 {
+                    try! msg.append("1 element")
+                } else {
+                    try! msg.append(values.len())
+                    try! msg.append(" elements")
+                }
+                try! msg.append(", and `")
+                try! msg.append(self.type_text(array))
+                try! msg.append("` holds `")
+                try! msg.append(self.type_text(length))
+                try! msg.append("`, a length fixed only at each instantiation: write a repeat literal (`[v; …]`) to fill it")
+                self.refuse(e, "type.mismatch", msg.build())
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, false)
             }
         }
         self.set_type(e, result, false)

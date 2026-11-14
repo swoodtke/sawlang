@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:13
+// errors: 1
+// message: a length fixed only at each instantiation: write a repeat literal
+// A list literal passed where the callee's parameter length is the caller's
+// own const parameter.
+
+func take<const M: Int>(a: [Int; M]) -> Int {
+    a.len()
+}
+
+func pass<const N: Int>() -> Int {
+    take<N>([1, 2])
+}

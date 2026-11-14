@@ -2463,7 +2463,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `Int8`…`UInt64`; SL-548 c2), and `Bool`/`String`/a struct is refused at the
   declaration (`type.const-parameter`), as is a distinct alias like `Byte`
   (write `UInt8`); usable as a `[T; N]`
-  length, a `static_assert` operand (checked at EACH instance, so
+  length (filled by a repeat literal `[0; N]`, never a list literal, which
+  is a `type.mismatch` there), a `static_assert` operand (checked at EACH instance, so
   `static_assert(N > 0, …)` refuses `f<0>()`; sawc passed every one unread
   before SL-548), a `sizeof` operand, a repeat count, a
   parameter's default (`by: Int = N`), or a plain value of its declared type

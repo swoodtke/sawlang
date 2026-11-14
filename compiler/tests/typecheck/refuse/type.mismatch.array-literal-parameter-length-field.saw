@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:15
+// errors: 1
+// message: a length fixed only at each instantiation: write a repeat literal
+// A list literal initializing a field whose array length is the struct's
+// const parameter.
+
+struct Buf<const N: Int> {
+    d: [Int; N]
+}
+
+func build<const N: Int>() -> Buf<N> {
+    Buf<N>(d: [1, 2])
+}

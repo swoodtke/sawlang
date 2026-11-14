@@ -1862,7 +1862,10 @@ var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
 static SCRATCH: [Int8; 4096] = [0; 4096]     // zeroinitializer, in .bss
 
 // The length is part of the type. `[Int; 3]` is not a `[Int; 5]`, and passing
-// one where the other is expected is a compile error naming both.
+// one where the other is expected is a compile error naming both. A list
+// literal's element count must equal its array's length, and a literal cannot
+// fill an array whose length is a const parameter, whose value is fixed only
+// at each instantiation: write a repeat literal, `[0; N]`.
 
 // A fixed array `[T; N]` inherits T's copy tier (see The Copy Trait Family):
 // `[Int; 5]` is trivially copyable, so `let b = fixed` bitwise-copies it. An

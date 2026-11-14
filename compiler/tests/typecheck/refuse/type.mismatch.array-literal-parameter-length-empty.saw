@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 8:23
+// errors: 1
+// message: this array literal has no elements
+// An empty list literal is refused against a parameter length too: no element
+// is written, and the length is not zero at every instantiation.
+
+func filled<const N: Int>() -> Int {
+    let a: [Int; N] = []
+    a.len()
+}
