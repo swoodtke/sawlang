@@ -10,6 +10,7 @@ import sawmir.api.{mir_append_diag, mir_append_invariants, mir_append_module_che
                        mir_empty_front, mir_run_layer, mir_status}
 import sawmir.program.{MirProgram}
 import sawresolve.layer.{FrontLayer, FrontLayerKind, front_layer}
+import sawresolve.model.{ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram, TcTarget}
 
@@ -18,6 +19,8 @@ public struct BorrowckOptions {
     std_root: String
     // Print each checked module's dump.
     dump: Bool
+    // Leave std's modules (by origin: loaded from the std root) out of the dump.
+    skip_std: Bool
     notes: Bool
     // The target the program is checked for (`target_front_end`).
     target: TcTarget
@@ -92,7 +95,7 @@ public func borrowck_record_from(out: &var StringBuilder, p: &var BorrowckProgra
         m = 0
         while m < p.mir.tc.res.module_count() {
             let info = p.mir.tc.res.module(m)
-            if info.available && not info.interface_only {
+            if info.available && not info.interface_only && not (options.skip_std && info.kind == ResModuleKind.Std) {
                 p.dump_module(&var out, m)
                 try! out.append("\n")
             }

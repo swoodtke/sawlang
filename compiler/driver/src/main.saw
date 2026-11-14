@@ -18,8 +18,10 @@
 //   sawc eval --check FILE...      each entry file's constants evaluated, refusals and invariants only
 //   sawc borrowck --dump FILE...   each entry file's program borrow checked, and its dump
 //   sawc borrowck --check FILE...  each entry file's program borrow checked, refusals and invariants only
+//   sawc borrowck --dump --dump-skip-std FILE...   the dump without std's modules
 //   sawc drops --dump FILE...      each entry file's program with its drops elaborated, and its dump
 //   sawc drops --check FILE...     each entry file's program elaborated, refusals and invariants only
+//   sawc drops --dump --dump-skip-std FILE...      the dump without std's modules
 //   sawc mono --dump FILE...       each entry file's program monomorphized, and its items
 //   sawc mono --layouts FILE...    each entry file's program monomorphized, and its types' layouts
 //   sawc mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
@@ -123,10 +125,12 @@ func driver_usage() -> Int {
     print("                [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR] [--target TRIPLE]")
     print("                 [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc borrowck (--dump | --check) [--notes] [--lowerings] [--std-root DIR] [--target TRIPLE]")
-    print("                     [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc drops (--dump | --check) [--notes] [--lowerings] [--std-root DIR] [--target TRIPLE]")
-    print("                  [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc borrowck (--dump [--dump-skip-std] | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("                     [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]...")
+    print("                     [FILE | @LIST]...")
+    print("       sawc drops (--dump [--dump-skip-std] | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("                  [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]...")
+    print("                  [FILE | @LIST]...")
     print("       sawc mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
@@ -3992,6 +3996,7 @@ static DRIVER_STAGE_DROPS: Int = 5
 func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     let typecheck = stage == DRIVER_STAGE_TYPECHECK
     var dump = false
+    var skip_std = false
     var check = false
     var notes = false
     var spans = false
@@ -4022,6 +4027,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             i = i + 1
         } else if arg.equals("--dump") {
             dump = true
+        } else if arg.equals("--dump-skip-std") && (stage == DRIVER_STAGE_BORROWCK || stage == DRIVER_STAGE_DROPS) {
+            skip_std = true
         } else if arg.equals("--check") {
             check = true
         } else if arg.equals("--notes") {
@@ -4070,7 +4077,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
         }
         i = i + 1
     }
-    if dump == check {
+    if dump == check || (skip_std && not dump) {
         return driver_usage()
     }
     var command = StringBuilder()
@@ -4097,8 +4104,10 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                                     interfaces: interfaces, summaries: summaries, warn_borrow_prefix: warn)
     let lowering = MirOptions(std_root: std_root, dump: dump, notes: notes, spans: spans, target: checked_for)
     let evaluating = EvalOptions(std_root: std_root, dump: dump, notes: notes, target: checked_for)
-    let borrowing = BorrowckOptions(std_root: std_root, dump: dump, notes: notes, target: checked_for)
-    let elaborating = DropsOptions(std_root: std_root, dump: dump, notes: notes, target: checked_for)
+    let borrowing = BorrowckOptions(std_root: std_root, dump: dump, skip_std: skip_std, notes: notes,
+                                    target: checked_for)
+    let elaborating = DropsOptions(std_root: std_root, dump: dump, skip_std: skip_std, notes: notes,
+                                   target: checked_for)
     var status = 0
     var k = 0
     while k < inputs.len() {

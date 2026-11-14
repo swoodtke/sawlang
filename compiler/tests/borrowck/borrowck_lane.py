@@ -332,6 +332,13 @@ def check_golden(failures, counts, write):
              for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
     code, out = sawc(["--dump"] + [rel(src) for src, _ in cases])
     got = stripped_records(out)
+    # `--dump-skip-std` is the strip done in the compiler: the corpus checks rely on it.
+    code, skipped_out = sawc(["--dump", "--dump-skip-std"] + [rel(src) for src, _ in cases])
+    skipped = records(skipped_out)
+    for src, _ in cases:
+        if skipped.get(rel(src)) != got.get(rel(src)):
+            failures.append("borrowck golden %s: --dump-skip-std differs from the strip at %s"
+                            % (rel(src), first_difference(got.get(rel(src), ""), skipped.get(rel(src), ""))))
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:
@@ -666,9 +673,9 @@ def check_corpus(failures, counts):
     os.makedirs(os.path.dirname(listing), exist_ok=True)
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
-    r = subprocess.run([build.SAWC, "borrowck", "--dump", "--std-root", "std", "@" + rel(listing)],
+    r = subprocess.run([build.SAWC, "borrowck", "--dump", "--dump-skip-std", "--std-root", "std", "@" + rel(listing)],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
-    got = stripped_records(r.stdout)
+    got = records(r.stdout)
     if r.returncode not in (0, 1):
         failures.append("borrowck corpus: sawc exited %d" % r.returncode)
     # Every listed program has a record; a short output is one failure here,

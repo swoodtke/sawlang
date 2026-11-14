@@ -30,7 +30,7 @@ borrowck/
 ## `sawc borrowck`
 
 ```sh
-.build/sawc-stage1 borrowck (--dump | --check) [--notes] [--std-root DIR]
+.build/sawc-stage1 borrowck (--dump [--dump-skip-std] | --check) [--notes] [--std-root DIR]
                       [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -42,7 +42,9 @@ line `FILE<TAB>path`, holding in order:
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal of the
   borrow check, in the order its functions were checked;
 - one `INVARIANT<TAB>module<TAB>message` line per problem its verifier finds;
-- with `--dump`, the dump of each module checked in full, in load order.
+- with `--dump`, the dump of each module checked in full, in load order;
+  `--dump-skip-std` leaves out the modules loaded from the std root, which
+  std's own lane holds.
 
 The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
 a usage failure, and 0 otherwise. Every function the MIR stage lowered and

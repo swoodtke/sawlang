@@ -224,8 +224,8 @@ def corpus_records():
     os.makedirs(os.path.dirname(listing), exist_ok=True)
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
-    code, out = sawc(["--dump", "@" + rel(listing)])
-    return code, rels, borrowck_lane.stripped_records(out)
+    code, out = sawc(["--dump", "--dump-skip-std", "@" + rel(listing)])
+    return code, rels, borrowck_lane.records(out)
 
 
 def elaborated(record):
