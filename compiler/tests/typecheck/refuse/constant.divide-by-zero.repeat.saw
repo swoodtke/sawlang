@@ -1,0 +1,8 @@
+// refuses: constant.divide-by-zero at 6:18
+// a repeat count that divides by zero, folded by the constant-position funnel (SL-457)
+// message: divides by zero
+
+func main() {
+    let xs = [0; 8 / 0]
+    print("{}", xs.len())
+}

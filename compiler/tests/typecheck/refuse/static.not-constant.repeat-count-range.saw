@@ -1,0 +1,8 @@
+// refuses: static.not-constant at 7:17
+// an open range as a repeat count, which the count's typing and the
+// constant-position funnel both reach: one refusal, reported once (SL-958)
+
+func main() {
+    let a = 1
+    let v = [0; a..]
+}

@@ -1,0 +1,8 @@
+// refuses: constant.shift-range at 6:18
+// a repeat count that shifts by the shifted type's width, folded by the constant-position funnel (SL-457)
+// message: shifts a value of type `Int` by a count outside its width
+
+func main() {
+    let xs = [0; 1 << 64]
+    print("{}", xs.len())
+}

@@ -1,6 +1,6 @@
 // refuses: static.not-constant at 7:18
 // a `var` local named as a repeat count
-// message: repeat count is not a compile-time constant: `n` names a binding whose value is known only at run time
+// message: a repeat count is a constant expression: it names a binding whose value is known only at run time
 
 func main() {
     var n = 4

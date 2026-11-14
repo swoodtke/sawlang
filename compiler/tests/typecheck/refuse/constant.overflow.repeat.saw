@@ -1,0 +1,9 @@
+// refuses: constant.overflow at 7:18
+// a repeat count whose raw-backed case overflows its `UInt8` backing: a count keeps its own integer type (SL-457)
+// message: overflows `UInt8`
+enum E: UInt8 { case A = 8 }
+
+func main() {
+    let xs = [0; E.A + 250]
+    print("{}", xs.len())
+}

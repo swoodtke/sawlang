@@ -32,7 +32,7 @@ import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORR
                                TC_EFFECT_UNSAFE, TC_FLAG_ALIAS_BUILDING, TC_FLAG_BLOCKING,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
-                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcConstUse, TcGeneric, TcHeadKind,
+                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcConstPosition, TcGeneric, TcHeadKind,
                                TcLend, TcObligation, TcParam, TcReceiver, TcSig, TcStaticTyping, TcStaticVerdict}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
@@ -51,12 +51,29 @@ public enum TcArgSlot {
     case Unknown
 }
 
-// What a refusal calls the position a constant serves.
-public func tc_const_use_text(use: TcConstUse) -> String {
+// What a refusal calls the position a constant serves, with no article.
+public func tc_const_use_text(use: TcConstPosition) -> String {
     match use {
+        case Static -> "static initializer",
+        case RawValue -> "raw case value",
+        case Align -> "`@align` argument",
+        case Assert -> "`static_assert` condition",
         case Length -> "array length",
         case Repeat -> "repeat count",
         case Argument -> "constant argument"
+    }
+}
+
+// The same name with its article, as a sentence takes it.
+public func tc_const_use_phrase(use: TcConstPosition) -> String {
+    match use {
+        case Static -> "a static's initializer",
+        case RawValue -> "a raw case's value",
+        case Align -> "an `@align` argument",
+        case Assert -> "a `static_assert` condition",
+        case Length -> "an array length",
+        case Repeat -> "a repeat count",
+        case Argument -> "a constant argument"
     }
 }
 
@@ -1064,7 +1081,7 @@ extension TcProgram {
                 let inner = self.res.first_node_child(t)
                 let element = self.build_type(inner)
                 let length_node = self.res.last_node_child(t)
-                let length = self.build_length(length_node, TcConstUse.Length)
+                let length = self.build_length(length_node, TcConstPosition.Length)
                 self.mk_array(element, length)
             },
             case Type_Tuple_Unit -> self.build_tuple(t, false),
@@ -1301,7 +1318,7 @@ extension TcProgram {
                 self.kind_mismatch(node, "a type")
                 return self.error_type
             }
-            return self.build_const(node, TcConstUse.Argument)
+            return self.build_const(node, TcConstPosition.Argument)
         }
         if self.names_constant(node) {
             let path = self.child(node, 0)
@@ -1310,7 +1327,7 @@ extension TcProgram {
             if slot == TcArgSlot.Type {
                 self.kind_mismatch(node, "a type")
             } else {
-                ty = self.constant_named(leaf, TcConstUse.Argument)
+                ty = self.constant_named(leaf, TcConstPosition.Argument)
             }
             self.node_types[node] = ty
             self.type_builds[node] += 1
@@ -1348,7 +1365,7 @@ extension TcProgram {
     // The constant name `leaf` stands for at use `use`: a const parameter,
     // or a static's value. A local, or any other value, is known only at run
     // time (a local wins over a static, so a shadowing one is this).
-    func constant_named(&var self, leaf: Int, use: TcConstUse) -> Int {
+    func constant_named(&var self, leaf: Int, use: TcConstPosition) -> Int {
         let b = self.binding_at(leaf)
         if b.kind == ResBindKind.TypeParam {
             let named = self.param_type(b.node)
@@ -1390,7 +1407,7 @@ extension TcProgram {
     // ENTRY POINTS:
     //     constant_named
     //     build_const
-    func static_constant(&var self, d: Int, at: Int, use: TcConstUse) -> Int {
+    func static_constant(&var self, d: Int, at: Int, use: TcConstPosition) -> Int {
         let verdict = self.static_verdicts[d]
         if verdict == TcStaticVerdict.Folds {
             return self.mk_const(self.static_values[d])
@@ -1406,13 +1423,8 @@ extension TcProgram {
         if verdict == TcStaticVerdict.NotYet {
             var msg = StringBuilder()
             try! msg.append(self.static_reasons.get(d) ?? "")
-            let position = match use {
-                case Length -> "an array length",
-                case Repeat -> "a repeat count",
-                case Argument -> "a constant argument"
-            }
             try! msg.append(", so naming it as ")
-            try! msg.append(position)
+            try! msg.append(tc_const_use_phrase(use))
             try! msg.append(" is not in the bootstrap slice yet")
             self.refuse(at, "slice.not-yet", msg.build())
             return self.error_type
@@ -1420,12 +1432,9 @@ extension TcProgram {
         if verdict == TcStaticVerdict.Unfit {
             var msg = StringBuilder()
             try! msg.append(self.static_reasons.get(d) ?? "")
-            let what = match use {
-                case Length -> ", as an array length must",
-                case Repeat -> ", as a repeat count must",
-                case Argument -> ", as a constant argument must"
-            }
-            try! msg.append(what)
+            try! msg.append(", as ")
+            try! msg.append(tc_const_use_phrase(use))
+            try! msg.append(" must")
             self.refuse(at, "type.mismatch", msg.build())
             return self.error_type
         }
@@ -1444,7 +1453,7 @@ extension TcProgram {
     }
 
     // The refusal of a name that is no constant where a type fixes one.
-    func refuse_not_compile_time(&var self, at: Int, use: TcConstUse, why: String) {
+    func refuse_not_compile_time(&var self, at: Int, use: TcConstPosition, why: String) {
         var msg = StringBuilder()
         try! msg.append(tc_const_use_text(use))
         try! msg.append(" is not a compile-time constant: ")
@@ -1498,7 +1507,7 @@ extension TcProgram {
             try! why.append("` is ")
             try! why.append(info.a)
             try! why.append(", and it sizes an array")
-            self.refuse_negative_length(node, TcConstUse.Length, info.a, why.build())
+            self.refuse_negative_length(node, TcConstPosition.Length, info.a, why.build())
             return false
         }
         true
@@ -1578,10 +1587,23 @@ extension TcProgram {
         false
     }
 
-    // An array length or a repeat count at `node`: a constant that is not
-    // negative (`refuse_negative_length`).
-    public func build_length(&var self, node: Int, use: TcConstUse) -> Int {
+    // An array length at `node`, folded by the small folder: a constant that
+    // is not negative (`refuse_negative_length`).
+    public func build_length(&var self, node: Int, use: TcConstPosition) -> Int {
         let v = self.build_const(node, use)
+        return self.checked_length(node, use, v)
+    }
+
+    // A repeat count at `node` whose value the constant-position funnel
+    // folded, already an `Int`: the length it stands for, or the error type
+    // once refused.
+    public func folded_length(&var self, node: Int, use: TcConstPosition, value: Int) -> Int {
+        let v = self.mk_const(value)
+        return self.checked_length(node, use, v)
+    }
+
+    // Length or count `v`, a constant or not: itself unless it is negative.
+    func checked_length(&var self, node: Int, use: TcConstPosition, v: Int) -> Int {
         let info = self.types.ty(v)
         if info.kind != TcKind.ConstInt || info.a >= 0 {
             return v
@@ -1627,9 +1649,9 @@ extension TcProgram {
     // ENTRY POINTS:
     //     build_length
     //     check_argument_kind
-    func refuse_negative_length(&var self, at: Int, use: TcConstUse, value: Int, why: String) {
+    func refuse_negative_length(&var self, at: Int, use: TcConstPosition, value: Int, why: String) {
         var msg = StringBuilder()
-        try! msg.append(if use == TcConstUse.Repeat { "repeat count" } else { "array length" })
+        try! msg.append(if use == TcConstPosition.Repeat { "repeat count" } else { "array length" })
         try! msg.append(" is negative (`")
         try! msg.append(value)
         try! msg.append("`)")
@@ -1643,7 +1665,7 @@ extension TcProgram {
 
     // A constant expression at use `use`, folded: an integer literal, a const
     // parameter, and `+`, `-`, `*` and negation over them.
-    public func build_const(&var self, node: Int, use: TcConstUse) -> Int {
+    public func build_const(&var self, node: Int, use: TcConstPosition) -> Int {
         guard let alt = self.node_alt(node) else {
             return self.error_type
         }
@@ -1689,7 +1711,7 @@ extension TcProgram {
     }
 
     // An operator chain `a op b op c`, folded left to right.
-    func fold_chain(&var self, node: Int, alt: Alt, use: TcConstUse) -> Int {
+    func fold_chain(&var self, node: Int, alt: Alt, use: TcConstPosition) -> Int {
         let n = self.child_count(node)
         var value = 0
         var have = false

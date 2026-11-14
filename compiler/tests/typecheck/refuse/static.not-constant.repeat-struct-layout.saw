@@ -1,0 +1,9 @@
+// refuses: static.not-constant at 7:18
+// `sizeof` of a struct in a repeat count, whose layout only code generation knows (spec, Layout in a constant)
+// message: a repeat count is a constant expression
+struct Pair { a: Int, b: Int }
+
+func main() {
+    let xs = [0; sizeof<Pair>()]
+    print("{}", xs.len())
+}

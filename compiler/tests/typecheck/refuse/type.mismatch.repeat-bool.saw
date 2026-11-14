@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 6:18
+// a repeat count that folds to a `Bool`: a count is an integer (SL-457)
+// message: a repeat count is an integer
+
+func main() {
+    let xs = [0; 1 < 2]
+    print("{}", xs.len())
+}

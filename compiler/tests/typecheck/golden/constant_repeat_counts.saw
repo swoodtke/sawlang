@@ -1,0 +1,88 @@
+// A repeat count is a constant position, folded by the constant-position
+// funnel (SL-457): every form of the constant grammar that folds to an
+// integer, in a body and in a static's initializer. Each row's annotation
+// holds the folded value. The orders: a static and a raw case declared above
+// the count, and a static declared below it; a raw case declared below a
+// body is refuses/slice.not-yet.repeat-case-declared-later.
+
+type Count = Int
+
+static S8: Int = 8
+static SHIFT: Int = 3
+static SU8: UInt = 8
+static BYTES: Int = 64
+static BELOW_USE: [UInt8; 5] = [0; LATE + 1]
+static LATE: Int = 4
+
+enum E: UInt8 {
+    case A = 8
+    case B = 4
+}
+
+enum P: UInt8 {
+    case R = 1
+    case W = 2
+}
+
+static T_LITERAL: [UInt8; 8] = [0; 8]
+static T_HEX: [UInt8; 8] = [0; 0x8]
+static T_PLUS_TIMES: [UInt8; 8] = [0; 2 * 3 + 2]
+static T_DIV: [UInt8; 8] = [0; 16 / 2]
+static T_REM: [UInt8; 8] = [0; 17 % 9]
+static T_SHL: [UInt8; 8] = [0; 1 << 3]
+static T_SHR: [UInt8; 8] = [0; 64 >> 3]
+static T_AND: [UInt8; 8] = [0; 0xF & 0x8]
+static T_OR: [UInt8; 8] = [0; 8 | 0]
+static T_XOR: [UInt8; 8] = [0; 12 ^ 4]
+static T_NOT: [UInt8; 8] = [0; ~(-9)]
+static T_NEGATE: [UInt8; 8] = [0; -(-8)]
+static T_PAREN: [UInt8; 8] = [0; (8)]
+static T_STATIC: [UInt8; 8] = [0; S8]
+static T_STATIC_TIMES: [UInt8; 16] = [0; S8 * 2]
+static T_STATIC_SHIFT: [UInt8; 8] = [0; 1 << SHIFT]
+static T_STATIC_DIV: [UInt8; 8] = [0; BYTES / S8]
+static T_UINT_STATIC: [UInt8; 8] = [0; SU8]
+static T_UINT_STATIC_DIV: [UInt8; 4] = [0; SU8 / 2]
+static T_CASE: [UInt8; 8] = [0; E.A]
+static T_CASE_SUM: [UInt8; 12] = [0; E.A + E.B]
+static T_CASE_OR: [UInt8; 3] = [0; P.R | P.W]
+static T_CASE_CAST: [UInt8; 8] = [0; E.A as Int]
+static T_CAST: [UInt8; 8] = [0; 8 as Int]
+static T_ALIAS: [UInt8; 8] = [0; Count(8)]
+static T_LIMIT: [UInt8; 7] = [0; Int8.max >> 4]
+static T_SIZEOF: [UInt8; 8] = [0; sizeof<UInt64>()]
+static T_ALIGNOF: [UInt8; 4] = [0; alignof<UInt32>()]
+static T_SIZEOF_DIV: [UInt8; 8] = [0; BYTES / sizeof<UInt>()]
+
+func main() {
+    let b_literal: [UInt8; 8] = [0; 8]
+    let b_hex: [UInt8; 8] = [0; 0x8]
+    let b_plus_times: [UInt8; 8] = [0; 2 * 3 + 2]
+    let b_div: [UInt8; 8] = [0; 16 / 2]
+    let b_rem: [UInt8; 8] = [0; 17 % 9]
+    let b_shl: [UInt8; 8] = [0; 1 << 3]
+    let b_shr: [UInt8; 8] = [0; 64 >> 3]
+    let b_and: [UInt8; 8] = [0; 0xF & 0x8]
+    let b_or: [UInt8; 8] = [0; 8 | 0]
+    let b_xor: [UInt8; 8] = [0; 12 ^ 4]
+    let b_not: [UInt8; 8] = [0; ~(-9)]
+    let b_negate: [UInt8; 8] = [0; -(-8)]
+    let b_paren: [UInt8; 8] = [0; (8)]
+    let b_static: [UInt8; 8] = [0; S8]
+    let b_static_times: [UInt8; 16] = [0; S8 * 2]
+    let b_static_shift: [UInt8; 8] = [0; 1 << SHIFT]
+    let b_static_div: [UInt8; 8] = [0; BYTES / S8]
+    let b_uint_static: [UInt8; 8] = [0; SU8]
+    let b_uint_static_div: [UInt8; 4] = [0; SU8 / 2]
+    let b_case: [UInt8; 8] = [0; E.A]
+    let b_case_sum: [UInt8; 12] = [0; E.A + E.B]
+    let b_case_or: [UInt8; 3] = [0; P.R | P.W]
+    let b_case_cast: [UInt8; 8] = [0; E.A as Int]
+    let b_cast: [UInt8; 8] = [0; 8 as Int]
+    let b_alias: [UInt8; 8] = [0; Count(8)]
+    let b_limit: [UInt8; 7] = [0; Int8.max >> 4]
+    let b_sizeof: [UInt8; 8] = [0; sizeof<UInt64>()]
+    let b_alignof: [UInt8; 4] = [0; alignof<UInt32>()]
+    let b_sizeof_div: [UInt8; 8] = [0; BYTES / sizeof<UInt>()]
+    let b_static_below: [UInt8; 5] = [0; LATE + 1]
+}

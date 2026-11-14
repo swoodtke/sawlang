@@ -32,18 +32,18 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets_from}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.arith.{TcFault, tc_arith_fits, tc_arith_max, tc_arith_min, tc_arith_text, tc_float_bits}
+import sawtypecheck.arith.{TcFault, tc_arith_convert, tc_arith_fits, tc_arith_max, tc_arith_min, tc_arith_text, tc_float_bits}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE, TC_FLAG_BLOCKING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcConstUse, TcHeadKind, TcLend, TcMember, TcParam,
+                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
                                TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcUse}
 import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.signatures.{TcArgSlot, TcContext}
+import sawtypecheck.signatures.{TcArgSlot, TcContext, tc_const_use_phrase}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.strings.{TcStringPosition}
 // For the extension writing `satisfies`.
@@ -1748,8 +1748,7 @@ extension TcProgram {
             // `Optional` or a `Result` it is a value of its enum, which the
             // ordinary path wraps where a layer takes the enum and refuses
             // otherwise (SL-1090).
-            let _ = self.expr(e, TC_WANT_NONE)
-            self.add_adjust(e, TcAdjustKind.Adopt, slot)
+            self.adopt_lone_case(e, slot)
         }
         if not self.is_typed(e) {
             if not known {
@@ -1813,6 +1812,20 @@ extension TcProgram {
         }
         self.check_slot_constant(e)
         slot
+    }
+
+    // A lone raw-backed case `e` adopting integer slot `slot`: typed at its
+    // own enum type when it is not yet, then converted to the integer, which
+    // MIR lowers to the case's backing value.
+    //
+    // ENTRY POINTS (adopt_lone_case):
+    //     expect
+    //     repeat_length
+    func adopt_lone_case(&var self, e: Int, slot: Int) {
+        if not self.is_typed(e) {
+            let _ = self.expr(e, TC_WANT_NONE)
+        }
+        self.add_adjust(e, TcAdjustKind.Adopt, slot)
     }
 
     // A function value `e`, of function type `t`, where a `FuncPointer` is
@@ -1995,29 +2008,37 @@ extension TcProgram {
     // leaf, and at an `@align` on a local the binding's leaf, which the
     // refusal names.
     //
+    // It answers the fold of `e`, which is not `ok` when `e` is refused,
+    // deferred or constant but unfolded; a caller that needs the value
+    // (`repeat_expr`) reads `refused_within(e)` to tell the first from the
+    // rest. A repeat count is never deferred, since its value fixes the
+    // array's type where it is written.
+    //
     // ENTRY POINTS (check_constant_position):
     //     check_static_body
     //     check_raw_value
     //     check_align_attribute
     //     check_align_local
     //     check_static_assert
-    func check_constant_position(&var self, e: Int, pos: TcConstPosition, d: Int, message: Int) {
+    //     repeat_expr
+    func check_constant_position(&var self, e: Int, pos: TcConstPosition, d: Int, message: Int) -> TcFold {
+        let none = TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         if e < 0 || self.refused_within(e) {
-            return
+            return none
         }
         let t = self.final_type(e)
         if t < 0 || self.has_error(t) {
-            return
+            return none
         }
         // An optional static is `static.optional`'s refusal, whatever it holds.
         let declared = if d >= 0 { self.sigs[d].result } else { -1 }
         if pos == TcConstPosition.Static && declared >= 0 && self.is_optional(declared) {
-            return
+            return none
         }
         let offender = self.constant_offender(e, pos, d)
         if offender >= 0 {
             self.refuse_not_constant(offender, pos)
-            return
+            return none
         }
         if pos == TcConstPosition.Assert {
             let measures = self.layout_measures(e)
@@ -2029,17 +2050,17 @@ extension TcProgram {
                     let _ = self.check_constant_faults(e)
                 }
                 self.defer_assert(e, message, &measures, named.len() > 0)
-                return
+                return none
             }
         }
         if pos == TcConstPosition.Static && d >= 0 && self.refuse_static_cycle(d, e) {
-            return
+            return none
         }
-        if pos != TcConstPosition.Static {
+        if pos != TcConstPosition.Static && pos != TcConstPosition.Repeat {
             let early = self.fold_constant(e)
             if self.awaits_typing(&early) {
                 self.defer_constant(TcPendingConstant.Position(e: e, pos: pos, d: d, message: message))
-                return
+                return none
             }
         }
         let v = self.check_constant_faults(e)
@@ -2058,6 +2079,7 @@ extension TcProgram {
             }
             self.refuse(e, "static_assert.failed", msg.build())
         }
+        v
     }
 
     // Every `sizeof` and `alignof` call in constant expression `e`: what a
@@ -2460,15 +2482,7 @@ extension TcProgram {
         try! msg.append("`")
         try! msg.append(self.text(m, e))
         try! msg.append("` is not a constant, and ")
-        if pos == TcConstPosition.Static {
-            try! msg.append("a static's initializer")
-        } else if pos == TcConstPosition.RawValue {
-            try! msg.append("a raw case's value")
-        } else if pos == TcConstPosition.Align {
-            try! msg.append("an `@align` argument")
-        } else {
-            try! msg.append("a `static_assert` condition")
-        }
+        try! msg.append(tc_const_use_phrase(pos))
         try! msg.append(" is a constant expression: ")
         try! msg.append(self.not_constant_reason(e, pos))
         if pos == TcConstPosition.Static && self.measured_type(e) < 0 {
@@ -6311,14 +6325,59 @@ extension TcProgram {
                 self.consume(value)
             }
         }
-        // The count is an `Int` expression of the body, and a constant the
+        // The count is an integer expression of the body, and a constant the
         // array's type folds.
-        let i = self.int_type()
-        let _ = self.expr(count, i)
+        let _ = self.expr(count, TC_WANT_NONE)
         self.consume(count)
-        let length = self.build_length(count, TcConstUse.Repeat)
+        let length = self.repeat_length(count)
         let t = self.mk_array(element, length)
         self.set_type(e, t, false)
+    }
+
+    // The length repeat count `count`, typed, stands for: the value the
+    // constant-position funnel folds, at the count's own integer type and
+    // then converted to `Int` (a negative one is `constant.negative-length`,
+    // one past `Int` `type.mismatch`), or the error type once refused. A
+    // count naming a const parameter, and one the fold leaves unfolded
+    // without a refusal (a raw case whose enum is declared below the count),
+    // stay with the small folder, which refuses what it cannot fold.
+    func repeat_length(&var self, count: Int) -> Int {
+        if self.const_parameters_named(count).len() > 0 {
+            return self.build_length(count, TcConstPosition.Repeat)
+        }
+        let v = self.check_constant_position(count, TcConstPosition.Repeat, self.current_decl, -1)
+        if self.refused_within(count) {
+            return self.error_type
+        }
+        if not v.ok {
+            return self.build_length(count, TcConstPosition.Repeat)
+        }
+        if not self.is_integer(v.ty) {
+            var msg = StringBuilder()
+            try! msg.append("a repeat count is an integer, and `")
+            try! msg.append(self.text(self.node_module(count), count))
+            try! msg.append("` is a `")
+            try! msg.append(self.type_text(v.ty))
+            try! msg.append("`")
+            self.refuse(count, "type.mismatch", msg.build())
+            return self.error_type
+        }
+        let word = self.int_type()
+        let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(word), true)
+        if not r.ok {
+            var msg = StringBuilder()
+            try! msg.append("a repeat count is ")
+            try! msg.append(tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty)))
+            try! msg.append(", which does not fit `Int`")
+            self.refuse(count, "type.mismatch", msg.build())
+            return self.error_type
+        }
+        if self.raw_case_named(count) >= 0 {
+            // A count that is a lone raw-backed case is its backing value in
+            // an integer position, which the evaluator reads as an integer.
+            self.adopt_lone_case(count, word)
+        }
+        self.folded_length(count, TcConstPosition.Repeat, r.bits)
     }
 
     // Whether repeat literal `e`'s element type `t`, read from `value`, is

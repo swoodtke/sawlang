@@ -580,21 +580,20 @@ public struct TcItem {
     unit: Int
 }
 
-// The positions the constant-position funnel serves, which its refusals name.
+// The positions a constant serves, which its refusals name: a static's
+// initializer, a raw case's value, an `@align` argument, a `static_assert`
+// condition, and the three a type fixes at compile time, an array length, a
+// repeat count, and a constant generic argument or a const parameter's
+// default. The constant-position funnel judges every one of them but Length
+// and Argument, which the small folder of `signatures.saw` still serves.
 public enum TcConstPosition: UInt8 {
     case Static = 0,
     case RawValue = 1,
     case Align = 2,
-    case Assert = 3
-}
-
-// The positions a type fixes at compile time, which a constant there serves
-// and its refusals name: an array length, a repeat count, and a constant
-// generic argument or a const parameter's default.
-public enum TcConstUse {
-    case Length,
-    case Repeat,
-    case Argument
+    case Assert = 3,
+    case Length = 4,
+    case Repeat = 5,
+    case Argument = 6
 }
 
 // How far a static's initializer, or a raw-backed case's value, is typed: not

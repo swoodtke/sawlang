@@ -619,10 +619,10 @@ conformance/k74_refused_unbounded.saw	pass	-	spawn.send: cannot `Thread.spawn`: 
 conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw	pass	-	effect.sync: `nap` is declared `sync`, and it calls `__saw_rt_blocking_sleep`, which may suspend
 conformance_in_the_traits_module_is_program_wide.saw	pass	-	-
 const_bitwise_fold.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
-const_bitwise_negative_length_error.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
-const_bitwise_shift_range_error.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
+const_bitwise_negative_length_error.saw	pass	-	constant.negative-length: repeat count is negative (`-9223372036854775808`); a length counts elements, so it starts at 0
+const_bitwise_shift_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
 const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
-const_bitwise_width_riscv32.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
+const_bitwise_width_riscv32.saw	refused	typecheck type.mismatch	integer literal 0x80000000 does not fit in `Int` (range -2147483648..=2147483647)
 const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
 const_expression_adopts_an_operand_width.saw	pass	-	-
 const_generic_arg_notations.saw	pass	-	-
@@ -2242,7 +2242,7 @@ repeat_literal_basic.saw	pass	-	-
 repeat_literal_implicit_copy.saw	pass	-	-
 repeat_literal_negative_error.saw	pass	-	constant.negative-length: repeat count is negative (`-2`); a length counts elements, so it starts at 0
 repeat_literal_nocopy_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `repeat_literal_nocopy_error.Handle` is NoCopy: write the elements out, or build the array from a Copy value
-repeat_literal_nonconst_error.saw	pass	-	static.not-constant: repeat count is not a compile-time constant: `n` names a binding whose value is known only at run time
+repeat_literal_nonconst_error.saw	pass	-	static.not-constant: `n` is not a constant, and a repeat count is a constant expression: it names a binding whose value is known only at run time
 repeat_literal_static.saw	pass	-	-
 repeat_literal_vector_error.saw	pass	-	type.mismatch: expected `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, the type of the annotated binding, and found `[Int; 8]`
 resolve_seam_offloads.saw	refused	typecheck type.cast	`as` cannot convert `String` to `UnsafePointer<Int8>`: it converts between numbers, from a raw-backed enum, and between pointers

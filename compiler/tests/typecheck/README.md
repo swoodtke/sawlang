@@ -760,6 +760,7 @@ defence in depth (`compiler/tests/eval/README.md`).
 | a raw case's value | `check_raw_value` | names no static and no other enum's case (spec, Raw backings) | constant_positions; static.not-constant.raw-static, .raw-case |
 | an `@align` argument on a static | `check_align_attribute` | none, so no const parameter; its value a power of two from 1 to 4096 | constant_positions; constant.align.above-cap |
 | an `@align` argument on a local | `check_align_local` | none, so no const parameter; its value a power of two from 1 to 4096; never on `let _` | constant_positions; static.not-constant.align, .align-const-parameter; constant.align, .zero, .negative; attribute.align-no-storage |
+| a repeat count | `repeat_expr` | none beyond the shared one; a const parameter or a measurement is left to `build_const` | constant_repeat_counts; constant.shift-range.repeat, constant.overflow.repeat, constant.overflow.repeat-word-riscv32, constant.divide-by-zero.repeat, constant.negative-length.repeat, .repeat-shift; type.mismatch.repeat-bool; static.not-constant.repeat-struct-layout, .repeat-count-range; slice.not-yet.repeat-case-declared-later |
 | a `static_assert` condition, at the top and in every body kind | `check_static_assert` | a const parameter in scope | constant_positions, constant_faults; static_assert.failed, .function, .method, .init, .closure, .default-body, .test-case, .declared-later, .declared-later-module; static.not-constant.assert-local; constant.overflow.assert, constant.shift-range |
 
 The shared grammar is the fold's: integer and `Bool` literals, `#line`, module
@@ -778,9 +779,11 @@ reads a target-fixed type's size and alignment from THE SCALAR LAYOUT FUNNEL
 `compiler/target/tests/scalar_layout.saw` holds equal to the target
 description's layout on every triple; golden `static_constants` names such a
 static as a length and a repeat count. The
-array-length, repeat-count and const-argument positions are folded by
-`build_const` (SL-457) and do not reach the funnel; it refuses every `sizeof`
-there, of any type, as `slice.not-yet`.
+repeat-count position is judged by the funnel (`repeat_expr`; its count keeps
+its own integer type and converts to `Int`; golden `constant_repeat_counts`;
+a measurement of any other type is `static.not-constant`). The array-length and
+const-argument positions are folded by `build_const` (SL-457) and do not reach
+the funnel; it refuses every `sizeof` there, of any type, as `slice.not-yet`.
 
 ### The certain-fault funnel
 
@@ -855,9 +858,12 @@ holds its judgment only when the fold stops at a node no body has typed yet
 the order of refusals is unchanged. A held judgment whose expression holds a
 refusal already is not made again. A static's initializer holds nothing: it
 may name only the statics above it (spec, Compile-Time Evaluation), which is
-the declaration-order rule's to refuse. The array-length, repeat-count and
-const-argument positions fold in `build_const`, which takes no static at all
-(`slice.not-yet`), so nothing there waits on a body.
+the declaration-order rule's to refuse. A repeat count never waits: its value
+fixes the array's type where it is written, so it folds at once and a raw case
+declared below its body is `slice.not-yet`. The array-length and
+const-argument positions fold in `build_const`, which takes a static only
+through `static_constant`, its value evaluated before signatures, so nothing
+there waits on a body.
 
 | judgment | entry point | refused, through a later static or case | covered by |
 |---|---|---|---|
@@ -946,7 +952,7 @@ Every body construct in the slice, and how it is typed:
 | an optional chain read, `a?.b`, and a call through `?.` in an optional assignment's target | `slice.not-yet` (`syntax.expr.optional-member`) |
 | a `try` block whose `try`s propagate more than one error type, which its `error` holds as their union | `slice.not-yet` (error-union) |
 | a `try(as ...)` route | `slice.not-yet` (the alternative) |
-| an open range, `a..` or `..b` | `slice.not-yet` (the alternative); as a repeat count, refused once (repeat-count-range) |
+| an open range, `a..` or `..b` | `slice.not-yet` (the alternative); as a repeat count, `static.not-constant`, refused once (static.not-constant.repeat-count-range) |
 | `for borrow`, `while borrow`, `move *p` | `slice.not-yet` (the alternative) |
 | a `$0` shorthand parameter | resolve's `slice.not-yet`, refused once (shorthand-parameter) |
 | `break` with a value | `slice.not-yet` (`syntax.stmt.break`) |

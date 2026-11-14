@@ -1,0 +1,8 @@
+// refuses: constant.negative-length at 6:18
+// a repeat count `1 << 63`, which is `Int.min` at a 64-bit `Int` (SL-457)
+// message: repeat count is negative
+
+func main() {
+    let xs = [0; 1 << 63]
+    print("{}", xs.len())
+}
