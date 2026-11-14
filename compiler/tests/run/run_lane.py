@@ -1045,6 +1045,74 @@ def check_default_std_root(failures, counts):
     counts["run default std cases"] = 4
 
 
+def check_default_output(failures, counts):
+    """With no `-o`, sawc makes the `.build/` directory it chose and writes
+    `.build/NAME` (`.build/NAME.o` for `-c`) there; a `.build` it cannot
+    make is refused naming where the default output goes, and a regular file
+    of that name fails at the first path under it (SL-1052)."""
+    work = os.path.join(OUT, "default-output")
+    shutil.rmtree(work, ignore_errors=True)
+    fresh = os.path.join(work, "fresh")
+    os.makedirs(fresh)
+    shutil.copy2(os.path.join(HERE, "hello.saw"), os.path.join(fresh, "hello.saw"))
+    r = subprocess.run([build.SAWC, "build"] + target_flags() + ["hello.saw"], cwd=fresh,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    exe = os.path.join(fresh, ".build", "hello")
+    if r.returncode != 0 or not os.path.isfile(exe):
+        failures.append("run default output: a build with no -o in a directory with no .build/ exits %d, "
+                        "leaving %s: %s" % (r.returncode, "its output" if os.path.isfile(exe) else "no .build/hello",
+                                            (r.stdout + r.stderr).strip()[:300]))
+    else:
+        code, out, _ = execute(exe)
+        if code != 0 or out != b"hello, world\n":
+            failures.append("run default output: .build/hello prints %r, exit %s" % (out[:200], code))
+    obj = os.path.join(fresh, ".build", "hello.o")
+    shutil.rmtree(os.path.join(fresh, ".build"), ignore_errors=True)
+    r = subprocess.run([build.SAWC, "build", "-c"] + target_flags() + ["hello.saw"], cwd=fresh,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0 or not os.path.isfile(obj):
+        failures.append("run default output: `-c` with no -o and no .build/ exits %d, leaving no .build/hello.o: %s"
+                        % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    blocked = os.path.join(work, "blocked")
+    os.makedirs(blocked)
+    shutil.copy2(os.path.join(HERE, "hello.saw"), os.path.join(blocked, "hello.saw"))
+    with open(os.path.join(blocked, ".build"), "w") as fh:
+        fh.write("a file\n")
+    # An existing file reads as an existing directory to the driver (std cannot
+    # tell them apart), so the build fails at the first file it writes there.
+    r = subprocess.run([build.SAWC, "build"] + target_flags() + ["hello.saw"], cwd=blocked,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 1 or ".build/hello" not in r.stdout + r.stderr or os.path.exists(
+            os.path.join(blocked, ".build", "hello")):
+        failures.append("run default output: a regular file named .build exits %d printing %r, not 1 naming a "
+                        "path under .build" % (r.returncode, (r.stdout + r.stderr)[:300]))
+    # A symbolic link to nothing is no directory and cannot be made one, so the
+    # refusal names where the default output goes.
+    dangling = os.path.join(work, "dangling")
+    os.makedirs(dangling)
+    shutil.copy2(os.path.join(HERE, "hello.saw"), os.path.join(dangling, "hello.saw"))
+    os.symlink("nowhere", os.path.join(dangling, ".build"))
+    r = subprocess.run([build.SAWC, "build"] + target_flags() + ["hello.saw"], cwd=dangling,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    want = "sawc build: cannot create .build: "
+    if r.returncode != 1 or not r.stdout.startswith(want) or ", where the default output goes" not in r.stdout:
+        failures.append("run default output: a .build that cannot be made exits %d printing %r, not 1 and %r..."
+                        % (r.returncode, (r.stdout + r.stderr)[:300], want))
+    # The directory is made when the build first writes under it, so a refused
+    # program leaves none.
+    refused = os.path.join(work, "refused")
+    os.makedirs(refused)
+    with open(os.path.join(refused, "bad.saw"), "w") as fh:
+        fh.write('func main() {\n    let n: Int = "text"\n    print("{}", n)\n}\n')
+    r = subprocess.run([build.SAWC, "build"] + target_flags() + ["bad.saw"], cwd=refused,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 1 or os.path.lexists(os.path.join(refused, ".build")):
+        failures.append("run default output: a program the compiler refuses exits %d and leaves %s: %s"
+                        % (r.returncode, ".build" if os.path.lexists(os.path.join(refused, ".build")) else "no .build",
+                           (r.stdout + r.stderr).strip()[:300]))
+    counts["run default output cases"] = 5
+
+
 TIME_STAGES_SOURCE = """func main() {
     print("timed")
 }
@@ -4397,6 +4465,7 @@ def run(names=None, write=False):
         builtin_lowering.check(failures, counts)
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
+        check_default_output(failures, counts)
         check_time_stages(failures, counts)
         check_codegen_units(failures, counts)
         check_unit_stability(failures, counts)

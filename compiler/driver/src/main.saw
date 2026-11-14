@@ -381,7 +381,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             return 1
         }
     }
-    if out.len() == 0 {
+    let defaulted = out.len() == 0
+    if defaulted {
         out = driver_default_output(path)
     }
     if object && not out.ends_with(".o") {
@@ -399,6 +400,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var ir = StringBuilder()
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
     if written_features.len() > 0 {
+        if not driver_make_default_directory(defaulted) {
+            return 1
+        }
         let named = driver_check_feature_names(compiler, clang_triple, triple, features, out)
         if named != 0 {
             return named
@@ -431,6 +435,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             print("sawc build: a split -c object for {} needs llvm-objcopy to make its codegen units' hidden symbols local, and the target's record names none: compiler/tools/build.py records the one `clang -print-prog-name=llvm-objcopy` names, else llvm-objcopy or llvm-objcopy-NN on PATH, else Homebrew LLVM's; install LLVM's binary tools (Homebrew's `llvm`, Debian's `llvm-NN`) and run it again, or build with --codegen-units=1", triple)
             return 1
         }
+        if not driver_make_default_directory(defaulted) {
+            return 1
+        }
         let text = ir.build()
         if provider {
             let none = Vector<String>()
@@ -444,6 +451,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if built != 0 {
         driver_print_refusal(path, &var record)
         return built
+    }
+    if not driver_make_default_directory(defaulted) {
+        return 1
     }
     var ll = StringBuilder()
     try! ll.append(out)
@@ -566,6 +576,24 @@ func driver_print_refusal(path: String, found: &var StringBuilder) {
     try! record.append("\n")
     try! record.append(found.build())
     print(record.build())
+}
+
+// Makes `.build` when `defaulted` says the output path is sawc's own choice
+// (no -o), at the build's first write under it, so a refused program leaves
+// no directory; a path named with -o is the user's to have made. Prints why
+// and returns false when it cannot (SL-1052).
+// ENTRY POINTS: the feature probe's write, the split build's first write, the
+// whole-program .ll write.
+func driver_make_default_directory(defaulted: Bool) unsafe -> Bool {
+    if not defaulted {
+        return true
+    }
+    let problem = driver_make_directories(".build")
+    if problem.len() > 0 {
+        print("sawc build: {problem}, where the default output goes; name another place with -o")
+        return false
+    }
+    true
 }
 
 // `.build/NAME` for the entry file `path`, NAME its file name without `.saw`.

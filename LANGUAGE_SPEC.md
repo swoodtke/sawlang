@@ -17541,8 +17541,8 @@ sawc --version
 - `--version` prints the release: a plain semver, and the only thing a
   consumer that pinned a toolchain can check an installed compiler against, so
   a change to user-visible behaviour bumps it.
-- `-o` names the executable (default: `.build/<source>`) (`sawc` doesn't create
-  the directory yet, SL-1052); `--emit-ll` writes the program's LLVM IR
+- `-o` names the executable (default: `.build/<source>`;
+  `sawc` makes `.build` when it is missing); `--emit-ll` writes the program's LLVM IR
   instead and links nothing.
 - `-c` compiles to an object and links nothing. `.o` is appended to an `-o`
   name that lacks it, and the object keeps an executable's linkage (see [Link
