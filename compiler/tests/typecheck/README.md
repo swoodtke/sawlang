@@ -537,7 +537,6 @@ that covers it.
 
 | outside the slice | refused as |
 |---|---|
-| a static whose value measures a layout, named where a type fixes a constant | `slice.not-yet` |
 | arithmetic over a const parameter, which folds only per instantiation | `slice.not-yet` |
 | a constant argument written with `/`, `%`, a shift, a bit operator, a call or a member | `slice.not-yet` (the alternative) |
 | a generic type alias | `slice.not-yet` (`syntax.decl.type-alias`) |
@@ -750,7 +749,7 @@ folds to no alignment (`constant.align`). A fault met inside a static
 the expression names is that static's refusal. An expression with a refusal
 inside it already is not judged again, and neither is an optional static's,
 which `static.optional` refuses. What the grammar admits and the fold does not
-compute (an aggregate, a float, `sizeof`, a const parameter) is constant and
+compute (an aggregate, a float, a layout a `static_assert` measures, a const parameter) is constant and
 unfolded: no fault and no verdict. The evaluator computes the same answers from
 MIR and is held to the fold by its agreement check, so its own refusals are
 defence in depth (`compiler/tests/eval/README.md`).
@@ -773,7 +772,12 @@ lays out, an integer, `Bool`, `Float`, `String` or a raw pointer, an alias
 measuring as the type it stands for (spec, "Layout in a constant"; a struct,
 an enum, a tuple, an array or an optional is `static.not-constant`, naming the
 type: `.layout-static`, `.layout-align`, `.layout-align-local`,
-`.layout-raw`; golden `layout_constants` holds the accepted rows). The
+`.layout-raw`; golden `layout_constants` holds the accepted rows). The fold
+reads a target-fixed type's size and alignment from THE SCALAR LAYOUT FUNNEL
+(`scalar_layout` in typeops.saw), which the evaluator reads too and
+`compiler/target/tests/scalar_layout.saw` holds equal to the target
+description's layout on every triple; golden `static_constants` names such a
+static as a length and a repeat count. The
 array-length, repeat-count and const-argument positions are folded by
 `build_const` (SL-457) and do not reach the funnel; it refuses every `sizeof`
 there, of any type, as `slice.not-yet`.

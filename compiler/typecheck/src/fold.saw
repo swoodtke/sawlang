@@ -206,6 +206,14 @@ extension TcProgram {
             }
             m = m + 1
         }
+        let measured = self.measured_type(e)
+        if measured >= 0 {
+            let l = self.scalar_layout(measured)
+            if not l.known {
+                return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
+            }
+            return TcFold(bits: if self.measures_size(e) { l.size } else { l.align }, ty: self.int_type())
+        }
         let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
         if at < 0 {
             return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)

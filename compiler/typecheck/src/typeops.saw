@@ -2,10 +2,11 @@
 // what it holds, and the builtin types a literal, a condition or a range has
 // with no name occurrence to read.
 
+import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
-import sawtypecheck.model.{TC_TIER_COPY, TcTier}
+import sawtypecheck.model.{TC_TIER_COPY, TcRole, TcTier}
 import sawtypecheck.program.{TcKnown, TcProgram}
 import sawtypecheck.signatures.{TcContext}
 // For the extension writing `tier_of_decl`.
@@ -24,6 +25,13 @@ public enum TcClient {
     case Member,
     // A zero-argument or memberwise construction of one declaration.
     case Construct
+}
+
+// A scalar type's size and alignment in bytes, when `known`.
+public struct TcScalarLayout {
+    known: Bool
+    size: Int
+    align: Int
 }
 
 extension TcProgram {
@@ -172,6 +180,97 @@ extension TcProgram {
     public func is_string(&self, t: Int) -> Bool {
         let d = self.known.string
         self.is_nominal_of(t, d)
+    }
+
+    // The type `sizeof<T>()` or `alignof<T>()` call `e` measures, or -1 when
+    // `e` is no such call.
+    public func measured_type(&self, e: Int) -> Int {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return -1
+        }
+        let c = self.calls[at]
+        let spelling = if c.spelling >= 0 { self.name_text(c.spelling) } else { "" }
+        if c.role != TcRole.Builtin || not (spelling.equals("sizeof") || spelling.equals("alignof")) {
+            return -1
+        }
+        let callee = self.res.first_node_child(e)
+        let n = self.child_count(callee)
+        var k = 0
+        while k < n {
+            let arg = self.child(callee, k)
+            k = k + 1
+            if not self.is_leaf(arg) && self.type_builds[arg] > 0 {
+                return self.node_types[arg]
+            }
+        }
+        return -1
+    }
+
+    // Whether layout measurement `e` is a `sizeof`, not an `alignof`.
+    public func measures_size(&self, e: Int) -> Bool {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return false
+        }
+        let c = self.calls[at]
+        c.spelling >= 0 && self.name_text(c.spelling).equals("sizeof")
+    }
+
+    // Whether the target alone fixes type `t`'s layout: the integers, `Bool`,
+    // `Float`, `String` and the raw pointers. Code generation lays out every
+    // other type, after the positions that would measure it are resolved.
+    public func target_fixes_layout(&self, t: Int) -> Bool {
+        if self.is_integer(t) || self.is_bool(t) || self.is_float(t) || self.is_string(t) {
+            return true
+        }
+        let d = self.nominal_decl(t)
+        d >= 0 && (d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer)
+    }
+
+    // THE SCALAR LAYOUT FUNNEL: the size and alignment of a type the target
+    // alone lays out (`target_fixes_layout`), read from the target record,
+    // and `known` false for any other type. A raw pointer to an existential
+    // is a pair of words; one whose pointee is a type parameter, `Self` or a
+    // projection has no answer until an instance names it. The target description lays out the same
+    // types itself, and a test holds the two equal on every triple.
+    // ENTRY POINTS:
+    //     fold_alias_construct
+    //     EvalProgram.next_block
+    public func scalar_layout(&self, t: Int) -> TcScalarLayout {
+        if t < 0 || not self.target_fixes_layout(t) {
+            return TcScalarLayout(known: false, size: 0, align: 0)
+        }
+        let word = self.target.word_bits / 8
+        let k = self.known
+        let d = self.nominal_decl(t)
+        if d == k.int8 || d == k.uint8 || d == k.bool_type {
+            return TcScalarLayout(known: true, size: 1, align: 1)
+        }
+        if d == k.int16 || d == k.uint16 {
+            return TcScalarLayout(known: true, size: 2, align: 2)
+        }
+        if d == k.int32 || d == k.uint32 {
+            return TcScalarLayout(known: true, size: 4, align: 4)
+        }
+        if d == k.int64 || d == k.uint64 || d == k.float {
+            return TcScalarLayout(known: true, size: 8, align: 8)
+        }
+        if d == k.unsafe_pointer || d == k.unsafe_const_pointer {
+            let info = self.types.ty(t)
+            if info.count > 0 {
+                let pointee = self.types.arg(t, 0)
+                let kind = self.kind_of(pointee)
+                if kind == TcKind.Param || kind == TcKind.SelfType || kind == TcKind.Projection {
+                    return TcScalarLayout(known: false, size: 0, align: 0)
+                }
+                if kind == TcKind.Any {
+                    return TcScalarLayout(known: true, size: 2 * word, align: word)
+                }
+            }
+        }
+        // `Int`, `UInt`, `String` and a thin pointer are one word.
+        TcScalarLayout(known: true, size: word, align: word)
     }
 
     public func is_void(&self, t: Int) -> Bool {

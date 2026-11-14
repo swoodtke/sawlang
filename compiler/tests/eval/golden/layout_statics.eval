@@ -1,0 +1,17 @@
+module layout_statics
+static layout_statics.BYTES: Int = 64
+static layout_statics.U64_SIZE: Int = 8
+static layout_statics.U32_ALIGN: Int = 4
+static layout_statics.WORDS: Int = 8
+static layout_statics.STRING_SIZE: Int = 8
+static layout_statics.POINTER_SIZE: Int = 8
+static layout_statics.ERASED_SIZE: Int = 16
+static layout_statics.ERASED_ALIGN: Int = 8
+static layout_statics.FLOAT_SIZE: Int = 8
+static layout_statics.BOOL_SIZE: Int = 1
+raw layout_statics.Sized.Word: Int = 8
+raw layout_statics.Sized.Wide: Int = 100
+static_assert layout_statics 22:15: Bool = true
+static_assert layout_statics 23:15: Bool = true
+static_assert layout_statics 24:15: Bool (checked against the layout)
+static_assert layout_statics 25:15: Bool (checked against the layout)

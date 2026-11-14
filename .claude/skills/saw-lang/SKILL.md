@@ -2482,7 +2482,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   initializer folds qualifies; a mutable, non-integer or uninitialized one is
   `static.not-constant` naming it, and a local of the same name wins and is
   refused as the run-time value it is. One whose initializer uses
-  `sizeof`/`alignof` is not folded there yet (SL-457); defaults compose with design 37
+  `sizeof`/`alignof` of an integer, `Bool`, `Float`, `String` or raw pointer folds
+  there (a struct's layout does not, SL-457); defaults compose with design 37
   (`<const N: Int = 4>`, so `Ring()` means `Ring<4>`); structs, enums and free
   functions all take them. Explicit at the use site except for ONE inference
   case — a `[T; N]` PARAMETER binds N from the argument's length:

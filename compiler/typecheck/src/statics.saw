@@ -327,17 +327,6 @@ extension TcProgram {
             return
         }
         let v = self.fold_constant(value)
-        if not v.ok && self.diags.len() == before && self.layout_measures(value).len() > 0 {
-            // The layout a measurement reads is folded by code generation's
-            // evaluator, which a type's constant does not reach yet (SL-457).
-            var why = StringBuilder()
-            try! why.append("the static `")
-            try! why.append(name)
-            try! why.append("` measures a layout with `sizeof` or `alignof`, which a type's constant does not fold yet")
-            self.static_reasons[d] = why.build()
-            self.static_verdicts[d] = TcStaticVerdict.NotYet
-            return
-        }
         if not v.ok || self.diags.len() > before {
             self.static_refused(d, "the static `", &name, "`'s initializer does not fold")
             return

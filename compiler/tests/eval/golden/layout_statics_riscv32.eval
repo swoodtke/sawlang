@@ -1,0 +1,17 @@
+module layout_statics_riscv32
+static layout_statics_riscv32.BYTES: Int = 64
+static layout_statics_riscv32.U64_SIZE: Int = 8
+static layout_statics_riscv32.U32_ALIGN: Int = 4
+static layout_statics_riscv32.WORDS: Int = 16
+static layout_statics_riscv32.STRING_SIZE: Int = 4
+static layout_statics_riscv32.POINTER_SIZE: Int = 4
+static layout_statics_riscv32.ERASED_SIZE: Int = 8
+static layout_statics_riscv32.ERASED_ALIGN: Int = 4
+static layout_statics_riscv32.FLOAT_SIZE: Int = 8
+static layout_statics_riscv32.BOOL_SIZE: Int = 1
+raw layout_statics_riscv32.Sized.Word: Int = 4
+raw layout_statics_riscv32.Sized.Wide: Int = 100
+static_assert layout_statics_riscv32 23:15: Bool = true
+static_assert layout_statics_riscv32 24:15: Bool = true
+static_assert layout_statics_riscv32 25:15: Bool (checked against the layout)
+static_assert layout_statics_riscv32 26:15: Bool (checked against the layout)

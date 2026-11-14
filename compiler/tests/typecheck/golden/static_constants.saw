@@ -57,3 +57,17 @@ func main() {
 }
 
 static LATER: Int = 2
+
+// A static holding a layout the target alone fixes folds to it, so it is a
+// length and a repeat count like any other (SL-457).
+static WORD: Int = sizeof<UInt64>()
+static HALF_WORD: Int = WORD / sizeof<UInt32>()
+
+struct Packet {
+    bytes: [UInt8; WORD]
+    halves: [UInt8; HALF_WORD]
+}
+
+func packet() -> Packet {
+    Packet(bytes: [0; WORD], halves: [1; HALF_WORD])
+}

@@ -28,6 +28,7 @@ import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.program.{TcTarget}
 import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.typeops.{TcClient}
 
 // How `sawc mono` treats one entry file.
 public struct MonoOptions {

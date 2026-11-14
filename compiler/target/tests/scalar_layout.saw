@@ -1,0 +1,104 @@
+// The scalar layout function (`TcProgram.scalar_layout`, which typecheck's
+// fold and the evaluator read for a `sizeof` or `alignof` of a type the
+// target alone lays out) answers what the target description's layout funnel
+// answers: for every such type, on every triple the description serves, the
+// same size and alignment. The types are listed here by hand, in the order
+// `compiler/tests/target/scalar_layout_types.saw` measures them; a type the
+// set admits and this list lacks leaves the counts below short. Paths are the
+// repository root's, where the runner runs.
+import sawasserts.layout.{asserts_typecheck_program}
+import sawtarget.layout.{Target, target_front_end, target_triples}
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.checks.{tc_check_atomic_widths}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+
+// The types of the set, in the fixture's order; those after them are laid out
+// by code generation, and the function answers nothing for them.
+func admitted() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("Int8")
+    try! out.push("Int16")
+    try! out.push("Int32")
+    try! out.push("Int64")
+    try! out.push("UInt8")
+    try! out.push("UInt16")
+    try! out.push("UInt32")
+    try! out.push("UInt64")
+    try! out.push("Int")
+    try! out.push("UInt")
+    try! out.push("Bool")
+    try! out.push("Float")
+    try! out.push("String")
+    try! out.push("UnsafePointer<Int8>")
+    try! out.push("UnsafeConstPointer<Int8>")
+    try! out.push("UnsafePointer<any Printable>")
+    try! out.push("UnsafeConstPointer<any Printable>")
+    try! out.push("UnsafePointer<UnsafePointer<any Printable>>")
+    try! out.push("UnsafeConstPointer<UnsafeConstPointer<any Printable>>")
+    try! out.push("UnsafePointer<scalar_layout_types.Pair>")
+    move out
+}
+
+func rejected() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("scalar_layout_types.Pair")
+    try! out.push("(Int, Int)")
+    try! out.push("[UInt8; 4]")
+    try! out.push("Int?")
+    move out
+}
+
+// The fixture's measured types on `triple`, in order, each checked.
+func check_triple(triple: String) {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = asserts_typecheck_program("compiler/tests/target/scalar_layout_types.saw", "std", &names, &dirs, target_front_end(triple, ""))
+    assert(p.diags.len() == 0, "{}: the fixture is refused", triple)
+    let want = admitted()
+    let other = rejected()
+    var target = Target(triple: triple)
+    var seen = 0
+    var k = 0
+    while k < p.layout_asserts.len() {
+        let cond = p.layout_asserts[k]
+        k = k + 1
+        let m = p.node_module(cond)
+        if not p.res.module_name(m).equals("scalar_layout_types") {
+            continue
+        }
+        let measures = p.layout_measures(cond)
+        assert(measures.len() == 1, "{}: assertion {} measures {} types", triple, seen, measures.len())
+        let t = p.measured_type(measures[0])
+        let text = p.type_text(t)
+        let s = p.scalar_layout(t)
+        if seen < want.len() {
+            assert(text.equals(want[seen]), "{}: measured [{}] where the list has [{}]", triple, text, want[seen])
+            assert(s.known, "{}: no answer for {}", triple, text)
+            let l = target.layout(&var p, t)
+            assert(target.reason_of(&l).len() == 0, "{}: the layout refuses {}", triple, text)
+            assert(s.size == l.size, "{}: {} is {} bytes by the function and {} by the layout", triple, text, s.size,
+                   l.size)
+            assert(s.align == l.align, "{}: {} aligns to {} by the function and {} by the layout", triple, text,
+                   s.align, l.align)
+        } else {
+            assert(text.equals(other[seen - want.len()]), "{}: measured [{}] where the list has [{}]", triple, text,
+                   other[seen - want.len()])
+            assert(not s.known, "{}: the function answers for {}", triple, text)
+        }
+        seen = seen + 1
+    }
+    assert(seen == want.len() + other.len(), "{}: the fixture measures {} types where the list names {}", triple, seen,
+           want.len() + other.len())
+}
+
+func main() {
+    let triples = target_triples()
+    var k = 0
+    while k < triples.len() {
+        check_triple(triples[k])
+        k = k + 1
+    }
+    print("scalar layout agrees on {} triples", triples.len())
+}

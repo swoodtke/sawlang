@@ -1,0 +1,37 @@
+// The types `compiler/target/tests/scalar_layout.saw` measures, one assertion
+// each so typecheck records the measured type: first every type
+// `target_fixes_layout` admits, in the order that test lists them, then types
+// it does not admit.
+
+struct Pair {
+    a: Int
+    b: Int
+}
+
+static_assert(sizeof<Int8>() > 0, "Int8")
+static_assert(sizeof<Int16>() > 0, "Int16")
+static_assert(sizeof<Int32>() > 0, "Int32")
+static_assert(sizeof<Int64>() > 0, "Int64")
+static_assert(sizeof<UInt8>() > 0, "UInt8")
+static_assert(sizeof<UInt16>() > 0, "UInt16")
+static_assert(sizeof<UInt32>() > 0, "UInt32")
+static_assert(sizeof<UInt64>() > 0, "UInt64")
+static_assert(sizeof<Int>() > 0, "Int")
+static_assert(sizeof<UInt>() > 0, "UInt")
+static_assert(sizeof<Bool>() > 0, "Bool")
+static_assert(sizeof<Float>() > 0, "Float")
+static_assert(sizeof<String>() > 0, "String")
+static_assert(sizeof<UnsafePointer<Int8>>() > 0, "UnsafePointer<Int8>")
+static_assert(sizeof<UnsafeConstPointer<Int8>>() > 0, "UnsafeConstPointer<Int8>")
+static_assert(sizeof<UnsafePointer<any Printable>>() > 0, "UnsafePointer<any Printable>")
+static_assert(sizeof<UnsafeConstPointer<any Printable>>() > 0, "UnsafeConstPointer<any Printable>")
+static_assert(sizeof<UnsafePointer<UnsafePointer<any Printable>>>() > 0, "UnsafePointer<UnsafePointer<any Printable>>")
+static_assert(sizeof<UnsafeConstPointer<UnsafeConstPointer<any Printable>>>() > 0,
+              "UnsafeConstPointer<UnsafeConstPointer<any Printable>>")
+static_assert(sizeof<UnsafePointer<Pair>>() > 0, "UnsafePointer<Pair>")
+static_assert(sizeof<Pair>() > 0, "Pair")
+static_assert(sizeof<(Int, Int)>() > 0, "(Int, Int)")
+static_assert(sizeof<[UInt8; 4]>() > 0, "[UInt8; 4]")
+static_assert(sizeof<Int?>() > 0, "Int?")
+
+func main() {}

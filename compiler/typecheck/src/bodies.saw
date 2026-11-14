@@ -2086,16 +2086,6 @@ extension TcProgram {
         }
     }
 
-    // Whether layout measurement `e` is a `sizeof`, not an `alignof`.
-    public func measures_size(&self, e: Int) -> Bool {
-        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
-        if at < 0 {
-            return false
-        }
-        let c = self.calls[at]
-        c.spelling >= 0 && self.name_text(c.spelling).equals("sizeof")
-    }
-
     // THE DEFERRED-ASSERT FUNNEL: the `static_assert` whose condition `e`
     // reads layouts through `measures` (SL:open-questions D40), or names a
     // const parameter (`names_const`), waits for what typecheck cannot know.
@@ -2462,42 +2452,6 @@ extension TcProgram {
             }
         }
         return -1
-    }
-
-    // The type `sizeof<T>()` or `alignof<T>()` call `e` measures, or -1 when
-    // `e` is no such call.
-    public func measured_type(&self, e: Int) -> Int {
-        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
-        if at < 0 {
-            return -1
-        }
-        let c = self.calls[at]
-        let spelling = if c.spelling >= 0 { self.name_text(c.spelling) } else { "" }
-        if c.role != TcRole.Builtin || not (spelling.equals("sizeof") || spelling.equals("alignof")) {
-            return -1
-        }
-        let callee = self.res.first_node_child(e)
-        let n = self.child_count(callee)
-        var k = 0
-        while k < n {
-            let arg = self.child(callee, k)
-            k = k + 1
-            if not self.is_leaf(arg) && self.type_builds[arg] > 0 {
-                return self.node_types[arg]
-            }
-        }
-        return -1
-    }
-
-    // Whether the target alone fixes type `t`'s layout: the integers, `Bool`,
-    // `Float`, `String` and the raw pointers. Code generation lays out every
-    // other type, after the positions that would measure it are resolved.
-    func target_fixes_layout(&self, t: Int) -> Bool {
-        if self.is_integer(t) || self.is_bool(t) || self.is_float(t) || self.is_string(t) {
-            return true
-        }
-        let d = self.nominal_decl(t)
-        d >= 0 && (d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer)
     }
 
     func refuse_not_constant(&var self, e: Int, pos: TcConstPosition) {

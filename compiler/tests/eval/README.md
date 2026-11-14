@@ -47,7 +47,12 @@ whole part, an alias's construction keeping its parts. A `FuncPointer` is a
 function's address, from a named function or a coerced closure literal, an
 opaque constant it neither compares nor folds, which the backend writes as
 the code's symbol (`function_address` in interp.saw). It holds no Float
-value yet (SL-722). Calls, loops, tuples, a case carrying a payload, references and
+value yet (SL-722). `sizeof<T>()` and `alignof<T>()` of a type the target alone
+lays out, an integer, `Bool`, `Float`, `String` or a raw pointer, are the
+scalar layout function's answer (`TcProgram.scalar_layout`, which typecheck's
+fold reads too; `compiler/target/tests/scalar_layout.saw` holds it to the
+target description's layout on every triple), read from the shared MIR
+program, which the evaluation still only reads. Other calls, loops, tuples, a case carrying a payload, references and
 every other construct are outside it.
 
 The value of every constant position is a side table, `EvalProgram.values`,
@@ -115,7 +120,8 @@ defence in depth, held to the fold by the agreement check. Each one's fixture
 is headed `// shadowed: TC-RULE at L:C` instead: it is refused first by that
 typecheck rule at that position, and it covers the evaluator rule it is named
 for. `slice.not-yet` stays the evaluator's own: a Float constant, a call
-the grammar admits (`sizeof`), constants it does not hold yet.
+the grammar admits (a `sizeof` or `alignof` of a type the target does not alone
+lay out), constants it does not hold yet.
 
 ## The verifier
 

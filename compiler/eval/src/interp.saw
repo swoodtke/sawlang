@@ -7,7 +7,8 @@
 // branches MIR makes them, casts between integer types, a type alias's
 // construction (the identity), reads of other constant statics and
 // raw-backed cases, and the aggregates a static holds: a struct's
-// construction, a fixed array's literal and `[v; N]` over those. Calls, loops
+// construction, a fixed array's literal and `[v; N]` over those, and the
+// `sizeof` and `alignof` of a type the target alone lays out. Other calls, loops
 // and memory are outside it, refused by name. An overflow, an out-of-range shift, a division by zero
 // or a value that does not fit is a compile error naming the statics the
 // evaluation went through; a static whose value depends on itself is a cycle,
@@ -177,7 +178,7 @@ extension EvalProgram {
                 }
                 locals[p.local] = v
             }
-            b = self.next_block(&mir, f, &block, &locals)
+            b = self.next_block(&mir, f, &block, &var locals)
             if b == EVAL_RETURNS {
                 return locals[0]
             }
@@ -189,7 +190,7 @@ extension EvalProgram {
 
     // Where control goes after block `block`: a block, `EVAL_RETURNS`, or
     // `EVAL_STOPS` when it cannot go on.
-    func next_block(&var self, mir: &MirProgram, f: Int, block: &MirBlock, locals: &Vector<EvalValue>) -> Int {
+    func next_block(&var self, mir: &MirProgram, f: Int, block: &MirBlock, locals: &var Vector<EvalValue>) -> Int {
         match block.term {
             case Goto -> block.target,
             case Return -> EVAL_RETURNS,
@@ -213,15 +214,38 @@ extension EvalProgram {
                 }
                 EVAL_STOPS
             },
-            case Call -> {
-                let _ = self.not_yet(&mir, f, "a call")
-                EVAL_STOPS
-            },
+            case Call -> self.measurement(&mir, f, &block, &var locals),
             case _ -> {
                 let _ = self.not_yet(&mir, f, "control that cannot go on")
                 EVAL_STOPS
             }
         }
+    }
+
+    // A call terminator: `sizeof<T>()` or `alignof<T>()` of a type the target
+    // alone lays out is the scalar layout funnel's answer, stored in the
+    // call's destination before control goes to its return edge; any other
+    // call runs only at run time.
+    func measurement(&var self, mir: &MirProgram, f: Int, block: &MirBlock, locals: &var Vector<EvalValue>) -> Int {
+        let c = mir.calls[block.call]
+        let word = if c.kind == MirCallKind.Builtin && c.spelling >= 0 { mir.tc.name_text(c.spelling) } else { "" }
+        let size = word.equals("sizeof")
+        if not size && not word.equals("alignof") {
+            let _ = self.not_yet(&mir, f, "a call")
+            return EVAL_STOPS
+        }
+        if c.inst_count != 1 || c.dest < 0 || c.next < 0 {
+            let _ = self.not_yet(&mir, f, "a call")
+            return EVAL_STOPS
+        }
+        let l = mir.tc.scalar_layout(mir.types[c.inst_first])
+        let dest = mir.places[c.dest]
+        if not l.known || dest.count != 0 || dest.local < 0 {
+            let _ = self.not_yet(&mir, f, "a layout the target alone does not fix")
+            return EVAL_STOPS
+        }
+        locals[dest.local] = EvalValue(kind: EvalKind.Integer, bits: if size { l.size } else { l.align }, ty: dest.ty)
+        c.next
     }
 
     // Rvalue `r`'s value.

@@ -19,7 +19,13 @@
     (func fill 41:6 private (signature (generics (const N Int)) (params) -> [Int; N]) (summary body (suspends no) (sync-callable yes)))
     (func last 45:6 private (signature (generics (const N Int)) (params (xs [Int; N] owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func main 49:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (static LATER 59:8 private Int))
+    (static LATER 59:8 private Int)
+    (static WORD 63:8 private Int)
+    (static HALF_WORD 64:8 private Int)
+    (struct Packet 66:8 private)
+    (field Packet.bytes 67:5 private [UInt8; 8])
+    (field Packet.halves 68:5 private [UInt8; 2])
+    (func packet 71:6 private (signature (params) -> static_constants.Packet) (summary body (suspends no) (sync-callable yes))))
   (members
     (static_constants.Pool
       (field items [T; N] private declared)
@@ -33,18 +39,23 @@
       (field raw [Int; 4] private declared)
       (field pool static_constants.Pool<Int, 4> private declared)
       (field later [UInt8; 2] private declared)
-      (method deinit public (synthesized Deinit))))
+      (method deinit public (synthesized Deinit)))
+    (static_constants.Packet
+      (field bytes [UInt8; 8] private declared)
+      (field halves [UInt8; 2] private declared)))
   (views
     (static_constants.Pool items deinit)
     (static_constants.Wrap inner deinit)
     (static_constants.Ring items)
-    (static_constants.Table raw pool later deinit))
+    (static_constants.Table raw pool later deinit)
+    (static_constants.Packet bytes halves))
   (conformances)
   (copy-tier
     (static_constants.Pool (join Copy T))
     (static_constants.Wrap (join Copy T))
     (static_constants.Ring Copy)
-    (static_constants.Table Copy))
+    (static_constants.Table Copy)
+    (static_constants.Packet Copy))
   (bodies
     (SLOTS 22:8
       (22:21-22:22 IntLit Int value temp))
@@ -132,6 +143,20 @@
       (56:96-56:101 Member [Int; 4] (borrow &[Int; 4]) place borrow)
       (56:96-56:97 Name static_constants.Table place project))
     (LATER 59:8
-      (59:21-59:22 IntLit Int value temp)))
+      (59:21-59:22 IntLit Int value temp))
+    (WORD 63:8
+      (63:20-63:36 Call.paren Int value temp (builtin sizeof)))
+    (HALF_WORD 64:8
+      (64:25-64:48 Binary Int value temp (op /))
+      (64:25-64:29 Name Int place copy)
+      (64:32-64:48 Call.paren Int value temp (builtin sizeof)))
+    (packet 71:6
+      (72:5-72:53 Call.paren static_constants.Packet value temp (memberwise static_constants.Packet (owner static_constants.Packet)))
+      (72:19-72:28 Repeat [UInt8; 8] value temp)
+      (72:20-72:21 IntLit Int (adopt UInt8) value temp)
+      (72:23-72:27 Name Int place copy)
+      (72:38-72:52 Repeat [UInt8; 2] value temp)
+      (72:39-72:40 IntLit Int (adopt UInt8) value temp)
+      (72:42-72:51 Name Int place copy)))
   (string-positions
     (56:11 format std.stringbuilder.StringBuilder)))

@@ -1,0 +1,32 @@
+// probe: stated
+// about: a static and a raw-backed case over `sizeof` and `alignof` of a type the target alone lays out hold the layout's values (SL-457)
+// stage 0: no recorded run holds this program, and its value is the evaluator's, which no Stage 0 build checks
+// speeds: -O0 -O2
+// prints: 8
+// prints: 4
+// prints: 8
+// prints: 16
+// prints: 8
+// prints: 8
+// prints: 8
+
+static BYTES: Int = 64
+static U64_SIZE: Int = sizeof<UInt64>()
+static U32_ALIGN: Int = alignof<UInt32>()
+static WORDS: Int = BYTES / sizeof<UInt>()
+static ERASED_SIZE: Int = sizeof<UnsafePointer<any Printable>>()
+
+enum Sized: Int {
+    case Word = sizeof<UInt>(),
+    case Wide = 100
+}
+
+func main() {
+    print(U64_SIZE)
+    print(U32_ALIGN)
+    print(WORDS)
+    print(ERASED_SIZE)
+    print(Sized.Word as Int)
+    print(sizeof<String>())
+    print(alignof<Float>())
+}

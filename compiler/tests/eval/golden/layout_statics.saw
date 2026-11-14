@@ -1,0 +1,25 @@
+// The size and alignment of a type the target alone lays out, folded in a
+// constant: a static's initializer, a raw-backed case's value and a
+// `static_assert`, which the layout funnel and the constant folders must
+// agree on. A raw pointer to an existential is a pair of words.
+
+static BYTES: Int = 64
+static U64_SIZE: Int = sizeof<UInt64>()
+static U32_ALIGN: Int = alignof<UInt32>()
+static WORDS: Int = BYTES / sizeof<UInt>()
+static STRING_SIZE: Int = sizeof<String>()
+static POINTER_SIZE: Int = sizeof<UnsafePointer<Int>>()
+static ERASED_SIZE: Int = sizeof<UnsafePointer<any Printable>>()
+static ERASED_ALIGN: Int = alignof<UnsafeConstPointer<any Printable>>()
+static FLOAT_SIZE: Int = sizeof<Float>()
+static BOOL_SIZE: Int = sizeof<Bool>()
+
+enum Sized: Int {
+    case Word = sizeof<UInt>(),
+    case Wide = 100
+}
+
+static_assert(U64_SIZE == 8, "UInt64 is eight bytes")
+static_assert(U32_ALIGN == 4, "UInt32 is aligned to four")
+static_assert(sizeof<UInt>() == sizeof<UnsafePointer<Int>>(), "a word is a pointer")
+static_assert(ERASED_SIZE == 2 * sizeof<Int>(), "an erased pointer is two words")
