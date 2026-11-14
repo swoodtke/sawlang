@@ -112,6 +112,7 @@ import resolve_lane  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "typecheck"))
 import typecheck_lane  # noqa: E402
+import test_sawc_died  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "mir"))
 import mir_lane  # noqa: E402
@@ -311,8 +312,11 @@ def run_golden(run):
                     elif fields[0]:
                         kinds_seen.add(fields[0].decode("ascii"))
         run.count("golden fixtures")
-    check_kind_coverage(run, kinds_seen)
-    check_error_coverage(run, errors_seen)
+    for coverage, seen in ((check_kind_coverage, kinds_seen), (check_error_coverage, errors_seen)):
+        try:
+            coverage(run, seen)
+        except build.SawcDied as died:
+            run.fail("coverage: %s" % died)
 
 
 def _first_difference(expected, got):
@@ -373,6 +377,13 @@ def check_error_coverage(run, errors_seen):
 
 
 def run_subset(run):
+    try:
+        check_subset(run)
+    except build.SawcDied as died:
+        run.fail("subset: %s" % died)
+
+
+def check_subset(run):
     files, diags = subset_check.check_tree()
     for d in diags:
         run.fail("subset: " + d.render())
@@ -558,7 +569,11 @@ def run_parser(run):
     if stale:
         run.fail("grammar tables: " + stale)
     for module in (speculation_ledger, comma_funnel, depth_funnel, parse_lane, line_length):
-        failures, counts = module.run()
+        try:
+            failures, counts = module.run()
+        except build.SawcDied as died:
+            run.fail("%s: %s" % (module.__name__, died))
+            continue
         for failure in failures:
             run.fail(failure)
         for key, n in counts.items():
@@ -585,6 +600,7 @@ def run_typechecker(run):
         run.fail(failure)
     for key, n in counts.items():
         run.count(key, n)
+    _run_module(run, test_sawc_died)
 
 
 def run_mir(run):

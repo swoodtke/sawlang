@@ -107,8 +107,7 @@ def rel(path):
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "resolve"] + with_std_root(args), cwd=REPO, capture_output=True,
-                       text=True, timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "resolve"] + with_std_root(args), cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -518,20 +517,30 @@ def check_invariants(failures, output_records):
                 failures.append("resolve %s: %s" % (path, line))
 
 
-def run(write=False, fill=False):
-    failures = []
-    counts = {}
-    check_golden(failures, counts, write)
-    named = check_refusals(failures, counts, fill)
+def check_all_invariants(failures):
     code, out = sawc(["--check"] + [rel(p) for p in refusal_cases()]
                       + [rel(src) for src, _ in golden_cases()])
     check_invariants(failures, records(out))
+
+
+def check_package_invariants(failures):
     cases, args = package_cases()
     code, out = sawc(["--check"] + args + [rel(src) for src, _ in cases])
     check_invariants(failures, records(out))
-    check_catalog(failures, counts, named)
-    check_built_cases(failures, counts)
-    check_acceptance(failures, counts)
+
+
+def run(write=False, fill=False):
+    failures = []
+    counts = {}
+    build.guarded(failures, "resolve golden", check_golden, failures, counts, write)
+    named = build.guarded(failures, "resolve refusal", check_refusals, failures, counts, fill)
+    build.guarded(failures, "resolve invariants", check_all_invariants, failures)
+    build.guarded(failures, "resolve package invariants", check_package_invariants, failures)
+    # A refusal phase that died names no rules, which would blame every rule for a missing fixture.
+    if named is not None:
+        check_catalog(failures, counts, named)
+    build.guarded(failures, "resolve built cases", check_built_cases, failures, counts)
+    build.guarded(failures, "resolve acceptance", check_acceptance, failures, counts)
     pin_failures, pin_counts = interface_pin.run()
     failures += pin_failures
     counts.update(pin_counts)

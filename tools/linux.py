@@ -83,7 +83,7 @@ def instance():
     exits 1 both for a name it has no instance of and for a Lima state it
     cannot read; listing them all fails only for the second, which is
     `EXIT_LIMA_FAILED` with limactl's own words, never "no VM"."""
-    r = limactl(["list", "--json"], capture_output=True, text=True)
+    r = limactl(["list", "--json"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         raise VmError("linux: limactl cannot list Lima's instances, so whether the `%s` VM runs is unknown "
                       "(limactl exited %d): %s" % (VM, r.returncode, (r.stderr or r.stdout).strip() or "no output"),
@@ -120,9 +120,13 @@ def vm_path(record, host_path):
     raise VmError("linux: no mount of the `%s` VM covers %s (the mounts are in %s)" % (VM, host_path, rel(CONFIG)))
 
 
-def run_in_vm(argv, workdir="/tmp", capture=False):
-    """`argv` run in the VM from `workdir`; limactl quotes each argument."""
-    return limactl(["shell", "--workdir", workdir, VM, "--"] + argv, capture_output=capture, text=True)
+def run_in_vm(argv, workdir="/tmp", capture=False, stdin=subprocess.DEVNULL):
+    """`argv` run in the VM from `workdir`; limactl quotes each argument.
+    Standard input is empty, so a call the tool makes for its own purposes
+    never reads what a user's command is owed; `shell` passes None to hand
+    its own through."""
+    return limactl(["shell", "--workdir", workdir, VM, "--"] + argv, capture_output=capture, text=True,
+                   stdin=stdin)
 
 
 def vm_home():
@@ -137,7 +141,7 @@ def clone_dir():
 
 
 def host_git(args):
-    r = subprocess.run(["git"] + args, cwd=REPO, capture_output=True, text=True)
+    r = subprocess.run(["git"] + args, cwd=REPO, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         raise VmError("linux: git %s: %s" % (" ".join(args), r.stderr.strip()))
     return r.stdout.strip()
@@ -205,7 +209,7 @@ def command_shell(record, args):
         raise VmError("linux: the VM has no clone of this checkout yet; run `tools/linux.py sync`")
     if not args:
         return limactl(["shell", "--workdir", dest, VM]).returncode
-    return run_in_vm(args, workdir=dest).returncode
+    return run_in_vm(args, workdir=dest, stdin=None).returncode
 
 
 def command_run_lane(record, args):

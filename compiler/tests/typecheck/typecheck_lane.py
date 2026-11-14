@@ -15,8 +15,14 @@ directory specifies:
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names, checked with the flags a second
-  line `// flags: ...` passes (`--runtime`, for a runtime's seams), and that
-  refusal's message holds each `// message:` line of its leading comment;
+  line `// flags: ...` passes (`--runtime`, for a runtime's seams), that
+  refusal's message holds each `// message:` line of its leading comment, and
+  its record holds exactly N `ERROR` lines when a `// errors: N` line (after
+  `// refuses:` and `// flags:`, before `// message:`) states N, which
+  `--fill` never writes;
+- a leading comment line of any fixture that begins `// refuses`, `// flags`,
+  `// errors`, `// error`, `// message`, `// messages` or `// warns` is a
+  header the lane reads, or a failure: no header is skipped in silence;
 - no golden or refusal record holds one `ERROR` line twice;
 - each warning fixture, `warn/NAME.saw`, draws the `-W borrow-prefix`
   warnings its `// warns: N` header counts, holding each `// message:`
@@ -52,6 +58,7 @@ TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
 _FLAGS = re.compile(r"^// flags: (.*)$")
+_ERRORS = re.compile(r"^// errors: (\d+)$")
 _MESSAGE = re.compile(r"^// message: (.+)$")
 _WARNS = re.compile(r"^// warns: (\d+)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
@@ -67,8 +74,7 @@ def rel(path):
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "typecheck"] + with_std_root(args), cwd=REPO, capture_output=True,
-                       text=True, timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "typecheck"] + with_std_root(args), cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -176,7 +182,11 @@ def check_golden(failures, counts, write):
 
 
 def check_golden_group(failures, counts, write, flags, cases):
-    code, out = sawc(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
+    try:
+        code, out = sawc(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
+    except build.SawcDied as died:
+        failures.append("typecheck golden: %s" % died)
+        return
     got = {path: without_std_modules(record) for path, record in records(out).items()}
     for src, exp in cases:
         record = got.get(rel(src))
@@ -222,6 +232,89 @@ def first_error(record, entry=None):
                 return fields[1], "%s:%s:%s" % (os.path.basename(path), row, col)
             return fields[1], "%s:%s" % (row, col)
     return None
+
+
+def all_errors(record, entry=None):
+    """[(rule, position)] of every `ERROR` line of a record, in order, the
+    position written as `first_error` writes it."""
+    out = []
+    for line in record.split("\n"):
+        if line.startswith("ERROR\t"):
+            fields = line.split("\t")
+            path, row, col = fields[2].rsplit(":", 2)
+            if entry is not None and path != entry:
+                out.append((fields[1], "%s:%s:%s" % (os.path.basename(path), row, col)))
+            else:
+                out.append((fields[1], "%s:%s" % (row, col)))
+    return out
+
+
+def stated_errors(path):
+    """The N of a fixture's `// errors: N` header line, or None when it has
+    none. The line is in the leading comment, before any `// message:`."""
+    stated = None
+    with open(path) as fh:
+        for line in fh.read().split("\n"):
+            if not line.startswith("//"):
+                break
+            if _MESSAGE.match(line):
+                break
+            m = _ERRORS.match(line)
+            if m:
+                stated = int(m.group(1))
+    return stated
+
+
+_HEADER_WORD = re.compile(r"^//\s*(refuses|flags|errors|error|messages|message|warns)(?![A-Za-z0-9_])")
+_HEADER_FORMS = {
+    "refuses": (_HEADER, "// refuses: RULE at ROW:COL"),
+    "flags": (_FLAGS, "// flags: FLAGS"),
+    "errors": (_ERRORS, "// errors: N"),
+    "message": (_MESSAGE, "// message: TEXT"),
+    "warns": (_WARNS, "// warns: N"),
+}
+
+
+def header_problems(path):
+    """[(row, line, sentence)] for each leading comment line of a fixture that
+    begins like a header (any spacing after the slashes) and is not one the
+    lane reads, and for a `// errors:` line it would read wrongly: after the
+    first `// message:`, or stated twice. A header the patterns skip is a
+    check that silently never runs, so each is a failure."""
+    problems = []
+    seen_message = False
+    seen_errors = False
+    with open(path) as fh:
+        lines = fh.read().split("\n")
+    for row, line in enumerate(lines, 1):
+        if not line.startswith("//"):
+            break
+        word = _HEADER_WORD.match(line)
+        if word is None:
+            continue
+        kind = word.group(1)
+        # `error` and `messages` are misspelt headers: no pattern reads them.
+        form = _HEADER_FORMS.get({"error": "errors", "messages": "message"}.get(kind, kind))
+        if kind in ("error", "messages") or not form[0].match(line):
+            problems.append((row, line, "a header line the lane cannot read: `%s` (a header is `%s`)"
+                             % (line, form[1])))
+        elif kind == "message":
+            seen_message = True
+        elif kind == "errors":
+            if seen_message:
+                problems.append((row, line, "`// errors:` goes before the first `// message:`: `%s`" % line))
+            if seen_errors:
+                problems.append((row, line, "`// errors:` is stated twice: `%s`" % line))
+            seen_errors = True
+    return problems
+
+
+def check_headers(failures):
+    """Every golden, refusal and warning fixture's leading comment holds no
+    header line the lane cannot read."""
+    for path in [src for src, _ in golden_cases()] + refusal_cases() + warning_cases():
+        for row, line, sentence in header_problems(path):
+            failures.append("typecheck header %s:%d: %s" % (rel(path), row, sentence))
 
 
 def first_message(record):
@@ -271,11 +364,23 @@ def check_refusals(failures, counts, fill):
     for path in cases:
         groups.setdefault(refusal_flags(path), []).append(path)
     got = {}
+    died = set()
     for flags, paths in sorted(groups.items()):
-        code, out = sawc(["--check"] + list(flags) + [rel(p) for p in paths])
+        try:
+            code, out = sawc(["--check"] + list(flags) + [rel(p) for p in paths])
+        except build.SawcDied as exc:
+            failures.append("typecheck refusal: %s" % exc)
+            died.update(paths)
+            continue
         got.update(records(out))
     named = set()
     for path in cases:
+        if path in died:
+            # The group's one failure is reported; its fixtures still name their rules.
+            m = header_of(path)
+            if m is not None:
+                named.add(m.group(1))
+            continue
         record = got.get(rel(path), "")
         found = first_error(record, rel(path))
         m = header_of(path)
@@ -304,6 +409,13 @@ def check_refusals(failures, counts, fill):
                 if text not in message:
                     failures.append("typecheck refusal %s: the message does not hold %r: %s"
                                     % (rel(path), text, message))
+            stated = stated_errors(path)
+            printed = all_errors(record, rel(path))
+            if stated is not None and len(printed) != stated:
+                extra = ", ".join("%s at %s" % e for e in printed[stated:])
+                failures.append("typecheck refusal %s: %s at %s: %d errors stated, %d printed%s"
+                                % (rel(path), rule, found[1], stated, len(printed),
+                                   " (extra: %s)" % extra if extra else ""))
         counts["typecheck refusal fixtures"] = counts.get("typecheck refusal fixtures", 0) + 1
     return named
 
@@ -342,7 +454,11 @@ def check_acceptance(failures, counts, nonsync=None):
     A std function the sawc build calls and the suspension table has no row
     for fails too."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc(["--check", "--notes", "--summaries", "--std-root", "std"] + package_args() + entries)
+    try:
+        code, out = sawc(["--check", "--notes", "--summaries", "--std-root", "std"] + package_args() + entries)
+    except build.SawcDied as died:
+        failures.append("typecheck acceptance: %s" % died)
+        return
     got = records(out)
     # Only the compiler's own functions are held to sync-only: the new std is
     # compiled whole and suspends where it should. An entry's module is named
@@ -400,6 +516,15 @@ def warning_lines(path):
     return [l for l in out.split("\n") if l.startswith("WARNING\t")]
 
 
+def warning_lines_or_died(failures, path):
+    """`warning_lines`, or None after one failure when sawc died on `path`."""
+    try:
+        return warning_lines(path)
+    except build.SawcDied as died:
+        failures.append("typecheck warning %s: %s" % (path, died))
+        return None
+
+
 def check_warnings(failures, counts, write):
     """Each `warn/NAME.saw` draws the warnings its `// warns: N` header
     counts, each `// message:` text among them, and `sawc fix` rewrites it
@@ -413,7 +538,9 @@ def check_warnings(failures, counts, write):
         if m is None:
             failures.append("typecheck warning %s: no `// warns: N` header" % rel(path))
             continue
-        lines = warning_lines(rel(path))
+        lines = warning_lines_or_died(failures, rel(path))
+        if lines is None:
+            continue
         for line in lines:
             named.add(line.split("\t")[1])
         if len(lines) != int(m.group(1)):
@@ -433,7 +560,7 @@ def check_warnings(failures, counts, write):
             if r.returncode != 0:
                 failures.append("typecheck warning %s: `sawc fix` exited %d: %s"
                                 % (rel(path), r.returncode, r.stdout[-300:]))
-            again = warning_lines(copy)
+            again = warning_lines_or_died(failures, copy)
             if again:
                 failures.append("typecheck warning %s: the fixed file still warns: %s" % (rel(path), again[:2]))
         expected = os.path.splitext(path)[0] + ".fixed"
@@ -455,12 +582,16 @@ def check_warnings(failures, counts, write):
 def run(write=False, fill=False, nonsync=None):
     failures = []
     counts = {}
+    check_headers(failures)
     check_golden(failures, counts, write)
     named = check_refusals(failures, counts, fill)
     named |= check_warnings(failures, counts, write)
-    code, out = sawc(["--check"] + [rel(p) for p in refusal_cases()]
-                      + [rel(src) for src, _ in golden_cases()])
-    check_invariants(failures, records(out))
+    try:
+        code, out = sawc(["--check"] + [rel(p) for p in refusal_cases()]
+                          + [rel(src) for src, _ in golden_cases()])
+        check_invariants(failures, records(out))
+    except build.SawcDied as died:
+        failures.append("typecheck invariants: %s" % died)
     check_catalog(failures, counts, named)
     check_acceptance(failures, counts, nonsync)
     return failures, counts

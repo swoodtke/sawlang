@@ -15,7 +15,6 @@ import dataclasses
 import hashlib
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
@@ -229,8 +228,10 @@ def _sawc(args, cwd=REPO):
     if not os.path.exists(build.SAWC):
         raise ReadingError("the reading runs sawc, and %s is not built; build it "
                            "with compiler/tools/build.py" % os.path.relpath(build.SAWC, REPO))
-    r = subprocess.run([build.SAWC] + list(args), cwd=cwd, capture_output=True, timeout=TIMEOUT)
-    return r.returncode, r.stdout.decode("utf-8")
+    # A death (`build.SawcDied`) is the caller's one failure; it is not a
+    # `ReadingError`, which names a defect of the reading.
+    r = build.run_sawc([build.SAWC] + list(args), cwd=cwd, encoding="utf-8", timeout=TIMEOUT)
+    return r.returncode, r.stdout
 
 
 def _rel(path):

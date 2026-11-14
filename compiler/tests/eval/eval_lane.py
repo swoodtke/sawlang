@@ -61,8 +61,7 @@ def rel(path):
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "eval"] + args, cwd=REPO, capture_output=True, text=True,
-                       timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "eval"] + args, cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -327,10 +326,10 @@ def check_corpus(failures, counts):
 def run(write=False, fill=False):
     failures = []
     counts = {}
-    check_golden(failures, counts, write)
-    check_refusals(failures, counts, fill)
-    check_acceptance(failures, counts)
-    check_corpus(failures, counts)
+    build.guarded(failures, "eval golden", check_golden, failures, counts, write)
+    build.guarded(failures, "eval refusal", check_refusals, failures, counts, fill)
+    build.guarded(failures, "eval acceptance", check_acceptance, failures, counts)
+    build.guarded(failures, "eval corpus", check_corpus, failures, counts)
     return failures, counts
 
 

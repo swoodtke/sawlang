@@ -1,6 +1,6 @@
 // A refused result type poisons its body's slot (SL:architecture §3.0): the
-// `None`, implicit member and empty literal a body returns into it adopt the
-// error type, so the refusal of the type is the only one each function gets.
+// `None`, implicit member and empty literal a body returns into it adopt the error
+// type, so the refusal of the type is the only one each function gets.
 
 trait Left {
     type Item

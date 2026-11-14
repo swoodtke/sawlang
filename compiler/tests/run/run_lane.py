@@ -368,6 +368,18 @@ def execute(binary):
     return r.returncode, r.stdout, r.stderr
 
 
+def stderr_tail(code, err, status=0):
+    """`; standard error: ...` holding the last five lines of a program's
+    standard error, each cut at 200 characters, when its exit status `code` is
+    not the `status` it should have, else "": a panic's text is what a failed
+    exit most needs in the log."""
+    if code == status:
+        return ""
+    text = err.decode("utf-8", "replace") if isinstance(err, bytes) else err
+    lines = [line[:200] for line in text.strip().split("\n")[-5:] if line.strip()]
+    return "; standard error: %s" % " | ".join(lines) if lines else "; no standard error"
+
+
 def lines_of(text):
     """`text`'s lines, without the empty one after a final line break."""
     if text == "":
@@ -447,7 +459,8 @@ def check_case(src):
         if code_new is None or code_old is None:
             failures.append("run %s: a binary timed out" % where)
         elif code_old != "varies" and code_new != code_old:
-            failures.append("run %s: exit %d under sawc, %d under Stage 0" % (where, code_new, code_old))
+            failures.append("run %s: exit %d under sawc, %d under Stage 0%s"
+                            % (where, code_new, code_old, stderr_tail(code_new, err_new, code_old)))
         if differs is not None and _HAZARD.search(differs):
             failures.extend("%s (%s)" % (f, speed) for f in check_hazard(src, differs, out_new, out_old))
         elif out_old is None:
@@ -1028,10 +1041,10 @@ def check_default_std_root(failures, counts):
         failures.append("run default std: a build from another directory with no --std-root fails: %s"
                         % (r.stdout + r.stderr).strip()[:300])
     else:
-        code, out, _ = execute(exe)
+        code, out, err = execute(exe)
         if code != 0 or out != b"the new std\n":
-            failures.append("run default std: the program built with no --std-root exits %s: %s"
-                            % (code, output_difference(out, b"the new std\n")))
+            failures.append("run default std: the program built with no --std-root exits %s: %s%s"
+                            % (code, output_difference(out, b"the new std\n"), stderr_tail(code, err)))
     mem = os.path.join(build.RT_ROOT, "common", "mem.saw")
     r = subprocess.run([build.SAWC, "runtime", "--target", TARGET or build.host_triple(), "--emit-ll", mem],
                        cwd=elsewhere, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
@@ -1075,9 +1088,10 @@ def check_default_output(failures, counts):
                         "leaving %s: %s" % (r.returncode, "its output" if os.path.isfile(exe) else "no .build/hello",
                                             (r.stdout + r.stderr).strip()[:300]))
     else:
-        code, out, _ = execute(exe)
+        code, out, err = execute(exe)
         if code != 0 or out != b"hello, world\n":
-            failures.append("run default output: .build/hello prints %r, exit %s" % (out[:200], code))
+            failures.append("run default output: .build/hello prints %r, exit %s%s"
+                            % (out[:200], code, stderr_tail(code, err)))
     obj = os.path.join(fresh, ".build", "hello.o")
     shutil.rmtree(os.path.join(fresh, ".build"), ignore_errors=True)
     r = subprocess.run([build.SAWC, "build", "-c"] + target_flags() + ["hello.saw"], cwd=fresh,
@@ -1291,8 +1305,8 @@ def check_codegen_units(failures, counts):
     def ran(binary, where):
         code, out, err = execute(binary)
         if code != 0 or out != CODEGEN_UNITS_OUTPUT:
-            failures.append("run codegen units: %s exits %s, not 0: %s"
-                            % (where, code, output_difference(out, CODEGEN_UNITS_OUTPUT)))
+            failures.append("run codegen units: %s exits %s, not 0: %s%s"
+                            % (where, code, output_difference(out, CODEGEN_UNITS_OUTPUT), stderr_tail(code, err)))
 
     def left(binary, where):
         units = binary + ".units"
@@ -1809,14 +1823,15 @@ def check_sha256(failures, counts):
     if r.returncode != 0:
         failures.append("run sha256: the vector program fails to build: %s" % (r.stdout + r.stderr).strip()[:300])
         return
-    code, out, _ = execute(binary)
+    code, out, err = execute(binary)
     got = out.decode("utf-8", "replace").splitlines()
     wanted = [hashlib.sha256(b"".join(parts)).hexdigest() for parts in SHA256_MESSAGES]
     if list(SHA256_FIPS) != wanted[:len(SHA256_FIPS)]:
         failures.append("run sha256: hashlib disagrees with FIPS 180-4's vectors")
     if code != 0 or got != wanted:
         bad = [k for k in range(len(wanted)) if k >= len(got) or got[k] != wanted[k]]
-        failures.append("run sha256: exit %s, and the digests of messages %r are not hashlib's" % (code, bad))
+        failures.append("run sha256: exit %s, and the digests of messages %r are not hashlib's%s"
+                        % (code, bad, stderr_tail(code, err)))
     counts["run sha256 vectors checked"] = len(wanted)
 
 
@@ -1894,10 +1909,11 @@ def check_object_cache(failures, counts):
             failures.append("run object cache: %s takes %s from the cache, not %s"
                             % (where, sorted(u for u, c in found.items() if c), "every unit" if cached else "none"))
         if out:
-            code, stdout, _ = execute(os.path.join(work, out))
+            code, stdout, err = execute(os.path.join(work, out))
             if code != 0 or stdout != CODEGEN_UNITS_OUTPUT:
-                failures.append("run object cache: %s's program exits %s: %s"
-                                % (where, code, output_difference(stdout, CODEGEN_UNITS_OUTPUT)))
+                failures.append("run object cache: %s's program exits %s: %s%s"
+                                % (where, code, output_difference(stdout, CODEGEN_UNITS_OUTPUT),
+                                   stderr_tail(code, err)))
         return found
 
     def entries(directory=cache):
@@ -2035,11 +2051,12 @@ def check_object_cache(failures, counts):
         failures.append("run object cache: a truncated, an unreadable and a flipped entry exit %d warning %r"
                         % (r.returncode, r.stderr.strip()[:600]))
     else:
-        code, stdout, _ = execute(os.path.join(work, "repaired"))
+        code, stdout, err = execute(os.path.join(work, "repaired"))
         compiled = [u for u, c in ((m.group(1), m.group(2)) for m in OBJECT_CACHE_UNIT.finditer(r.stderr)) if not c]
         if code != 0 or stdout != CODEGEN_UNITS_OUTPUT or len(compiled) != 3:
             failures.append("run object cache: past a truncated, an unreadable and a flipped entry the program exits "
-                            "%s: %s, compiling %r" % (code, output_difference(stdout, CODEGEN_UNITS_OUTPUT), compiled))
+                            "%s: %s, compiling %r%s" % (code, output_difference(stdout, CODEGEN_UNITS_OUTPUT),
+                                                        compiled, stderr_tail(code, err)))
         expect(sawc(["-O0", "-g0"], "after-repair", repair), "the build after the repair", True, "after-repair")
     checked += 3
     # The switches, and the builds no cache serves.
@@ -2103,10 +2120,11 @@ def check_object_cache(failures, counts):
             proc.communicate()
             failures.append("run object cache: a concurrent build times out")
             continue
-        code, printed, _ = execute(os.path.join(work, "shared%d" % k))
+        code, printed, err = execute(os.path.join(work, "shared%d" % k))
         if proc.returncode != 0 or (stdout + stderr).strip() or code != 0 or printed != CODEGEN_UNITS_OUTPUT:
-            failures.append("run object cache: concurrent build %d exits %d (its program %s): %s"
-                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
+            failures.append("run object cache: concurrent build %d exits %d (its program %s): %s%s"
+                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300],
+                               stderr_tail(code, err)))
     checked += len(launches)
     counts["run object cache cases checked"] = checked
 
@@ -2230,9 +2248,10 @@ def check_front_cache(failures, counts):
                             % (where, "reports no" if want else "reports", r.stderr.strip()[:300]))
     checked += 3
     for name in ("cold", "warm"):
-        code, stdout, _ = execute(os.path.join(work, name))
+        code, stdout, err = execute(os.path.join(work, name))
         if code != 0 or stdout != b"timed\n":
-            failures.append("run front cache: the %s build's program exits %s printing %r" % (name, code, stdout))
+            failures.append("run front cache: the %s build's program exits %s printing %r%s"
+                            % (name, code, stdout, stderr_tail(code, err)))
     if len(front_cache_images(cache)) != 1:
         failures.append("run front cache: a cold and a warm build store %r, not one image" % front_cache_images(cache))
     lls = [sawc(["build", "--emit-ll", "main.saw"], extra=extra) for extra in ({"SAWC_FRONT_CACHE": "off"}, None)]
@@ -2304,11 +2323,11 @@ def check_front_cache(failures, counts):
         with open(entry, "wb") as fh:
             fh.write(bytes(whole))
         r = sawc(["build", "--time-stages", "-g0", "main.saw", "-o", "repaired"], repair)
-        code, stdout, _ = execute(os.path.join(work, "repaired"))
+        code, stdout, err = execute(os.path.join(work, "repaired"))
         if r.returncode != 0 or "warning: the front cache entry" not in r.stderr or "is damaged" not in r.stderr \
                 or "time: front cache store" not in r.stderr or code != 0 or stdout != b"timed\n":
-            failures.append("run front cache: past a %s entry the build exits %d, its program %s, warning %r"
-                            % (how, r.returncode, code, r.stderr.strip()[:400]))
+            failures.append("run front cache: past a %s entry the build exits %d, its program %s, warning %r%s"
+                            % (how, r.returncode, code, r.stderr.strip()[:400], stderr_tail(code, err)))
         timed(["main.saw", "-o", "after"], "the build after a %s entry's repair" % how, "load", directory=repair)
         checked += 1
     # The switches leave the cache untouched, and a bad value is a usage error.
@@ -2341,10 +2360,11 @@ def check_front_cache(failures, counts):
             proc.communicate()
             failures.append("run front cache: a concurrent build times out")
             continue
-        code, printed, _ = execute(os.path.join(work, "shared%d" % k))
+        code, printed, err = execute(os.path.join(work, "shared%d" % k))
         if proc.returncode != 0 or (stdout + stderr).strip() or code != 0 or printed != b"timed\n":
-            failures.append("run front cache: concurrent build %d exits %d (its program %s): %s"
-                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
+            failures.append("run front cache: concurrent build %d exits %d (its program %s): %s%s"
+                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300],
+                               stderr_tail(code, err)))
     left = front_cache_images(shared)
     parts = front_cache_parts(shared)
     if len(left) != 1 or len(parts) != 1:
@@ -2544,9 +2564,10 @@ def check_front_layers(failures, counts):
             failures.append("run front layers: %s has its layers %r, not %r"
                             % (where, list(zip(names, got)), list(zip(LAYERS_NAMES, want))))
         if not refused:
-            code, printed, _ = execute(out)
+            code, printed, err = execute(out)
             if code != 0 or printed != LAYERS_OUTPUT:
-                failures.append("run front layers: %s's program exits %s printing %r" % (where, code, printed))
+                failures.append("run front layers: %s's program exits %s printing %r%s"
+                                % (where, code, printed, stderr_tail(code, err)))
         return r
 
     every = ("computed",) * 3
@@ -2632,10 +2653,11 @@ def check_front_layers(failures, counts):
             proc.communicate()
             failures.append("run front layers: a concurrent build times out")
             continue
-        code, printed, _ = execute(os.path.join(work, "shared%d" % k))
+        code, printed, err = execute(os.path.join(work, "shared%d" % k))
         if proc.returncode != 0 or (stdout + stderr).strip() or code != 0 or printed != LAYERS_OUTPUT:
-            failures.append("run front layers: concurrent build %d exits %d (its program %s): %s"
-                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
+            failures.append("run front layers: concurrent build %d exits %d (its program %s): %s%s"
+                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300],
+                               stderr_tail(code, err)))
         checked += 1
     if len(front_cache_images(shared)) != 1 or len(front_cache_parts(shared)) != 3:
         failures.append("run front layers: six concurrent builds leave %r and %r, not one image and three parts"
@@ -2715,11 +2737,12 @@ def check_front_scan_text(failures, counts):
         built = subprocess.run([build.SAWC, "build", "-g0"] + layers_arguments(tree) + ["-o", out], cwd=work,
                                capture_output=True, text=True, timeout=BUILD_TIMEOUT,
                                env=front_cache_environment(cache))
-        code, printed, _ = execute(out) if built.returncode == 0 else (None, b"", b"")
+        code, printed, err = execute(out) if built.returncode == 0 else (None, b"", b"")
         if runs[0][0] != 0 or runs[1] != runs[0] or runs[2] != runs[0] or code != 0 or printed != LAYERS_OUTPUT:
             failures.append("run front scan: with `import geometry.extra` in %s the build exits %d off, %d cold "
-                            "and %d warm, its program %s: %s" % (what, runs[0][0], runs[1][0], runs[2][0], code,
-                                                                 (runs[0][1] + runs[0][2]).strip()[:300]))
+                            "and %d warm, its program %s: %s%s"
+                            % (what, runs[0][0], runs[1][0], runs[2][0], code, (runs[0][1] + runs[0][2]).strip()[:300],
+                               stderr_tail(code, err) if built.returncode == 0 else ""))
         checked += 1
     counts["run front scan text shapes"] = checked
 
@@ -3178,8 +3201,9 @@ def held_probe(src, header):
             said = "".join(line + "\n" for line in header.get("stderr", [])).encode()
             code, out, err = execute(binary)
             if code != status or out != want:
-                failures.append("%s: exit %s (expected %d); output: %s"
-                                % (where, code, status, output_difference(out, want)))
+                failures.append("%s: exit %s (expected %d); output: %s%s"
+                                % (where, code, status, output_difference(out, want),
+                                   stderr_tail(code, err, status)))
             elif "stderr" in header and err != said:
                 failures.append("%s: standard error differs: %s" % (where, output_difference(err, said)))
             elif "leaks" in header:
@@ -3848,10 +3872,10 @@ def check_runtime_provider(failures, counts):
             if missing:
                 failures.append("%s: the binary does not define %s itself" % (where, ", ".join(missing)))
                 continue
-            code, out, _ = execute(binary)
+            code, out, err = execute(binary)
             if code != 0 or out != PROVIDER_LINE:
-                failures.append("%s: the binary exits %s, not 0: %s"
-                                % (where, code, output_difference(out, PROVIDER_LINE)))
+                failures.append("%s: the binary exits %s, not 0: %s%s"
+                                % (where, code, output_difference(out, PROVIDER_LINE), stderr_tail(code, err)))
                 continue
             counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
     problem = bare_metal_record_problem(rel(probe))
@@ -3965,10 +3989,10 @@ def check_cooperative_provider(failures, counts):
         if named:
             failures.append("%s: the binary names %s" % (where, ", ".join(named)))
             continue
-        code, out, _ = execute(binary)
+        code, out, err = execute(binary)
         if code != 0 or out != COOPERATIVE_LINE:
-            failures.append("%s: the binary exits %s, not 0: %s"
-                            % (where, code, output_difference(out, COOPERATIVE_LINE)))
+            failures.append("%s: the binary exits %s, not 0: %s%s"
+                            % (where, code, output_difference(out, COOPERATIVE_LINE), stderr_tail(code, err)))
             continue
         counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
 

@@ -21,7 +21,6 @@ directory specifies:
 import glob
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -45,8 +44,7 @@ def rel(path):
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "mir"] + args, cwd=REPO, capture_output=True, text=True,
-                       timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "mir"] + args, cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -235,10 +233,10 @@ def check_acceptance(failures, counts):
 def run(write=False, fill=False):
     failures = []
     counts = {}
-    check_golden(failures, counts, write)
-    check_golden(failures, counts, write, spans=True)
-    check_refusals(failures, counts, fill)
-    check_acceptance(failures, counts)
+    build.guarded(failures, "mir golden", check_golden, failures, counts, write)
+    build.guarded(failures, "mir golden spans", check_golden, failures, counts, write, spans=True)
+    build.guarded(failures, "mir refusal", check_refusals, failures, counts, fill)
+    build.guarded(failures, "mir acceptance", check_acceptance, failures, counts)
     return failures, counts
 
 

@@ -1,5 +1,6 @@
-// refuses: static.cycle at 8:14
+// refuses: static.cycle at 9:14
 // three raw cases in a ring: each is refused at its own value, C first (SL-1107)
+// errors: 3
 // message: the raw value of `Code.C` depends on itself: `Code.C` -> `Code.A` -> `Code.B` -> `Code.C`
 
 enum Code: UInt8 {

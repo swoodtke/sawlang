@@ -21,11 +21,18 @@ import std.systemerror.{SystemErrorKind}
 extern "C" {
     func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
     func waitid(kind: Int32, id: Int32, info: UnsafePointer<UInt8>, options: Int32) -> Int32
+    func pipe(ends: UnsafePointer<Int32>) -> Int32
+    func dup(fd: Int32) -> Int32
+    func dup2(from: Int32, to: Int32) -> Int32
+    func close(fd: Int32) -> Int32
 }
 
 static WNOHANG: Int32 = 1
 static WEXITED: Int32 = 4
 static P_ALL: Int32 = 0
+static STANDARD_INPUT: Int32 = 0
+// The `siginfo_t` buffer `waitid` fills, larger than the struct on macOS and Linux.
+static SIGINFO_BYTES: Int = 256
 // `WNOWAIT` by host, which `uname -s` names (sys/wait.h on each).
 static WNOWAIT_DARWIN: Int32 = 0x20
 static WNOWAIT_LINUX: Int32 = 0x01000000
@@ -63,8 +70,9 @@ func leftovers() unsafe -> Int {
     count
 }
 
-// Picks `WNOWAIT` for the host `uname -s` names. Its child is reaped by the call.
-func choose_wait_flag() {
+// Picks `WNOWAIT` for the host `uname -s` names, and returns that name. Its
+// child is reaped by the call.
+func choose_wait_flag() -> String {
     var uname = Command(program: "uname")
     try! uname.arg("-s")
     let name = match uname.output() {
@@ -78,12 +86,47 @@ func choose_wait_flag() {
     } else {
         panic("no WNOWAIT value for the host {}", name)
     }
+    name
 }
 
-// Whether the process has a child, running or not yet reaped; nothing is reaped.
+// Whether the process has a child, running or not yet reaped; nothing is
+// reaped. Any failure of `waitid` reads as no child, so a flag the host
+// refuses would end the sweep at once; `check_wait_flag` rules that out.
 func has_children() unsafe -> Bool {
-    var info: [UInt8; 256] = [0; 256]
+    var info: [UInt8; SIGINFO_BYTES] = [0; SIGINFO_BYTES]
     waitid(P_ALL, 0, (&info) as UnsafePointer<UInt8>, WEXITED | WNOHANG | (WNOWAIT.load() as Int32)) == 0
+}
+
+func pipe_ends() unsafe -> (Int32, Int32) {
+    var ends: [Int32; 2] = [0; 2]
+    if pipe((&ends) as UnsafePointer<Int32>) != 0 {
+        panic("pipe(2) failed")
+    }
+    (ends[0], ends[1])
+}
+
+// With one child certainly alive, `has_children` must say so: a `WNOWAIT` the
+// host refuses (`EINVAL`) would make it false and bring back the race the
+// sweep closes. The child blocks until its standard input, a pipe of its own,
+// closes.
+func check_wait_flag(host: String) unsafe {
+    let (gate_read, gate_write) = pipe_ends()
+    let saved_input = dup(STANDARD_INPUT)
+    if dup2(gate_read, STANDARD_INPUT) < 0 {
+        panic("dup2(2) of the self-test gate failed")
+    }
+    let _ = close(gate_read)
+    var blocker = Command(program: "/bin/sh")
+    try! blocker.arg("-c")
+    try! blocker.arg("read gate")
+    var child = try! blocker.spawn()
+    let _ = dup2(saved_input, STANDARD_INPUT)
+    let _ = close(saved_input)
+    if not has_children() {
+        panic("waitid refuses WNOWAIT={} on {}", WNOWAIT.load(), host)
+    }
+    let _ = close(gate_write)
+    let _ = try! child.wait()
 }
 
 // Spawns a child that exits at once, which sweeps the orphan list, until the
@@ -107,7 +150,8 @@ func sweep_until_childless() unsafe {
 }
 
 func main() {
-    choose_wait_flag()
+    let host = choose_wait_flag()
+    check_wait_flag(host)
     var g = TaskGroup()
     let t = g.spawn(chatty())
     sleep(Duration.ms(50))

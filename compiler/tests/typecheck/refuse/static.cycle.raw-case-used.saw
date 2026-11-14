@@ -1,5 +1,6 @@
-// refuses: static.cycle at 6:14
+// refuses: static.cycle at 7:14
 // a case on a cycle used as a length, a repeat count, a static's value, an assert and a match arm adds no second error (SL-1107)
+// errors: 1
 // message: the raw value of `Code.A` depends on itself
 
 enum Code: Int {

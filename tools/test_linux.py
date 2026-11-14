@@ -3,6 +3,8 @@
 
     python tools/test_linux.py
 
+`shell CMD < FILE` carries FILE to CMD: a stub limactl logs the bytes of
+standard input each invocation found, and only the user's command's holds any.
 The `linux` battery lane skips, and passes, only when the VM is known not to
 run: limactl absent, no `sawlang-linux` instance, or one that is stopped. A
 limactl that cannot report Lima's state (a sandbox that cannot read ~/.lima)
@@ -53,8 +55,52 @@ def run_case(name, body):
     return out
 
 
+# A limactl that lists a running VM and, for `shell`, drains its standard
+# input and logs the command it was given with the bytes it found.
+SHELL_STUB = """#!/bin/sh
+if [ "$1" = list ]; then
+    echo '{"name":"sawlang-linux","status":"Running"}'
+    exit 0
+fi
+while [ "$1" != "--" ]; do shift; done
+shift
+bytes=$(cat | wc -c | tr -d ' ')
+echo "$1 $bytes" >> "$STUB_LOG"
+case "$1" in printenv) echo /home/stub ;; esac
+exit 0
+"""
+SHELL_INPUT_BYTES = 500
+
+
+def check_shell_input(failures):
+    """`shell CMD < FILE` hands FILE to CMD: the calls the tool makes first
+    (the VM's home, the clone's directory) find their standard input empty, so
+    none of them consumes it."""
+    bin_dir = os.path.join(OUT, "shell-input")
+    shutil.rmtree(bin_dir, ignore_errors=True)
+    os.makedirs(bin_dir)
+    stub = os.path.join(bin_dir, "limactl")
+    with open(stub, "w") as fh:
+        fh.write(SHELL_STUB)
+    os.chmod(stub, 0o755)
+    log = os.path.join(bin_dir, "calls.log")
+    data = os.path.join(bin_dir, "input.bin")
+    with open(data, "wb") as fh:
+        fh.write(bytes(k % 251 for k in range(SHELL_INPUT_BYTES)))
+    env = dict(os.environ, PATH=bin_dir + os.pathsep + "/usr/bin" + os.pathsep + "/bin", STUB_LOG=log)
+    with open(data, "rb") as fh:
+        r = subprocess.run([sys.executable, LINUX, "shell", "wc", "-c"], cwd=REPO, env=env, stdin=fh,
+                           capture_output=True, text=True, timeout=60)
+    calls = open(log).read().split("\n") if os.path.exists(log) else []
+    want = ["printenv 0", "test 0", "wc %d" % SHELL_INPUT_BYTES, ""]
+    if r.returncode != 0 or calls != want:
+        failures.append("`shell wc -c < FILE` exits %d, and the stub's calls (command, standard input bytes) are %r, "
+                        "not %r: %s" % (r.returncode, calls, want, (r.stdout + r.stderr).strip()[:300]))
+
+
 def main():
     failures = []
+    check_shell_input(failures)
     for name, body, want_status, text, want_lane in CASES:
         status, said, lane, lane_said = run_case(name, body)
         if status != want_status or text not in said:
@@ -75,8 +121,8 @@ def main():
                         % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
     for failure in failures:
         print(failure)
-    print("linux tool: %s: %d stub cases, `stage0` refused" % ("FAIL (%d)" % len(failures) if failures else "ok",
-                                                               len(CASES)))
+    print("linux tool: %s: %d stub cases, `stage0` refused, `shell` carries its standard input"
+          % ("FAIL (%d)" % len(failures) if failures else "ok", len(CASES)))
     return 1 if failures else 0
 
 

@@ -37,7 +37,6 @@ directory specifies:
 import glob
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -89,7 +88,7 @@ def rel(path):
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "mono"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "mono"] + args, cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -291,8 +290,11 @@ def check_backend_refusals(failures, counts):
         if header is None:
             failures.append("mono backend refusal %s: no `// refuses: RULE at L:C` header" % rel(path))
             continue
-        r = subprocess.run([build.SAWC, "build", "--emit-ll", rel(path)], cwd=REPO, capture_output=True,
-                           text=True, timeout=TIMEOUT)
+        try:
+            r = build.run_sawc([build.SAWC, "build", "--emit-ll", rel(path)], cwd=REPO, timeout=TIMEOUT)
+        except build.SawcDied as died:
+            failures.append("mono backend refusal %s: %s" % (rel(path), died))
+            continue
         record = borrowck_lane.records(r.stdout).get(rel(path), "")
         found = borrowck_lane.first_error(record)
         want = (header.group(1), header.group(2))
@@ -453,8 +455,12 @@ def check_lowerings(failures, counts):
     evaluator and the stages after it read one lowering, and never before."""
     cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw"))) + LOWERING_PROGRAMS
     for command, want in LOWERING_COMMANDS:
-        r = subprocess.run([build.SAWC, command, "--check", "--lowerings", "--std-root", "std"]
-                           + [rel(p) for p in cases], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+        try:
+            r = build.run_sawc([build.SAWC, command, "--check", "--lowerings", "--std-root", "std"]
+                               + [rel(p) for p in cases], cwd=REPO, timeout=TIMEOUT)
+        except build.SawcDied as died:
+            failures.append("mono lowerings %s: %s" % (command, died))
+            continue
         got = borrowck_lane.records(r.stdout)
         for path in cases:
             record = got.get(rel(path))
@@ -471,13 +477,13 @@ def check_lowerings(failures, counts):
 def run(write=False):
     failures = []
     counts = {}
-    check_golden(failures, counts, write)
-    check_target_layouts(failures, counts)
-    check_own_targets(failures, counts, write)
-    check_refusals(failures, counts)
-    check_backend_refusals(failures, counts)
-    check_layouts(failures, counts)
-    check_lowerings(failures, counts)
+    build.guarded(failures, "mono golden", check_golden, failures, counts, write)
+    build.guarded(failures, "mono target layouts", check_target_layouts, failures, counts)
+    build.guarded(failures, "mono own targets", check_own_targets, failures, counts, write)
+    build.guarded(failures, "mono refusal", check_refusals, failures, counts)
+    build.guarded(failures, "mono backend refusal", check_backend_refusals, failures, counts)
+    build.guarded(failures, "mono layouts", check_layouts, failures, counts)
+    build.guarded(failures, "mono lowerings", check_lowerings, failures, counts)
     return failures, counts
 
 

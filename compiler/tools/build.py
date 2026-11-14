@@ -145,6 +145,40 @@ def handed_down():
     return bool(os.environ.get("SAWC_BINARY"))
 
 
+class SawcDied(Exception):
+    """A lane's `sawc` call that ended with a status no command exits with."""
+
+
+def run_sawc(command, **kwargs):
+    """`subprocess.run` of a `sawc` command line, output captured as text.
+    The commands exit 0 (accepted) or 1 (refused); any other status is the
+    compiler dying or a bad command line, and reading the records it printed
+    would blame every file after the one it died on. That raises `SawcDied`,
+    naming the status, the last record printed (a record prints whole, so the
+    file being checked is the one after it) and the last line of standard
+    error. A lane catches it once per call and reports one failure."""
+    result = subprocess.run(command, capture_output=True, text=True, **kwargs)
+    if result.returncode in (0, 1):
+        return result
+    done = [line[len("FILE\t"):] for line in result.stdout.split("\n") if line.startswith("FILE\t")]
+    said = [line.strip() for line in result.stderr.split("\n") if line.strip()]
+    raise SawcDied("`sawc %s` died (exit %d) %s: %s" % (
+        command[1] if len(command) > 1 else "", result.returncode,
+        "after " + done[-1] if done else "before printing a record",
+        said[-1][:200] if said else "no standard error"))
+
+
+def guarded(failures, label, check, *args, **kwargs):
+    """Runs one lane phase, `check(*args, **kwargs)`, and returns its value.
+    A `SawcDied` from any `run_sawc` call in it is one failure, `label`
+    then the died message, and the phase's value is None."""
+    try:
+        return check(*args, **kwargs)
+    except SawcDied as died:
+        failures.append("%s: %s" % (label, died))
+        return None
+
+
 def package_arguments(root):
     """`--module-path` for every stage package, under the tree at `root`."""
     args = []

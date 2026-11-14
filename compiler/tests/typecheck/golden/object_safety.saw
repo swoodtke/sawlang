@@ -2,8 +2,8 @@
 // whose requirements take `&self` or `&var self` and name no `Self`, a default
 // body whose signature names none, a parent that is object-safe too, and the
 // prelude's `Printable`, `Error` and `Hashable`, at a coercion to `&any` and
-// `&var any`, a field's and a parameter's `Box`, a generic argument, and the
-// error box of an erased `Result`.
+// `&var any`, a field's and a parameter's `Box`, a generic argument, and the error
+// box of an erased `Result`.
 
 trait Shape {
     func area(&self) -> Int

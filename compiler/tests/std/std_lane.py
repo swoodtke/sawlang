@@ -173,8 +173,7 @@ def rel(path):
 
 
 def sawc(*args):
-    r = subprocess.run([build.SAWC] + list(args), cwd=REPO, capture_output=True, text=True,
-                       timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC] + list(args), cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -897,17 +896,17 @@ def run(write=False):
     failures = []
     counts = {}
     check_whitespace(failures)
-    check_modules(failures, counts)
-    check_profile(failures, counts)
-    check_lang(failures, counts, write)
-    check_shapes(failures, counts)
-    check_pairs(failures, counts)
-    check_calls(failures, counts)
-    check_exec(failures, counts)
-    check_thread_home(failures, counts, write)
-    check_mir_pins(failures, counts, write)
-    check_cones(failures, counts, write)
-    check_driver(failures, counts, write)
+    build.guarded(failures, "std modules", check_modules, failures, counts)
+    build.guarded(failures, "std profile", check_profile, failures, counts)
+    build.guarded(failures, "std lang", check_lang, failures, counts, write)
+    build.guarded(failures, "std shapes", check_shapes, failures, counts)
+    build.guarded(failures, "std pairs", check_pairs, failures, counts)
+    build.guarded(failures, "std calls", check_calls, failures, counts)
+    build.guarded(failures, "std exec", check_exec, failures, counts)
+    build.guarded(failures, "std thread home", check_thread_home, failures, counts, write)
+    build.guarded(failures, "std mir pins", check_mir_pins, failures, counts, write)
+    build.guarded(failures, "std cones", check_cones, failures, counts, write)
+    build.guarded(failures, "std driver", check_driver, failures, counts, write)
     check_layers(failures, counts)
     return failures, counts
 

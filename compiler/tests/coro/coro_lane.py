@@ -101,7 +101,7 @@ def module_args():
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "coro"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "coro"] + args, cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -449,15 +449,19 @@ def run(write=False):
     failures += more
     counts.update(more_counts)
     park_root = park_std()
-    check_golden(failures, counts, write, rules, "--dump", ".coro", park_root)
-    check_golden(failures, counts, write, rules, "--layouts", ".layouts", park_root)
-    check_golden(failures, counts, write, rules, "--lowered", ".lowered", park_root)
-    check_golden(failures, counts, write, rules, "--bt-table", ".bttable", park_root, prefix=BT_PREFIX)
-    check_bt_stage0(failures, counts)
-    check_bt_ir(failures, counts)
-    check_refusals(failures, counts, rules)
-    check_agreement(failures, counts)
-    check_park_injections(failures, counts)
+    build.guarded(failures, "coro golden --dump", check_golden, failures, counts, write, rules, "--dump", ".coro",
+                  park_root)
+    build.guarded(failures, "coro golden --layouts", check_golden, failures, counts, write, rules, "--layouts",
+                  ".layouts", park_root)
+    build.guarded(failures, "coro golden --lowered", check_golden, failures, counts, write, rules, "--lowered",
+                  ".lowered", park_root)
+    build.guarded(failures, "coro golden --bt-table", check_golden, failures, counts, write, rules, "--bt-table",
+                  ".bttable", park_root, prefix=BT_PREFIX)
+    build.guarded(failures, "coro bt stage0", check_bt_stage0, failures, counts)
+    build.guarded(failures, "coro bt ir", check_bt_ir, failures, counts)
+    build.guarded(failures, "coro refusal", check_refusals, failures, counts, rules)
+    build.guarded(failures, "coro agreement", check_agreement, failures, counts)
+    build.guarded(failures, "coro park injections", check_park_injections, failures, counts)
     return failures, counts
 
 

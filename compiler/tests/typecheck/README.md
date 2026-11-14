@@ -1681,7 +1681,14 @@ message is reported once, however many paths reach the node (resolve's walk
 and this stage's, or a repeat count's typing and its fold). The second line
 says what the fixture shows. A `// message: TEXT` line in the leading comment
 requires that first refusal's message to hold TEXT, which is how a fixture pins
-its fixit.
+its fixit. A `// errors: N` line (after `// refuses:` and `// flags:`, before
+any `// message:`) requires the record to hold exactly N `ERROR` lines, which
+is how a fixture pins "one error per case"; without it only the first is
+held, and `--fill` never writes it. A leading comment line that begins with a
+header word (`// refuses`, `// flags`, `// errors`, `// error`, `// message`,
+`// messages`, `// warns`) and is not that header's exact form fails the lane,
+as does a second `// errors:` or one after a `// message:`; a prose comment
+must not start with one of those words.
 
 | rule | refuses |
 |---|---|

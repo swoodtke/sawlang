@@ -137,8 +137,7 @@ def rel(path):
 
 
 def sawc(args, stage="borrowck"):
-    r = subprocess.run([build.SAWC, stage] + with_std_root(args), cwd=REPO, capture_output=True, text=True,
-                       timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, stage] + with_std_root(args), cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -844,12 +843,12 @@ def run(write=False, fill=False):
     counts = {}
     check_ledgers(failures, counts)
     check_conformance(failures, counts)
-    check_golden(failures, counts, write)
-    check_refusals(failures, counts, fill)
-    check_premise(failures, counts)
-    check_acceptance(failures, counts)
-    check_long_programs(failures, counts)
-    check_corpus(failures, counts)
+    build.guarded(failures, "borrowck golden", check_golden, failures, counts, write)
+    build.guarded(failures, "borrowck refusal", check_refusals, failures, counts, fill)
+    build.guarded(failures, "borrowck premise", check_premise, failures, counts)
+    build.guarded(failures, "borrowck acceptance", check_acceptance, failures, counts)
+    build.guarded(failures, "borrowck long programs", check_long_programs, failures, counts)
+    build.guarded(failures, "borrowck corpus", check_corpus, failures, counts)
     for stale in oracle.stale_records(STAGE0, {stage0_name(p) for p in divergent_fixtures()}):
         failures.append("borrowck loan differential %s: a Stage 0 record of no listed fixture; `%s` removes it"
                         % (rel(stale), stage0_command()))

@@ -31,7 +31,6 @@ directory specifies:
 import glob
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -66,8 +65,7 @@ def rel(path):
 
 
 def sawc(args):
-    r = subprocess.run([build.SAWC, "drops"] + borrowck_lane.with_std_root(args), cwd=REPO, capture_output=True,
-                       text=True, timeout=TIMEOUT)
+    r = build.run_sawc([build.SAWC, "drops"] + borrowck_lane.with_std_root(args), cwd=REPO, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -303,14 +301,14 @@ def check_conformance(failures, counts, got):
 def run(write=False):
     failures = []
     counts = {}
-    check_golden(failures, counts, write)
-    check_refusals(failures, counts)
-    check_acceptance(failures, counts)
-    code, rels, got = corpus_records()
-    if code not in (0, 1):
-        failures.append("drops corpus: sawc exited %d" % code)
-    check_corpus(failures, counts, got, rels)
-    check_conformance(failures, counts, got)
+    build.guarded(failures, "drops golden", check_golden, failures, counts, write)
+    build.guarded(failures, "drops refusal", check_refusals, failures, counts)
+    build.guarded(failures, "drops acceptance", check_acceptance, failures, counts)
+    corpus = build.guarded(failures, "drops corpus", corpus_records)
+    if corpus is not None:
+        code, rels, got = corpus
+        check_corpus(failures, counts, got, rels)
+        check_conformance(failures, counts, got)
     return failures, counts
 
 
