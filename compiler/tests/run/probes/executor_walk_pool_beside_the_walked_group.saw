@@ -1,0 +1,88 @@
+// probe: stated
+// about: a pool is registered before or after the group the scheduler's walk stands on, and `main` drops the group and the pool in one turn, whose teardown drives this thread's tasks, and the walk never reads either again (SL-1109)
+// stage 0: runs it on its own std's executor, which gives no turn by the sleep order (SL-977)
+// speeds: -O0 -O2
+// prints: joined 50 of 50
+// `hog` holds the thread past every deadline, so the walk stands on the
+// cooperative group at `napper`'s expired sleep, and `main`'s earlier sleep
+// gives it the turn. `main` joins `napper` and the pool's tasks and drops both
+// groups in that turn; a pool is passed by the walk, but its teardown runs
+// sweeps of its own. `pool_first` registers the pool before the group (the pool
+// is the group's successor), `coop_first` after it (the pool is the list's
+// head and the group's successor is `main`'s own group).
+
+import std.task.*
+import std.time.{Instant}
+
+static TICK_MS: UInt64 = 1
+static MAIN_MS: UInt64 = 1
+static NAPPER_MS: UInt64 = 2
+static POOL_MS: UInt64 = 3
+static HOLD_MS: UInt64 = 4
+static POOL_THREADS: Int = 2
+static ROUNDS: Int = 10
+static JOINED_PER_ROUND: Int = 5
+static EXPECTED: Int = ROUNDS * JOINED_PER_ROUND
+
+func hold(millis: UInt64) sync {
+    let start = Instant.now()
+    while start.elapsed().as_millis() < millis {}
+}
+
+func hog() -> Int {
+    yield_now()
+    hold(HOLD_MS)
+    0
+}
+
+func napper() -> Int {
+    sleep(Duration.ms(NAPPER_MS))
+    1
+}
+
+func pool_work() -> Int {
+    sleep(Duration.ms(POOL_MS))
+    1
+}
+
+func settle(n: Int) {
+    var i = 0
+    while i < n {
+        sleep(Duration.ms(TICK_MS))
+        i = i + 1
+    }
+}
+
+func pool_first() -> Int {
+    var pool = try! TaskGroup(threads: POOL_THREADS)
+    let p = pool.spawn(pool_work())
+    var group = TaskGroup()
+    let _ = group.spawn(hog())
+    let t = group.spawn(napper())
+    sleep(Duration.ms(MAIN_MS))
+    t.join() + p.join()
+}
+
+func coop_first() -> Int {
+    var group = TaskGroup()
+    let _ = group.spawn(hog())
+    let t = group.spawn(napper())
+    var pool = try! TaskGroup(threads: POOL_THREADS)
+    let p = pool.spawn(pool_work())
+    let q = pool.spawn(pool_work())
+    sleep(Duration.ms(MAIN_MS))
+    t.join() + p.join() + q.join()
+}
+
+func main() {
+    var total = 0
+    var round = 0
+    while round < ROUNDS {
+        total = total + pool_first()
+        settle(2)
+        total = total + coop_first()
+        settle(2)
+        round = round + 1
+    }
+    print("joined {total} of {EXPECTED}")
+}

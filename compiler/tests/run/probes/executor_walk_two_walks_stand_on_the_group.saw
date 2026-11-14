@@ -1,0 +1,82 @@
+// probe: stated
+// about: two sweeps stand on `main`'s group when `main` drops it, the inner one closing first, and neither walk reads the group again (SL-1109)
+// stage 0: runs it on its own std's executor, which gives no turn by the sleep order (SL-977)
+// speeds: -O0 -O2
+// prints: total 10 of 10
+// The sleep order is `helper`, `main`, `napper`. `hog` holds the thread past
+// every deadline, so the outer walk stands on `napper`'s group at `napper`'s
+// expired sleep and gives the turn to `helper`, the earliest. `helper` joins a
+// task of its own, whose nested sweep walks from the head of the list, reaches
+// the group and `napper`, and gives the turn to `main`, which joins `napper`
+// and drops the group with two cursors on it. The nested sweep goes on with
+// 6 ms sleeps and closes before the outer walk reads its cursor.
+
+import std.task.*
+import std.time.{Instant}
+
+static TICK_MS: UInt64 = 1
+static HELPER_MS: UInt64 = 1
+static MAIN_MS: UInt64 = 2
+static NAPPER_MS: UInt64 = 3
+static QUICK_MS: UInt64 = 6
+static HOLD_MS: UInt64 = 8
+static ROUNDS: Int = 5
+static SETTLE_TICKS: Int = 10
+static EXPECTED: Int = 2 * ROUNDS
+
+func hold(millis: UInt64) sync {
+    let start = Instant.now()
+    while start.elapsed().as_millis() < millis {}
+}
+
+func hog() -> Int {
+    yield_now()
+    hold(HOLD_MS)
+    0
+}
+
+func napper() -> Int {
+    sleep(Duration.ms(NAPPER_MS))
+    1
+}
+
+func quick() -> Int {
+    sleep(Duration.ms(QUICK_MS))
+    1
+}
+
+func helper() -> Int {
+    sleep(Duration.ms(HELPER_MS))
+    let h = Task.spawn(quick())
+    h.join()
+}
+
+func one_round() -> Int {
+    var group = TaskGroup()
+    let _ = group.spawn(hog())
+    let t = group.spawn(napper())
+    sleep(Duration.ms(MAIN_MS))
+    t.join()
+}
+
+func settle(n: Int) {
+    var i = 0
+    while i < n {
+        sleep(Duration.ms(TICK_MS))
+        i = i + 1
+    }
+}
+
+func main() {
+    var total = 0
+    var round = 0
+    while round < ROUNDS {
+        let y = Task.spawn(helper())
+        yield_now()
+        let n = one_round()
+        settle(SETTLE_TICKS)
+        total = total + n + y.join()
+        round = round + 1
+    }
+    print("total {total} of {EXPECTED}")
+}

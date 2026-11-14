@@ -382,6 +382,9 @@ CONCURRENCY = (
             RUN_LANE + "probes/executor_walk_successor_at_the_same_address.saw",
             RUN_LANE + "probes/executor_walk_third_task_resumes_the_owner.saw",
             RUN_LANE + "probes/executor_walk_result_deinit_resumes_the_owner.saw",
+            RUN_LANE + "probes/executor_walk_two_walks_stand_on_the_group.saw",
+            RUN_LANE + "probes/executor_walk_pool_beside_the_walked_group.saw",
+            RUN_LANE + "probes/executor_walk_channel_wakes_the_owner.saw",
         ),
         blocked=()),
 )
