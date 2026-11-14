@@ -1,0 +1,257 @@
+module optional_chain_owned_temporary
+
+fn optional_chain_owned_temporary.Tag.deinit() -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_chain_owned_temporary.Tag;  // self
+
+    bb0: {
+        call builtin print [format "drop tag {}", copy (*_1).id] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn optional_chain_owned_temporary.find(present: Bool) -> optional_chain_owned_temporary.Unit? {
+    let _0: optional_chain_owned_temporary.Unit?;  // return
+    let _1: Bool;  // param present
+    let _2: optional_chain_owned_temporary.Tag;
+    let _3: optional_chain_owned_temporary.Unit;
+    let _4: optional_chain_owned_temporary.Unit?;
+    let _5: optional_chain_owned_temporary.Unit?;
+
+    bb0: {
+        switch copy _1 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = optional_chain_owned_temporary.Unit?::None;
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _2 = optional_chain_owned_temporary.Tag { id: const 7: Int };
+        _3 = optional_chain_owned_temporary.Unit { object: const "a.o": String, tag: move _2 };
+        _4 = optional_chain_owned_temporary.Unit?::Some(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn optional_chain_owned_temporary.pick_chain(present: Bool) -> String {
+    let _0: String;  // return
+    let _1: Bool;  // param present
+    let _2: String;  // object
+    let _3: String;
+    let _4: String?;
+    let _5: optional_chain_owned_temporary.Unit?;
+    let _6: String;
+    let _7: String?;
+    let _8: &String;
+    let _9: String;
+
+    bb0: {
+        _5 = call optional_chain_owned_temporary.find(present: Bool) [copy _1] -> [return: bb4];
+    }
+
+    bb1: {
+        _2 = move _3;
+        _8 = ref(shared, _2);
+        _9 = call std.string.String.copy() (owner String) [move _8] -> [return: bb9];
+    }
+
+    bb2: {
+        _7 = String?::None;
+        _4 = move _7;
+        goto -> bb3;
+    }
+
+    bb3: {
+        switch discriminant(_4) -> [Some: bb7, None: bb8];
+    }
+
+    bb4: {
+        switch discriminant(_5) -> [Some: bb5, None: bb6];
+    }
+
+    bb5: {
+        _6 = move (_5 as Some).0.object;
+        drop((_5 as Some).0.tag);
+        _4 = String?::Some(move _6);
+        goto -> bb3;
+    }
+
+    bb6: {
+        drop(_5);
+        goto -> bb2;
+    }
+
+    bb7: {
+        _3 = move (_4 as Some).0;
+        goto -> bb1;
+    }
+
+    bb8: {
+        drop(_4);
+        _3 = const "": String;
+        goto -> bb1;
+    }
+
+    bb9: {
+        _0 = move _9;
+        drop(_2);
+        return;
+    }
+}
+
+fn optional_chain_owned_temporary.pick_chain_alone(present: Bool) -> Int {
+    let _0: Int;  // return
+    let _1: Bool;  // param present
+    let _2: String?;  // o
+    let _3: String?;
+    let _4: optional_chain_owned_temporary.Unit?;
+    let _5: String;
+    let _6: String?;
+    let _7: String;  // s
+    let _8: &String;
+    let _9: String;
+    let _10: &String;
+    let _11: Int;
+
+    bb0: {
+        _4 = call optional_chain_owned_temporary.find(present: Bool) [copy _1] -> [return: bb3];
+    }
+
+    bb1: {
+        _6 = String?::None;
+        _3 = move _6;
+        goto -> bb2;
+    }
+
+    bb2: {
+        _2 = move _3;
+        switch discriminant(_2) -> [Some: bb7, None: bb8];
+    }
+
+    bb3: {
+        switch discriminant(_4) -> [Some: bb4, None: bb5];
+    }
+
+    bb4: {
+        _5 = move (_4 as Some).0.object;
+        drop((_4 as Some).0.tag);
+        _3 = String?::Some(move _5);
+        goto -> bb2;
+    }
+
+    bb5: {
+        drop(_4);
+        goto -> bb1;
+    }
+
+    bb6: {
+        _0 = const 0: Int;
+        drop(_2);
+        return;
+    }
+
+    bb7: {
+        _8 = ref(shared, (_2 as Some).0);
+        _9 = call std.string.String.copy() (owner String) [move _8] -> [return: bb9];
+    }
+
+    bb8: {
+        goto -> bb6;
+    }
+
+    bb9: {
+        _7 = move _9;
+        _10 = ref(shared, _7);
+        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb10];
+    }
+
+    bb10: {
+        _0 = move _11;
+        drop(_7);
+        drop(_2);
+        return;
+    }
+}
+
+fn optional_chain_owned_temporary.pick_free(present: Bool) -> String {
+    let _0: String;  // return
+    let _1: Bool;  // param present
+    let _2: String;  // object
+    let _3: optional_chain_owned_temporary.Unit?;
+    let _4: String;
+    let _5: &String;
+    let _6: String;
+
+    bb0: {
+        _3 = call optional_chain_owned_temporary.find(present: Bool) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = move (_3 as Some!).0.object;
+        drop((_3 as Some!).0.tag);
+        _2 = move _4;
+        _5 = ref(shared, _2);
+        _6 = call std.string.String.copy() (owner String) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _6;
+        drop(_2);
+        return;
+    }
+}
+
+fn optional_chain_owned_temporary.main() -> Void {
+    let _0: Void;  // return
+    let _1: String;
+    let _2: String;
+    let _3: Int;
+    let _4: String;
+
+    bb0: {
+        _1 = call optional_chain_owned_temporary.pick_chain(present: Bool) [const true: Bool] -> [return: bb1];
+    }
+
+    bb1: {
+        call builtin print [move _1] -> [return: bb2];
+    }
+
+    bb2: {
+        _2 = call optional_chain_owned_temporary.pick_chain(present: Bool) [const false: Bool] -> [return: bb3];
+    }
+
+    bb3: {
+        call builtin print [move _2] -> [return: bb4];
+    }
+
+    bb4: {
+        _3 = call optional_chain_owned_temporary.pick_chain_alone(present: Bool) [const true: Bool] -> [return: bb5];
+    }
+
+    bb5: {
+        call builtin print [copy _3] -> [return: bb6];
+    }
+
+    bb6: {
+        _4 = call optional_chain_owned_temporary.pick_free(present: Bool) [const true: Bool] -> [return: bb7];
+    }
+
+    bb7: {
+        call builtin print [move _4] -> [return: bb8];
+    }
+
+    bb8: {
+        return;
+    }
+}

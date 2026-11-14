@@ -97,6 +97,13 @@ public struct MirProgram {
     catches: Vector<MirCatch>  // front: rewritten in place
     // The optional chains open around the position, innermost last.
     chains: Vector<MirChain>  // front: rewritten in place
+    // The absent blocks the hops of the open chains made over an owned
+    // temporary, innermost chain last: the block, the temporary's local, and
+    // the chain's index in `chains`. A field read that takes the temporary
+    // apart drops it in each block (`take_from_temporary`).
+    absent_blocks: Vector<Int>  // front: process-local
+    absent_roots: Vector<Int>  // front: process-local
+    absent_chains: Vector<Int>  // front: process-local
     // By leaf: the local a binding lowers to, or -1; the leaves set, so they
     // are cleared when the function is done.
     leaf_local: Vector<Int>
@@ -261,7 +268,8 @@ func mir_empty_program(tc: TcProgram) -> MirProgram {
                func_of: ResIndex(), cur: -1, local_base: 0,
                block_base: 0, current: -1, scope: Vector<MirScopeEntry>(),
                scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), catches: Vector<MirCatch>(),
-               chains: Vector<MirChain>(), leaf_local: Vector<Int>(),
+               chains: Vector<MirChain>(), absent_blocks: Vector<Int>(), absent_roots: Vector<Int>(),
+               absent_chains: Vector<Int>(), leaf_local: Vector<Int>(),
                touched: Vector<Int>(), leaf_capture: Vector<Int>(), pending: Vector<Int>(),
                pending_parents: Vector<Int>(), closure_counts: ResIndex(), function_targets: ResIndex(),
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),

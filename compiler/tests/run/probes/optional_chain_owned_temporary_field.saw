@@ -1,0 +1,90 @@
+// probe: stated
+// about: an optional chain over an owned temporary moves its owning final field out and drops the rest of the payload once, on the absent path nothing prints (SL-1119)
+// stage 0: is no oracle for the self-hosted lowering of an optional chain's temporaries
+// speeds: -O0 -O2
+// prints: drop tag 7
+// prints: a.o
+// prints: mid
+// prints: absent []
+// prints: mid2
+// prints: drop tag 7
+// prints: a.o
+// prints: s:a.o s:in s:op
+// prints: s:- s:- s:-
+// prints: end
+// leaks: none
+// The chain `find(present)?.object ?? ""` reads a field of the `Unit?` a call
+// returned. On the present path the field moves out and the rest of the
+// payload (`tag`, whose deinit prints) drops there, in the order the
+// chain-free `find(true)!.object` gives; on the absent path the temporary
+// holds nothing and nothing prints. `several` reads a plain, a nested and a
+// two-hop final field of a temporary a call returned.
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop tag {}", self.id)
+    }
+}
+
+struct Unit {
+    object: String
+    tag: Tag
+}
+
+extension Unit: NoCopy {}
+
+func find(present: Bool) -> Unit? {
+    if present {
+        return Unit(object: "a.o", tag: Tag(id: 7))
+    }
+    return None
+}
+
+func pick_chain(present: Bool) -> String {
+    let object = find(present)?.object ?? ""
+    return object
+}
+
+func pick_free(present: Bool) -> String {
+    let object = find(present)!.object
+    return object
+}
+
+struct Inner {
+    s: String
+}
+
+struct Wrap {
+    object: String
+    inner: Inner
+    opt: Inner?
+}
+
+func wrap(present: Bool) -> Wrap? {
+    if present {
+        return Wrap(object: "a.o", inner: Inner(s: "in"), opt: Inner(s: "op"))
+    }
+    return None
+}
+
+func several(present: Bool) -> String {
+    let a = wrap(present)?.object ?? "-"
+    let b = wrap(present)?.inner.s ?? "-"
+    let c = wrap(present)?.opt?.s ?? "-"
+    return "s:{a} s:{b} s:{c}"
+}
+
+func main() {
+    print(pick_chain(true))
+    print("mid")
+    print("absent [{pick_chain(false)}]")
+    print("mid2")
+    print(pick_free(true))
+    print(several(true))
+    print(several(false))
+    print("end")
+}

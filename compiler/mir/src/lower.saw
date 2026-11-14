@@ -263,6 +263,9 @@ extension MirProgram {
         self.loops = Vector<MirLoop>()
         self.catches = Vector<MirCatch>()
         self.chains = Vector<MirChain>()
+        self.absent_blocks = Vector<Int>()
+        self.absent_roots = Vector<Int>()
+        self.absent_chains = Vector<Int>()
         self.refused = false
         let _ = self.source_at(root)
         let _ = self.new_local(result, MirLocalKind.Return, -1, -1)
@@ -2743,7 +2746,9 @@ extension MirProgram {
     // payload's place; the absent path goes to `absent`, or, at -1, leaves
     // the innermost chain being lowered (`leave_chain`). A temporary the
     // present path takes its payload out of, consumed at node `taken`, is
-    // dissolved on the absent path too, where it holds nothing.
+    // dissolved on the absent path too, where it holds nothing. A leaving
+    // absent path over an owned temporary is listed, for a later field read
+    // that takes the temporary (`note_absent_block`).
     //
     // ENTRY POINTS (chain_hop_payload):
     //     hop_steps
@@ -2771,10 +2776,56 @@ extension MirProgram {
                 self.dissolve(p, &nothing, taken)
             }
             self.leave_chain()
+            self.note_absent_block(p, target, taken)
         }
         self.enter(present)
         let payload = self.place_arg(p, 0)
         self.payload_place(p, some, 0, payload)
+    }
+
+    // Absent block `block`, made for a hop over `p`, listed with the owned
+    // temporary `p` lies in, for a later field read that takes it apart
+    // (`drop_taken_temporary`). A temporary the hop's own consumer takes
+    // (`taken` at a node) is dissolved in the block already.
+    func note_absent_block(&var self, p: Int, block: Int, taken: Int) {
+        let n = self.chains.len()
+        let l = self.places[p].local
+        if taken >= 0 || n == 0 || l < 0 {
+            return
+        }
+        let info = self.local(l)
+        if info.kind != MirLocalKind.Temp || not info.owned {
+            return
+        }
+        try! self.absent_blocks.push(block)
+        try! self.absent_roots.push(l)
+        try! self.absent_chains.push(n - 1)
+    }
+
+    // Drops the last recorded absent block.
+    func forget_absent_block(&var self) {
+        let _ = self.absent_blocks.pop()
+        let _ = self.absent_roots.pop()
+        let _ = self.absent_chains.pop()
+    }
+
+    // Owned temporary `l`, taken off its scope by a field read, is dropped on
+    // each absent path the innermost chain's hops made over it, where it
+    // holds nothing, and each record is spent.
+    func drop_taken_temporary(&var self, l: Int) {
+        let n = self.chains.len()
+        let resume = self.current
+        var k = self.absent_blocks.len() - 1
+        while k >= 0 && n > 0 && self.absent_chains[k] == n - 1 {
+            if self.absent_roots[k] == l {
+                self.enter(self.absent_blocks[k])
+                let whole = self.place_local(l)
+                self.emit_drop(whole)
+                self.absent_roots[k] = -1
+            }
+            k = k - 1
+        }
+        self.enter(resume)
     }
 
     // A hop's absent path, which no later part of the innermost chain runs
@@ -2867,6 +2918,9 @@ extension MirProgram {
             k = k + 1
         }
         self.chains = move kept
+        while self.absent_chains.len() > 0 && self.absent_chains[self.absent_chains.len() - 1] >= n - 1 {
+            self.forget_absent_block()
+        }
         if self.live() {
             if presence || self.tc.final_type(top) == t {
                 let rv = self.rv_use(o)
@@ -6733,7 +6787,9 @@ extension MirProgram {
     // temporary, at any depth. When the position `e` names takes the part by
     // value and it owns something, the part moves into a temporary of its
     // own, the temporary it was read out of is dissolved around it, never
-    // dropped whole, and the plan becomes the new temporary. `e` is the
+    // dropped whole, and the plan becomes the new temporary. A `?.` hop of
+    // the enclosing chain that found the temporary absent has dropped it whole
+    // by then (`drop_taken_temporary`). `e` is the
     // projection itself, or a statement-form `borrow` whose use is the
     // position's.
     //
@@ -6752,6 +6808,7 @@ extension MirProgram {
         }
         let p = self.realize_all(&steps)
         self.forget_local(l)
+        self.drop_taken_temporary(l)
         let whole = self.place_local(l)
         let moved = self.take_payload(whole, p, e)
         let q = self.operands[moved].place

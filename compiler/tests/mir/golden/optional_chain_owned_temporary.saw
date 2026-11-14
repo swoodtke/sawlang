@@ -1,0 +1,54 @@
+// An optional chain over an owned temporary whose final field is owning
+// (SL-1119): the head call's result is a temporary of the statement, the
+// field moves out of its payload on the present path, the rest of the payload
+// drops there, and the absent path drops the temporary, which holds nothing.
+// The chain-free `find(true)!.object` is the model of the present path.
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop tag {}", self.id)
+    }
+}
+
+struct Unit {
+    object: String
+    tag: Tag
+}
+
+extension Unit: NoCopy {}
+
+func find(present: Bool) -> Unit? {
+    if present {
+        return Unit(object: "a.o", tag: Tag(id: 7))
+    }
+    return None
+}
+
+func pick_chain(present: Bool) -> String {
+    let object = find(present)?.object ?? ""
+    return object
+}
+
+func pick_chain_alone(present: Bool) -> Int {
+    let o = find(present)?.object
+    if let s = o {
+        return s.len()
+    }
+    return 0
+}
+
+func pick_free(present: Bool) -> String {
+    let object = find(present)!.object
+    return object
+}
+
+func main() {
+    print(pick_chain(true))
+    print(pick_chain(false))
+    print(pick_chain_alone(true))
+    print(pick_free(true))
+}
