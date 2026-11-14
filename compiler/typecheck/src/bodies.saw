@@ -2057,6 +2057,9 @@ extension TcProgram {
         if pos == TcConstPosition.Static && d >= 0 && self.refuse_static_cycle(d, e) {
             return none
         }
+        if pos == TcConstPosition.RawValue && d >= 0 && self.refuse_case_cycle(d, e) {
+            return none
+        }
         if pos != TcConstPosition.Static && pos != TcConstPosition.Repeat && pos != TcConstPosition.Length {
             let early = self.fold_constant(e)
             if self.awaits_typing(&early) {
@@ -2604,6 +2607,86 @@ extension TcProgram {
             path = move kept
         }
         false
+    }
+
+    // Refuses raw case `d`'s value `e` when it leads back to `d` through
+    // cases of its own enum: every case on a cycle says so at its own value.
+    func refuse_case_cycle(&var self, d: Int, e: Int) -> Bool {
+        var path = Vector<Int>()
+        try! path.push(d)
+        var seen = Vector<Int>()
+        if not self.reaches_case(d, d, &var path, &var seen) {
+            return false
+        }
+        var msg = StringBuilder()
+        try! msg.append("the raw value of `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` depends on itself: ")
+        var k = 0
+        while k < path.len() {
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(path[k]))
+            try! msg.append("` -> ")
+            k = k + 1
+        }
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("`; a raw value is fixed at compile time, so it may name only cases whose own values do not lead back to it")
+        self.refuse(e, "static.cycle", msg.build())
+        true
+    }
+
+    // Whether raw case `from`'s value leads to case `target` through cases of
+    // `from`'s own enum, `path` the cases walked to `from`.
+    func reaches_case(&self, from: Int, target: Int, path: &var Vector<Int>, seen: &var Vector<Int>) -> Bool {
+        var refs = Vector<Int>()
+        self.cases_named(self.raw_value_node(from), self.res.decls[from].parent, &var refs)
+        var k = 0
+        while k < refs.len() {
+            let r = refs[k]
+            k = k + 1
+            if r == target {
+                return true
+            }
+            if tc_contains(&seen, r) {
+                continue
+            }
+            try! seen.push(r)
+            try! path.push(r)
+            if self.reaches_case(r, target, &var path, &var seen) {
+                return true
+            }
+            var kept = Vector<Int>()
+            var j = 0
+            while j + 1 < path.len() {
+                try! kept.push(path[j])
+                j = j + 1
+            }
+            path = move kept
+        }
+        false
+    }
+
+    // Each raw case of enum `owner` expression `e` names, in source order,
+    // into `out`; a case of another enum is refused where it is written.
+    func cases_named(&self, e: Int, owner: Int, out: &var Vector<Int>) {
+        if e < 0 || self.is_leaf(e) {
+            return
+        }
+        let c = self.raw_case_named(e)
+        if c >= 0 {
+            if self.res.decls[c].parent == owner {
+                try! out.push(c)
+            }
+            return
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let child = self.child(e, k)
+            self.cases_named(child, owner, &var out)
+            k = k + 1
+        }
     }
 
     // Each fixed static expression `e` names, in source order, into `out`.
@@ -6346,7 +6429,7 @@ extension TcProgram {
             return self.build_length(count, TcConstPosition.Repeat)
         }
         let v = self.check_constant_position(count, TcConstPosition.Repeat, self.current_decl, -1)
-        if self.refused_within(count) {
+        if self.refused_within(count) || v.fault == TcFault.Cycle {
             return self.error_type
         }
         if not v.ok {
@@ -6410,7 +6493,8 @@ extension TcProgram {
         self.consume(node)
         let v = self.check_constant_position(node, TcConstPosition.Length, -1, -1)
         var length = -1
-        if self.refused_within(node) {
+        if self.refused_within(node) || v.fault == TcFault.Cycle {
+            // A raw case on a cycle says so at its own declaration.
             length = self.error_type
         } else if v.ok {
             length = self.fold_length(node, TcConstPosition.Length, &v)

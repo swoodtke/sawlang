@@ -1,0 +1,11 @@
+// refuses: static.not-constant at 10:14
+// two enums whose cases name each other: each name is refused as another enum's case, with no cycle message (SL-1107)
+// message: it may not name a static or another enum's case
+
+enum First: UInt8 {
+    case A = Second.B
+}
+
+enum Second: UInt8 {
+    case B = First.A
+}

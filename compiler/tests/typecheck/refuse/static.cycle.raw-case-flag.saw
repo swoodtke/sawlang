@@ -1,0 +1,8 @@
+// refuses: static.cycle at 7:17
+// a flag case that names itself next to a sound one: only the self-naming case is refused (SL-1107)
+// message: the raw value of `Flag.Both` depends on itself: `Flag.Both` -> `Flag.Both`
+
+enum Flag: UInt8 {
+    case One = 1
+    case Both = Flag.One | Flag.Both
+}

@@ -516,13 +516,36 @@ extension TcProgram {
         v
     }
 
+    // Raw case `c`'s value, named at `e`; the twin of `fold_static`, with
+    // `c` on `chain` the same way, so one already being folded is a cycle.
+    func fold_case(&var self, c: Int, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let backing = self.sigs[self.res.decls[c].parent].result
+        var k = 0
+        while k < chain.len() {
+            if chain[k] == c {
+                return TcFold(fault: TcFault.Cycle, ty: backing, at: e)
+            }
+            k = k + 1
+        }
+        let value = self.raw_value_node(c)
+        try! chain.push(c)
+        let v = self.fold_at(value, &var chain)
+        var rest = Vector<Int>()
+        k = 0
+        while k + 1 < chain.len() {
+            try! rest.push(chain[k])
+            k = k + 1
+        }
+        chain = move rest
+        v
+    }
+
     // `E.Case` of a raw-backed enum, by its raw value at its backing; an
     // integer type's `max` or `min`; a static named through its module.
     func fold_member(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         let c = self.raw_case_named(e)
         if c >= 0 {
-            let value = self.raw_value_node(c)
-            return self.fold_at(value, &var chain)
+            return self.fold_case(c, e, &var chain)
         }
         let leaf = self.res.last_leaf_of(e)
         let b = self.binding_at(leaf)

@@ -1,0 +1,7 @@
+// refuses: static.cycle at 6:14
+// a raw case whose value names the case itself is refused at its declaration (SL-1107)
+// message: the raw value of `Code.A` depends on itself: `Code.A` -> `Code.A`
+
+enum Code: UInt8 {
+    case A = Code.A
+}

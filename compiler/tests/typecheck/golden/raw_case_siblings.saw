@@ -1,0 +1,14 @@
+// A raw case's value may name a case of its own enum, declared above or
+// below it, so long as no value leads back to itself.
+
+enum Chain: UInt8 {
+    case Later = Chain.Last + 1
+    case First = 4
+    case Last = Chain.First * 2
+}
+
+static_assert((Chain.Later as UInt8) == 9, "forward then backward")
+
+func main() {
+    print(Chain.Later as UInt8)
+}

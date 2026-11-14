@@ -1,0 +1,8 @@
+// refuses: static.cycle at 7:14
+// two raw cases whose values name each other: each is refused at its own value, B first (SL-1107)
+// message: the raw value of `Code.B` depends on itself: `Code.B` -> `Code.A` -> `Code.B`
+
+enum Code: UInt8 {
+    case A = Code.B + 1
+    case B = Code.A + 1
+}

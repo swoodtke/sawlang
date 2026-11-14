@@ -1,0 +1,33 @@
+// refuses: static.cycle at 6:14
+// a case on a cycle used as a length, a repeat count, a static's value, an assert and a match arm adds no second error (SL-1107)
+// message: the raw value of `Code.A` depends on itself
+
+enum Code: Int {
+    case A = Code.A + 1
+    case B = 2
+}
+
+struct Buffer {
+    bytes: [UInt8; Code.A]
+}
+
+static LIMIT: Int = Code.A as Int
+
+static_assert(Code.A as Int == 0, "zero")
+
+func fill() -> Int {
+    let b = [0; Code.A]
+    b.len()
+}
+
+func name(c: Code) -> Int {
+    match c {
+        case A -> 1,
+        case B -> 2
+    }
+}
+
+func read() -> Int {
+    let x: Int = Code.A
+    x + (Code.A as Int)
+}
