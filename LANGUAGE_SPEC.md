@@ -1649,8 +1649,7 @@ it, `d[i]` panics (see [Allocation failure](#allocation-failure)).
 
 ### Source-location literals
 
-**Status: partially implemented:** the front end accepts them, and `sawc build`
-does not lower them yet (SL-1010).
+**Status: implemented.**
 
 Three magic literals expand at compile time to their **definition site** — the
 place the token literally appears in source (design 98). They are ordinary
@@ -1672,8 +1671,9 @@ func log(msg: String) { print("{#file}:{#line} - {msg}") }  // debug-print idiom
 
 Expansion is at the definition site, never the caller. In a **generic** the value
 is the generic's own file/line, identical across every instantiation. In a
-**default argument** it is the default's own definition site (there is no
-caller-site `#file`-as-default-argument capture — Swift's other mode — in v1).
+**default argument** it is the default's own definition site, where `#function`
+names the function that declares the parameter (there is no caller-site
+`#file`-as-default-argument capture — Swift's other mode — in v1).
 Inside a **suspending function** body `#line`/`#function` report the ORIGINAL
 source line and the user function's name, not the transformed coroutine frame's.
 `#` introduces these three and nothing else. `#lend_var` is refused with a hint

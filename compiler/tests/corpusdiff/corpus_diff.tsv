@@ -2327,8 +2327,8 @@ slab_basic.saw	pass	-	-
 sleep_seam_multi_chunk.saw	pass	-	-
 slot_all_four_tiers.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-source_location_literals.saw	refused	llvm backend.not-yet	a memory constant is not in the backend slice yet
-source_location_suspending.saw	refused	llvm backend.not-yet	the constant `#line` is not in the backend slice yet
+source_location_literals.saw	pass	-	-
+source_location_suspending.saw	pass	-	-
 spawn_body_destructuring_let.saw	pass	-	-
 spawn_body_same_scope_redefinition.saw	pass	judged by its own directives (edited since its oracle)	-
 spawn_capture_after_group.saw	pass	-	loan.drop-while-borrowed: cannot capture `&var n` into a task: `n` is declared AFTER the group `group` it is spawned into (at 23:9 against 22:9), and destruction is LIFO — `n` is torn down BEFORE `gro

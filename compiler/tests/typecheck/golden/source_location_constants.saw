@@ -1,0 +1,15 @@
+// `#line` is an `Int` constant where the constant grammar stands: a `static`
+// initializer, a `static_assert` operand and a repeat count read its value
+// (spec, Source-location literals). `#file` and `#function` are `String`s and
+// no constant.
+
+static LINE: Int = #line
+
+static_assert(#line == 8, "the line of this assertion")
+static_assert(LINE == 6, "a static reads the line it was written on")
+
+static ROW: [UInt8; 3] = [0; #line - 8]
+
+func row() -> [UInt8; 4] {
+    [0; #line - 10]
+}

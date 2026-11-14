@@ -1,0 +1,94 @@
+module source_locations
+
+fn static source_locations.LINE -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 7: Int;
+        return;
+    }
+}
+
+fn default source_locations.where_am_i(at: Int).at -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 9: Int;
+        return;
+    }
+}
+
+fn source_locations.where_am_i(at: Int) -> String {
+    let _0: String;  // return
+    let _1: Int;  // param at
+    let _2: String;
+
+    bb0: {
+        _2 = interpolate [const "source_locations.saw": String, const ":": String, copy _1, const " in ": String, const "where_am_i": String];
+        _0 = move _2;
+        return;
+    }
+}
+
+fn source_locations.plain() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // name
+    let _2: String;  // file
+    let _3: () sendable -> String;  // f
+    let _4: () sendable -> String;
+    let _5: &String;
+    let _6: Int;
+    let _7: Int;
+    let _8: &String;
+    let _9: Int;
+    let _10: Int;
+    let _11: String;
+    let _12: &String;
+    let _13: Int;
+    let _14: Int;
+
+    bb0: {
+        _1 = const "plain": String;
+        _2 = const "source_locations.saw": String;
+        _4 = closure#0 of source_locations.plain() [];
+        _3 = move _4;
+        _5 = ref(shared, _1);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _7 = Add(const 17: Int, move _6);
+        _8 = ref(shared, _2);
+        _9 = call std.string.String.len() (owner String) [move _8] -> [return: bb2];
+    }
+
+    bb2: {
+        _10 = Add(move _7, move _9);
+        _11 = call value copy _3 [] -> [return: bb3];
+    }
+
+    bb3: {
+        _12 = ref(shared, _11);
+        _13 = call std.string.String.len() (owner String) [move _12] -> [return: bb4];
+    }
+
+    bb4: {
+        _14 = Add(move _10, move _13);
+        _0 = move _14;
+        drop(_11);
+        drop(_3);
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn closure#0 of source_locations.plain() -> String {
+    let _0: String;  // return
+    let _1: &();  // env
+
+    bb0: {
+        _0 = const "plain": String;
+        return;
+    }
+}

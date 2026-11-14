@@ -1,0 +1,83 @@
+// probe: stated
+// about: `#line`, `#file` and `#function` are ordinary constants wherever a literal of their type stands (SL-1010)
+// stage 0: spells none of the three the way the spec does, so its output is no oracle
+// speeds: -O0 -O2
+// prints: 29
+// prints: source_location_literals.saw
+// prints: plain
+// prints: source_location_literals.saw:32 in plain
+// prints: 33
+// prints: 36 source_location_literals.saw d
+// prints: 40
+// prints: 43 43
+// prints: gn gn
+// prints: init
+// prints: m
+// prints: 59
+// prints: outer
+// prints: 67
+// prints: work
+// prints: source_location_literals.saw
+// prints: source_location_literals.saw:82
+// Both `#file` lines above hold the base name a `panic at FILE:LINE:` prefix spells.
+// A second module's `#file` is pinned by `source_location_imported.saw`.
+import std.task.{yield_now}
+
+struct S { a: Int }
+
+func plain() {
+    print(#line)
+    print(#file)
+    print(#function)
+    print("{#file}:{#line} in {#function}")
+    print("{}", #line)
+}
+
+func d(l: Int = #line, f: String = #file, n: String = #function) {
+    print("{} {} {}", l, f, n)
+}
+
+static LN: Int = #line
+
+func g<T>(x: T) -> String {
+    "{#line}"
+}
+
+func gn<T>(x: T) -> String {
+    #function
+}
+
+extension S {
+    init(z: Int) -> S {
+        print(#function)
+        S(a: z)
+    }
+    func m(&self) { print(#function) }
+}
+
+func outer() {
+    let f = { #line }
+    let n = { #function }
+    print(f())
+    print(n())
+}
+
+func work() {
+    yield_now()
+    print(#line)
+    print(#function)
+}
+
+func main() {
+    plain()
+    d()
+    print(LN)
+    print("{} {}", g(1), g("a"))
+    print("{} {}", gn(1), gn("a"))
+    let s = S(z: 1)
+    s.m()
+    outer()
+    work()
+    print(#file)
+    print("{}:{}", #file, #line)
+}

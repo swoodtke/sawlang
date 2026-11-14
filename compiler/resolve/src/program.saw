@@ -207,6 +207,27 @@ extension ResProgram {
         self.names.text(info.file)
     }
 
+    // Module `m`'s file name with its directories cut: the one spelling of a
+    // file a panic's `FILE:LINE` prefix and the `#file` literal share.
+    //
+    // ENTRY POINTS:
+    //   site_text (mono)
+    //   source_file (MIR)
+    public func module_base_name(&self, m: Int) -> String {
+        let path = self.module_file(m)
+        var cut = 0
+        var i = 0
+        // Stage 0 workaround (SL:hazards S4): canonical: path.substring(cut, path.len())
+        let size = path.len()
+        while i < size {
+            if (path.byte_at(i) as Int) == 47 {
+                cut = i + 1
+            }
+            i = i + 1
+        }
+        path.substring(cut, size)
+    }
+
     public func module_text(&self, m: Int) -> String { self.texts.get(m) ?? "" }
 
     public func node(&self, id: Int) -> AstNode { self.nodes[id] }

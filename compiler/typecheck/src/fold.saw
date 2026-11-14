@@ -146,6 +146,7 @@ extension TcProgram {
             },
             case Expr_Bool_True -> TcFold(bits: 1, ty: self.bool_type()),
             case Expr_Bool_False -> TcFold(bits: 0, ty: self.bool_type()),
+            case Expr_SourceLocation_Line -> TcFold(bits: self.token_line(e), ty: self.int_type()),
             case Expr_Unary_Negate -> {
                 let operand = self.res.first_node_child(e)
                 if self.has_alt(operand, Alt.Expr_Int) {
@@ -307,6 +308,24 @@ extension TcProgram {
             return TcFold(ok: false, bits: r.bits, ty: self.int_type(), fault: TcFault.NotFit, at: e)
         }
         TcFold(bits: r.bits, ty: t)
+    }
+
+    // The 1-based line of node `e`'s first token, as `#line` reads it (MIR's
+    // `source_line` builds the same constant).
+    func token_line(&self, e: Int) -> Int {
+        let m = self.node_module_of(e)
+        let position = self.res.position_text(m, self.res.node(e).start)
+        var line = 0
+        var i = 0
+        while i < position.len() {
+            let digit = (position.byte_at(i) as Int) - 48
+            if digit < 0 || digit > 9 {
+                break
+            }
+            line = line * 10 + digit
+            i = i + 1
+        }
+        line
     }
 
     func uint64_type(&var self) -> Int {

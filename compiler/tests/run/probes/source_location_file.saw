@@ -1,0 +1,12 @@
+// probe: stated
+// about: `#file` is the base name of the file the token is written in, a second module's included (SL-1010)
+// stage 0: spells none of the three the way the spec does, so its output is no oracle
+// speeds: -O0 -O2
+// prints: source_location_file_module.saw
+// prints: source_location_file.saw
+import source_location_file_module
+
+func main() {
+    print(source_location_file_module.file_here())
+    print(#file)
+}

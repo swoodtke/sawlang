@@ -2099,9 +2099,9 @@ extension MirProgram {
             case Expr_Bool_False -> MirVal(operand: self.op_const(MirConstKind.Bool, "false", t)),
             case Expr_None -> MirVal(operand: self.none_value(t)),
             case Expr_Interpolation -> MirVal(operand: self.interpolation(e)),
-            case Expr_SourceLocation_File -> MirVal(operand: self.literal(e, MirConstKind.Builtin, t)),
-            case Expr_SourceLocation_Line -> MirVal(operand: self.literal(e, MirConstKind.Builtin, t)),
-            case Expr_SourceLocation_Function -> MirVal(operand: self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_SourceLocation_File -> MirVal(operand: self.source_file(e, t)),
+            case Expr_SourceLocation_Line -> MirVal(operand: self.source_line(e, t)),
+            case Expr_SourceLocation_Function -> MirVal(operand: self.source_function(t)),
             case Expr_Name -> self.name_val(e),
             case Expr_NameRef -> self.name_val(e),
             case Expr_Self -> self.prepared_val(e),
@@ -2170,6 +2170,62 @@ extension MirProgram {
         let m = self.tc.node_module(e)
         let text = self.tc.text(m, e)
         self.op_const(kind, text, t)
+    }
+
+    // `#line`: the 1-based line of the token, an `Int` constant.
+    func source_line(&var self, e: Int, t: Int) -> Int {
+        let m = self.tc.node_module(e)
+        let position = self.tc.res.position_text(m, self.tc.res.node(e).start)
+        var end = 0
+        while end < position.len() && (position.byte_at(end) as Int) != MIR_COLON {
+            end = end + 1
+        }
+        self.op_const(MirConstKind.Int, position.substring(0, end), t)
+    }
+
+    // `#file`: the module file's base name, spelled as the panic prefix
+    // spells it (`module_base_name`), a `String` constant.
+    func source_file(&var self, e: Int, t: Int) -> Int {
+        let m = self.tc.node_module(e)
+        self.string_constant(self.tc.res.module_base_name(m), t)
+    }
+
+    // `#function`: the bare name of the function, method or `init` the token
+    // is written in (a closure's is the one around it), `<module>` where no
+    // callable encloses it.
+    func source_function(&var self, t: Int) -> Int {
+        var name = "<module>"
+        let d = self.funcs[self.cur].decl
+        if d >= 0 {
+            let info = self.tc.res.decls[d]
+            let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.InitRequirement
+            if callable {
+                name = self.tc.name_text(info.name)
+            }
+        }
+        self.string_constant(name, t)
+    }
+
+    // A `String` constant of bytes `text`, in the quoted spelling a literal
+    // has (`ll_string_bytes` reads it back), so its `\`, `"` and braces are
+    // escaped.
+    func string_constant(&var self, text: String, t: Int) -> Int {
+        var out = StringBuilder()
+        try! out.append("\"")
+        var run = 0
+        var i = 0
+        while i < text.len() {
+            let b = text.byte_at(i) as Int
+            if b == MIR_BACKSLASH || b == MIR_QUOTE || b == MIR_OPEN_BRACE || b == MIR_CLOSE_BRACE {
+                try! out.append(text.substring(run, i))
+                try! out.append("\\")
+                run = i
+            }
+            i = i + 1
+        }
+        try! out.append(text.substring(run, text.len()))
+        try! out.append("\"")
+        self.op_const(MirConstKind.String, out.build(), t)
     }
 
     // `None` of Optional type `t`.
@@ -6821,6 +6877,11 @@ public struct MirMatch {
 extension MirMatch: NoCopy {}
 
 static MIR_FAIL_NONE: Int = -1
+static MIR_COLON: Int = 58
+static MIR_BACKSLASH: Int = 92
+static MIR_QUOTE: Int = 34
+static MIR_OPEN_BRACE: Int = 123
+static MIR_CLOSE_BRACE: Int = 125
 static MIR_FAIL_PENDING: Int = -2
 
 // Whether a literal pattern's value is a key a test compares by alone: an

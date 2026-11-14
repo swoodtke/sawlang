@@ -1,0 +1,6 @@
+// probe: module
+// about: the module `source_location_file` imports: its `#file` is its own file's base name, whoever calls (SL-1010)
+
+public func file_here() -> String {
+    "{#file}"
+}

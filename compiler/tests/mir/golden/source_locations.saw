@@ -1,0 +1,18 @@
+// The three source-location literals are ordinary constants in MIR: `#line`
+// an `Int` constant, `#file` and `#function` `String` constants holding the
+// file's base name and the enclosing function's bare name; a default value
+// and a closure read the function that declares them (spec, Source-location
+// literals).
+
+static LINE: Int = #line
+
+func where_am_i(at: Int = #line) -> String {
+    "{#file}:{at} in {#function}"
+}
+
+func plain() -> Int {
+    let name = #function
+    let file = #file
+    let f = { #function }
+    #line + name.len() + file.len() + f().len()
+}

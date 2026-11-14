@@ -835,18 +835,7 @@ extension MonoProgram {
         if m < 0 {
             return "?"
         }
-        let path = self.dp.bc.mir.tc.res.module_file(m)
-        var cut = 0
-        var i = 0
-        // Stage 0 workaround (SL:hazards S4): canonical: let base = path.substring(cut, path.len())
-        let size = path.len()
-        while i < size {
-            if (path.byte_at(i) as Int) == MONO_SLASH {
-                cut = i + 1
-            }
-            i = i + 1
-        }
-        let base = path.substring(cut, size)
+        let base = self.dp.bc.mir.tc.res.module_base_name(m)
         let span = self.dp.bc.mir.tc.res.node(node)
         let position = self.dp.bc.mir.tc.res.position_text(m, span.start)
         var line_end = 0
@@ -861,5 +850,4 @@ extension MonoProgram {
     }
 }
 
-static MONO_SLASH: Int = 47
 static MONO_COLON: Int = 58

@@ -1,13 +1,20 @@
-// refuses: backend.not-yet at 7:5
-// message: (in the instantiation `line_of<Int>`)
-// A backend refusal inside a generic emitted at two instances: the backend
-// refuses each instance's function at the one node they share, through mono's
-// refusal, and each refusal names its instance, so the two lines differ.
-func line_of<T>(v: T) -> Int {
-    #line
+// refuses: backend.not-yet at 14:5
+// message: (in the instantiation `count_of<Int>`)
+// A backend refusal inside a generic body names the instance it met: a static
+// holding a Float is refused at its first read, which here is in the first
+// instance, so the refusal's clause is that instance's.
+struct Point {
+    x: Float
+    n: Int
+}
+
+static ORIGIN: Point = Point(x: 1.5, n: 2)
+
+func count_of<T>(v: T) -> Int {
+    ORIGIN.n
 }
 
 func main() {
-    print(line_of(1))
-    print(line_of("x"))
+    print(count_of(1))
+    print(count_of("x"))
 }
