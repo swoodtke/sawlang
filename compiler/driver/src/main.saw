@@ -1682,7 +1682,8 @@ func driver_cache_fingerprint(split: &DriverSplit) unsafe -> String? {
 
 // A name no other build's temporary entry takes: random bytes in hex, or,
 // where /dev/urandom cannot be read, the time.
-func driver_cache_token() unsafe -> String {
+// The driver runs no executor, so the device read blocks its thread.
+func driver_cache_token() unsafe blocking -> String {
     var out = StringBuilder()
     match File.open(Path(s: "/dev/urandom")) {
         case Ok(handle) -> {
@@ -2905,7 +2906,8 @@ func driver_thinlto_cache_arguments(arguments: &var Vector<String>, dir: String,
 // single-threaded. Returns each job's outcome in job order, its time from its
 // start to its reaping, and a status of 1 for a job that could not run, once
 // the reason is printed.
-func driver_run_jobs(jobs: &Vector<DriverJob>, workers: Int) -> Vector<DriverDone> {
+// The driver runs no executor, so waiting on a child blocks its thread.
+func driver_run_jobs(jobs: &Vector<DriverJob>, workers: Int) blocking -> Vector<DriverDone> {
     let count = jobs.len()
     var children = Vector<Child>()
     var started = Vector<time.Instant>()
@@ -3314,7 +3316,8 @@ func driver_clang(command: String, program: String, arguments: &Vector<String>) 
 // Runs `program`, the tool `tool`, with `arguments` and returns its exit
 // status, or 1 once the reason it could not run is printed, headed by
 // `command`.
-func driver_tool(command: String, tool: String, program: String, arguments: &Vector<String>) -> Int {
+// The driver runs no executor, so waiting on a child blocks its thread.
+func driver_tool(command: String, tool: String, program: String, arguments: &Vector<String>) blocking -> Int {
     var child = Command(program: program)
     var i = 0
     while i < arguments.len() {
