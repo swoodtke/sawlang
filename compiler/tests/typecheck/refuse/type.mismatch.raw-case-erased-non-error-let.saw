@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 11:43
+// an enum that is no Error, bound where the error is erased, keeps the cast hint (SL-1090)
+// message: a raw-backed case is an integer only where the slot's own type is one: write `Why.Bad as UInt`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+func main() {
+    let r: Result<UInt, Box<any Error>> = Why.Bad
+}

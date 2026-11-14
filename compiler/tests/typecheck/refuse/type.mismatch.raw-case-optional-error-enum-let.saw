@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 17:20
+// an Error enum's lone case bound to an optional integer keeps the cast hint (SL-1090)
+// message: a raw-backed case is an integer only where the slot's own type is one: write `Why.Bad as UInt`
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+extension Why: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("why") }
+}
+
+extension Why: Error {}
+
+func main() {
+    let m: UInt? = Why.Bad
+}

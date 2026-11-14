@@ -15614,13 +15614,14 @@ extension TcProgram {
         try! msg.append(self.type_text(from))
         try! msg.append("`")
         var hint = self.static_cast_hint(e, slot)
-        if hint.len() == 0 {
+        let reason = self.allowance_reason(from, slot, allow)
+        if hint.len() == 0 && reason.len() == 0 {
             hint = self.lone_case_cast_hint(e, slot, pos)
         }
         if hint.len() > 0 {
             try! msg.append(hint)
         } else {
-            try! msg.append(self.allowance_reason(from, slot, allow))
+            try! msg.append(reason)
         }
         self.refuse(e, "type.mismatch", msg.build())
     }
@@ -15648,6 +15649,9 @@ extension TcProgram {
     // `Result` wraps an integer: the case is an integer only where the slot's
     // own type is one. Empty otherwise, and when the case's value does not
     // fit that integer, where the cast would be refused too (SL-1090).
+    // `refuse_mismatch` asks it only when the slot has no allowance reason to
+    // give, so an error enum's case where the error is erased is told to build
+    // the `Err`, as a typed value is, never to cast.
     func lone_case_cast_hint(&var self, e: Int, slot: Int, pos: TcPosition) -> String {
         if self.raw_case_named(e) < 0 || not self.adopts_lone_case(pos) {
             return ""

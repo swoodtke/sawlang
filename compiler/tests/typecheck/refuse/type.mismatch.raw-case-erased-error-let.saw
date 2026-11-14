@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 17:43
+// an Error enum's lone case bound where the error is erased is told to build the Err, not to cast (SL-1090)
+// message: only a return builds the `Box<any Error>` a concrete error erases into, so write an explicit `.Err(error: ...)` holding the box
+
+enum Why: UInt8 {
+    case Fine = 0,
+    case Bad = 11,
+}
+
+extension Why: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("why") }
+}
+
+extension Why: Error {}
+
+func main() {
+    let r: Result<UInt, Box<any Error>> = Why.Bad
+}
