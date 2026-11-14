@@ -1139,6 +1139,44 @@ def check_default_output(failures, counts):
     counts["run default output cases"] = 5
 
 
+def check_scratch_files(failures, counts):
+    """A build's scratch files are named per process: after `-o OUT` the
+    directory holds no `*.tool` and no `*.features.ll`, and a file already
+    named `OUT.tool` is still there, unchanged, so the one name two builds to
+    one output would share is not used. Both a whole-module and a
+    `--codegen-units=module` build run (SL-1103)."""
+    work = os.path.join(OUT, "scratch-files")
+    shutil.rmtree(work, ignore_errors=True)
+    cases = (("whole", []), ("units", ["--codegen-units=module"]))
+    for label, flags in cases:
+        where = os.path.join(work, label)
+        os.makedirs(where)
+        shutil.copy2(os.path.join(HERE, "hello.saw"), os.path.join(where, "hello.saw"))
+        exe = os.path.join(where, "prog")
+        old = exe + ".tool"
+        with open(old, "w") as fh:
+            fh.write("left alone\n")
+        r = subprocess.run([build.SAWC, "build"] + target_flags() + flags + ["hello.saw", "-o", exe], cwd=where,
+                           capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("run scratch files (%s): the build exits %d: %s"
+                            % (label, r.returncode, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        left = sorted(n for n in os.listdir(where) if n.endswith(".features.ll")
+                      or (n.endswith(".tool") and n != "prog.tool"))
+        if left:
+            failures.append("run scratch files (%s): the build leaves %s" % (label, ", ".join(left)))
+        try:
+            with open(old) as fh:
+                kept = fh.read()
+        except OSError:
+            kept = None
+        if kept != "left alone\n":
+            failures.append("run scratch files (%s): a file named prog.tool that was there before the build is %s "
+                            "after it" % (label, "gone" if kept is None else "changed to %r" % kept[:80]))
+    counts["run scratch file cases"] = len(cases)
+
+
 TIME_STAGES_SOURCE = """func main() {
     print("timed")
 }
@@ -4530,6 +4568,7 @@ def run(names=None, write=False):
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
         check_default_output(failures, counts)
+        check_scratch_files(failures, counts)
         check_time_stages(failures, counts)
         check_codegen_units(failures, counts)
         check_unit_stability(failures, counts)

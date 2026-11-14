@@ -399,11 +399,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var record = StringBuilder()
     var ir = StringBuilder()
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
+    let token = driver_cache_token()
     if written_features.len() > 0 {
         if not driver_make_default_directory(defaulted) {
             return 1
         }
-        let named = driver_check_feature_names(compiler, clang_triple, triple, features, out)
+        let named = driver_check_feature_names(compiler, clang_triple, triple, features, out, token)
         if named != 0 {
             return named
         }
@@ -427,7 +428,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         let cache = if no_cache || sanitize || cache_entries == 0 { "" } else { driver_cache_directory(&objects_kind) }
         let job = DriverSplit(clang: compiler, triple: clang_triple, speed: speed, sanitize: sanitize,
                               freestanding: freestanding, debug: debug, object: object, lto: lto, out: out,
-                              jobs: driver_jobs(out), timed: timed,
+                              token: token, jobs: driver_jobs(out, token), timed: timed,
                               bare_metal: freestanding || target_bare_metal(triple),
                               objcopy: if cross { foreign_objcopy.build() } else { objcopy.build() },
                               cache: cache, cache_entries: cache_entries)
@@ -473,7 +474,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         return compiled
     }
     let link = DriverLink(clang: compiler, ll: ll_path, out: out, speed: speed, sanitize: sanitize,
-                          triple: clang_triple, debug: debug)
+                          triple: clang_triple, debug: debug, token: token)
     // A provider is its own runtime: none of sawc's objects join its link.
     if provider {
         let none = Vector<String>()
@@ -868,7 +869,8 @@ func driver_write_file(path: String, text: String) -> Bool {
 // executable `out` at the speed flag `speed`, for the clang triple `triple`;
 // `sanitize` asks clang to instrument the module's `sanitize_address`
 // functions and link AddressSanitizer's runtime, and `debug` says the module
-// carries line tables.
+// carries line tables; `token` names the build's scratch files
+// (`driver_scratch_path`).
 struct DriverLink {
     clang: String
     ll: String
@@ -877,6 +879,7 @@ struct DriverLink {
     sanitize: Bool
     triple: String
     debug: Bool
+    token: String
 }
 
 // Links `link`'s module with `objects` and the target's libraries, and
@@ -937,7 +940,7 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     if compiled != 0 {
         return compiled
     }
-    let problem = driver_linker_problem(link.clang, link.out)
+    let problem = driver_linker_problem(link.clang, link.out, link.token)
     if problem.len() > 0 {
         print("sawc build: {}", problem)
         return 1
@@ -957,7 +960,7 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     if linked != 0 {
         return linked
     }
-    let dsymutil = driver_clang_tool(link.clang, "dsymutil", link.out)
+    let dsymutil = driver_clang_tool(link.clang, "dsymutil", link.out, link.token)
     if dsymutil.len() == 0 {
         return 1
     }
@@ -1057,11 +1060,11 @@ func driver_freestanding_arguments(arguments: &var Vector<String>, freestanding:
 // lane running builds side by side sets. The processors are what `getconf
 // _NPROCESSORS_ONLN` reports; when it cannot be asked the build says so and
 // runs one at a time.
-func driver_jobs(out: String) -> Int {
+func driver_jobs(out: String, token: String) -> Int {
     var arguments = Vector<String>()
     try! arguments.push("_NPROCESSORS_ONLN")
     var cpus = 0
-    if let said = driver_captured(out, "getconf", "getconf", &arguments) {
+    if let said = driver_captured(out, token, "getconf", "getconf", &arguments) {
         cpus = driver_first_line(said).to_int() ?? 0
     }
     if cpus <= 0 {
@@ -1084,7 +1087,8 @@ func driver_jobs(out: String) -> Int {
 // `freestanding` object's when it is one, with line tables under `debug`;
 // then an object (`object`) or the executable `out`, optimised across the
 // units as `lto` says, `jobs` clang runs at once; under `timed`, a time line
-// per unit. `bare_metal` is a freestanding object's or a bare-metal target's,
+// per unit. `token` names the build's scratch files (`driver_scratch_path`).
+// `bare_metal` is a freestanding object's or a bare-metal target's,
 // which links with `ld.lld`. `objcopy` is the target's llvm-objcopy, or "".
 // `cache` is the object cache's directory, "" when the build uses none, and
 // `cache_entries` the most entries it keeps (`driver_cache_choice`).
@@ -1098,6 +1102,7 @@ struct DriverSplit {
     object: Bool
     lto: String
     out: String
+    token: String
     jobs: Int
     timed: Bool
     bare_metal: Bool
@@ -1305,7 +1310,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
 func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>,
                        exports: &Vector<String>, thinlto: String) -> Int {
     let link = DriverLink(clang: split.clang, ll: "", out: split.out, speed: split.speed, sanitize: split.sanitize,
-                          triple: split.triple, debug: split.debug)
+                          triple: split.triple, debug: split.debug, token: split.token)
     let mach_o = driver_mach_o(split.triple)
     var arguments = driver_link_head(&link)
     if split.object {
@@ -1375,7 +1380,7 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         if real_dir.len() == 0 {
             return 1
         }
-        let problem = driver_linker_problem(split.clang, split.out)
+        let problem = driver_linker_problem(split.clang, split.out, split.token)
         if problem.len() > 0 {
             print("sawc build: {}", problem)
             return 1
@@ -1404,7 +1409,7 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
     if linked != 0 || not lines {
         return linked
     }
-    let dsymutil = driver_clang_tool(split.clang, "dsymutil", split.out)
+    let dsymutil = driver_clang_tool(split.clang, "dsymutil", split.out, split.token)
     if dsymutil.len() == 0 {
         return 1
     }
@@ -1683,7 +1688,7 @@ func driver_cache_fingerprint(split: &DriverSplit) unsafe -> String? {
         try! arguments.push(compile.get(k) ?? "")
         k = k + 1
     }
-    driver_captured(split.out, "clang", split.clang, &arguments)
+    driver_captured(split.out, split.token, "clang", split.clang, &arguments)
 }
 
 // A name no other build's temporary entry takes: random bytes in hex, or,
@@ -3063,11 +3068,8 @@ func driver_features_ok(features: String) -> Bool {
 // ENTRY POINTS:
 //     driver_build
 func driver_check_feature_names(clang: String, clang_triple: String, triple: String, features: String,
-                                out: String) -> Int {
-    var probe_path = StringBuilder()
-    try! probe_path.append(out)
-    try! probe_path.append(".features.ll")
-    let probe = probe_path.build()
+                                out: String, token: String) -> Int {
+    let probe = driver_scratch_path(out, token, ".features.ll")
     var text = StringBuilder()
     try! text.append("define void @sawc_feature_probe() #0 \{\n  ret void\n\}\n\nattributes #0 = \{ \"target-features\"=\"")
     try! text.append(features)
@@ -3085,7 +3087,7 @@ func driver_check_feature_names(clang: String, clang_triple: String, triple: Str
     try! arguments.push(probe)
     try! arguments.push("-o")
     try! arguments.push("/dev/null")
-    let captured = driver_captured(out, "clang", clang, &arguments)
+    let captured = driver_captured(out, token, "clang", clang, &arguments)
     let _ = File.remove(Path(s: probe))
     guard let said = captured else {
         return 1
@@ -3206,14 +3208,15 @@ func driver_base_name(path: String) -> String {
 
 // The program clang runs for the tool `name`, as `-print-prog-name` reports
 // it, or "" once the reason it could not be asked is printed. `out` is the
-// build's output, beside which the answer is captured.
-func driver_clang_tool(clang: String, name: String, out: String) -> String {
+// build's output, beside which the answer is captured under the build's
+// `token`.
+func driver_clang_tool(clang: String, name: String, out: String, token: String) -> String {
     var asked = StringBuilder()
     try! asked.append("-print-prog-name=")
     try! asked.append(name)
     var arguments = Vector<String>()
     try! arguments.push(asked.build())
-    if let said = driver_captured(out, "clang", clang, &arguments) {
+    if let said = driver_captured(out, token, "clang", clang, &arguments) {
         let found = driver_first_line(said)
         if found.len() > 0 {
             return found
@@ -3226,14 +3229,14 @@ func driver_clang_tool(clang: String, name: String, out: String) -> String {
 // Why the linker clang runs cannot link a module with line tables
 // reproducibly, or "": `-reproducible` is Xcode 15's linker's, whose
 // `ld -v` names project `ld`, where the linker before it names `ld64`.
-func driver_linker_problem(clang: String, out: String) -> String {
-    let ld = driver_clang_tool(clang, "ld", out)
+func driver_linker_problem(clang: String, out: String, token: String) -> String {
+    let ld = driver_clang_tool(clang, "ld", out, token)
     if ld.len() == 0 {
         return "no linker to ask for `-reproducible`"
     }
     var arguments = Vector<String>()
     try! arguments.push("-v")
-    guard let said = driver_captured(out, "the linker", ld, &arguments) else {
+    guard let said = driver_captured(out, token, "the linker", ld, &arguments) else {
         return "the linker's version is unknown"
     }
     if said.contains("PROJECT:ld-") {
@@ -3248,17 +3251,32 @@ func driver_linker_problem(clang: String, out: String) -> String {
     problem.build()
 }
 
+// THE SCRATCH NAME: a transient file beside the build's output `out`, named
+// `OUT.TOKEN` and `suffix`, where `token` is this build's own
+// (`driver_cache_token`), so two builds to one `out` never share a scratch
+// file. A kept product (`OUT.ll`, a unit's `.ll` and object) is not one: two
+// builds write the same bytes there. A scratch file is named only here.
+// ENTRY POINTS:
+//     driver_captured
+//     driver_check_feature_names
+func driver_scratch_path(out: String, token: String, suffix: String) -> String {
+    var path = StringBuilder()
+    try! path.append(out)
+    try! path.append(".")
+    try! path.append(token)
+    try! path.append(suffix)
+    path.build()
+}
+
 // What `program`, the tool `tool`, writes to standard output and standard
 // error when run with `arguments`, or None once the reason is printed. The
 // driver runs nothing that suspends, so the text is captured through the file
-// `OUT.tool` beside the build's output `out`, which `sh` redirects into and
-// which is removed after; every path reaches `sh` as an argument, never as
-// script text, so nothing is quoted.
-func driver_captured(out: String, tool: String, program: String, arguments: &Vector<String>) -> String? {
-    var file = StringBuilder()
-    try! file.append(out)
-    try! file.append(".tool")
-    let path = file.build()
+// `driver_scratch_path` names beside the build's output `out` (`token` is the
+// build's), which `sh` redirects into and which is removed after; every path
+// reaches `sh` as an argument, never as script text, so nothing is quoted.
+func driver_captured(out: String, token: String, tool: String, program: String,
+                     arguments: &Vector<String>) -> String? {
+    let path = driver_scratch_path(out, token, ".tool")
     var shell = Vector<String>()
     try! shell.push("-c")
     try! shell.push("out=\"$1\"; shift; exec \"$@\" >\"$out\" 2>&1")

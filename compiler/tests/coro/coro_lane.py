@@ -436,25 +436,33 @@ def check_agreement(failures, counts):
 def check_park_injections(failures, counts):
     """Each unit program under `parks/`, which lowers a fixture of `inject/`
     under the park std and needs it made first: built by sawc and run from
-    the repository root, as compiler/tests/run.py runs the stages' own."""
-    for src in sorted(glob.glob(os.path.join(PARKS, "*.saw"))):
-        if src == PARKS_TAIL:
-            continue
-        name = os.path.splitext(os.path.basename(src))[0]
-        exe = os.path.join(REPO, ".build", "coro-lane", name)
-        ok, output = build.build_program(src, exe)
-        if not ok:
-            failures.append("coro injection %s: does not compile: %s" % (rel(src), first_line(output)))
-            continue
-        try:
-            r = subprocess.run([exe], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
-        except subprocess.TimeoutExpired:
-            failures.append("coro injection %s: timed out" % rel(src))
-            continue
-        if r.returncode != 0:
-            failures.append("coro injection %s: exit %d: %s"
-                            % (rel(src), r.returncode, first_line(r.stderr) or first_line(r.stdout)))
-        counts["coro park injections"] = counts.get("coro park injections", 0) + 1
+    the repository root, as compiler/tests/run.py runs the stages' own. The
+    executables go in a directory of this run's own: two builds to one path
+    share scratch and link files, so two runs of the lane (`parallel_order`
+    runs it beside the main run) must not write one (SL-1103)."""
+    os.makedirs(PARK_ROOT, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="injections-", dir=PARK_ROOT)
+    try:
+        for src in sorted(glob.glob(os.path.join(PARKS, "*.saw"))):
+            if src == PARKS_TAIL:
+                continue
+            name = os.path.splitext(os.path.basename(src))[0]
+            exe = os.path.join(work, name)
+            ok, output = build.build_program(src, exe)
+            if not ok:
+                failures.append("coro injection %s: does not compile: %s" % (rel(src), first_line(output)))
+                continue
+            try:
+                r = subprocess.run([exe], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+            except subprocess.TimeoutExpired:
+                failures.append("coro injection %s: timed out" % rel(src))
+                continue
+            if r.returncode != 0:
+                failures.append("coro injection %s: exit %d: %s"
+                                % (rel(src), r.returncode, first_line(r.stderr) or first_line(r.stdout)))
+            counts["coro park injections"] = counts.get("coro park injections", 0) + 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def first_line(text):
