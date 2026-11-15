@@ -1,0 +1,20 @@
+// probe: custom
+// about: windowed Xtensa keeps no frame pointer, so an eight-word signature reads its sixth argument from a7 and its caller wraps no stack-argument call in movsp (SL-1133)
+// Built `-O1 --freestanding --target-features +windowed -c` for
+// `xtensa-esp-unknown-elf`. `sixth` takes eight words, so its sixth arrives in
+// a7 and its last two on the stack; `forward` calls an external function with
+// eight words, which the optimizer cannot inline, so two go on the stack.
+
+extern "C" {
+    func probe_xtensa_elsewhere(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int) -> Int
+}
+
+@export("probe_xtensa_sixth")
+func sixth(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int) -> Int {
+    f * 3 + a + h
+}
+
+@export("probe_xtensa_forward")
+func forward(n: Int) -> Int {
+    probe_xtensa_elsewhere(n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7)
+}

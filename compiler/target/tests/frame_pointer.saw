@@ -1,0 +1,52 @@
+// The frame pointer policy, one row per (triple, features) cell. Every target
+// keeps `NonLeaf` but windowed Xtensa, whose frame pointer would be a7, an
+// argument register (SL-1133). The run lane's attribute check holds the same
+// answer in the IR.
+import sawtarget.layout.{Target, TargetFramePointer, target_effective_features}
+
+func name(policy: TargetFramePointer) -> String {
+    match policy {
+        case Omitted -> "Omitted",
+        case NonLeaf -> "NonLeaf",
+        case All -> "All"
+    }
+}
+
+// The policy for `triple` with the effective list `features`.
+func policy_of(triple: String, features: String) -> TargetFramePointer {
+    let target = Target(triple: triple)
+    target.frame_pointer(features)
+}
+
+func row(triple: String, features: String, want: TargetFramePointer) {
+    let got = policy_of(triple, features)
+    assert(got == want, "{} [{}]: {} where the matrix says {}", triple, features, name(got), name(want))
+}
+
+func main() {
+    let xt = "xtensa-esp-unknown-elf"
+    // Xtensa: call0 by default, windowed only by an explicit `+windowed`, the
+    // last mention winning; a list that names neither is Espressif's windowed.
+    row(xt, target_effective_features(xt, "", true), TargetFramePointer.NonLeaf)
+    row(xt, target_effective_features(xt, "+windowed", true), TargetFramePointer.Omitted)
+    row(xt, target_effective_features(xt, "+windowed,-windowed", true), TargetFramePointer.NonLeaf)
+    row(xt, "-windowed,-fp,-loop,-mac16,-bool", TargetFramePointer.NonLeaf)
+    row(xt, "-windowed,-fp,-loop,-mac16,-bool,+windowed", TargetFramePointer.Omitted)
+    row(xt, "-windowed,+windowed,-windowed", TargetFramePointer.NonLeaf)
+    row(xt, "", TargetFramePointer.Omitted)
+    row(xt, "+fp", TargetFramePointer.Omitted)
+
+    // Every other target keeps a frame pointer in each function that calls.
+    let rv = "riscv32-unknown-none-elf"
+    row(rv, target_effective_features(rv, "", true), TargetFramePointer.NonLeaf)
+    row("arm64-apple-darwin", "", TargetFramePointer.NonLeaf)
+    row("aarch64-unknown-linux-gnu", "", TargetFramePointer.NonLeaf)
+    row("x86_64-unknown-linux-gnu", "", TargetFramePointer.NonLeaf)
+    row("aarch64-unknown-none-elf", target_effective_features("aarch64-unknown-none-elf", "", true),
+        TargetFramePointer.NonLeaf)
+    // The triple decides first: a list naming `+windowed` means nothing off Xtensa.
+    row("aarch64-unknown-none-elf", "+windowed", TargetFramePointer.NonLeaf)
+    row(rv, "+windowed", TargetFramePointer.NonLeaf)
+    row("x86_64-unknown-linux-gnu", "+windowed", TargetFramePointer.NonLeaf)
+    print("frame pointer: ok")
+}

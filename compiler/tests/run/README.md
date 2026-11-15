@@ -293,7 +293,11 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   knows, so profilers, lldb and crash reports can walk the frame chain.
   Darwin's arm64 convention requires the frame record, and clang keeps it in
   every non-leaf C function there; Linux requires none, and keeps the same
-  because a hosted program is profiled there too (SL-594). Every define's
+  because a hosted program is profiled there too (SL-594). The one exception
+  is windowed Xtensa (`--target-features +windowed`), which keeps none: its
+  frame pointer would be a7, an argument register, and the backend then
+  overwrites an incoming sixth argument and wraps calls passing stack
+  arguments in `movsp` (SL-1133). Every define's
   closing attributes are `ll_function_attributes` in
   `compiler/llvm/src/attributes.saw`, whose entry points are named there.
 - **Checks.** `+`, `-` and `*` use `llvm.{s,u}{add,sub,mul}.with.overflow` by
@@ -968,6 +972,13 @@ status 2. Built with `-c` for the host, an unknown feature name and one only
 the other host architecture knows must each be refused with exit status 2,
 naming it and writing no object, and the host's own (`+neon` or `+sse2`) must
 build.
+`xtensa_windowed_arguments.saw`, with `--freestanding --target
+xtensa-esp-unknown-elf --target-features +windowed`, writes an `.ll` whose
+attribute groups all say `"frame-pointer"="none"` and none `non-leaf`; without
+the flag every group says `non-leaf`. Where Espressif's clang is configured,
+the probe built with `-O1 -c` must hold no `movsp` in any code section, and
+its eight-word function must read a7 before any instruction writes it; a
+machine without one skips that half, counting the skip.
 `leaks_check_sees_a_leak.saw` drops its only pointer to a block it got from
 C's `malloc`, and the leak check must report exactly that one block: a
 checker that sees nothing would pass every `// leaks: none` probe, and the

@@ -81,6 +81,9 @@ run of it, built against its own std.
   a `// probe: custom` one is checked by its function in `CUSTOM_PROBES`, a
   `// probe: module` one is imported by another probe and never built alone,
   and a probe stating no kind, or a kind's lines wrongly, fails the lane;
+- `probes/xtensa_windowed_arguments.saw` built for Xtensa with `+windowed`
+  has no frame pointer in its `.ll`, and where Espressif's clang is present no
+  `movsp` and no write of a7 before its first read in its object;
 - `probes/executable_path.saw`, the custom probe, built by sawc and run
   through a renamed symbolic link on `PATH` from another directory, prints its
   binary's real path;
@@ -4272,6 +4275,102 @@ def check_xtensa_object(failures, counts):
     counts["run xtensa objects"] = 1
 
 
+# Windowed Xtensa keeps no frame pointer: it would be a7, the sixth argument
+# register, which the backend overwrites before the function reads it and which
+# makes it wrap a call passing stack arguments in `movsp` (SL-1133).
+XTENSA_WINDOWED_PROBE = "xtensa_windowed_arguments.saw"
+XTENSA_WINDOWED_FLAGS = ["--freestanding", "--target", XTENSA_TARGET, "--target-features", "+windowed"]
+XTENSA_SIXTH = "probe_xtensa_sixth"
+XTENSA_WINDOWED_SKIPPED = "run xtensa windowed object skipped: no Espressif clang"
+FRAME_POINTER_NONE = '"frame-pointer"="none"'
+# The instructions that write no address register, so their first operand is a
+# read: stores, branches, jumps, calls and returns, `entry`.
+NO_REGISTER_WRITE = re.compile(r"^(s\d+i|s32i\.n|s32ri|s32e|b|j|call|ret|entry|memw|nop)")
+
+
+def xtensa_instructions(dis, symbol):
+    """The (mnemonic, operands) pairs of `symbol`'s code in `dis`, a
+    `llvm-objdump -d --no-show-raw-insn` listing, in order; with no symbol,
+    those of every code section. A `.literal` section's pool disassembles as
+    junk and is skipped."""
+    out = []
+    section_is_code = False
+    in_symbol = False
+    for line in dis.splitlines():
+        if line.startswith("Disassembly of section"):
+            section_is_code = ".literal" not in line
+            in_symbol = False
+        elif line.endswith(">:"):
+            in_symbol = symbol is None or line.endswith("<%s>:" % symbol)
+        elif section_is_code and in_symbol and "\t" in line and re.match(r"^\s*[0-9a-f]+:", line):
+            text = line.split(":", 1)[1].strip()
+            mnemonic, _, rest = text.partition("\t")
+            out.append((mnemonic.strip(), [part.strip() for part in rest.split(",") if part.strip()]))
+    return out
+
+
+def a7_first_use(instructions):
+    """"read" when the first instruction touching a7 reads it, "write" when it
+    writes it first, "none" when nothing touches it."""
+    for mnemonic, operands in instructions:
+        writes = bool(operands) and not NO_REGISTER_WRITE.match(mnemonic) and operands[0] == "a7"
+        reads = "a7" in (operands if NO_REGISTER_WRITE.match(mnemonic) else operands[1:])
+        if reads:
+            return "read"
+        if writes:
+            return "write"
+    return "none"
+
+
+def check_xtensa_windowed(failures, counts):
+    """The Xtensa target with `--target-features +windowed`: its `.ll` carries
+    `"frame-pointer"="none"` in every attribute group and `non-leaf` in none,
+    and without the flag `non-leaf` in every group. Where Espressif's clang is
+    present, the probe built `-O1 -c` has no `movsp` in any code section, and
+    its eight-word function reads a7 before anything writes it."""
+    probe = os.path.join(PROBES, XTENSA_WINDOWED_PROBE)
+    where = "run %s" % rel(probe)
+    for flags, want, other in ((XTENSA_WINDOWED_FLAGS, FRAME_POINTER_NONE, FRAME_POINTER),
+                               (XTENSA_WINDOWED_FLAGS[:3], FRAME_POINTER, FRAME_POINTER_NONE)):
+        r = subprocess.run([build.SAWC, "build", "-O1", "-g0", "--emit-ll", "--std-root", "std"] + flags
+                           + [rel(probe)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        groups = [line for line in r.stdout.split("\n") if line.startswith("attributes #")]
+        if r.returncode != 0 or not groups or any(want not in g or other in g for g in groups):
+            failures.append("%s %s --emit-ll: exit %d, attribute groups %r, not all holding %s and none %s"
+                            % (where, " ".join(flags[3:]) or "(call0)", r.returncode, groups, want, other))
+            return
+    if not os.path.exists(build.runtime_manifest(XTENSA_TARGET)):
+        counts[XTENSA_WINDOWED_SKIPPED] = 1
+        return
+    obj = os.path.join(OUT, "xtensa_windowed.o")
+    if os.path.exists(obj):
+        os.remove(obj)
+    r = subprocess.run([build.SAWC, "build", "-O1", "-g0", "-c", "--std-root", "std"] + XTENSA_WINDOWED_FLAGS
+                       + [rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or said or not os.path.exists(obj):
+        failures.append("%s: sawc build -c exits %d: %s" % (where, r.returncode, said[:300]))
+        return
+    clang = manifest_clang(XTENSA_TARGET)
+    r = subprocess.run([clang_tool(clang, "llvm-objdump"), "-d", "--no-show-raw-insn", obj], capture_output=True,
+                       text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("%s: llvm-objdump exits %d: %s" % (where, r.returncode, r.stderr.strip()[:300]))
+        return
+    moves = [ops for mnemonic, ops in xtensa_instructions(r.stdout, None) if mnemonic == "movsp"]
+    if moves:
+        failures.append("%s: the windowed object holds %d `movsp`, which raises an exception nothing handles"
+                        % (where, len(moves)))
+        return
+    sixth = xtensa_instructions(r.stdout, XTENSA_SIXTH)
+    first = a7_first_use(sixth)
+    if not sixth or first != "read":
+        failures.append("%s: `%s` has %d instructions and its first use of a7 is a %s, not a read"
+                        % (where, XTENSA_SIXTH, len(sixth), first))
+        return
+    counts["run xtensa windowed objects"] = 1
+
+
 # The attribute group `probes/attribute_group_levels.saw`'s `.ll` ends with,
 # for each set of flags: the frame pointer policy always, then the feature
 # string, then the size level's attributes.
@@ -4525,6 +4624,7 @@ CUSTOM_PROBES = {
     VOLATILE_PROBE: check_volatile_accesses,
     BARE_METAL_PROBE: check_bare_metal_object,
     XTENSA_PROBE: check_xtensa_object,
+    XTENSA_WINDOWED_PROBE: check_xtensa_windowed,
     FREESTANDING_PROBE: check_freestanding_object,
     PROVIDER_PROBE: check_runtime_provider,
     PROVIDER_MISSING_PROBE: check_provider_missing_seam,

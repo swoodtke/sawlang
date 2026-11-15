@@ -199,7 +199,7 @@ public func ll_function_attributes(extra: String, builtin: Bool = false) -> Stri
 //   llvm_emit_program
 public func ll_function_attribute_group(target: &Target, sanitize: Bool, speed: String, features: String,
                                         builtins: Bool = false) -> String {
-    let policy = match target.frame_pointer() {
+    let policy = match target.frame_pointer(features) {
         case Omitted -> "none",
         case NonLeaf -> "non-leaf",
         case All -> "all"

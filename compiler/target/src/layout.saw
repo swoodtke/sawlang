@@ -949,8 +949,16 @@ extension Target {
     // there too and the cost is small, so both Linux triples keep the same, and
     // a bare-metal image keeps it for the backtraces a kernel walks.
     // A triple this description does not know would get the conservative
-    // `NonLeaf` as well.
-    public func frame_pointer(&self) -> TargetFramePointer {
+    // `NonLeaf` as well. Windowed Xtensa keeps none: its frame pointer is a7,
+    // an argument register, and with one the backend overwrites an incoming
+    // sixth argument and wraps calls that pass stack arguments in `movsp`.
+    // Espressif's clang is windowed unless `features`, the effective list,
+    // turns the feature off, so a list that never names it is windowed too
+    // (SL-1133).
+    public func frame_pointer(&self, features: String) -> TargetFramePointer {
+        if self.triple.starts_with("xtensa") && target_feature_state(features, "windowed") != TargetFeatureState.Off {
+            return TargetFramePointer.Omitted
+        }
         TargetFramePointer.NonLeaf
     }
 
