@@ -1,0 +1,71 @@
+// The eight constructs SL-1092 reported: each one read as TOML 1.0 says, or
+// refused with its line and column. The cases are the TOML 1.0.0
+// specification's own examples where it has one, the sawos tree's lines, and
+// edge cases. The official toml-test suite is not part of this repository and
+// is not run here.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += accept("I1", "format = 1\n[board]\nname = \"x\"\n",
+                     "\{format = 1, board = \{name = \"x\"\}\}")
+    failed += accept("I2", "[board]\ntier = \"flat\"   # trailing comment\n",
+                     "\{board = \{tier = \"flat\"\}\}")
+    failed += accept("I3", "[dev]\nbase = 0x6000_0000\n", "\{dev = \{base = 1610612736\}\}")
+    match TomlDoc.parse("[dev]\nbase = 0x6000_0000\n") {
+        case Ok(doc) -> {
+            let base = try! doc.root().table("dev")!.integer("base")
+            if base != 1610612736 {
+                print("FAIL I3: integer(base) is {base}")
+                failed += 1
+            }
+        },
+        case Err(e) -> {
+            print("FAIL I3: refused: {e}")
+            failed += 1
+        }
+    }
+    failed += accept("I4", "[lines]\nreserved = [57]\n", "\{lines = \{reserved = [57]\}\}")
+    failed += accept("I5", "[[process]]\nname = \"a\"\n[[process]]\nname = \"b\"\n[[process]]\nname = \"c\"\n",
+                     "\{process = [\{name = \"a\"\}, \{name = \"b\"\}, \{name = \"c\"\}]\}")
+    failed += refuse("I6", "[t]\nwindows = \{ ledc = \"LEDC\",\nclock = \"SYSTEM_CLK\" \}\n",
+                     TomlErrorKind.Syntax, 2, 27)
+    failed += accept("I7", "[t]\nx = \{ gpio = \"p, q\", clock = \"r\" \}\n",
+                     "\{t = \{x = \{gpio = \"p, q\", clock = \"r\"\}\}\}")
+    failed += accept("I8", "[t]\nexpect = [\"a\",\n\"b\"]\n", "\{t = \{expect = [\"a\", \"b\"]\}\}")
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_issue_constructs: ok")
+}

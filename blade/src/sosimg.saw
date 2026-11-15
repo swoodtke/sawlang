@@ -20,7 +20,7 @@
 // survives a rename upstream. (A `toml.` qualifier would work in every position
 // too, type annotations included, since design 150 — the DF-140c limit this
 // import used to work around is gone.)
-import toml.{TomlDoc, TomlSection}
+import toml.legacy.{TomlDoc, TomlSection}
 import imgformat.{
     SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
 }

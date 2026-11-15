@@ -1,7 +1,7 @@
 // Manifest - Saw.toml package manifest handling
 // Part of the Blade package manager
 
-import toml
+import toml.legacy
 import std.data.{Data}
 import std.directory.{Directory}
 import std.file.{File}
@@ -147,7 +147,7 @@ extension Manifest {
         let content = try data.to_string()
 
         // `try` re-boxes a TomlError into Box<any Error> on failure.
-        let doc = try toml.TomlDoc.parse(content)
+        let doc = try legacy.TomlDoc.parse(content)
 
         // A `TomlSection` is NoCopy and lives in the document, so it is reached
         // as a PLACE rather than bound: find the index once, then read through
@@ -186,7 +186,7 @@ extension Manifest {
 
         let content = try data.to_string()
 
-        let doc = try toml.TomlDoc.parse(content)
+        let doc = try legacy.TomlDoc.parse(content)
 
         guard let pkg = doc.index_of("package") else {
             return ManifestError(msg: "Missing [package] section in Saw.toml")
@@ -212,7 +212,7 @@ extension Manifest {
         var file = try File.open(manifest_path)
         let data = try file.read()
         let content = try data.to_string()
-        let doc = try toml.TomlDoc.parse(content)
+        let doc = try legacy.TomlDoc.parse(content)
 
         var list = DepList()
 

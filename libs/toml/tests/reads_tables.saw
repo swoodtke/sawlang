@@ -1,0 +1,73 @@
+// Tables, headers and the top-level table.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += accept("T1", "[table-1]\nkey1 = \"some string\"\nkey2 = 123\n\n[table-2]\nkey1 = \"another string\"\n",
+                     "\{table-1 = \{key1 = \"some string\", key2 = 123\}, table-2 = \{key1 = \"another string\"\}\}")
+    failed += accept("T2", "[dog.tater]\ntype = \"pug\"\n", "\{dog = \{tater = \{type = \"pug\"\}\}\}")
+    failed += accept("T3", "[dog.\"tater.man\"]\ntype = \"pug\"\n", "\{dog = \{\"tater.man\" = \{type = \"pug\"\}\}\}")
+    failed += accept("T4", "[ sos ]\nemit = \"sosimg\"\n", "\{sos = \{emit = \"sosimg\"\}\}")
+    failed += accept("T5", "[ a . b ]\nk = \"v\"\n", "\{a = \{b = \{k = \"v\"\}\}\}")
+    failed += accept("T6", "[empty]\n", "\{empty = \{\}\}")
+    failed += refuse("T7", "[]\nk = \"v\"\n[t]\nj = \"w\"\n", TomlErrorKind.Syntax, 1, 2)
+    failed += refuse("X10", "[ ]\nk = 1\n", TomlErrorKind.Syntax, 1, 3)
+    failed += refuse("X3", "[a.]\nk = 1\n", TomlErrorKind.Syntax, 1, 4)
+    failed += accept("T8", "[x.y.z.w]\nk = \"v\"\n[x]\nj = \"w\"\n",
+                     "\{x = \{y = \{z = \{w = \{k = \"v\"\}\}\}, j = \"w\"\}\}")
+    failed += refuse("T9", "[a]x\nk = \"v\"\n", TomlErrorKind.Syntax, 1, 4)
+    failed += refuse("T10", "[a\nk = \"v\"\n", TomlErrorKind.Syntax, 1, 3)
+    failed += accept("T11", "format = 1\nname = \"x\"\n", "\{format = 1, name = \"x\"\}")
+    failed += accept("T12", "format = 1\n[board]\nname = \"x\"\n", "\{format = 1, board = \{name = \"x\"\}\}")
+    failed += refuse("T13", "[fruit]\napple.color = \"red\"\n[fruit.apple]\ntexture = \"smooth\"\n",
+                     TomlErrorKind.Redefinition, 3, 8)
+    failed += accept("T14", "[fruit]\napple.color = \"red\"\n[fruit.apple.texture]\nsmooth = true\n",
+                     "\{fruit = \{apple = \{color = \"red\", texture = \{smooth = true\}\}\}\}")
+    failed += refuse("T15", "[fruit]\napple = \"red\"\n[fruit.apple]\ntexture = \"smooth\"\n",
+                     TomlErrorKind.Redefinition, 3, 8)
+    failed += refuse("T16", "[product]\ntype = \{ name = \"Nail\" \}\n[product.type]\nedible = false\n",
+                     TomlErrorKind.Redefinition, 3, 10)
+    failed += accept("T17", "[a.b]\nk = 1\n[c]\nj = 2\n[a.d]\nm = 3\n",
+                     "\{a = \{b = \{k = 1\}, d = \{m = 3\}\}, c = \{j = 2\}\}")
+    failed += refuse("X7", "[a.b.c]\nz = 9\n[a]\nb.c.t = 1\n", TomlErrorKind.Redefinition, 4, 3)
+    failed += accept("X7a", "[x.y.z]\n[x]\ny.w = 1\n", "\{x = \{y = \{z = \{\}, w = 1\}\}\}")
+    failed += accept("X7b", "[x.y.z.w]\n[x]\ny.w = 1\n", "\{x = \{y = \{z = \{w = \{\}\}, w = 1\}\}\}")
+    failed += accept("X7c", "[[x.y.z]]\n[x]\ny.w = 1\n", "\{x = \{y = \{z = [\{\}], w = 1\}\}\}")
+    failed += accept("X7d", "[x.y.z]\n[x]\ny.w = 1\ny.v = 2\n", "\{x = \{y = \{z = \{\}, w = 1, v = 2\}\}\}")
+    failed += accept("X7e", "[x.y.z.w]\n[x]\ny.z.k = 1\n", "\{x = \{y = \{z = \{w = \{\}, k = 1\}\}\}\}")
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_tables: ok")
+}

@@ -16,7 +16,7 @@
 //   loc     = "<dir or url>"
 //   rev     = "<sha or empty>"
 
-import toml
+import toml.legacy
 import blade.manifest.*
 import blade.resolver.*
 import std.file.{File}
@@ -224,7 +224,7 @@ public func write_lock(res: &Resolution, manifest_hash: String, path: Path) -> B
 // =============================================================================
 
 public func parse_lock(content: String) -> LockData? {
-    let doc = match toml.TomlDoc.parse(content) {
+    let doc = match legacy.TomlDoc.parse(content) {
         case Ok(d) -> move d,
         case Err(_) -> { return None }
     }

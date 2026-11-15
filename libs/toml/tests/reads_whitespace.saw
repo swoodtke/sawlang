@@ -1,0 +1,52 @@
+// Whitespace, line endings, the byte-order mark and the end of the text.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += accept("W1", "[t]\r\na = \"b\"\r\nn = 1\r\n", "\{t = \{a = \"b\", n = 1\}\}")
+    failed += accept("W2", "[t]\n\ta\t=\t\"b\"\n", "\{t = \{a = \"b\"\}\}")
+    failed += accept("W3", "  [t]\n    a = \"b\"\n", "\{t = \{a = \"b\"\}\}")
+    failed += accept("W4", "[t]\na = \"b\"", "\{t = \{a = \"b\"\}\}")
+    failed += accept("X4", "[t]\na = 1 # end", "\{t = \{a = 1\}\}")
+    failed += refuse("W5", "[t]\na = \"b\"\rc = \"d\"\n", TomlErrorKind.Syntax, 2, 8)
+    failed += accept("W6", "", "\{\}")
+    failed += accept("W7", "# one\n\n   \n# two\n", "\{\}")
+    failed += refuse("W8", "[t]\ns = \"\"\"\r\nline\r\n\"\"\"\r\n", TomlErrorKind.Unsupported, 2, 5)
+    failed += accept("X1", "\u{FEFF}[t]\na = \"b\"\n", "\{t = \{a = \"b\"\}\}")
+    failed += refuse("X12", "[t]\na =\n1\n", TomlErrorKind.Syntax, 2, 4)
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_whitespace: ok")
+}

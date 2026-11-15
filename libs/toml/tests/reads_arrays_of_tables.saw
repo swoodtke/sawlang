@@ -1,0 +1,55 @@
+// Arrays of tables: `[[name]]` in file order, nested, with sub-tables.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += accept("AT1", "[[products]]\nname = \"Hammer\"\nsku = 738594937\n\n[[products]]\n\n[[products]]\nname = \"Nail\"\n",
+                     "\{products = [\{name = \"Hammer\", sku = 738594937\}, \{\}, \{name = \"Nail\"\}]\}")
+    failed += accept("AT2",
+                     "[[fruits]]\nname = \"apple\"\n\n[fruits.physical]\ncolor = \"red\"\n\n[[fruits.varieties]]\nname = \"red delicious\"\n\n[[fruits.varieties]]\nname = \"granny smith\"\n\n[[fruits]]\nname = \"banana\"\n",
+                     "\{fruits = [\{name = \"apple\", physical = \{color = \"red\"\}, varieties = [\{name = \"red delicious\"\}, \{name = \"granny smith\"\}]\}, \{name = \"banana\"\}]\}")
+    failed += refuse("AT3", "fruits = []\n[[fruits]]\nname = \"x\"\n", TomlErrorKind.Redefinition, 2, 3)
+    failed += refuse("AT4", "[fruit.physical]\ncolor = \"red\"\n[[fruit]]\nname = \"apple\"\n",
+                     TomlErrorKind.Redefinition, 3, 3)
+    failed += accept("AT5",
+                     "[[setup]]                           # LEDC's clock on\nregister = \"SYSTEM.PERIP_CLK_EN0\"\nset = 0x800\n",
+                     "\{setup = [\{register = \"SYSTEM.PERIP_CLK_EN0\", set = 2048\}]\}")
+    failed += accept("AT6", "[[ boot ]]\nname = \"system\"\n", "\{boot = [\{name = \"system\"\}]\}")
+    failed += refuse("AT7", "[ [boot] ]\nname = \"system\"\n", TomlErrorKind.Syntax, 1, 3)
+    failed += accept("X6", "[[a]]\nn = 1\n[a.b]\nk = 2\n[[a]]\nn = 3\n", "\{a = [\{n = 1, b = \{k = 2\}\}, \{n = 3\}]\}")
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_arrays_of_tables: ok")
+}

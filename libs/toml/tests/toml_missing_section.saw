@@ -1,5 +1,5 @@
 // Asking a document for a section it does not have returns None (not a crash).
-import toml.*
+import toml.legacy.*
 
 func main() {
     let content = "[server]\nhost = \"localhost\"\n"

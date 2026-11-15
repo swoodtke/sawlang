@@ -1,0 +1,62 @@
+// Inline tables: one line, nested, with dotted keys, and the errors.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += accept("IT1", "[t]\nname = \{ first = \"Tom\", last = \"Preston-Werner\" \}\n",
+                     "\{t = \{name = \{first = \"Tom\", last = \"Preston-Werner\"\}\}\}")
+    failed += accept("IT2", "[t]\npoint = \{ x = 1, y = 2 \}\n", "\{t = \{point = \{x = 1, y = 2\}\}\}")
+    failed += accept("IT3", "[t]\nanimal = \{ type.name = \"pug\" \}\n", "\{t = \{animal = \{type = \{name = \"pug\"\}\}\}\}")
+    failed += accept("IT4", "[t]\narrays = \{ out_sel = \{ offset = 0x554, stride = 4, count = 54 \} \}\n",
+                     "\{t = \{arrays = \{out_sel = \{offset = 1364, stride = 4, count = 54\}\}\}\}")
+    failed += accept("IT5", "[t]\nx = \{ a = [1, 2], b = \"c\" \}\n", "\{t = \{x = \{a = [1, 2], b = \"c\"\}\}\}")
+    failed += refuse("IT6", "[t]\nx = \{ a = 1, \}\n", TomlErrorKind.Syntax, 2, 14)
+    failed += accept("IT7", "[t]\nx = \{\}\n", "\{t = \{x = \{\}\}\}")
+    failed += accept("IT8", "[t]\nx = \{a=\"b\"\}\n", "\{t = \{x = \{a = \"b\"\}\}\}")
+    failed += accept("IT9", "[flash]\nslots = \{ base = 0x18_0000, len = 0x8_0000, count = 4 \}   # 128 KiB each\n",
+                     "\{flash = \{slots = \{base = 1572864, len = 524288, count = 4\}\}\}")
+    failed += accept("IT10", "[t]\ndevice = \{ outsel = \"GPIO.out_sel[41..42]\", pads = \"IO_MUX.pad[41..42]\" \}\n",
+                     "\{t = \{device = \{outsel = \"GPIO.out_sel[41..42]\", pads = \"IO_MUX.pad[41..42]\"\}\}\}")
+    failed += refuse("IT11", "[t]\nx = \{ a = 1\n", TomlErrorKind.Syntax, 2, 12)
+    failed += accept("IT12", "[t]\nx = \{ p = 'C:\\dir' \}\n", "\{t = \{x = \{p = \"C:\\\\dir\"\}\}\}")
+    failed += accept("IT13", "point = \{ x = 1, y = 2 \}\n", "\{point = \{x = 1, y = 2\}\}")
+    failed += accept("X8", "[t]\nx = \{ a.b = 1, a.c = 2 \}\n", "\{t = \{x = \{a = \{b = 1, c = 2\}\}\}\}")
+    failed += refuse("X9", "[t]\nx = \{ a = 1 \}\nx.b = 2\n", TomlErrorKind.Redefinition, 3, 1)
+    failed += accept("X11", "[t]\nx = \{ list = [ \{ a = 1 \}, \{ a = 2 \} ] \}\n",
+                     "\{t = \{x = \{list = [\{a = 1\}, \{a = 2\}]\}\}\}")
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_inline_tables: ok")
+}

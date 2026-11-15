@@ -1,0 +1,374 @@
+// toml.legacy: the line reader Blade uses until Blade reads the typed tree in
+// `toml`. Supports:
+// - [section] headers
+// - key = "value" string assignments
+// - key = { subkey = "v", ... } one-level inline tables
+// - # comments
+
+// =============================================================================
+// Error Types
+// =============================================================================
+
+public struct TomlError {
+    message: String
+    line: Int
+}
+
+extension TomlError {
+    public init(msg: String) -> TomlError {
+        TomlError(message: msg, line: 0)
+    }
+
+    public init(msg: String, at_line: Int) -> TomlError {
+        TomlError(message: msg, line: at_line)
+    }
+}
+
+// A TOML error is a Printable error: it renders itself, so it can be
+// erased into a `Box<any Error>` and propagated with `try` across error kinds.
+extension TomlError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("TOML parse error: ")
+        try! into.append(self.message)
+        if self.line > 0 {
+            try! into.append(" (line ")
+            try! into.append(self.line)
+            try! into.append(")")
+        }
+    }
+}
+
+// =============================================================================
+// TOML Data Structures
+// =============================================================================
+
+public struct TomlValue {
+    private key: String
+    private value: String
+}
+
+extension TomlValue {
+    // Typed access: parse the stored string as an integer.
+    // Returns None when the value is not a whole-string base-10 integer.
+    public func int_value(&self) -> Int? {
+        self.value.to_int()
+    }
+}
+
+// An inline table value: `key = { subkey = "v", ... }`, one level. The inner
+// scalar pairs are stored as a Vector<TomlValue>. NoCopy with an empty deinit,
+// like TomlSection (the container owns the buffer).
+// `public`, like every other type in this data model: `TomlSection.table(key)`
+// LENDS one to any caller and `TomlSection.add_table` takes one, and both of
+// those are `public`, as are `TomlTable`'s own `init`/`get`/`add`. The
+// signature-visibility rule refuses a narrower tier here.
+public struct TomlTable {
+    private key: String
+    private values: Vector<TomlValue>
+}
+
+extension TomlTable: NoCopy {}
+
+extension TomlTable {
+    public init(k: String) -> TomlTable {
+        let v = Vector<TomlValue>()
+        TomlTable(key: k, values: move v)
+    }
+
+    // Get an inner value by subkey.
+    public func get(&self, subkey: String) -> String? {
+        var i = 0
+        while i < self.values.len() {
+            if self.values[i].key.equals(subkey) {
+                return self.values[i].value
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Add an inner scalar pair.
+    public func add(&var self, k: String, v: String) {
+        try! self.values.push(TomlValue(key: k, value: v))
+    }
+}
+
+public struct TomlSection {
+    private name: String
+    private values: Vector<TomlValue>
+    private tables: Vector<TomlTable>
+}
+
+extension TomlSection: NoCopy {}
+
+extension TomlSection {
+    public init(section_name: String) -> TomlSection {
+        let v = Vector<TomlValue>()
+        let t = Vector<TomlTable>()
+        TomlSection(name: section_name, values: move v, tables: move t)
+    }
+
+    // Get a scalar value by key
+    public func get(&self, key: String) -> String? {
+        var i = 0
+        while i < self.values.len() {
+            if self.values[i].key.equals(key) {
+                return self.values[i].value
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Add a scalar value to this section
+    public func add(&var self, key: String, value: String) {
+        try! self.values.push(TomlValue(key: key, value: value))
+    }
+
+    // Add an inline-table value to this section.
+    public func add_table(&var self, table: TomlTable) {
+        try! self.tables.push(move table)
+    }
+
+    // Internal: the index of the inline table named `key`, or None. `lend` may
+    // not appear in a loop (a loop would lend more than once), so the search
+    // that PICKS the place and the accessor that LENDS it are separate.
+    func _table_index(&self, key: String) -> Int? {
+        var i = 0
+        while i < self.tables.len() {
+            if self.tables[i].key.equals(key) {
+                return i
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // True if `key` names an inline table in this section.
+    public func is_table(&self, key: String) -> Bool {
+        if let _ = self._table_index(key) {
+            return true
+        }
+        false
+    }
+
+    // The inline table named `key`, as an optional PLACE. `TomlTable` is
+    // NoCopy, so it is reached IN the section rather than handed out:
+    // `sec.table("git")!.get("url")`.
+    public func table(&self, key: String) borrows -> &TomlTable? {
+        if let i = self._table_index(key) {
+            lend self.tables[i]
+        } else {
+            return None
+        }
+    }
+
+    // Look up `subkey` inside the inline table named `key`.
+    public func table_value(&self, key: String, subkey: String) -> String? {
+        if let i = self._table_index(key) {
+            return self.tables[i].get(subkey)
+        }
+        None
+    }
+
+    // All entry names in this section, scalars first then inline tables, in the
+    // order they appear. Lets a caller enumerate e.g. every [dependencies] entry.
+    public func names(&self) -> Vector<String> {
+        var out = Vector<String>()
+        var i = 0
+        while i < self.values.len() {
+            try! out.push(self.values[i].key)
+            i = i + 1
+        }
+        var j = 0
+        while j < self.tables.len() {
+            try! out.push(self.tables[j].key)
+            j = j + 1
+        }
+        move out
+    }
+
+    // Typed lookup: a value parsed as an integer, or None if
+    // absent or not an integer. Built on String.to_int.
+    public func get_int(&self, key: String) -> Int? {
+        if let s = self.get(key) {
+            return s.to_int()
+        }
+        None
+    }
+}
+
+// Parse an inline table body `{ a = "1", b = "2" }` into a TomlTable named
+// `key`. Minimal: one level, comma-separated `subkey = "value"`
+// pairs, quotes stripped. Malformed fragments are skipped rather than erroring
+// (the manifest layer validates the meaningful keys it needs).
+func parse_inline_table(key: String, raw: String) -> TomlTable {
+    var table = TomlTable(k: key)
+    // Strip the surrounding braces, then split on commas.
+    let inner = raw.substring(1, raw.len() - 1).trim()
+    if inner.is_empty() {
+        return move table
+    }
+    let parts = try! inner.split(",")
+    for part in parts.iter() {
+        let frag = part.trim()
+        if frag.is_empty() {
+            continue
+        }
+        if let eq = frag.index_of(61) {  // '='
+            let subkey = frag.substring(0, eq).trim()
+            let raw_sub = frag.substring(eq + 1, frag.len()).trim()
+            var subval = raw_sub
+            if raw_sub.starts_with("\"") && raw_sub.ends_with("\"") {
+                subval = raw_sub.substring(1, raw_sub.len() - 1)
+            }
+            table.add(subkey, subval)
+        }
+    }
+    move table
+}
+
+public struct TomlDoc {
+    private sections: Vector<TomlSection>
+}
+
+extension TomlDoc: NoCopy {}
+
+extension TomlDoc {
+    public init() -> TomlDoc {
+    	let v = Vector<TomlSection>()
+        TomlDoc(sections: move v)
+    }
+
+    // Parse TOML from a string
+    public static func parse(content: String) -> Result<TomlDoc, TomlError> {
+        var doc = TomlDoc()
+        var current_section = TomlSection(section_name: "")
+
+        let lines = try! content.split("\n")
+        var line_num = 0
+
+        for line in lines.iter() {
+            line_num = line_num + 1
+            let trimmed = line.trim()
+
+            // Skip empty lines and comments
+            if trimmed.is_empty() || trimmed.starts_with("#") {
+                continue
+            }
+
+            // Section header: [section_name]
+            if trimmed.starts_with("[") && trimmed.ends_with("]") {
+                // Save previous section if it has a name
+                if not current_section.name.is_empty() {
+                    try! doc.sections.push(move current_section)
+                }
+                // Start new section - extract name between [ and ]
+                let name = trimmed.substring(1, trimmed.len() - 1)
+                current_section = TomlSection(section_name: name)
+                continue
+            }
+
+            // Key-value pair: key = "value" or key = value
+            if let eq_pos = trimmed.index_of(61) {  // '=' is 61
+                let key = trimmed.substring(0, eq_pos).trim()
+                let raw_value = trimmed.substring(eq_pos + 1, trimmed.len()).trim()
+
+                // Inline table (one level): key = { subkey = "v", ... }
+                // (literal braces in the string patterns are escaped as \{ \}
+                // so the interpolation lexer does not treat them as splices).
+                if raw_value.starts_with("\{") && raw_value.ends_with("\}") {
+                    let table = parse_inline_table(key, raw_value)
+                    current_section.add_table(move table)
+                } else {
+                    // Handle quoted strings
+                    var value = raw_value
+                    if raw_value.starts_with("\"") && raw_value.ends_with("\"") {
+                        value = raw_value.substring(1, raw_value.len() - 1)
+                    }
+                    current_section.add(key, value)
+                }
+            } else {
+                return TomlError(msg: "Invalid line: {trimmed}", at_line: line_num)
+            }
+        }
+
+        // Don't forget the last section
+        let has_content = current_section.values.len() > 0 || current_section.tables.len() > 0
+        if not current_section.name.is_empty() || has_content {
+            try! doc.sections.push(move current_section)
+        }
+
+        move doc
+    }
+
+    // All section names, in document order (lets a caller enumerate e.g. every
+    // [pkg.*] section of a lock file).
+    public func section_names(&self) -> Vector<String> {
+        var out = Vector<String>()
+        var i = 0
+        while i < self.sections.len() {
+            try! out.push(self.sections[i].name)
+            i = i + 1
+        }
+        move out
+    }
+
+    // Internal: the index of the section named `name`, or None. See
+    // `TomlSection._table_index` for why the search is its own function.
+    func _section_index(&self, name: String) -> Int? {
+        var i = 0
+        while i < self.sections.len() {
+            if self.sections[i].name.equals(name) {
+                return i
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Whether this document has a section named `name`.
+    public func has_section(&self, name: String) -> Bool {
+        if let _ = self._section_index(name) {
+            return true
+        }
+        false
+    }
+
+    // The number of sections, in document order.
+    public func section_count(&self) -> Int {
+        self.sections.len()
+    }
+
+    // The index of the section named `name`, or None. Pair it with
+    // `section_at` when a caller reads several values out of one section: the
+    // search runs once and each read is a direct place.
+    public func index_of(&self, name: String) -> Int? {
+        self._section_index(name)
+    }
+
+    // The section at `index`, as a PLACE. Panics if `index` is outside
+    // `0..<section_count()`.
+    public func section_at(&self, index: Int) borrows -> &TomlSection {
+        if index < 0 || index >= self.sections.len() {
+            panic("TomlDoc.section_at: index out of range")
+        }
+        lend self.sections[index]
+    }
+
+    // The section named `name`, as an optional PLACE.
+    //
+    // `TomlSection` is NoCopy, so it is reached IN the document rather than
+    // handed out: `doc.section("package")!.get("name")` borrows the section for
+    // the duration of that expression. Returning the section by value out of a
+    // `Vector<TomlSection>` would hand back a non-retained alias of storage the
+    // document still owns, so two lookups would destroy one section twice. Pair
+    // it with `has_section` when absence is not an error.
+    public func section(&self, name: String) borrows -> &TomlSection? {
+        if let i = self._section_index(name) {
+            lend self.sections[i]
+        } else {
+            return None
+        }
+    }
+}

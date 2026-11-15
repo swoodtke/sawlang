@@ -1,0 +1,84 @@
+// Comments, key/value pairs and keys: bare, quoted and dotted.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    // Comments
+    failed += accept("C1", "# This is a full-line comment\n[t]\nkey = \"value\"\n", "\{t = \{key = \"value\"\}\}")
+    failed += accept("C2", "[t]\nkey = \"value\"  # comment\n", "\{t = \{key = \"value\"\}\}")
+    failed += accept("C3", "[t]\nn = 42 # the answer\n", "\{t = \{n = 42\}\}")
+    failed += accept("C4", "[t] # header comment\nkey = \"v\"\n", "\{t = \{key = \"v\"\}\}")
+    failed += accept("C5", "[t]\nanother = \"# This is not a comment\"\n",
+                     "\{t = \{another = \"# This is not a comment\"\}\}")
+    failed += accept("C6", "[t] # a = b\nkey = \"v\"\n", "\{t = \{key = \"v\"\}\}")
+    failed += refuse("C7", "[t]\n# bell \u{7} here\nkey = \"v\"\n", TomlErrorKind.Syntax, 2, 8)
+
+    // Key/value pairs
+    failed += refuse("KV1", "[t]\nkey = # INVALID\n", TomlErrorKind.Syntax, 2, 7)
+    failed += refuse("KV2", "[t]\nfirst = \"Tom\" last = \"Preston-Werner\"\n", TomlErrorKind.Syntax, 2, 15)
+    failed += refuse("KV3", "[t]\n= \"no key name\"\n", TomlErrorKind.Syntax, 2, 1)
+    failed += refuse("KV4", "[t]\nname = hello\n", TomlErrorKind.Syntax, 2, 8)
+    failed += accept("KV5", "[t]\nkey=\"value\"\n", "\{t = \{key = \"value\"\}\}")
+
+    // Bare keys
+    failed += accept("K1", "[t]\nbare_key = \"a\"\nbare-key = \"b\"\n1234 = \"c\"\n",
+                     "\{t = \{bare_key = \"a\", bare-key = \"b\", 1234 = \"c\"\}\}")
+    failed += refuse("K2", "[t]\nk@y = \"a\"\n", TomlErrorKind.Syntax, 2, 2)
+    failed += refuse("X5", "[t]\nca\u{E9} = 1\n", TomlErrorKind.Syntax, 2, 3)
+
+    // Quoted keys
+    failed += accept("K3", "[t]\n\"127.0.0.1\" = \"value\"\n", "\{t = \{\"127.0.0.1\" = \"value\"\}\}")
+    failed += accept("K4", "[t]\n\"character encoding\" = \"value\"\n",
+                     "\{t = \{\"character encoding\" = \"value\"\}\}")
+    failed += accept("K5", "[t]\n'key2' = \"value\"\n", "\{t = \{key2 = \"value\"\}\}")
+    failed += accept("K6", "[t]\n\"a=b\" = \"value\"\n", "\{t = \{\"a=b\" = \"value\"\}\}")
+    failed += accept("K7", "[t]\n\"\" = \"blank\"\n", "\{t = \{\"\" = \"blank\"\}\}")
+    failed += accept("K8", "[t]\n\"\\u0041\" = \"value\"\n", "\{t = \{A = \"value\"\}\}")
+
+    // Dotted keys
+    failed += accept("K9", "[t]\nphysical.color = \"orange\"\nphysical.shape = \"round\"\n",
+                     "\{t = \{physical = \{color = \"orange\", shape = \"round\"\}\}\}")
+    failed += accept("K10", "[t]\nsite.\"google.com\" = true\n", "\{t = \{site = \{\"google.com\" = true\}\}\}")
+    failed += accept("K11", "[t]\nfruit . color = \"yellow\"\n", "\{t = \{fruit = \{color = \"yellow\"\}\}\}")
+    failed += accept("K12", "name.first = \"Tom\"\n", "\{name = \{first = \"Tom\"\}\}")
+    failed += accept("K13",
+                     "[devices.GPIO]\nregisters.ENABLE1_W1TS = \{ offset = 0x030 \}\narrays.out_sel = \{ offset = 0x554, stride = 4, count = 54 \}\n",
+                     "\{devices = \{GPIO = \{registers = \{ENABLE1_W1TS = \{offset = 48\}\}, arrays = \{out_sel = \{offset = 1364, stride = 4, count = 54\}\}\}\}\}")
+    failed += accept("K14", "[t]\n3.14159 = \"pi\"\n", "\{t = \{3 = \{14159 = \"pi\"\}\}\}")
+    failed += refuse("X2", "[t]\nkey\n", TomlErrorKind.Syntax, 2, 4)
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_comments_and_keys: ok")
+}

@@ -1,0 +1,184 @@
+// The full message of one case per wording of the error table: the kind, the
+// line, the column and the text.
+import toml.*
+
+func says(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int, message: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column && e.message == message {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind}), want line {line}, column {column}: {message}")
+            return 1
+        }
+    }
+}
+
+func says_deep(id: String, src: String, depth: Int, line: Int, column: Int, message: String) -> Int {
+    match TomlDoc.parse(src, depth) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == TomlErrorKind.TooDeep && e.line == line && e.column == column && e.message == message {
+                return 0
+            }
+            print("FAIL {id}: refused with {e}")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    // Syntax
+    failed += says("syntax-key", "[t]\n= 1\n", TomlErrorKind.Syntax, 2, 1, "expected a key, found `=`")
+    failed += says("syntax-bare", "k@y = 1\n", TomlErrorKind.Syntax, 1, 2,
+                   "`@` is not allowed in a bare key; write the key in quotes")
+    failed += says("syntax-equals", "key\n", TomlErrorKind.Syntax, 1, 4,
+                   "expected `=` after the key `key`, found the end of the line")
+    failed += says("syntax-value", "a =\n", TomlErrorKind.Syntax, 1, 4,
+                   "expected a value after `=`, found the end of the line")
+    failed += says("syntax-word", "a = hello\n", TomlErrorKind.Syntax, 1, 5,
+                   "`hello` is not a value; a string is written in quotes")
+    failed += says("syntax-boolean", "a = True\n", TomlErrorKind.Syntax, 1, 5,
+                   "`True` is not a value; booleans are written `true` and `false`")
+    failed += says("syntax-after-value", "a = 1 b\n", TomlErrorKind.Syntax, 1, 7,
+                   "expected the end of the line after the value, found `b`")
+    failed += says("syntax-after-header", "[a] x\n", TomlErrorKind.Syntax, 1, 5,
+                   "expected the end of the line after the table header, found `x`")
+    failed += says("syntax-empty-header", "[]\n", TomlErrorKind.Syntax, 1, 2, "a table header needs a key")
+    failed += says("syntax-close-header", "[a\n", TomlErrorKind.Syntax, 1, 3,
+                   "expected `]` to close the table header, found the end of the line")
+    failed += says("syntax-close-array-header", "[[a]\n", TomlErrorKind.Syntax, 1, 4,
+                   "expected `]]` to close the array-of-tables header, found `]`")
+    failed += says("syntax-after-dot", "[a.]\n", TomlErrorKind.Syntax, 1, 4,
+                   "expected a key after `.`, found `]`")
+    failed += says("syntax-array", "a = [1 2]\n", TomlErrorKind.Syntax, 1, 8,
+                   "expected `,` or `]` in the array, found `2]`")
+    failed += says("syntax-array-open", "a = [1, 2\n", TomlErrorKind.Syntax, 1, 5,
+                   "the array is not closed before the end of the document")
+    failed += says("syntax-array-value", "a = [1, @]\n", TomlErrorKind.Syntax, 1, 9,
+                   "expected a value in the array, found `@]`")
+    failed += says("syntax-inline-line", "x = \{ a = 1,\n", TomlErrorKind.Syntax, 1, 13,
+                   "an inline table must close on the line it opens, found the end of the line")
+    failed += says("syntax-inline-comma", "x = \{ a = 1, \}\n", TomlErrorKind.Syntax, 1, 14,
+                   "a trailing comma is not allowed in an inline table")
+    failed += says("syntax-inline", "x = \{ a = 1 b = 2 \}\n", TomlErrorKind.Syntax, 1, 13,
+                   "expected `,` or `\}` in the inline table, found `b`")
+    failed += says("syntax-cr", "a = 1\rb = 2\n", TomlErrorKind.Syntax, 1, 6,
+                   "a carriage return must be followed by a line feed")
+    failed += says("syntax-comment", "# \u{7}\n", TomlErrorKind.Syntax, 1, 3,
+                   "control character U+0007 is not allowed in a comment")
+    failed += says("syntax-long-run", "a = abcdefghijklmnopqrstuvwxyz\n", TomlErrorKind.Syntax, 1, 5,
+                   "`abcdefghijklmnopqrstuvwxyz` is not a value; a string is written in quotes")
+    failed += says("syntax-found-cut", "a = 1 abcdefghijklmnopqrstuvwxyz\n", TomlErrorKind.Syntax, 1, 7,
+                   "expected the end of the line after the value, found `abcdefghijklmnop`")
+
+    // InvalidString
+    failed += says("string-escape", "a = \"\\x\"\n", TomlErrorKind.InvalidString, 1, 6,
+                   "unknown escape `\\x` in a string")
+    failed += says("string-scalar", "a = \"\\uD800\"\n", TomlErrorKind.InvalidString, 1, 6,
+                   "`\\uD800` is not a Unicode scalar value")
+    failed += says("string-scalar-wide", "a = \"\\U00110000\"\n", TomlErrorKind.InvalidString, 1, 6,
+                   "`\\U00110000` is not a Unicode scalar value")
+    failed += says("string-digits", "a = \"\\u12\"\n", TomlErrorKind.InvalidString, 1, 6,
+                   "expected 4 hexadecimal digits after `\\u`")
+    failed += says("string-digits-wide", "a = \"\\U0012\"\n", TomlErrorKind.InvalidString, 1, 6,
+                   "expected 8 hexadecimal digits after `\\U`")
+    failed += says("string-control", "a = \"x\u{1}\"\n", TomlErrorKind.InvalidString, 1, 7,
+                   "control character U+0001 must be written as an escape in a string")
+    failed += says("string-open", "a = \"abc\n", TomlErrorKind.InvalidString, 1, 5,
+                   "the string is not closed before the end of the line")
+
+    // InvalidNumber
+    failed += says("number-zero", "a = 012\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`012`: leading zeros are not allowed in a decimal integer")
+    failed += says("number-underscore", "a = 1__2\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`1__2`: `_` must stand between two digits")
+    failed += says("number-sign", "a = -0x10\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`-0x10`: a hexadecimal, octal or binary integer takes no sign")
+    failed += says("number-range", "a = 9223372036854775808\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`9223372036854775808` does not fit in a 64-bit signed integer")
+    failed += says("number-range-prefixed", "a = 0x1_0000_0000_0000_0000\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`0x1_0000_0000_0000_0000` does not fit in 64 bits")
+    failed += says("number-invalid", "a = 0X10\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`0X10` is not a valid integer")
+
+    // DuplicateKey
+    failed += says("duplicate", "[t]\nname = 1\nname = 2\n", TomlErrorKind.DuplicateKey, 3, 1,
+                   "duplicate key `name` in [t]; first defined at line 2, column 1")
+    failed += says("duplicate-top", "a = 1\na = 2\n", TomlErrorKind.DuplicateKey, 2, 1,
+                   "duplicate key `a` in the top-level table; first defined at line 1, column 1")
+    failed += says("duplicate-inline", "x = \{ a = 1, a = 2 \}\n", TomlErrorKind.DuplicateKey, 1, 14,
+                   "duplicate key `a` in the inline table `x`; first defined at line 1, column 7")
+    failed += says("duplicate-element", "[[e]]\na = 1\na = 2\n", TomlErrorKind.DuplicateKey, 3, 1,
+                   "duplicate key `a` in [[e]]; first defined at line 2, column 1")
+    failed += says("duplicate-quoted", "[t]\n\"a b\" = 1\n\"a b\" = 2\n", TomlErrorKind.DuplicateKey, 3, 1,
+                   "duplicate key `\"a b\"` in [t]; first defined at line 2, column 1")
+
+    // Redefinition
+    failed += says("table-twice", "[fruit]\n[fruit]\n", TomlErrorKind.Redefinition, 2, 2,
+                   "table [fruit] is defined twice; first defined at line 1, column 2")
+    failed += says("table-dotted", "[fruit]\napple.color = \"red\"\n[fruit.apple]\n", TomlErrorKind.Redefinition, 3, 8,
+                   "table [fruit.apple] was already made by the dotted key `apple.color` at line 2, column 1")
+    failed += says("table-inline", "[product]\ntype = \{ name = \"Nail\" \}\n[product.type]\n",
+                   TomlErrorKind.Redefinition, 3, 10,
+                   "[product.type] would extend the inline table `product.type` defined at line 2, column 1; an inline table is complete where it is written")
+    failed += says("table-inline-through", "[product]\ntype = \{ name = \"Nail\" \}\n[product.type.more]\n",
+                   TomlErrorKind.Redefinition, 3, 10,
+                   "[product.type.more] would extend the inline table `product.type` defined at line 2, column 1; an inline table is complete where it is written")
+    failed += says("table-array-of-tables", "[[x]]\n[x]\n", TomlErrorKind.Redefinition, 2, 2,
+                   "[x] names the array of tables made at line 1, column 3; add an element with [[x]]")
+    failed += says("table-array", "a = [1]\n[a]\n", TomlErrorKind.Redefinition, 2, 2,
+                   "[a] names the array written at line 1, column 1, not a table")
+    failed += says("table-through-value", "a = 1\n[a.b]\n", TomlErrorKind.Redefinition, 2, 2,
+                   "[a.b] needs `a` to be a table, but it is an integer defined at line 1, column 1")
+    failed += says("table-value", "a = 1\n[a]\n", TomlErrorKind.Redefinition, 2, 2,
+                   "[a] needs `a` to be a table, but it is an integer defined at line 1, column 1")
+    failed += says("array-of-tables-table", "[x]\n[[x]]\n", TomlErrorKind.Redefinition, 2, 3,
+                   "[[x]] names the table [x] defined at line 1, column 2")
+    failed += says("array-of-tables-array", "x = [1]\n[[x]]\n", TomlErrorKind.Redefinition, 2, 3,
+                   "[[x]] cannot add to the array `x` written at line 1, column 1; only an array made by [[x]] takes more tables")
+    failed += says("array-of-tables-value", "x = 1\n[[x]]\n", TomlErrorKind.Redefinition, 2, 3,
+                   "[[x]] names `x`, which is an integer defined at line 1, column 1, not an array of tables")
+    failed += says("dotted-value", "a = \"1\"\na.b = \"2\"\n", TomlErrorKind.Redefinition, 2, 1,
+                   "the dotted key `a.b` needs `a` to be a table, but it is a string defined at line 1, column 1")
+    failed += says("dotted-closed", "x = \{ a = 1 \}\nx.b = 2\n", TomlErrorKind.Redefinition, 2, 1,
+                   "the dotted key `x.b` cannot extend the inline table `x`, defined at line 1, column 1")
+    failed += says("dotted-header", "[a.b.c]\n[a]\nb.c.t = 1\n", TomlErrorKind.Redefinition, 3, 3,
+                   "the dotted key `b.c.t` cannot extend [a.b.c], defined at line 1, column 6")
+    failed += says("header-dotted-implied", "[x.y.z]\n[x]\ny.w = 1\n[x.y]\n", TomlErrorKind.Redefinition, 4, 4,
+                   "table [x.y] was already made by the dotted key `y.w` at line 3, column 1")
+
+    // Unsupported
+    failed += says("unsupported-basic", "a = \"\"\"x\"\"\"\n", TomlErrorKind.Unsupported, 1, 5,
+                   "multi-line basic strings are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    failed += says("unsupported-literal", "a = '''x'''\n", TomlErrorKind.Unsupported, 1, 5,
+                   "multi-line literal strings are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    failed += says("unsupported-float", "a = 1.5\n", TomlErrorKind.Unsupported, 1, 5,
+                   "floats are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    failed += says("unsupported-offset", "a = 1979-05-27T07:32:00Z\n", TomlErrorKind.Unsupported, 1, 5,
+                   "offset date-times are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    failed += says("unsupported-local-date-time", "a = 1979-05-27T07:32:00\n", TomlErrorKind.Unsupported, 1, 5,
+                   "local date-times are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    failed += says("unsupported-date", "a = 1979-05-27\n", TomlErrorKind.Unsupported, 1, 5,
+                   "local dates are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    failed += says("unsupported-time", "a = 07:32:00\n", TomlErrorKind.Unsupported, 1, 5,
+                   "local times are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+
+    // TooDeep
+    failed += says_deep("deep-array", "a = [[[1]]]\n", 2, 1, 7, "the document nests more than 2 deep")
+    failed += says_deep("deep-inline", "a = \{ b = \{ c = 1 \} \}\n", 1, 1, 11,
+                        "the document nests more than 1 deep")
+    failed += says_deep("deep-key", "a.b.c.d = 1\n", 2, 1, 5, "the document nests more than 2 deep")
+    failed += says_deep("deep-header", "[a.b.c]\n", 2, 1, 6, "the document nests more than 2 deep")
+    failed += says_deep("deep-element", "[[a.b]]\n", 2, 1, 5, "the document nests more than 2 deep")
+    assert(failed == 0, "{failed} rows failed")
+    print("error_wording: ok")
+}

@@ -1,0 +1,59 @@
+// Arrays: one line and several, nested, empty, with comments, and the errors.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += accept("A1", "[t]\nintegers = [ 1, 2, 3 ]\n", "\{t = \{integers = [1, 2, 3]\}\}")
+    failed += accept("A2", "[t]\ncolors = [ \"red\", \"yellow\", \"green\" ]\n",
+                     "\{t = \{colors = [\"red\", \"yellow\", \"green\"]\}\}")
+    failed += accept("A3", "[t]\nnested = [ [ 1, 2 ], [3, 4, 5] ]\n", "\{t = \{nested = [[1, 2], [3, 4, 5]]\}\}")
+    failed += refuse("A4", "[t]\nnumbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]\n", TomlErrorKind.Unsupported, 2, 13)
+    failed += refuse("A5", "[t]\nstrings = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''' ]\n",
+                     TomlErrorKind.Unsupported, 2, 31)
+    failed += accept("A6", "[t]\nmodules = []\n", "\{t = \{modules = []\}\}")
+    failed += accept("A7", "[t]\nintegers2 = [\n  1, 2, 3\n]\n", "\{t = \{integers2 = [1, 2, 3]\}\}")
+    failed += accept("A8", "[t]\nintegers3 = [\n  1,\n  2, # this is ok\n]\n", "\{t = \{integers3 = [1, 2]\}\}")
+    failed += accept("A9", "[t]\nnested = [\n  [1, 2],\n  [3, 4]]\nafter = \"x\"\n",
+                     "\{t = \{nested = [[1, 2], [3, 4]], after = \"x\"\}\}")
+    failed += accept("A10", "[t]\nreserved = [57]   # the flash pins\n", "\{t = \{reserved = [57]\}\}")
+    failed += accept("A11", "[t]\ncflags = [\"-a,b\", \"x[1]\"]\n", "\{t = \{cflags = [\"-a,b\", \"x[1]\"]\}\}")
+    failed += refuse("A12", "[t]\na = [1 2]\n", TomlErrorKind.Syntax, 2, 8)
+    failed += refuse("A13", "[t]\na = [1, 2\n", TomlErrorKind.Syntax, 2, 5)
+    failed += accept("A14", "[t]\npoints = [ \{ x = 1, y = 2 \}, \{ x = 7, y = 8 \} ]\n",
+                     "\{t = \{points = [\{x = 1, y = 2\}, \{x = 7, y = 8\}]\}\}")
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_arrays: ok")
+}

@@ -1,0 +1,193 @@
+// One depth for the whole tree: every header part, dotted key part, inline
+// table, array and `[[...]]` element is a level. A document 32 deep, the
+// default, is read, printed and dropped on a spawned thread, whose default
+// stack is the one the limit has to fit; one level more is `TooDeep`, and
+// `max_depth` moves the limit.
+import toml.*
+
+// `unit` written `n` times.
+func repeated(unit: String, n: Int) -> String {
+    var out = StringBuilder()
+    var i = 0
+    while i < n {
+        try! out.append(unit)
+        i = i + 1
+    }
+    out.build()
+}
+
+// `n` parts `k` joined with dots.
+func key_of(n: Int) -> String {
+    var out = StringBuilder()
+    var i = 0
+    while i < n {
+        if i > 0 {
+            try! out.append(".")
+        }
+        try! out.append("k")
+        i = i + 1
+    }
+    out.build()
+}
+
+// A header with `n` parts: `n` levels.
+func header(n: Int) -> String {
+    "[{key_of(n)}]\n"
+}
+
+// An array-of-tables header with `n` parts: `n - 1` tables, the array, and its element.
+func element(n: Int) -> String {
+    "[[{key_of(n)}]]\n"
+}
+
+// A dotted key making `n` tables, then a value.
+func dotted(n: Int) -> String {
+    "{key_of(n + 1)} = 1\n"
+}
+
+// `n` nested inline tables.
+func inlines(n: Int) -> String {
+    let opens = repeated("\{a = ", n)
+    let closes = repeated("\}", n)
+    return "x = {opens}1{closes}\n"
+}
+
+// `n` nested arrays.
+func arrays(n: Int) -> String {
+    let opens = repeated("[", n)
+    let closes = repeated("]", n)
+    return "x = {opens}1{closes}\n"
+}
+
+// Each kind of level in one document: `h` header parts, `d` tables made by
+// a dotted key, `i` inline tables and `a` arrays.
+func mixed(h: Int, d: Int, i: Int, a: Int) -> String {
+    let tables = repeated("\{a = ", i)
+    let table_closes = repeated("\}", i)
+    let lists = repeated("[", a)
+    let list_closes = repeated("]", a)
+    return "{header(h)}{key_of(d + 1)} = {tables}{lists}1{list_closes}{table_closes}\n"
+}
+
+// The reviewer's document: 32 inline tables, each holding a key of 64 parts.
+func wide() -> String {
+    let step = "{key_of(64)} = \{"
+    let inner = repeated(step, 31)
+    let closes = repeated("\}", 32)
+    return "a = \{{inner}{key_of(64)} = 1{closes}\n"
+}
+
+// The text read, printed and dropped; its rendering's length, or -1 when it
+// is refused.
+func work(text: String) -> Int {
+    match TomlDoc.parse(text) {
+        case Ok(doc) -> {
+            let rendered = "{doc}"
+            return rendered.len()
+        },
+        case Err(_) -> {
+            return -1
+        }
+    }
+}
+
+// `text` read on a spawned thread.
+func reads_on_thread(id: String, text: String) -> Int {
+    var t = try! Thread.spawn { [text] in
+        work(text)
+    }
+    let n = t.join()
+    if n > 0 {
+        return 0
+    }
+    print("FAIL {id}: the thread read {n}")
+    return 1
+}
+
+// `text` refused as `TooDeep` at `line`:`column` with `max_depth` levels.
+func too_deep(id: String, text: String, max_depth: Int, line: Int, column: Int) -> Int {
+    match TomlDoc.parse(text, max_depth) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            let message = "the document nests more than {max_depth} deep"
+            if e.kind == TomlErrorKind.TooDeep && e.line == line && e.column == column && e.message == message {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == TomlErrorKind.TooDeep}), want line {line}, column {column}: {message}")
+            return 1
+        }
+    }
+}
+
+// `text` read with `max_depth` levels.
+func reads(id: String, text: String, max_depth: Int) -> Int {
+    match TomlDoc.parse(text, max_depth) {
+        case Ok(_) -> {
+            return 0
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+// `text` refused as `TooDeep` by `parse` with no `max_depth`, which is 32.
+func default_limit(id: String, text: String) -> Int {
+    match TomlDoc.parse(text) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == TomlErrorKind.TooDeep && e.message == "the document nests more than 32 deep" {
+                return 0
+            }
+            print("FAIL {id}: refused with {e}")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    // Exactly 32 deep, each kind of level, on a spawned thread.
+    failed += reads_on_thread("header 32", header(32))
+    failed += reads_on_thread("element 32", element(31))
+    failed += reads_on_thread("dotted 32", dotted(32))
+    failed += reads_on_thread("inline 32", inlines(32))
+    failed += reads_on_thread("array 32", arrays(32))
+    failed += reads_on_thread("mixed 32", mixed(8, 8, 8, 8))
+    // One level more is TooDeep, at the part or bracket that makes it.
+    failed += too_deep("header 33", header(33), 32, 1, 66)
+    failed += too_deep("element 33", element(32), 32, 1, 65)
+    failed += too_deep("dotted 33", dotted(33), 32, 1, 65)
+    failed += too_deep("inline 33", inlines(33), 32, 1, 165)
+    failed += too_deep("array 33", arrays(33), 32, 1, 37)
+    failed += too_deep("mixed 33", mixed(8, 8, 8, 9), 32, 2, 69)
+    // The reviewer's document, about 2,000 tables deep: refused at the part
+    // of the 32nd key that would make the 33rd level.
+    failed += too_deep("wide", wide(), 32, 1, 68)
+    // `max_depth` moves the limit.
+    failed += reads("header 4", header(4), 4)
+    failed += too_deep("header 5", header(5), 4, 1, 10)
+    failed += reads("array 4", arrays(4), 4)
+    failed += too_deep("array 5", arrays(5), 4, 1, 9)
+    failed += reads("inline 4", inlines(4), 4)
+    failed += too_deep("inline 5", inlines(5), 4, 1, 25)
+    // A level counts however it is reached: a header below an array of tables.
+    failed += reads("through an element", "[[k]]\n[k.k.k]\n", 4)
+    failed += too_deep("through an element 5", "[[k]]\n[k.k.k.k]\n", 4, 2, 8)
+    // The same below an element: its level counts for a dotted key and a value.
+    failed += reads("dotted below an element", "[[k]]\nk.k.k = 1\n", 4)
+    failed += too_deep("dotted below an element 5", "[[k]]\nk.k.k = 1\n", 3, 2, 3)
+    failed += reads("inline below an element", "[[k]]\nx = \{ a = 1 \}\n", 3)
+    failed += too_deep("inline below an element 3", "[[k]]\nx = \{ a = 1 \}\n", 2, 2, 5)
+    // The default is 32.
+    failed += default_limit("default 33", arrays(33))
+    assert(failed == 0, "{failed} rows failed")
+    print("deep_documents: ok")
+}

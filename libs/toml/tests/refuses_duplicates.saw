@@ -1,0 +1,69 @@
+// A repeated key, a table defined twice and a name used as two kinds are
+// errors that name both places (SL-1121's five cases and their siblings).
+import toml.*
+
+// The text refused with `kind` at `line`:`column`, naming `first` as the
+// place the earlier definition is.
+func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int, first: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            print("FAIL {id}: accepted as {doc}")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column && e.message.contains(first) {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind}; want {first})")
+            return 1
+        }
+    }
+}
+
+func main() {
+    var failed = 0
+    failed += refuse("DUP1", "[t]\nname = \"Tom\"\nname = \"Pradyun\"\n",
+                     TomlErrorKind.DuplicateKey, 3, 1, "first defined at line 2, column 1")
+    failed += refuse("DUP2", "[t]\nx = \{ a = \"1\", a = \"2\" \}\n",
+                     TomlErrorKind.DuplicateKey, 2, 16, "first defined at line 2, column 7")
+    failed += refuse("DUP3", "[fruit]\napple = \"red\"\n[fruit]\norange = \"orange\"\n",
+                     TomlErrorKind.Redefinition, 3, 2, "first defined at line 1, column 2")
+    failed += refuse("DUP4", "[t]\na = \"1\"\na.b = \"2\"\n",
+                     TomlErrorKind.Redefinition, 3, 1, "defined at line 2, column 1")
+    failed += refuse("DUP4b", "[t]\na.b = \"2\"\na = \"1\"\n",
+                     TomlErrorKind.DuplicateKey, 3, 1, "first defined at line 2, column 1")
+    failed += refuse("DUP5", "[[x]]\nk = \"1\"\n[x]\nk = \"2\"\n",
+                     TomlErrorKind.Redefinition, 3, 2, "made at line 1, column 3")
+    failed += refuse("DUP5b", "[x]\nk = \"1\"\n[[x]]\nk = \"2\"\n",
+                     TomlErrorKind.Redefinition, 3, 3, "defined at line 1, column 2")
+    failed += refuse("DUP6", "[t]\nspelling = \"favorite\"\n\"spelling\" = \"favourite\"\n",
+                     TomlErrorKind.DuplicateKey, 3, 1, "first defined at line 2, column 1")
+    failed += refuse("DUP7", "a = \"1\"\na = \"2\"\n",
+                     TomlErrorKind.DuplicateKey, 2, 1, "first defined at line 1, column 1")
+    failed += refuse("DUP8", "[t]\nx = \"s\"\nx = \{ a = \"1\" \}\n",
+                     TomlErrorKind.DuplicateKey, 3, 1, "first defined at line 2, column 1")
+    // A dotted key that enters an implied table owns it from then on; a table
+    // a header defined stays closed to a dotted key.
+    failed += refuse("DOT1", "[x.y.z]\n[x]\ny.w = 1\n[x.y]\n",
+                     TomlErrorKind.Redefinition, 4, 4,
+                     "table [x.y] was already made by the dotted key `y.w` at line 3, column 1")
+    failed += refuse("DOT2", "[x.y.z.w]\n[x]\ny.w = 1\n[x.y]\n",
+                     TomlErrorKind.Redefinition, 4, 4,
+                     "table [x.y] was already made by the dotted key `y.w` at line 3, column 1")
+    failed += refuse("DOT3", "[[x.y.z]]\n[x]\ny.w = 1\n[x.y]\n",
+                     TomlErrorKind.Redefinition, 4, 4,
+                     "table [x.y] was already made by the dotted key `y.w` at line 3, column 1")
+    failed += refuse("DOT4", "[a.b.c]\n[a]\nb.c.t = 1\n",
+                     TomlErrorKind.Redefinition, 3, 3,
+                     "the dotted key `b.c.t` cannot extend [a.b.c], defined at line 1, column 6")
+    failed += refuse("DOT5", "[x.y]\n[x]\ny.w = 1\n",
+                     TomlErrorKind.Redefinition, 3, 1,
+                     "the dotted key `y.w` cannot extend [x.y], defined at line 1, column 4")
+    failed += refuse("DOT6", "[x.y.z]\n[x]\ny.z.w = 1\n",
+                     TomlErrorKind.Redefinition, 3, 3,
+                     "the dotted key `y.z.w` cannot extend [x.y.z], defined at line 1, column 6")
+    failed += refuse("DOT7", "[x.y.z]\n[x]\ny.w = 1\ny.w = 2\n",
+                     TomlErrorKind.DuplicateKey, 4, 3, "first defined at line 3, column 3")
+    assert(failed == 0, "{failed} rows failed")
+    print("refuses_duplicates: ok")
+}

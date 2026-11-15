@@ -1,327 +1,717 @@
-// toml — a minimal TOML reader for Saw.toml / Saw.lock (design 64 B8, extracted
-// from Blade into a real library package). Supports:
-// - [section] headers
-// - key = "value" string assignments
-// - key = { subkey = "v", ... } one-level inline tables
-// - # comments
+//! TOML 1.0 as a typed tree: `TomlDoc`, `TomlTable`, `TomlArray` and `TomlValue`.
+//!
+//! ```saw
+//! import toml.{TomlDoc}
+//!
+//! let doc = try TomlDoc.parse(text)
+//! let name = try doc.root().table("package")!.string("name")
+//! let base = try doc.root().table("devices")!.table("UART0")!.unsigned("base")
+//! ```
+//!
+//! Reading is strict. A text that is not TOML 1.0 is refused with a
+//! `TomlError` that names the line, the column and the reason; the first
+//! error wins. A repeated key, a table defined twice and a name used as two
+//! kinds are errors that name both places. Multi-line strings, floats and
+//! date-times are valid TOML that this version does not read: each is refused
+//! as `Unsupported`, never misread.
+//!
+//! The one extension beyond TOML 1.0: a hexadecimal, octal or binary integer
+//! may be as large as `UInt64.max`. The reader makes `TomlValue.Integer` for
+//! every integer that fits `Int64` and `TomlValue.Unsigned` only for a
+//! prefixed literal above `Int64.max`. A decimal integer is `Int64`, as TOML
+//! 1.0 says.
+//!
+//! A typed read comes in two forms. `string(key)` is for a required key and
+//! answers a `Missing` error when the key is absent; `optional_string(key)`
+//! answers `Ok(None)`. Both answer `WrongType` for a key of another kind.
+//! `table(key)`, `array(key)` and `value(key)` lend a place and answer `None`
+//! both for an absent key and for one of another kind, because a lend cannot
+//! be a `Result`; `expect(key, kind)` and `require(key, kind)` tell the two
+//! apart.
+//!
+//! Every key and value keeps the line and column it was written at. A table's
+//! keys are in document order, and a table prints as inline TOML.
+//!
+//! Reading, printing and dropping a tree recurse once per level, so the stack
+//! must hold `max_depth` of them. The default, 32, fits a spawned thread's
+//! default stack in a debug build.
+//!
+//! Memory the allocator refuses for a container is the `Alloc` error. A
+//! string's text and an error message become `String`s, and the String layer
+//! panics on a refused allocation, so those refusals panic.
+
+// The bytes the grammar names.
+static BYTE_TAB: Int = 9
+static BYTE_LF: Int = 10
+static BYTE_CR: Int = 13
+static BYTE_SPACE: Int = 32
+static BYTE_QUOTE: Int = 34
+static BYTE_HASH: Int = 35
+static BYTE_APOSTROPHE: Int = 39
+static BYTE_PLUS: Int = 43
+static BYTE_COMMA: Int = 44
+static BYTE_MINUS: Int = 45
+static BYTE_DOT: Int = 46
+static BYTE_ZERO: Int = 48
+static BYTE_NINE: Int = 57
+static BYTE_COLON: Int = 58
+static BYTE_EQUALS: Int = 61
+static BYTE_UPPER_A: Int = 65
+static BYTE_UPPER_E: Int = 69
+static BYTE_UPPER_F: Int = 70
+static BYTE_UPPER_T: Int = 84
+static BYTE_UPPER_U: Int = 85
+static BYTE_UPPER_Z: Int = 90
+static BYTE_LEFT_BRACKET: Int = 91
+static BYTE_BACKSLASH: Int = 92
+static BYTE_RIGHT_BRACKET: Int = 93
+static BYTE_UNDERSCORE: Int = 95
+static BYTE_LOWER_A: Int = 97
+static BYTE_LOWER_B: Int = 98
+static BYTE_LOWER_E: Int = 101
+static BYTE_LOWER_F: Int = 102
+static BYTE_LOWER_N: Int = 110
+static BYTE_LOWER_O: Int = 111
+static BYTE_LOWER_R: Int = 114
+static BYTE_LOWER_T: Int = 116
+static BYTE_LOWER_U: Int = 117
+static BYTE_LOWER_X: Int = 120
+static BYTE_LOWER_Z: Int = 122
+static BYTE_LEFT_BRACE: Int = 123
+static BYTE_RIGHT_BRACE: Int = 125
+static BYTE_DELETE: Int = 127
+// The control bytes a short escape names.
+static BYTE_BACKSPACE: Int = 8
+static BYTE_FORM_FEED: Int = 12
+// Every byte below this one is a control byte.
+static FIRST_PRINTABLE: Int = 32
+// A UTF-8 continuation byte lies in `CONTINUATION_FIRST..<LEAD_FIRST`.
+static CONTINUATION_FIRST: Int = 0x80
+static LEAD_FIRST: Int = 0xC0
+// The scalars of a run `{what}` quotes in an error.
+static WHAT_LIMIT: Int = 16
+// The largest Unicode scalar value, and the surrogate range.
+static SCALAR_MAX: Int = 0x10_FFFF
+static SURROGATE_FIRST: Int = 0xD800
+static SURROGATE_LAST: Int = 0xDFFF
+// The magnitude of `Int64.min` and the largest `Int64`, as unsigned.
+static INT64_MAGNITUDE: UInt64 = 0x8000_0000_0000_0000
+static INT64_LARGEST: UInt64 = 0x7FFF_FFFF_FFFF_FFFF
+static UINT64_LARGEST: UInt64 = 0xFFFF_FFFF_FFFF_FFFF
 
 // =============================================================================
-// Error Types
+// The model
 // =============================================================================
 
-public struct TomlError {
-    message: String
+/// A place in the text: a 1-based line and a 1-based column that counts
+/// Unicode scalars from the start of the line.
+public struct TomlPosition {
+    /// The 1-based line.
     line: Int
+    /// The 1-based column, in Unicode scalars from the start of the line.
+    column: Int
 }
 
-extension TomlError {
-    public init(msg: String) -> TomlError {
-        TomlError(message: msg, line: 0)
-    }
-
-    public init(msg: String, at_line: Int) -> TomlError {
-        TomlError(message: msg, line: at_line)
-    }
-}
-
-// A TOML error is a Printable error (design 56): it renders itself, so it can be
-// erased into a `Box<any Error>` and propagated with `try` across error kinds.
-extension TomlError: Error {
+/// A position prints as `line L, column C`.
+extension TomlPosition: Printable {
+    /// Writes `line L, column C`.
     public func format(&self, into: &var StringBuilder) {
-        try! into.append("TOML parse error: ")
-        try! into.append(self.message)
-        if self.line > 0 {
-            try! into.append(" (line ")
-            try! into.append(self.line)
-            try! into.append(")")
+        try! into.append("line ")
+        try! into.append(self.line)
+        try! into.append(", column ")
+        try! into.append(self.column)
+    }
+}
+
+/// What a `TomlValue` holds, for the reads that name a kind. Both integer
+/// cases are `Integer`.
+public enum TomlKind {
+    /// A string.
+    case Text,
+    /// An integer, signed or unsigned.
+    case Integer,
+    /// A float.
+    case Float,
+    /// A boolean.
+    case Boolean,
+    /// A date, a time or a date-time.
+    case DateTime,
+    /// An array.
+    case Array,
+    /// A table.
+    case Table
+}
+
+@synthesize
+extension TomlKind: Equatable {
+}
+
+extension TomlKind: Printable {
+    /// Writes the kind with its article: `a string`, `an integer`, `a float`,
+    /// `a boolean`, `a date-time`, `an array` or `a table`.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.describe())
+    }
+
+    func describe(&self) -> String {
+        match self {
+            case Text -> "a string",
+            case Integer -> "an integer",
+            case Float -> "a float",
+            case Boolean -> "a boolean",
+            case DateTime -> "a date-time",
+            case Array -> "an array",
+            case Table -> "a table"
         }
     }
 }
 
-// =============================================================================
-// TOML Data Structures
-// =============================================================================
-
-public struct TomlValue {
-    private key: String
-    private value: String
+/// Which of the four date and time shapes TOML 1.0 has a `TomlDateTime` is.
+public enum TomlDateTimeKind {
+    /// A date and a time with an offset from UTC.
+    case OffsetDateTime,
+    /// A date and a time with no offset.
+    case LocalDateTime,
+    /// A date alone.
+    case LocalDate,
+    /// A time alone.
+    case LocalTime
 }
 
-extension TomlValue {
-    // Typed access (design 57 dogfood): parse the stored string as an integer.
-    // Returns None when the value is not a whole-string base-10 integer.
-    public func int_value(&self) -> Int? {
-        self.value.to_int()
-    }
+/// A TOML date-time. The fields that the kind does not have are 0:
+/// a `LocalTime` has no date, a `LocalDate` no time, and only an
+/// `OffsetDateTime` has an offset (`Z` is 0).
+public struct TomlDateTime {
+    /// Which of the four shapes this is.
+    kind: TomlDateTimeKind
+    /// The year.
+    year: Int
+    /// The month, 1 to 12.
+    month: Int
+    /// The day of the month.
+    day: Int
+    /// The hour, 0 to 23.
+    hour: Int
+    /// The minute, 0 to 59.
+    minute: Int
+    /// The second.
+    second: Int
+    /// The fraction of the second, in nanoseconds.
+    nanosecond: Int
+    /// The offset from UTC in minutes; 0 for `Z`.
+    offset_minutes: Int
 }
 
-// An inline table value: `key = { subkey = "v", ... }` (one level, design 64
-// B1). The inner scalar pairs are stored as a Vector<TomlValue>. NoCopy with an
-// empty deinit — same discipline as TomlSection (the container owns the buffer).
-// `public`, like every other type in this data model: `TomlSection.table(key)`
-// LENDS one to any caller and `TomlSection.add_table` takes one, and both of
-// those are `public`, as are `TomlTable`'s own `init`/`get`/`add`. The
-// DF-232f rider narrowed it to `public(package)` on a file-local reading (the
-// audit DF-232q found inverted); the Aug-21 signature-visibility rule refuses
-// the result, and the accessors are the side that was right.
+/// What a TOML value is. Integers are `Integer` when they fit `Int64`; a
+/// hexadecimal, octal or binary literal above `Int64.max` is `Unsigned`.
+public enum TomlValue {
+    /// A string, decoded.
+    case Text(value: String),
+    /// An integer that fits `Int64`, whatever its base.
+    case Integer(value: Int64),
+    /// A hexadecimal, octal or binary literal above `Int64.max`.
+    case Unsigned(value: UInt64),
+    /// A float.
+    case Float(value: Float),
+    /// A boolean.
+    case Boolean(value: Bool),
+    /// A date, a time or a date-time.
+    case DateTime(value: TomlDateTime),
+    /// An array.
+    case Array(array: TomlArray),
+    /// A table.
+    case Table(table: TomlTable)
+}
+
+extension TomlValue: NoCopy {}
+
+// How a table came to exist. It decides which later definitions may extend
+// it: a header never extends `Dotted` or `Inline`, and a dotted key extends
+// `Dotted` and `Implied` only, an `Implied` one becoming `Dotted`.
+enum TableOrigin {
+    case Root,
+    case Header,
+    case Implied,
+    case Dotted,
+    case Inline,
+    case Element
+}
+
+@synthesize
+extension TableOrigin: Equatable {
+}
+
+// A value with where it starts.
+struct TomlItem {
+    value: TomlValue
+    at: TomlPosition
+}
+
+extension TomlItem: NoCopy {}
+
+// One key of a table: its decoded text, where it was written, and its value.
+struct TomlEntry {
+    key: String
+    key_at: TomlPosition
+    item: TomlItem
+}
+
+extension TomlEntry: NoCopy {}
+
+// One part of a key, with where it starts.
+struct KeyPart {
+    name: String
+    at: TomlPosition
+}
+
+/// A table: a header's, an inline one, a dotted key's or an array-of-tables
+/// element. Its keys are in the order each was first defined, and each key is
+/// one part, with no dots.
 public struct TomlTable {
-    private key: String
-    private values: Vector<TomlValue>
+    private entries: Vector<TomlEntry>
+    private origin: TableOrigin
+    private parts: Vector<String>
+    private made_at: TomlPosition
+    // The dotted key that made a `Dotted` table, as written; empty otherwise.
+    private made_by: String
 }
 
 extension TomlTable: NoCopy {}
 
-extension TomlTable {
-    public init(k: String) -> TomlTable {
-        let v = Vector<TomlValue>()
-        TomlTable(key: k, values: move v)
-    }
-
-    // Get an inner value by subkey.
-    public func get(&self, subkey: String) -> String? {
-        var i = 0
-        while i < self.values.len() {
-            if self.values[i].key.equals(subkey) {
-                return self.values[i].value
-            }
-            i = i + 1
-        }
-        None
-    }
-
-    // Add an inner scalar pair.
-    public func add(&var self, k: String, v: String) {
-        try! self.values.push(TomlValue(key: k, value: v))
-    }
+/// An array. Elements may be of different kinds.
+public struct TomlArray {
+    private items: Vector<TomlItem>
+    private of_tables: Bool
+    private parts: Vector<String>
+    private made_at: TomlPosition
+    // How the table that holds the array came to exist, for the messages.
+    private owner: TableOrigin
 }
 
-public struct TomlSection {
-    private name: String
-    private values: Vector<TomlValue>
-    private tables: Vector<TomlTable>
-}
+extension TomlArray: NoCopy {}
 
-extension TomlSection: NoCopy {}
-
-extension TomlSection {
-    public init(section_name: String) -> TomlSection {
-        let v = Vector<TomlValue>()
-        let t = Vector<TomlTable>()
-        TomlSection(name: section_name, values: move v, tables: move t)
-    }
-
-    // Get a scalar value by key
-    public func get(&self, key: String) -> String? {
-        var i = 0
-        while i < self.values.len() {
-            if self.values[i].key.equals(key) {
-                return self.values[i].value
-            }
-            i = i + 1
-        }
-        None
-    }
-
-    // Add a scalar value to this section
-    public func add(&var self, key: String, value: String) {
-        try! self.values.push(TomlValue(key: key, value: value))
-    }
-
-    // Add an inline-table value to this section.
-    public func add_table(&var self, table: TomlTable) {
-        try! self.tables.push(move table)
-    }
-
-    // Internal: the index of the inline table named `key`, or None. `lend` may
-    // not appear in a loop (a loop would lend more than once), so the search
-    // that PICKS the place and the accessor that LENDS it are separate.
-    func _table_index(&self, key: String) -> Int? {
-        var i = 0
-        while i < self.tables.len() {
-            if self.tables[i].key.equals(key) {
-                return i
-            }
-            i = i + 1
-        }
-        None
-    }
-
-    // True if `key` names an inline table in this section.
-    public func is_table(&self, key: String) -> Bool {
-        if let _ = self._table_index(key) {
-            return true
-        }
-        false
-    }
-
-    // The inline table named `key`, as an optional PLACE. `TomlTable` is
-    // NoCopy, so it is reached IN the section rather than handed out:
-    // `sec.table("git")!.get("url")`.
-    public func table(&self, key: String) borrows -> &TomlTable? {
-        if let i = self._table_index(key) {
-            lend self.tables[i]
-        } else {
-            return None
-        }
-    }
-
-    // Look up `subkey` inside the inline table named `key`.
-    public func table_value(&self, key: String, subkey: String) -> String? {
-        if let i = self._table_index(key) {
-            return self.tables[i].get(subkey)
-        }
-        None
-    }
-
-    // All entry names in this section, scalars first then inline tables, in the
-    // order they appear. Lets a caller enumerate e.g. every [dependencies] entry.
-    public func names(&self) -> Vector<String> {
-        var out = Vector<String>()
-        var i = 0
-        while i < self.values.len() {
-            try! out.push(self.values[i].key)
-            i = i + 1
-        }
-        var j = 0
-        while j < self.tables.len() {
-            try! out.push(self.tables[j].key)
-            j = j + 1
-        }
-        move out
-    }
-
-    // Typed lookup (design 57 dogfood): a value parsed as an integer, or None if
-    // absent or not an integer. Built on String.to_int.
-    public func get_int(&self, key: String) -> Int? {
-        if let s = self.get(key) {
-            return s.to_int()
-        }
-        None
-    }
-}
-
-// Parse an inline table body `{ a = "1", b = "2" }` into a TomlTable named
-// `key`. Minimal (design 64 B1): one level, comma-separated `subkey = "value"`
-// pairs, quotes stripped. Malformed fragments are skipped rather than erroring
-// (the manifest layer validates the meaningful keys it needs).
-func parse_inline_table(key: String, raw: String) -> TomlTable {
-    var table = TomlTable(k: key)
-    // Strip the surrounding braces, then split on commas.
-    let inner = raw.substring(1, raw.len() - 1).trim()
-    if inner.is_empty() {
-        return move table
-    }
-    let parts = try! inner.split(",")
-    for part in parts.iter() {
-        let frag = part.trim()
-        if frag.is_empty() {
-            continue
-        }
-        if let eq = frag.index_of(61) {  // '='
-            let subkey = frag.substring(0, eq).trim()
-            let raw_sub = frag.substring(eq + 1, frag.len()).trim()
-            var subval = raw_sub
-            if raw_sub.starts_with("\"") && raw_sub.ends_with("\"") {
-                subval = raw_sub.substring(1, raw_sub.len() - 1)
-            }
-            table.add(subkey, subval)
-        }
-    }
-    move table
-}
-
+/// A parsed document: its root table.
 public struct TomlDoc {
-    private sections: Vector<TomlSection>
+    private root: TomlTable
 }
 
 extension TomlDoc: NoCopy {}
 
-extension TomlDoc {
-    public init() -> TomlDoc {
-    	let v = Vector<TomlSection>()
-        TomlDoc(sections: move v)
+// =============================================================================
+// Errors
+// =============================================================================
+
+/// What stopped a read.
+public enum TomlErrorKind {
+    /// The text is not TOML at this point.
+    case Syntax,
+    /// An unknown escape, a control character, or a string not closed.
+    case InvalidString,
+    /// An integer TOML 1.0 does not allow, or one past 64 bits.
+    case InvalidNumber,
+    /// A date-time TOML 1.0 does not allow, or an impossible date.
+    case InvalidDateTime,
+    /// A key given twice in one table.
+    case DuplicateKey,
+    /// A table defined twice, or a name used as two kinds.
+    case Redefinition,
+    /// Valid TOML 1.0 this version does not read, or text shaped like it
+    /// (`1true` is named a float until those are read).
+    case Unsupported,
+    /// Tables and arrays nested past `max_depth`.
+    case TooDeep,
+    /// A typed read found another kind. Raised by reads, never by `parse`.
+    case WrongType,
+    /// A typed read found an integer the asked type does not hold. Raised by
+    /// reads, never by `parse`.
+    case OutOfRange,
+    /// A required key is absent. Raised by reads, never by `parse`.
+    case Missing,
+    /// The allocator refused a container.
+    case Alloc
+}
+
+@synthesize
+extension TomlErrorKind: Equatable {
+}
+
+/// Why a read failed and where: the line and column of the text it refers to.
+/// The message names no file; a caller prefixes the file it read.
+public struct TomlError {
+    /// What kind of failure this is.
+    kind: TomlErrorKind
+    /// The 1-based line of the text the error refers to.
+    line: Int
+    /// The 1-based column, in Unicode scalars.
+    column: Int
+    /// The reason, in a sentence.
+    message: String
+}
+
+/// An error prints as `line L, column C: message`.
+extension TomlError: Error {
+    /// Writes `line L, column C: message`.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("line ")
+        try! into.append(self.line)
+        try! into.append(", column ")
+        try! into.append(self.column)
+        try! into.append(": ")
+        try! into.append(self.message)
     }
+}
 
-    // Parse TOML from a string
-    public static func parse(content: String) -> Result<TomlDoc, TomlError> {
-        var doc = TomlDoc()
-        var current_section = TomlSection(section_name: "")
+func toml_error(kind: TomlErrorKind, at: TomlPosition, message: String) -> TomlError {
+    TomlError(kind: kind, line: at.line, column: at.column, message: message)
+}
 
-        let lines = try! content.split("\n")
-        var line_num = 0
+func alloc_refused(at: TomlPosition) -> TomlError {
+    toml_error(TomlErrorKind.Alloc, at, "the allocator refused memory while reading the document")
+}
 
-        for line in lines.iter() {
-            line_num = line_num + 1
-            let trimmed = line.trim()
+// A refused allocation while building a container, reported at `at`.
+func allocated(r: Result<Void, AllocError>, at: TomlPosition) -> Result<Void, TomlError> {
+    match r {
+        case Ok(_) -> {},
+        case Err(_) -> { return alloc_refused(at) }
+    }
+    return
+}
 
-            // Skip empty lines and comments
-            if trimmed.is_empty() || trimmed.starts_with("#") {
-                continue
-            }
+// =============================================================================
+// Writing text: string_literal, key_literal and the renderings
+// =============================================================================
 
-            // Section header: [section_name]
-            if trimmed.starts_with("[") && trimmed.ends_with("]") {
-                // Save previous section if it has a name
-                if not current_section.name.is_empty() {
-                    try! doc.sections.push(move current_section)
+func byte_of(b: Int) -> Byte {
+    Byte(UInt8.from(truncating: b))
+}
+
+func hex_digit(d: Int) -> Int {
+    if d < 10 {
+        return BYTE_ZERO + d
+    }
+    BYTE_UPPER_A + (d - 10)
+}
+
+// `n` as `digits` uppercase hexadecimal digits.
+func hex_upper(n: Int, digits: Int) -> String {
+    var out = StringBuilder()
+    var shift = (digits - 1) * 4
+    while shift >= 0 {
+        try! out.append(byte_of(hex_digit((n >> shift) & 15)))
+        shift = shift - 4
+    }
+    out.build()
+}
+
+/// Writes `text` as a TOML basic string: `"` and `\` escaped, backspace, tab,
+/// line feed, form feed and carriage return as `\b \t \n \f \r`, any other
+/// control character and DEL as `\u00XX`, everything else as it is.
+public func string_literal(text: String) -> String {
+    var out = StringBuilder()
+    try! out.append("\"")
+    var i = 0
+    while i < text.len() {
+        let b = text.byte_at(i) as Int
+        if b == BYTE_QUOTE {
+            try! out.append("\\\"")
+        } else if b == BYTE_BACKSLASH {
+            try! out.append("\\\\")
+        } else if b == BYTE_BACKSPACE {
+            try! out.append("\\b")
+        } else if b == BYTE_TAB {
+            try! out.append("\\t")
+        } else if b == BYTE_LF {
+            try! out.append("\\n")
+        } else if b == BYTE_FORM_FEED {
+            try! out.append("\\f")
+        } else if b == BYTE_CR {
+            try! out.append("\\r")
+        } else if b < FIRST_PRINTABLE || b == BYTE_DELETE {
+            try! out.append("\\u")
+            try! out.append(hex_upper(b, 4))
+        } else {
+            try! out.append(byte_of(b))
+        }
+        i = i + 1
+    }
+    try! out.append("\"")
+    out.build()
+}
+
+func is_digit(b: Int) -> Bool {
+    b >= BYTE_ZERO && b <= BYTE_NINE
+}
+
+func is_letter(b: Int) -> Bool {
+    (b >= BYTE_UPPER_A && b <= BYTE_UPPER_Z) || (b >= BYTE_LOWER_A && b <= BYTE_LOWER_Z)
+}
+
+// A byte a bare key may hold.
+func is_bare(b: Int) -> Bool {
+    is_digit(b) || is_letter(b) || b == BYTE_UNDERSCORE || b == BYTE_MINUS
+}
+
+// A byte a scalar token (a number, a boolean, a date) may hold.
+func is_token(b: Int) -> Bool {
+    is_bare(b) || b == BYTE_PLUS || b == BYTE_DOT || b == BYTE_COLON
+}
+
+// A byte that may follow a bare key.
+func ends_bare_key(c: Int) -> Bool {
+    if c == BYTE_SPACE || c == BYTE_TAB || c == BYTE_DOT || c == BYTE_EQUALS {
+        return true
+    }
+    if c == BYTE_RIGHT_BRACKET || c == BYTE_RIGHT_BRACE || c == BYTE_COMMA {
+        return true
+    }
+    c == BYTE_HASH || c == BYTE_CR || c == BYTE_LF
+}
+
+// A control byte other than tab, DEL included.
+func is_control(b: Int) -> Bool {
+    (b < FIRST_PRINTABLE && b != BYTE_TAB) || b == BYTE_DELETE
+}
+
+/// Writes `text` as a key: bare when it is not empty and every byte is
+/// `A-Za-z0-9_-`, else as a basic string.
+public func key_literal(text: String) -> String {
+    if text.is_empty() {
+        return string_literal(text)
+    }
+    var i = 0
+    while i < text.len() {
+        if not is_bare(text.byte_at(i) as Int) {
+            return string_literal(text)
+        }
+        i = i + 1
+    }
+    text
+}
+
+// The parts of a key, each as a key, joined with dots.
+func rendered_names(names: &Vector<String>) -> String {
+    var out = StringBuilder()
+    var i = 0
+    while i < names.len() {
+        if i > 0 {
+            try! out.append(".")
+        }
+        try! out.append(key_literal(names[i]))
+        i = i + 1
+    }
+    out.build()
+}
+
+// `T` of the error messages: a table of `origin` at `names`.
+func described(origin: TableOrigin, names: &Vector<String>) -> String {
+    match origin {
+        case Root -> "the top-level table",
+        case Inline -> "the inline table `{rendered_names(&names)}`",
+        case Element -> "[[{rendered_names(&names)}]]",
+        case _ -> "[{rendered_names(&names)}]"
+    }
+}
+
+func rendered_parts(parts: &Vector<KeyPart>, upto: Int) -> String {
+    var out = StringBuilder()
+    var i = 0
+    while i < upto {
+        if i > 0 {
+            try! out.append(".")
+        }
+        try! out.append(key_literal(parts[i].name))
+        i = i + 1
+    }
+    out.build()
+}
+
+func append_padded(into: &var StringBuilder, n: Int, width: Int) {
+    try! into.append(decimal_padded(n, width))
+}
+
+// `n` in decimal, padded with zeros to `width`.
+func decimal_padded(n: Int, width: Int) -> String {
+    var out = StringBuilder()
+    var digits = 1
+    var scale = 10
+    while n >= scale {
+        digits = digits + 1
+        scale = scale * 10
+    }
+    var pad = width - digits
+    while pad > 0 {
+        try! out.append("0")
+        pad = pad - 1
+    }
+    try! out.append(n)
+    out.build()
+}
+
+extension TomlDateTime: Printable {
+    /// Writes the date-time as RFC 3339 with `T`: the fraction's trailing
+    /// zeros dropped and omitted when zero, offset 0 as `Z`.
+    public func format(&self, into: &var StringBuilder) {
+        var has_date = false
+        var has_time = false
+        var has_offset = false
+        match self.kind {
+            case OffsetDateTime -> {
+                has_date = true
+                has_time = true
+                has_offset = true
+            },
+            case LocalDateTime -> {
+                has_date = true
+                has_time = true
+            },
+            case LocalDate -> { has_date = true },
+            case LocalTime -> { has_time = true }
+        }
+        if has_date {
+            append_padded(&var into, self.year, 4)
+            try! into.append("-")
+            append_padded(&var into, self.month, 2)
+            try! into.append("-")
+            append_padded(&var into, self.day, 2)
+        }
+        if has_date && has_time {
+            try! into.append("T")
+        }
+        if has_time {
+            append_padded(&var into, self.hour, 2)
+            try! into.append(":")
+            append_padded(&var into, self.minute, 2)
+            try! into.append(":")
+            append_padded(&var into, self.second, 2)
+            if self.nanosecond > 0 {
+                let digits = decimal_padded(self.nanosecond, 9)
+                var end = digits.len()
+                while end > 1 && (digits.byte_at(end - 1) as Int) == BYTE_ZERO {
+                    end = end - 1
                 }
-                // Start new section - extract name between [ and ]
-                let name = trimmed.substring(1, trimmed.len() - 1)
-                current_section = TomlSection(section_name: name)
-                continue
+                try! into.append(".")
+                try! into.append(digits.substring(0, end))
             }
-
-            // Key-value pair: key = "value" or key = value
-            if let eq_pos = trimmed.index_of(61) {  // '=' is 61
-                let key = trimmed.substring(0, eq_pos).trim()
-                let raw_value = trimmed.substring(eq_pos + 1, trimmed.len()).trim()
-
-                // Inline table (one level): key = { subkey = "v", ... }
-                // (literal braces in the string patterns are escaped as \{ \}
-                // so the interpolation lexer does not treat them as splices).
-                if raw_value.starts_with("\{") && raw_value.ends_with("\}") {
-                    let table = parse_inline_table(key, raw_value)
-                    current_section.add_table(move table)
-                } else {
-                    // Handle quoted strings
-                    var value = raw_value
-                    if raw_value.starts_with("\"") && raw_value.ends_with("\"") {
-                        value = raw_value.substring(1, raw_value.len() - 1)
-                    }
-                    current_section.add(key, value)
-                }
+        }
+        if has_offset {
+            if self.offset_minutes == 0 {
+                try! into.append("Z")
             } else {
-                return TomlError(msg: "Invalid line: {trimmed}", at_line: line_num)
+                var minutes = self.offset_minutes
+                if minutes < 0 {
+                    try! into.append("-")
+                    minutes = 0 - minutes
+                } else {
+                    try! into.append("+")
+                }
+                append_padded(&var into, minutes / 60, 2)
+                try! into.append(":")
+                append_padded(&var into, minutes % 60, 2)
             }
         }
-
-        // Don't forget the last section
-        let has_content = current_section.values.len() > 0 || current_section.tables.len() > 0
-        if not current_section.name.is_empty() || has_content {
-            try! doc.sections.push(move current_section)
-        }
-
-        move doc
     }
+}
 
-    // All section names, in document order (lets a caller enumerate e.g. every
-    // [pkg.*] section of a lock file).
-    public func section_names(&self) -> Vector<String> {
-        var out = Vector<String>()
+// The rendering of an unsigned integer above `Int64.max`: `0x` and uppercase
+// hexadecimal digits, no underscores.
+func hex_unsigned(value: UInt64) -> String {
+    var out = StringBuilder()
+    try! out.append("0x")
+    var shift = 60
+    var started = false
+    while shift >= 0 {
+        let nibble = ((value >> shift) & 15) as Int
+        if nibble != 0 || started || shift == 0 {
+            started = true
+            try! out.append(byte_of(hex_digit(nibble)))
+        }
+        shift = shift - 4
+    }
+    out.build()
+}
+
+extension TomlValue: Printable {
+    /// Writes the value as inline TOML.
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case Text(s) -> try! into.append(string_literal(s)),
+            case Integer(n) -> try! into.append(n),
+            case Unsigned(u) -> try! into.append(hex_unsigned(u)),
+            case Float(f) -> try! into.append(f),
+            case Boolean(b) -> try! into.append(if b { "true" } else { "false" }),
+            case DateTime(d) -> d.format(into: &var into),
+            case Array(a) -> a.format(into: &var into),
+            case Table(t) -> t.format(into: &var into)
+        }
+    }
+}
+
+extension TomlTable: Printable {
+    /// Writes the table as inline TOML on one line: `{a = 1, b = {c = 2}}`,
+    /// the keys in document order.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("\{")
         var i = 0
-        while i < self.sections.len() {
-            try! out.push(self.sections[i].name)
+        while i < self.entries.len() {
+            if i > 0 {
+                try! into.append(", ")
+            }
+            try! into.append(key_literal(self.entries[i].key))
+            try! into.append(" = ")
+            self.entries[i].item.value.format(into: &var into)
             i = i + 1
         }
-        move out
+        try! into.append("\}")
     }
+}
 
-    // Internal: the index of the section named `name`, or None. See
-    // `TomlSection._table_index` for why the search is its own function.
-    func _section_index(&self, name: String) -> Int? {
+extension TomlArray: Printable {
+    /// Writes the array as inline TOML on one line: `[1, 2]`.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("[")
         var i = 0
-        while i < self.sections.len() {
-            if self.sections[i].name.equals(name) {
+        while i < self.items.len() {
+            if i > 0 {
+                try! into.append(", ")
+            }
+            self.items[i].value.format(into: &var into)
+            i = i + 1
+        }
+        try! into.append("]")
+    }
+}
+
+extension TomlDoc: Printable {
+    /// Writes the root table as inline TOML.
+    public func format(&self, into: &var StringBuilder) {
+        self.root.format(into: &var into)
+    }
+}
+
+// =============================================================================
+// Reading a table, an array and a document
+// =============================================================================
+
+func kind_of(value: &TomlValue) -> TomlKind {
+    match value {
+        case Text(_) -> TomlKind.Text,
+        case Integer(_) -> TomlKind.Integer,
+        case Unsigned(_) -> TomlKind.Integer,
+        case Float(_) -> TomlKind.Float,
+        case Boolean(_) -> TomlKind.Boolean,
+        case DateTime(_) -> TomlKind.DateTime,
+        case Array(_) -> TomlKind.Array,
+        case Table(_) -> TomlKind.Table
+    }
+}
+
+extension TomlTable {
+    // The entry for `key`, by a linear search: manifests have tens of keys.
+    func index(&self, key: String) -> Int? {
+        var i = 0
+        while i < self.entries.len() {
+            if self.entries[i].key.equals(key) {
                 return i
             }
             i = i + 1
@@ -329,49 +719,1691 @@ extension TomlDoc {
         None
     }
 
-    // Whether this document has a section named `name`.
-    public func has_section(&self, name: String) -> Bool {
-        if let _ = self._section_index(name) {
+    // `T` of the error messages: how this table is named.
+    func describe(&self) -> String {
+        described(self.origin, &self.parts)
+    }
+
+    func missing(&self, key: String) -> TomlError {
+        toml_error(TomlErrorKind.Missing, self.made_at,
+                   "`{key_literal(key)}` is missing from {self.describe()}")
+    }
+
+    func wrong(&self, i: Int, wanted: String) -> TomlError {
+        let kind = kind_of(&self.entries[i].item.value)
+        toml_error(TomlErrorKind.WrongType, self.entries[i].item.at,
+                   "`{key_literal(self.entries[i].key)}` in {self.describe()} is {kind}, not {wanted}")
+    }
+
+    /// Returns the number of keys.
+    public func len(&self) -> Int {
+        self.entries.len()
+    }
+
+    /// Returns the keys in document order.
+    public func keys(&self) -> Result<Vector<String>, AllocError> {
+        var out = Vector<String>()
+        var i = 0
+        while i < self.entries.len() {
+            try out.push(self.entries[i].key)
+            i = i + 1
+        }
+        move out
+    }
+
+    /// Returns whether `key` is present.
+    public func contains(&self, key: String) -> Bool {
+        if let _ = self.index(key) {
             return true
         }
         false
     }
 
-    // The number of sections, in document order.
-    public func section_count(&self) -> Int {
-        self.sections.len()
-    }
-
-    // The index of the section named `name`, or None. Pair it with
-    // `section_at` when a caller reads several values out of one section: the
-    // search runs once and each read is a direct place.
-    public func index_of(&self, name: String) -> Int? {
-        self._section_index(name)
-    }
-
-    // The section at `index`, as a PLACE. Panics if `index` is outside
-    // `0..<section_count()`.
-    public func section_at(&self, index: Int) borrows -> &TomlSection {
-        if index < 0 || index >= self.sections.len() {
-            panic("TomlDoc.section_at: index out of range")
+    /// Returns the kind of the value at `key`, or `None` when it is absent.
+    public func kind(&self, key: String) -> TomlKind? {
+        if let i = self.index(key) {
+            return kind_of(&self.entries[i].item.value)
         }
-        lend self.sections[index]
+        None
     }
 
-    // The section named `name`, as an optional PLACE.
-    //
-    // `TomlSection` is NoCopy, so it is reached IN the document rather than
-    // handed out: `doc.section("package")!.get("name")` borrows the section for
-    // the duration of that expression. This REPLACED `get_section`, which
-    // returned the section by value out of a `Vector<TomlSection>` and so
-    // handed back a non-retained alias of storage the document still owned —
-    // two lookups destroyed one section twice (DF-132a). Pair it with
-    // `has_section` when absence is not an error.
-    public func section(&self, name: String) borrows -> &TomlSection? {
-        if let i = self._section_index(name) {
-            lend self.sections[i]
+    /// Returns where `key` was written, or `None` when it is absent. For a
+    /// table a header made, that is the header's key part.
+    public func position(&self, key: String) -> TomlPosition? {
+        if let i = self.index(key) {
+            return self.entries[i].key_at
+        }
+        None
+    }
+
+    /// Returns the dotted path of this table, each part written as a key
+    /// (`devices.UART0`, `dog."tater.man"`); empty for the root. An element
+    /// of an array of tables has its array's path.
+    public func path(&self) -> String {
+        rendered_names(&self.parts)
+    }
+
+    /// Returns where this table was defined: the key part that named it in a
+    /// header, a dotted key or an inline table, or the start of the document
+    /// for the root.
+    public func defined_at(&self) -> TomlPosition {
+        self.made_at
+    }
+
+    /// Answers `Ok(true)` when `key` is present with `kind`, `Ok(false)` when
+    /// it is absent, and `WrongType` when it is present with another kind.
+    public func expect(&self, key: String, kind: TomlKind) -> Result<Bool, TomlError> {
+        guard let i = self.index(key) else {
+            return false
+        }
+        if kind_of(&self.entries[i].item.value) == kind {
+            return true
+        }
+        self.wrong(i, kind.describe())
+    }
+
+    /// Answers `Missing` when `key` is absent and `WrongType` when it is
+    /// present with a kind other than `kind`.
+    public func require(&self, key: String, kind: TomlKind) -> Result<Void, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        if kind_of(&self.entries[i].item.value) != kind {
+            return self.wrong(i, kind.describe())
+        }
+        return
+    }
+
+    /// Returns the string at `key`. `Missing` when absent, `WrongType` when
+    /// it is not a string.
+    public func string(&self, key: String) -> Result<String, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        match self.entries[i].item.value {
+            case Text(s) -> s,
+            case _ -> self.wrong(i, "a string")
+        }
+    }
+
+    /// Returns the string at `key`, or `None` when absent. `WrongType` when
+    /// it is not a string.
+    public func optional_string(&self, key: String) -> Result<String?, TomlError> {
+        guard let i = self.index(key) else {
+            return None
+        }
+        match self.entries[i].item.value {
+            case Text(s) -> Result<String?, TomlError>.Ok(value: s),
+            case _ -> Result<String?, TomlError>.Err(error: self.wrong(i, "a string"))
+        }
+    }
+
+    /// Returns the integer at `key` as an `Int64`. `Missing` when absent,
+    /// `WrongType` when it is not an integer, and `OutOfRange` for a literal
+    /// above `Int64.max`. It never converts a string or a float.
+    public func integer(&self, key: String) -> Result<Int64, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        match self.entries[i].item.value {
+            case Integer(n) -> n,
+            case Unsigned(u) -> self.too_large(i, u),
+            case _ -> self.wrong(i, "an integer")
+        }
+    }
+
+    /// As `integer`, with `None` for an absent key.
+    public func optional_integer(&self, key: String) -> Result<Int64?, TomlError> {
+        guard let i = self.index(key) else {
+            return None
+        }
+        match self.entries[i].item.value {
+            case Integer(n) -> Result<Int64?, TomlError>.Ok(value: n),
+            case Unsigned(u) -> Result<Int64?, TomlError>.Err(error: self.too_large(i, u)),
+            case _ -> Result<Int64?, TomlError>.Err(error: self.wrong(i, "an integer"))
+        }
+    }
+
+    func too_large(&self, i: Int, u: UInt64) -> TomlError {
+        toml_error(TomlErrorKind.OutOfRange, self.entries[i].item.at,
+                   "`{key_literal(self.entries[i].key)}` in {self.describe()} is {hex_unsigned(u)}, which does not fit in a 64-bit signed integer")
+    }
+
+    func negative(&self, i: Int, n: Int64) -> TomlError {
+        toml_error(TomlErrorKind.OutOfRange, self.entries[i].item.at,
+                   "`{key_literal(self.entries[i].key)}` in {self.describe()} is {n}, which is negative")
+    }
+
+    /// Returns the integer at `key` as a `UInt64`. `Missing` when absent,
+    /// `WrongType` when it is not an integer, and `OutOfRange` for a
+    /// negative one.
+    public func unsigned(&self, key: String) -> Result<UInt64, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        match self.entries[i].item.value {
+            case Integer(n) -> {
+                if n < 0 {
+                    return self.negative(i, n)
+                }
+                return n as UInt64
+            },
+            case Unsigned(u) -> u,
+            case _ -> self.wrong(i, "an integer")
+        }
+    }
+
+    /// As `unsigned`, with `None` for an absent key.
+    public func optional_unsigned(&self, key: String) -> Result<UInt64?, TomlError> {
+        guard let i = self.index(key) else {
+            return None
+        }
+        match self.entries[i].item.value {
+            case Integer(n) -> {
+                if n < 0 {
+                    return Result<UInt64?, TomlError>.Err(error: self.negative(i, n))
+                }
+                return Result<UInt64?, TomlError>.Ok(value: n as UInt64)
+            },
+            case Unsigned(u) -> Result<UInt64?, TomlError>.Ok(value: u),
+            case _ -> Result<UInt64?, TomlError>.Err(error: self.wrong(i, "an integer"))
+        }
+    }
+
+    /// Returns the boolean at `key`. `Missing` when absent, `WrongType` when
+    /// it is not a boolean.
+    public func boolean(&self, key: String) -> Result<Bool, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        match self.entries[i].item.value {
+            case Boolean(b) -> b,
+            case _ -> self.wrong(i, "a boolean")
+        }
+    }
+
+    /// As `boolean`, with `None` for an absent key.
+    public func optional_boolean(&self, key: String) -> Result<Bool?, TomlError> {
+        guard let i = self.index(key) else {
+            return None
+        }
+        match self.entries[i].item.value {
+            case Boolean(b) -> Result<Bool?, TomlError>.Ok(value: b),
+            case _ -> Result<Bool?, TomlError>.Err(error: self.wrong(i, "a boolean"))
+        }
+    }
+
+    /// Returns the float at `key`. `Missing` when absent, `WrongType` when it
+    /// is not a float; an integer is not converted.
+    public func float(&self, key: String) -> Result<Float, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        match self.entries[i].item.value {
+            case Float(f) -> f,
+            case _ -> self.wrong(i, "a float")
+        }
+    }
+
+    /// As `float`, with `None` for an absent key.
+    public func optional_float(&self, key: String) -> Result<Float?, TomlError> {
+        guard let i = self.index(key) else {
+            return None
+        }
+        match self.entries[i].item.value {
+            case Float(f) -> Result<Float?, TomlError>.Ok(value: f),
+            case _ -> Result<Float?, TomlError>.Err(error: self.wrong(i, "a float"))
+        }
+    }
+
+    /// Returns the date-time at `key`. `Missing` when absent, `WrongType`
+    /// when it is not a date-time.
+    public func date_time(&self, key: String) -> Result<TomlDateTime, TomlError> {
+        guard let i = self.index(key) else {
+            return self.missing(key)
+        }
+        match self.entries[i].item.value {
+            case DateTime(d) -> d,
+            case _ -> self.wrong(i, "a date-time")
+        }
+    }
+
+    /// As `date_time`, with `None` for an absent key.
+    public func optional_date_time(&self, key: String) -> Result<TomlDateTime?, TomlError> {
+        guard let i = self.index(key) else {
+            return None
+        }
+        match self.entries[i].item.value {
+            case DateTime(d) -> Result<TomlDateTime?, TomlError>.Ok(value: d),
+            case _ -> Result<TomlDateTime?, TomlError>.Err(error: self.wrong(i, "a date-time"))
+        }
+    }
+
+    /// Lends the value at `key`, for a caller that matches on it. `None` when
+    /// the key is absent.
+    public func value(&self, key: String) borrows -> &TomlValue? {
+        if let i = self.index(key) {
+            borrow let e = self.entries[i] {
+                lend e.item.value
+            }
         } else {
             return None
         }
     }
+
+    /// Lends the sub-table at `key`. `None` both when the key is absent and
+    /// when it is not a table, because a lend cannot be a `Result`; call
+    /// `expect` or `require` first to tell the two apart.
+    public func table(&self, key: String) borrows -> &TomlTable? {
+        if let i = self.index(key) {
+            borrow let e = self.entries[i] {
+                match e.item.value {
+                    case Table(t) -> { lend t },
+                    case _ -> { return None }
+                }
+            }
+        } else {
+            return None
+        }
+    }
+
+    /// Lends the array at `key`. `None` both when the key is absent and when
+    /// it is not an array; call `expect` or `require` first to tell the two
+    /// apart.
+    public func array(&self, key: String) borrows -> &TomlArray? {
+        if let i = self.index(key) {
+            borrow let e = self.entries[i] {
+                match e.item.value {
+                    case Array(a) -> { lend a },
+                    case _ -> { return None }
+                }
+            }
+        } else {
+            return None
+        }
+    }
+}
+
+extension TomlArray {
+    // `T` of the messages: the table that holds the array, named as a table
+    // is.
+    func holder(&self) -> String {
+        var up = Vector<String>()
+        var i = 0
+        while i + 1 < self.parts.len() {
+            try! up.push(self.parts[i])
+            i = i + 1
+        }
+        described(self.owner, &up)
+    }
+
+    // `K` of the messages: the array's own key, written as a key.
+    func key(&self) -> String {
+        if self.parts.len() == 0 {
+            return ""
+        }
+        key_literal(self.parts[self.parts.len() - 1])
+    }
+
+    func absent(&self, index: Int) -> TomlError {
+        toml_error(TomlErrorKind.Missing, self.made_at,
+                   "element {index} is past the end of `{self.key()}` in {self.holder()}, which has {self.items.len()}")
+    }
+
+    func wrong(&self, index: Int, wanted: String) -> TomlError {
+        let kind = kind_of(&self.items[index].value)
+        toml_error(TomlErrorKind.WrongType, self.items[index].at,
+                   "element {index} of `{self.key()}` is {kind}, not {wanted}")
+    }
+
+    func present(&self, index: Int) -> Bool {
+        index >= 0 && index < self.items.len()
+    }
+
+    /// Returns the number of elements.
+    public func len(&self) -> Int {
+        self.items.len()
+    }
+
+    /// Returns the kind of the element at `index`, or `None` outside
+    /// `0..<len()`.
+    public func kind(&self, index: Int) -> TomlKind? {
+        if self.present(index) {
+            return kind_of(&self.items[index].value)
+        }
+        None
+    }
+
+    /// Returns where the element at `index` starts, or `None` outside
+    /// `0..<len()`.
+    public func position(&self, index: Int) -> TomlPosition? {
+        if self.present(index) {
+            return self.items[index].at
+        }
+        None
+    }
+
+    /// Returns where this array was defined: its key part, or the element's
+    /// header for an array of tables.
+    public func defined_at(&self) -> TomlPosition {
+        self.made_at
+    }
+
+    /// Returns the string at `index`. `Missing` outside `0..<len()`,
+    /// `WrongType` when it is not a string.
+    public func string(&self, index: Int) -> Result<String, TomlError> {
+        if not self.present(index) {
+            return self.absent(index)
+        }
+        match self.items[index].value {
+            case Text(s) -> s,
+            case _ -> self.wrong(index, "a string")
+        }
+    }
+
+    /// Returns the integer at `index` as an `Int64`. `Missing` outside
+    /// `0..<len()`, `WrongType` when it is not an integer, `OutOfRange` for a
+    /// literal above `Int64.max`.
+    public func integer(&self, index: Int) -> Result<Int64, TomlError> {
+        if not self.present(index) {
+            return self.absent(index)
+        }
+        match self.items[index].value {
+            case Integer(n) -> n,
+            case Unsigned(u) -> toml_error(TomlErrorKind.OutOfRange, self.items[index].at,
+                                           "element {index} of `{self.key()}` is {hex_unsigned(u)}, which does not fit in a 64-bit signed integer"),
+            case _ -> self.wrong(index, "an integer")
+        }
+    }
+
+    /// Returns the integer at `index` as a `UInt64`. `Missing` outside
+    /// `0..<len()`, `WrongType` when it is not an integer, `OutOfRange` for a
+    /// negative one.
+    public func unsigned(&self, index: Int) -> Result<UInt64, TomlError> {
+        if not self.present(index) {
+            return self.absent(index)
+        }
+        match self.items[index].value {
+            case Integer(n) -> {
+                if n < 0 {
+                    return toml_error(TomlErrorKind.OutOfRange, self.items[index].at,
+                                      "element {index} of `{self.key()}` is {n}, which is negative")
+                }
+                return n as UInt64
+            },
+            case Unsigned(u) -> u,
+            case _ -> self.wrong(index, "an integer")
+        }
+    }
+
+    /// Returns the boolean at `index`. `Missing` outside `0..<len()`,
+    /// `WrongType` when it is not a boolean.
+    public func boolean(&self, index: Int) -> Result<Bool, TomlError> {
+        if not self.present(index) {
+            return self.absent(index)
+        }
+        match self.items[index].value {
+            case Boolean(b) -> b,
+            case _ -> self.wrong(index, "a boolean")
+        }
+    }
+
+    /// Returns the float at `index`. `Missing` outside `0..<len()`,
+    /// `WrongType` when it is not a float.
+    public func float(&self, index: Int) -> Result<Float, TomlError> {
+        if not self.present(index) {
+            return self.absent(index)
+        }
+        match self.items[index].value {
+            case Float(f) -> f,
+            case _ -> self.wrong(index, "a float")
+        }
+    }
+
+    /// Returns the date-time at `index`. `Missing` outside `0..<len()`,
+    /// `WrongType` when it is not a date-time.
+    public func date_time(&self, index: Int) -> Result<TomlDateTime, TomlError> {
+        if not self.present(index) {
+            return self.absent(index)
+        }
+        match self.items[index].value {
+            case DateTime(d) -> d,
+            case _ -> self.wrong(index, "a date-time")
+        }
+    }
+
+    /// Lends the element at `index`; `None` outside `0..<len()`.
+    public func value(&self, index: Int) borrows -> &TomlValue? {
+        if self.present(index) {
+            borrow let el = self.items[index] {
+                lend el.value
+            }
+        } else {
+            return None
+        }
+    }
+
+    /// Lends the table at `index`; `None` outside `0..<len()` and for an
+    /// element that is not a table.
+    public func table(&self, index: Int) borrows -> &TomlTable? {
+        if self.present(index) {
+            borrow let el = self.items[index] {
+                match el.value {
+                    case Table(t) -> { lend t },
+                    case _ -> { return None }
+                }
+            }
+        } else {
+            return None
+        }
+    }
+
+    /// Lends the array at `index`; `None` outside `0..<len()` and for an
+    /// element that is not an array.
+    public func array(&self, index: Int) borrows -> &TomlArray? {
+        if self.present(index) {
+            borrow let el = self.items[index] {
+                match el.value {
+                    case Array(a) -> { lend a },
+                    case _ -> { return None }
+                }
+            }
+        } else {
+            return None
+        }
+    }
+}
+
+extension TomlDoc {
+    /// Lends the top-level table.
+    public func root(&self) borrows -> &TomlTable {
+        lend self.root
+    }
+
+    /// Reads `text` as a TOML 1.0 document and builds its tree. The first
+    /// error stops the read and is the one returned. A table or an array sits
+    /// at most `max_depth` containers below the root, whether a header part, a
+    /// dotted key part, an inline table, an array or an array-of-tables element
+    /// put it there; a deeper document is `TooDeep`.
+    public static func parse(text: String, max_depth: Int = 32) -> Result<TomlDoc, TomlError> {
+        var reader = Reader(text: text, pos: 0, len: text.len(), line: 1, line_start: 0,
+                            col_off: 0, col_val: 1, depth: 0, max_depth: max_depth)
+        var root = new_table(TableOrigin.Root, Vector<String>(), TomlPosition(line: 1, column: 1))
+        try read_document(&var reader, &var root)
+        TomlDoc(root: move root)
+    }
+}
+
+// =============================================================================
+// The builder and the definition rules
+// =============================================================================
+
+func new_table(origin: TableOrigin, parts: Vector<String>, made_at: TomlPosition) -> TomlTable {
+    TomlTable(entries: Vector<TomlEntry>(), origin: origin, parts: move parts, made_at: made_at,
+              made_by: "")
+}
+
+func copy_names(names: &Vector<String>, at: TomlPosition) -> Result<Vector<String>, TomlError> {
+    var out = Vector<String>()
+    var i = 0
+    while i < names.len() {
+        try allocated(out.push(names[i]), at)
+        i = i + 1
+    }
+    move out
+}
+
+// `base` followed by the names of `keys`.
+func joined(base: &Vector<String>, keys: &Vector<KeyPart>, at: TomlPosition) -> Result<Vector<String>, TomlError> {
+    var out = try copy_names(&base, at)
+    var i = 0
+    while i < keys.len() {
+        try allocated(out.push(keys[i].name), at)
+        i = i + 1
+    }
+    move out
+}
+
+// The names of the first `count` parts.
+func names_upto(parts: &Vector<KeyPart>, count: Int, at: TomlPosition) -> Result<Vector<String>, TomlError> {
+    var out = Vector<String>()
+    var i = 0
+    while i < count {
+        try allocated(out.push(parts[i].name), at)
+        i = i + 1
+    }
+    move out
+}
+
+func push_entry(t: &var TomlTable, key: String, key_at: TomlPosition, item: TomlItem) -> Result<Void, TomlError> {
+    allocated(t.entries.push(TomlEntry(key: key, key_at: key_at, item: move item)), key_at)
+}
+
+func redefinition(at: TomlPosition, message: String) -> TomlError {
+    toml_error(TomlErrorKind.Redefinition, at, message)
+}
+
+// A header or dotted key reached a name that holds a value, not a table.
+func needs_table(at: TomlPosition, header: String, name: String, kind: TomlKind,
+                 defined: TomlPosition) -> TomlError {
+    redefinition(at, "[{header}] needs `{name}` to be a table, but it is {kind} defined at {defined}")
+}
+
+// A header `[K]` whose part `K2` is an inline table or a written array.
+func header_through(at: TomlPosition, header: String, name: String, table: &TomlTable) -> TomlError {
+    redefinition(at, "[{header}] would extend the inline table `{name}` defined at {table.made_at}; an inline table is complete where it is written")
+}
+
+func too_deep_at(at: TomlPosition, max_depth: Int) -> TomlError {
+    toml_error(TomlErrorKind.TooDeep, at, "the document nests more than {max_depth} deep")
+}
+
+// Where a header `[K]` or `[[K]]` lands, as the depth of the table it names:
+// `depth` is `t`'s own, and a level made past `max_depth` is `TooDeep` at the
+// part that makes it. Every part but the last descends: an absent key makes
+// an implied table, a table is entered unless it is inline, and an array
+// made by `[[K]]` is entered at its last element, a level below the array.
+func open_header(t: &var TomlTable, parts: &Vector<KeyPart>, i: Int, is_array: Bool, depth: Int,
+                 max_depth: Int) -> Result<Int, TomlError> {
+    let part = parts[i]
+    let found = t.index(part.name)
+    if i + 1 == parts.len() {
+        return header_leaf(&var t, &parts, i, is_array, found, depth, max_depth)
+    }
+    var idx = 0
+    if let k = found {
+        idx = k
+    } else {
+        if depth + 1 > max_depth {
+            return too_deep_at(part.at, max_depth)
+        }
+        let names = try names_upto(&parts, i + 1, part.at)
+        let sub = new_table(TableOrigin.Implied, move names, parts[parts.len() - 1].at)
+        try push_entry(&var t, part.name, part.at,
+                       TomlItem(value: TomlValue.Table(table: move sub), at: part.at))
+        idx = t.entries.len() - 1
+    }
+    let header = rendered_parts(&parts, parts.len())
+    let prefix = rendered_parts(&parts, i + 1)
+    borrow var e = t.entries[idx] {
+        match e.item.value {
+            case Table(var sub) -> {
+                if sub.origin == TableOrigin.Inline {
+                    return header_through(part.at, header, prefix, &sub)
+                }
+                return open_header(&var sub, &parts, i + 1, is_array, depth + 1, max_depth)
+            },
+            case Array(var a) -> {
+                if not a.of_tables {
+                    return redefinition(part.at, "[{header}] names the array written at {a.made_at}, not a table")
+                }
+                let last = a.items.len() - 1
+                borrow var el = a.items[last] {
+                    match el.value {
+                        case Table(var sub) -> {
+                            return open_header(&var sub, &parts, i + 1, is_array, depth + 2, max_depth)
+                        },
+                        case _ -> { panic("toml: an array of tables holds a value that is not a table") }
+                    }
+                }
+            },
+            case _ -> {
+                let kind = kind_of(&e.item.value)
+                return needs_table(part.at, header, prefix, kind, e.key_at)
+            }
+        }
+    }
+}
+
+// The last part of a header: `[name]` defines a table, `[[name]]` adds an
+// element to an array of tables. It answers the depth of that table or
+// element, which sits below `t` (at `depth`) one level, two for an element.
+func header_leaf(t: &var TomlTable, parts: &Vector<KeyPart>, i: Int, is_array: Bool,
+                 found: Int?, depth: Int, max_depth: Int) -> Result<Int, TomlError> {
+    let part = parts[i]
+    guard let idx = found else {
+        var levels = 1
+        if is_array {
+            levels = 2
+        }
+        if depth + levels > max_depth {
+            return too_deep_at(part.at, max_depth)
+        }
+        let names = try names_upto(&parts, parts.len(), part.at)
+        if is_array {
+            var items = Vector<TomlItem>()
+            let element_names = try copy_names(&names, part.at)
+            let element = new_table(TableOrigin.Element, move element_names, part.at)
+            try allocated(items.push(TomlItem(value: TomlValue.Table(table: move element), at: part.at)),
+                          part.at)
+            let array = TomlArray(items: move items, of_tables: true, parts: move names, made_at: part.at,
+                                  owner: t.origin)
+            try push_entry(&var t, part.name, part.at,
+                           TomlItem(value: TomlValue.Array(array: move array), at: part.at))
+            return depth + 2
+        }
+        let sub = new_table(TableOrigin.Header, move names, part.at)
+        try push_entry(&var t, part.name, part.at,
+                       TomlItem(value: TomlValue.Table(table: move sub), at: part.at))
+        return depth + 1
+    }
+    let header = rendered_parts(&parts, parts.len())
+    borrow var e = t.entries[idx] {
+        match e.item.value {
+            case Table(var sub) -> {
+                if is_array {
+                    return redefinition(part.at, "[[{header}]] names the table [{header}] defined at {sub.made_at}")
+                }
+                match sub.origin {
+                    case Implied -> {
+                        sub.origin = TableOrigin.Header
+                        sub.made_at = part.at
+                        e.key_at = part.at
+                        return depth + 1
+                    },
+                    case Header -> {
+                        return redefinition(part.at, "table [{header}] is defined twice; first defined at {sub.made_at}")
+                    },
+                    case Element -> {
+                        return redefinition(part.at, "table [{header}] is defined twice; first defined at {sub.made_at}")
+                    },
+                    case Dotted -> {
+                        return redefinition(part.at, "table [{header}] was already made by the dotted key `{sub.made_by}` at {sub.made_at}")
+                    },
+                    case Inline -> { return header_through(part.at, header, header, &sub) },
+                    case Root -> { panic("toml: the root table is named by a header") }
+                }
+            },
+            case Array(var a) -> {
+                if is_array {
+                    if not a.of_tables {
+                        return redefinition(part.at, "[[{header}]] cannot add to the array `{header}` written at {a.made_at}; only an array made by [[{header}]] takes more tables")
+                    }
+                    if depth + 2 > max_depth {
+                        return too_deep_at(part.at, max_depth)
+                    }
+                    let element_names = try copy_names(&a.parts, part.at)
+                    let element = new_table(TableOrigin.Element, move element_names, part.at)
+                    try allocated(a.items.push(TomlItem(value: TomlValue.Table(table: move element),
+                                                        at: part.at)), part.at)
+                    return depth + 2
+                }
+                if a.of_tables {
+                    return redefinition(part.at, "[{header}] names the array of tables made at {a.made_at}; add an element with [[{header}]]")
+                }
+                return redefinition(part.at, "[{header}] names the array written at {a.made_at}, not a table")
+            },
+            case _ -> {
+                let kind = kind_of(&e.item.value)
+                if is_array {
+                    return redefinition(part.at, "[[{header}]] names `{header}`, which is {kind} defined at {e.key_at}, not an array of tables")
+                }
+                return needs_table(part.at, header, header, kind, e.key_at)
+            }
+        }
+    }
+}
+
+// Writes `keys = item` into the table the last header named, which is `current`
+// below `t`. A header that succeeded made every part of `current`, so a part
+// that cannot be entered is a broken invariant.
+func insert_current(t: &var TomlTable, current: &Vector<KeyPart>, i: Int, keys: &Vector<KeyPart>,
+                    item: TomlItem) -> Result<Void, TomlError> {
+    if i == current.len() {
+        return insert_dotted(&var t, &keys, 0, move item)
+    }
+    guard let idx = t.index(current[i].name) else {
+        panic("toml: the table of the last header is gone")
+    }
+    borrow var e = t.entries[idx] {
+        match e.item.value {
+            case Table(var sub) -> {
+                return insert_current(&var sub, &current, i + 1, &keys, move item)
+            },
+            case Array(var a) -> {
+                let last = a.items.len() - 1
+                borrow var el = a.items[last] {
+                    match el.value {
+                        case Table(var sub) -> {
+                            return insert_current(&var sub, &current, i + 1, &keys, move item)
+                        },
+                        case _ -> { panic("toml: an array of tables holds a value that is not a table") }
+                    }
+                }
+            },
+            case _ -> { panic("toml: the last header names a value") }
+        }
+    }
+}
+
+// Writes `keys[i...] = item` into `t`. A dotted key makes `Dotted` tables on
+// the way and may enter those and the `Implied` ones, which it then owns: a
+// table a header or an inline table defined is complete elsewhere.
+func insert_dotted(t: &var TomlTable, keys: &Vector<KeyPart>, i: Int, item: TomlItem) -> Result<Void, TomlError> {
+    let part = keys[i]
+    let found = t.index(part.name)
+    if i + 1 == keys.len() {
+        if let k = found {
+            return toml_error(TomlErrorKind.DuplicateKey, part.at,
+                              "duplicate key `{key_literal(part.name)}` in {t.describe()}; first defined at {t.entries[k].key_at}")
+        }
+        return push_entry(&var t, part.name, part.at, move item)
+    }
+    let whole = rendered_parts(&keys, keys.len())
+    var idx = 0
+    if let k = found {
+        idx = k
+    } else {
+        var names = try copy_names(&t.parts, part.at)
+        try allocated(names.push(part.name), part.at)
+        var sub = new_table(TableOrigin.Dotted, move names, part.at)
+        sub.made_by = whole
+        try push_entry(&var t, part.name, part.at,
+                       TomlItem(value: TomlValue.Table(table: move sub), at: part.at))
+        idx = t.entries.len() - 1
+    }
+    let prefix = rendered_parts(&keys, i + 1)
+    borrow var e = t.entries[idx] {
+        match e.item.value {
+            case Table(var sub) -> {
+                if sub.origin == TableOrigin.Implied {
+                    sub.origin = TableOrigin.Dotted
+                    sub.made_at = part.at
+                    sub.made_by = whole
+                    e.key_at = part.at
+                } else if sub.origin != TableOrigin.Dotted {
+                    return redefinition(part.at, "the dotted key `{whole}` cannot extend {sub.describe()}, defined at {sub.made_at}")
+                }
+                return insert_dotted(&var sub, &keys, i + 1, move item)
+            },
+            case _ -> {
+                let kind = kind_of(&e.item.value)
+                return redefinition(part.at, "the dotted key `{whole}` needs `{prefix}` to be a table, but it is {kind} defined at {e.key_at}")
+            }
+        }
+    }
+}
+
+// =============================================================================
+// The reader
+// =============================================================================
+
+// The text being read, the byte offset reached, the line it is on and where
+// that line starts, the column `col_val` of the last offset `col_off` asked
+// for (so a position costs the bytes since the last one, not the whole line),
+// and the depth of the container being read, the root being 0.
+struct Reader {
+    text: String
+    pos: Int
+    len: Int
+    line: Int
+    line_start: Int
+    col_off: Int
+    col_val: Int
+    depth: Int
+    max_depth: Int
+}
+
+func unsupported(at: TomlPosition, construct: String) -> TomlError {
+    toml_error(TomlErrorKind.Unsupported, at,
+               "{construct} are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+}
+
+// The digit value of `b` in any radix up to 16, or -1.
+func digit_value(b: Int) -> Int {
+    if is_digit(b) {
+        return b - BYTE_ZERO
+    }
+    if b >= BYTE_LOWER_A && b <= BYTE_LOWER_F {
+        return b - BYTE_LOWER_A + 10
+    }
+    if b >= BYTE_UPPER_A && b <= BYTE_UPPER_F {
+        return b - BYTE_UPPER_A + 10
+    }
+    -1
+}
+
+// The kind of date-time a token starting `dddd-` or `dd:` is, as the plural
+// name `Unsupported` gives.
+func date_construct(token: String) -> String {
+    let n = token.len()
+    if n >= 3 && (token.byte_at(2) as Int) == BYTE_COLON {
+        return "local times"
+    }
+    if n > 10 {
+        let separator = token.byte_at(10) as Int
+        if separator == BYTE_UPPER_T || separator == BYTE_LOWER_T {
+            var i = 11
+            while i < n {
+                let c = token.byte_at(i) as Int
+                if c == BYTE_UPPER_Z || c == BYTE_LOWER_Z || c == BYTE_PLUS || c == BYTE_MINUS {
+                    return "offset date-times"
+                }
+                i = i + 1
+            }
+            return "local date-times"
+        }
+    }
+    "local dates"
+}
+
+// Whether `token` starts like a date or a time: `dddd-` or `dd:`.
+func starts_date(token: String) -> Bool {
+    let n = token.len()
+    if n >= 5 {
+        var all = true
+        var i = 0
+        while i < 4 {
+            if not is_digit(token.byte_at(i) as Int) {
+                all = false
+            }
+            i = i + 1
+        }
+        if all && (token.byte_at(4) as Int) == BYTE_MINUS {
+            return true
+        }
+    }
+    if n >= 3 {
+        if is_digit(token.byte_at(0) as Int) && is_digit(token.byte_at(1) as Int) && (token.byte_at(2) as Int) == BYTE_COLON {
+            return true
+        }
+    }
+    false
+}
+
+// The integer a token spells. A decimal is an `Int64`; a hexadecimal, octal
+// or binary literal may reach `UInt64.max` and is `Unsigned` above
+// `Int64.max`.
+func read_integer(token: String, at: TomlPosition) -> Result<TomlValue, TomlError> {
+    let n = token.len()
+    var i = 0
+    var signed = false
+    var negative = false
+    let first = token.byte_at(0) as Int
+    if first == BYTE_PLUS || first == BYTE_MINUS {
+        signed = true
+        negative = first == BYTE_MINUS
+        i = 1
+    }
+    var radix = 10
+    if i + 1 < n && (token.byte_at(i) as Int) == BYTE_ZERO {
+        let prefix = token.byte_at(i + 1) as Int
+        if prefix == BYTE_LOWER_X {
+            radix = 16
+        } else if prefix == BYTE_LOWER_O {
+            radix = 8
+        } else if prefix == BYTE_LOWER_B {
+            radix = 2
+        }
+    }
+    if radix != 10 {
+        if signed {
+            return toml_error(TomlErrorKind.InvalidNumber, at,
+                              "`{token}`: a hexadecimal, octal or binary integer takes no sign")
+        }
+        i = i + 2
+    }
+    let start = i
+    var count = 0
+    var after_digit = false
+    var j = start
+    while j < n {
+        let b = token.byte_at(j) as Int
+        if b == BYTE_UNDERSCORE {
+            if not after_digit {
+                return toml_error(TomlErrorKind.InvalidNumber, at,
+                                  "`{token}`: `_` must stand between two digits")
+            }
+            after_digit = false
+        } else {
+            let d = digit_value(b)
+            if d < 0 || d >= radix {
+                return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}` is not a valid integer")
+            }
+            after_digit = true
+            count = count + 1
+        }
+        j = j + 1
+    }
+    if n > start && not after_digit {
+        return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}`: `_` must stand between two digits")
+    }
+    if count == 0 {
+        return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}` is not a valid integer")
+    }
+    if radix == 10 && count > 1 && (token.byte_at(start) as Int) == BYTE_ZERO {
+        return toml_error(TomlErrorKind.InvalidNumber, at,
+                          "`{token}`: leading zeros are not allowed in a decimal integer")
+    }
+    var limit = UINT64_LARGEST
+    if radix == 10 {
+        limit = INT64_LARGEST
+        if negative {
+            limit = INT64_MAGNITUDE
+        }
+    }
+    let wide = radix as UInt64
+    var acc: UInt64 = 0
+    j = start
+    while j < n {
+        let b = token.byte_at(j) as Int
+        if b != BYTE_UNDERSCORE {
+            let d = digit_value(b) as UInt64
+            if acc > (limit - d) / wide {
+                if radix == 10 {
+                    return toml_error(TomlErrorKind.InvalidNumber, at,
+                                      "`{token}` does not fit in a 64-bit signed integer")
+                }
+                return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}` does not fit in 64 bits")
+            }
+            acc = acc * wide + d
+        }
+        j = j + 1
+    }
+    if radix == 10 {
+        if negative {
+            return TomlValue.Integer(value: Int64.from(truncating: 0 &- acc))
+        }
+        return TomlValue.Integer(value: acc as Int64)
+    }
+    if acc > INT64_LARGEST {
+        return TomlValue.Unsigned(value: acc)
+    }
+    TomlValue.Integer(value: acc as Int64)
+}
+
+extension Reader {
+    func at(&self, i: Int) -> Int {
+        self.text.byte_at(i) as Int
+    }
+
+    // The byte at the cursor, or -1 at the end.
+    func peek(&self) -> Int {
+        if self.pos >= self.len {
+            return -1
+        }
+        self.at(self.pos)
+    }
+
+    func peek_at(&self, offset: Int) -> Int {
+        let i = self.pos + offset
+        if i >= self.len {
+            return -1
+        }
+        self.at(i)
+    }
+
+    func starts_with(&self, word: String) -> Bool {
+        if self.pos + word.len() > self.len {
+            return false
+        }
+        var i = 0
+        while i < word.len() {
+            if self.at(self.pos + i) != (word.byte_at(i) as Int) {
+                return false
+            }
+            i = i + 1
+        }
+        true
+    }
+
+    // The position of byte offset `off` on the current line: the column
+    // counts the bytes that are not UTF-8 continuation bytes. The scan starts
+    // at the last offset asked for when that is on this line and not past
+    // `off`, else at the start of the line.
+    func position_at(&var self, off: Int) -> TomlPosition {
+        var column = 1
+        var i = self.line_start
+        if self.col_off >= self.line_start && self.col_off <= off {
+            column = self.col_val
+            i = self.col_off
+        }
+        while i < off {
+            let b = self.at(i)
+            if b < CONTINUATION_FIRST || b >= LEAD_FIRST {
+                column = column + 1
+            }
+            i = i + 1
+        }
+        self.col_off = off
+        self.col_val = column
+        TomlPosition(line: self.line, column: column)
+    }
+
+    func here(&var self) -> TomlPosition {
+        self.position_at(self.pos)
+    }
+
+    func fail(&var self, kind: TomlErrorKind, message: String) -> TomlError {
+        toml_error(kind, self.here(), message)
+    }
+
+    // An append's result, the position taken only for a refusal.
+    func pushed(&var self, r: Result<Void, AllocError>) -> Result<Void, TomlError> {
+        match r {
+            case Ok(_) -> {},
+            case Err(_) -> { return alloc_refused(self.here()) }
+        }
+        return
+    }
+
+    // The Unicode scalar starting at byte offset `off`, as text.
+    func scalar_at(&self, off: Int) -> String {
+        let b = self.at(off)
+        var width = 1
+        if b >= 0xF0 {
+            width = 4
+        } else if b >= 0xE0 {
+            width = 3
+        } else if b >= LEAD_FIRST {
+            width = 2
+        }
+        var end = off + width
+        if end > self.len {
+            end = self.len
+        }
+        self.text.substring(off, end)
+    }
+
+    // What is at the cursor, for `found {what}`: the end of the line, the end
+    // of the document, a comment, or the run of bytes up to the next blank,
+    // cut at `WHAT_LIMIT` scalars.
+    func what(&self) -> String {
+        if self.pos >= self.len {
+            return "the end of the document"
+        }
+        let b = self.at(self.pos)
+        if b == BYTE_LF || b == BYTE_CR {
+            return "the end of the line"
+        }
+        if b == BYTE_HASH {
+            return "a comment"
+        }
+        var out = StringBuilder()
+        var i = self.pos
+        var scalars = 0
+        while i < self.len {
+            let c = self.at(i)
+            if c == BYTE_SPACE || c == BYTE_TAB || c == BYTE_LF || c == BYTE_CR {
+                break
+            }
+            if c < CONTINUATION_FIRST || c >= LEAD_FIRST {
+                if scalars == WHAT_LIMIT {
+                    break
+                }
+                scalars = scalars + 1
+            }
+            try! out.append(byte_of(c))
+            i = i + 1
+        }
+        "`{out.build()}`"
+    }
+
+    func skip_blank(&var self) {
+        while self.pos < self.len {
+            let b = self.at(self.pos)
+            if b != BYTE_SPACE && b != BYTE_TAB {
+                return
+            }
+            self.pos = self.pos + 1
+        }
+    }
+
+    // At `#`: consumes to the end of the line, which it does not consume.
+    func comment(&var self) -> Result<Void, TomlError> {
+        while self.pos < self.len {
+            let b = self.at(self.pos)
+            if b == BYTE_LF || b == BYTE_CR {
+                return
+            }
+            if is_control(b) {
+                return self.fail(TomlErrorKind.Syntax,
+                                 "control character U+{hex_upper(b, 4)} is not allowed in a comment")
+            }
+            self.pos = self.pos + 1
+        }
+        return
+    }
+
+    // A line feed or a carriage return and line feed: consumed, `Ok(true)`.
+    // Anything else `Ok(false)`; a carriage return alone is an error.
+    func newline(&var self) -> Result<Bool, TomlError> {
+        let b = self.peek()
+        if b == BYTE_LF {
+            self.pos = self.pos + 1
+            self.line = self.line + 1
+            self.line_start = self.pos
+            return true
+        }
+        if b == BYTE_CR {
+            if self.peek_at(1) == BYTE_LF {
+                self.pos = self.pos + 2
+                self.line = self.line + 1
+                self.line_start = self.pos
+                return true
+            }
+            return self.fail(TomlErrorKind.Syntax, "a carriage return must be followed by a line feed")
+        }
+        return false
+    }
+
+    // The rest of a line after `after`: blanks, a comment, then a line ending
+    // or the end of the text.
+    func end_of_line(&var self, after: String) -> Result<Void, TomlError> {
+        self.skip_blank()
+        if self.peek() == BYTE_HASH {
+            try self.comment()
+        }
+        let moved = try self.newline()
+        if moved {
+            return
+        }
+        if self.pos >= self.len {
+            return
+        }
+        return self.fail(TomlErrorKind.Syntax,
+                         "expected the end of the line after {after}, found {self.what()}")
+    }
+
+    // Inside an array: blanks, comments and line endings, in any number.
+    func skip_blank_lines(&var self) -> Result<Void, TomlError> {
+        while {
+            self.skip_blank()
+            if self.peek() == BYTE_HASH {
+                try self.comment()
+            }
+            let moved = try self.newline()
+            if not moved {
+                return
+            }
+        }
+    }
+
+    // Inside an inline table nothing may leave the line.
+    func same_line(&var self) -> Result<Void, TomlError> {
+        let b = self.peek()
+        if b < 0 || b == BYTE_LF || b == BYTE_CR || b == BYTE_HASH {
+            return self.fail(TomlErrorKind.Syntax,
+                             "an inline table must close on the line it opens, found the end of the line")
+        }
+        return
+    }
+
+    // One part of a key: a basic string, a literal string, or a bare run.
+    func simple_key(&var self, after_dot: Bool) -> Result<KeyPart, TomlError> {
+        let at = self.here()
+        let b = self.peek()
+        if b == BYTE_QUOTE {
+            if self.starts_with("\"\"\"") {
+                return self.fail(TomlErrorKind.Syntax, "a key is one line; a multi-line string cannot be a key")
+            }
+            let name = try self.basic_string_text()
+            return KeyPart(name: name, at: at)
+        }
+        if b == BYTE_APOSTROPHE {
+            if self.starts_with("'''") {
+                return self.fail(TomlErrorKind.Syntax, "a key is one line; a multi-line string cannot be a key")
+            }
+            let name = try self.literal_string_text()
+            return KeyPart(name: name, at: at)
+        }
+        var end = self.pos
+        while end < self.len && is_bare(self.at(end)) {
+            end = end + 1
+        }
+        if end == self.pos {
+            if after_dot {
+                return self.fail(TomlErrorKind.Syntax, "expected a key after `.`, found {self.what()}")
+            }
+            return self.fail(TomlErrorKind.Syntax, "expected a key, found {self.what()}")
+        }
+        let name = self.text.substring(self.pos, end)
+        self.pos = end
+        let c = self.peek()
+        if c >= 0 {
+            if not ends_bare_key(c) {
+                return self.fail(TomlErrorKind.Syntax,
+                                 "`{self.scalar_at(self.pos)}` is not allowed in a bare key; write the key in quotes")
+            }
+        }
+        return KeyPart(name: name, at: at)
+    }
+
+    // A key: parts separated by dots, blanks allowed around each dot. The
+    // key sits in a table at depth `levels`. Each part makes a level: all of
+    // a header's (`header`), and the ones before the last of a dotted key,
+    // so a part that puts one past `max_depth` is `TooDeep`.
+    func key(&var self, levels: Int, header: Bool) -> Result<Vector<KeyPart>, TomlError> {
+        var parts = Vector<KeyPart>()
+        var first = true
+        while {
+            let part = try self.simple_key(not first)
+            self.skip_blank()
+            let more = self.peek() == BYTE_DOT
+            if (header || more) && levels + parts.len() + 1 > self.max_depth {
+                return too_deep_at(part.at, self.max_depth)
+            }
+            try self.pushed(parts.push(part))
+            first = false
+            if not more {
+                break
+            }
+            self.pos = self.pos + 1
+            self.skip_blank()
+        }
+        move parts
+    }
+
+    // A basic string, its opening quote next, decoded.
+    func basic_string_text(&var self) -> Result<String, TomlError> {
+        let opener = self.here()
+        self.pos = self.pos + 1
+        var out = StringBuilder()
+        while {
+            if self.pos >= self.len {
+                return toml_error(TomlErrorKind.InvalidString, opener,
+                                  "the string is not closed before the end of the line")
+            }
+            let b = self.at(self.pos)
+            if b == BYTE_QUOTE {
+                self.pos = self.pos + 1
+                return out.build()
+            }
+            if b == BYTE_LF || b == BYTE_CR {
+                return toml_error(TomlErrorKind.InvalidString, opener,
+                                  "the string is not closed before the end of the line")
+            }
+            if is_control(b) {
+                return self.fail(TomlErrorKind.InvalidString,
+                                 "control character U+{hex_upper(b, 4)} must be written as an escape in a string")
+            }
+            if b != BYTE_BACKSLASH {
+                try self.pushed(out.append(byte_of(b)))
+                self.pos = self.pos + 1
+                continue
+            }
+            let escape_at = self.here()
+            let e = self.peek_at(1)
+            if e < 0 || e == BYTE_LF || e == BYTE_CR {
+                return toml_error(TomlErrorKind.InvalidString, opener,
+                                  "the string is not closed before the end of the line")
+            }
+            var plain = -1
+            if e == BYTE_QUOTE || e == BYTE_BACKSLASH {
+                plain = e
+            } else if e == BYTE_LOWER_B {
+                plain = BYTE_BACKSPACE
+            } else if e == BYTE_LOWER_T {
+                plain = BYTE_TAB
+            } else if e == BYTE_LOWER_N {
+                plain = BYTE_LF
+            } else if e == BYTE_LOWER_F {
+                plain = BYTE_FORM_FEED
+            } else if e == BYTE_LOWER_R {
+                plain = BYTE_CR
+            }
+            if plain >= 0 {
+                try self.pushed(out.append(byte_of(plain)))
+                self.pos = self.pos + 2
+                continue
+            }
+            var digits = 0
+            if e == BYTE_LOWER_U {
+                digits = 4
+            } else if e == BYTE_UPPER_U {
+                digits = 8
+            }
+            if digits == 0 {
+                return toml_error(TomlErrorKind.InvalidString, escape_at,
+                                  "unknown escape `\\{self.scalar_at(self.pos + 1)}` in a string")
+            }
+            let letter = self.scalar_at(self.pos + 1)
+            var value = 0
+            var k = 0
+            while k < digits {
+                let d = digit_value(self.peek_at(2 + k))
+                if d < 0 || d > 15 {
+                    return toml_error(TomlErrorKind.InvalidString, escape_at,
+                                      "expected {digits} hexadecimal digits after `\\{letter}`")
+                }
+                value = value * 16 + d
+                k = k + 1
+            }
+            let written = self.text.substring(self.pos + 2, self.pos + 2 + digits)
+            if value > SCALAR_MAX || (value >= SURROGATE_FIRST && value <= SURROGATE_LAST) {
+                return toml_error(TomlErrorKind.InvalidString, escape_at,
+                                  "`\\{letter}{written}` is not a Unicode scalar value")
+            }
+            match Scalar(value: value) {
+                case Ok(s) -> { try self.pushed(out.append(s)) },
+                case Err(_) -> {
+                    return toml_error(TomlErrorKind.InvalidString, escape_at,
+                                      "`\\{letter}{written}` is not a Unicode scalar value")
+                }
+            }
+            self.pos = self.pos + 2 + digits
+        }
+    }
+
+    // A literal string, its opening apostrophe next.
+    func literal_string_text(&var self) -> Result<String, TomlError> {
+        let opener = self.here()
+        self.pos = self.pos + 1
+        let start = self.pos
+        while {
+            if self.pos >= self.len {
+                return toml_error(TomlErrorKind.InvalidString, opener,
+                                  "the string is not closed before the end of the line")
+            }
+            let b = self.at(self.pos)
+            if b == BYTE_APOSTROPHE {
+                let text = self.text.substring(start, self.pos)
+                self.pos = self.pos + 1
+                return text
+            }
+            if b == BYTE_LF || b == BYTE_CR {
+                return toml_error(TomlErrorKind.InvalidString, opener,
+                                  "the string is not closed before the end of the line")
+            }
+            if is_control(b) {
+                return self.fail(TomlErrorKind.InvalidString,
+                                 "control character U+{hex_upper(b, 4)} is not allowed in a string")
+            }
+            self.pos = self.pos + 1
+        }
+    }
+
+    // A value, dispatched on its first byte. `path` is the path an array or
+    // inline table made here carries, `made_at` where it is defined, and
+    // `owner` how the table that holds it came to exist.
+    func value(&var self, path: &Vector<String>, made_at: TomlPosition, after_equals: Bool,
+               owner: TableOrigin) -> Result<TomlItem, TomlError> {
+        let at = self.here()
+        let b = self.peek()
+        if b == BYTE_QUOTE {
+            if self.starts_with("\"\"\"") {
+                return unsupported(at, "multi-line basic strings")
+            }
+            let text = try self.basic_string_text()
+            return TomlItem(value: TomlValue.Text(value: text), at: at)
+        }
+        if b == BYTE_APOSTROPHE {
+            if self.starts_with("'''") {
+                return unsupported(at, "multi-line literal strings")
+            }
+            let text = try self.literal_string_text()
+            return TomlItem(value: TomlValue.Text(value: text), at: at)
+        }
+        if b == BYTE_LEFT_BRACKET {
+            return self.array(&path, made_at, owner)
+        }
+        if b == BYTE_LEFT_BRACE {
+            return self.inline_table(&path, made_at)
+        }
+        var end = self.pos
+        while end < self.len && is_token(self.at(end)) {
+            end = end + 1
+        }
+        if end == self.pos {
+            if after_equals {
+                return self.fail(TomlErrorKind.Syntax, "expected a value after `=`, found {self.what()}")
+            }
+            return self.fail(TomlErrorKind.Syntax, "expected a value in the array, found {self.what()}")
+        }
+        let token = self.text.substring(self.pos, end)
+        if token.equals("true") {
+            self.pos = end
+            return TomlItem(value: TomlValue.Boolean(value: true), at: at)
+        }
+        if token.equals("false") {
+            self.pos = end
+            return TomlItem(value: TomlValue.Boolean(value: false), at: at)
+        }
+        var sign = 0
+        let first = token.byte_at(0) as Int
+        if first == BYTE_PLUS || first == BYTE_MINUS {
+            sign = 1
+        }
+        let body = token.substring(sign, token.len())
+        if body.equals("inf") || body.equals("nan") {
+            return unsupported(at, "floats")
+        }
+        var lead = -1
+        var after_lead = -1
+        if body.len() > 0 {
+            lead = body.byte_at(0) as Int
+        }
+        if body.len() > 1 {
+            after_lead = body.byte_at(1) as Int
+        }
+        let dot_digit = lead == BYTE_DOT && is_digit(after_lead)
+        if is_digit(lead) || dot_digit {
+            if sign == 0 && starts_date(token) {
+                return unsupported(at, date_construct(token))
+            }
+            var prefixed = false
+            if lead == BYTE_ZERO {
+                prefixed = after_lead == BYTE_LOWER_X || after_lead == BYTE_LOWER_O || after_lead == BYTE_LOWER_B
+            }
+            var floating = dot_digit
+            if not prefixed {
+                var i = 0
+                while i < body.len() {
+                    let c = body.byte_at(i) as Int
+                    if c == BYTE_DOT || c == BYTE_LOWER_E || c == BYTE_UPPER_E {
+                        floating = true
+                    }
+                    i = i + 1
+                }
+            }
+            if floating {
+                return unsupported(at, "floats")
+            }
+            let number = try read_integer(token, at)
+            self.pos = end
+            return TomlItem(value: move number, at: at)
+        }
+        let lowered = token.to_lowercase()
+        if lowered.equals("true") || lowered.equals("false") {
+            return self.fail(TomlErrorKind.Syntax,
+                             "`{token}` is not a value; booleans are written `true` and `false`")
+        }
+        return self.fail(TomlErrorKind.Syntax,
+                         "`{token}` is not a value; a string is written in quotes")
+    }
+
+    // An array, its `[` next. Elements may be of different kinds, a trailing
+    // comma is allowed, and line endings and comments may stand between
+    // elements.
+    func array(&var self, path: &Vector<String>, made_at: TomlPosition,
+               owner: TableOrigin) -> Result<TomlItem, TomlError> {
+        let opener = self.here()
+        if self.depth >= self.max_depth {
+            return too_deep_at(opener, self.max_depth)
+        }
+        self.depth = self.depth + 1
+        self.pos = self.pos + 1
+        var items = Vector<TomlItem>()
+        while {
+            try self.skip_blank_lines()
+            if self.pos >= self.len {
+                return toml_error(TomlErrorKind.Syntax, opener,
+                                  "the array is not closed before the end of the document")
+            }
+            if self.peek() == BYTE_RIGHT_BRACKET {
+                self.pos = self.pos + 1
+                break
+            }
+            let item = try self.value(&path, self.here(), false, owner)
+            try self.pushed(items.push(move item))
+            try self.skip_blank_lines()
+            let b = self.peek()
+            if b == BYTE_COMMA {
+                self.pos = self.pos + 1
+                continue
+            }
+            if b == BYTE_RIGHT_BRACKET {
+                self.pos = self.pos + 1
+                break
+            }
+            if self.pos >= self.len {
+                return toml_error(TomlErrorKind.Syntax, opener,
+                                  "the array is not closed before the end of the document")
+            }
+            return self.fail(TomlErrorKind.Syntax,
+                             "expected `,` or `]` in the array, found {self.what()}")
+        }
+        self.depth = self.depth - 1
+        let names = try copy_names(&path, opener)
+        let array = TomlArray(items: move items, of_tables: false, parts: move names, made_at: made_at,
+                              owner: owner)
+        return TomlItem(value: TomlValue.Array(array: move array), at: opener)
+    }
+
+    // An inline table, its `{` next. It closes on the line it opens on.
+    func inline_table(&var self, path: &Vector<String>, made_at: TomlPosition) -> Result<TomlItem, TomlError> {
+        let opener = self.here()
+        if self.depth >= self.max_depth {
+            return too_deep_at(opener, self.max_depth)
+        }
+        self.depth = self.depth + 1
+        self.pos = self.pos + 1
+        let names = try copy_names(&path, opener)
+        var table = new_table(TableOrigin.Inline, move names, made_at)
+        self.skip_blank()
+        if self.peek() == BYTE_RIGHT_BRACE {
+            self.pos = self.pos + 1
+            self.depth = self.depth - 1
+            return TomlItem(value: TomlValue.Table(table: move table), at: opener)
+        }
+        while {
+            try self.same_line()
+            let keys = try self.key(self.depth, false)
+            try self.same_line()
+            if self.peek() != BYTE_EQUALS {
+                return self.fail(TomlErrorKind.Syntax,
+                                 "expected `=` after the key `{rendered_parts(&keys, keys.len())}`, found {self.what()}")
+            }
+            self.pos = self.pos + 1
+            self.skip_blank()
+            try self.same_line()
+            let inner = try joined(&path, &keys, self.here())
+            var owner = TableOrigin.Inline
+            if keys.len() > 1 {
+                owner = TableOrigin.Dotted
+            }
+            let held = self.depth
+            self.depth = held + keys.len() - 1
+            let item = try self.value(&inner, keys[keys.len() - 1].at, true, owner)
+            self.depth = held
+            try insert_dotted(&var table, &keys, 0, move item)
+            self.skip_blank()
+            let b = self.peek()
+            if b == BYTE_COMMA {
+                self.pos = self.pos + 1
+                self.skip_blank()
+                if self.peek() == BYTE_RIGHT_BRACE {
+                    return self.fail(TomlErrorKind.Syntax, "a trailing comma is not allowed in an inline table")
+                }
+                continue
+            }
+            if b == BYTE_RIGHT_BRACE {
+                self.pos = self.pos + 1
+                break
+            }
+            try self.same_line()
+            return self.fail(TomlErrorKind.Syntax,
+                             "expected `,` or `\}` in the inline table, found {self.what()}")
+        }
+        self.depth = self.depth - 1
+        return TomlItem(value: TomlValue.Table(table: move table), at: opener)
+    }
+}
+
+// =============================================================================
+// The document loop
+// =============================================================================
+
+func read_document(r: &var Reader, root: &var TomlTable) -> Result<Void, TomlError> {
+    var current = Vector<KeyPart>()
+    var current_names = Vector<String>()
+    // The depth of the table the last header named, and how it came to exist.
+    var current_depth = 0
+    var current_origin = TableOrigin.Root
+    // One leading byte-order mark is not part of the first line's text.
+    if r.starts_with("\u{FEFF}") {
+        r.pos = 3
+        r.line_start = 3
+    }
+    while r.pos < r.len {
+        r.skip_blank()
+        if r.pos >= r.len {
+            break
+        }
+        let b = r.peek()
+        if b == BYTE_LF || b == BYTE_CR {
+            let _ = try r.newline()
+            continue
+        }
+        if b == BYTE_HASH {
+            try r.comment()
+            continue
+        }
+        if b == BYTE_LEFT_BRACKET {
+            let is_array = r.peek_at(1) == BYTE_LEFT_BRACKET
+            if is_array {
+                r.pos = r.pos + 2
+            } else {
+                r.pos = r.pos + 1
+            }
+            r.skip_blank()
+            if not is_array && r.peek() == BYTE_RIGHT_BRACKET {
+                return r.fail(TomlErrorKind.Syntax, "a table header needs a key")
+            }
+            let parts = try r.key(0, true)
+            if is_array {
+                if not r.starts_with("]]") {
+                    return r.fail(TomlErrorKind.Syntax,
+                                  "expected `]]` to close the array-of-tables header, found {r.what()}")
+                }
+                r.pos = r.pos + 2
+            } else {
+                if r.peek() != BYTE_RIGHT_BRACKET {
+                    return r.fail(TomlErrorKind.Syntax,
+                                  "expected `]` to close the table header, found {r.what()}")
+                }
+                r.pos = r.pos + 1
+            }
+            try r.end_of_line("the table header")
+            current_depth = try open_header(&var root, &parts, 0, is_array, 0, r.max_depth)
+            current_origin = TableOrigin.Header
+            if is_array {
+                current_origin = TableOrigin.Element
+            }
+            current_names = try names_upto(&parts, parts.len(), parts[0].at)
+            current = move parts
+            continue
+        }
+        let keys = try r.key(current_depth, false)
+        if r.peek() != BYTE_EQUALS {
+            return r.fail(TomlErrorKind.Syntax,
+                          "expected `=` after the key `{rendered_parts(&keys, keys.len())}`, found {r.what()}")
+        }
+        r.pos = r.pos + 1
+        r.skip_blank()
+        let c = r.peek()
+        if c < 0 || c == BYTE_LF || c == BYTE_CR || c == BYTE_HASH {
+            return r.fail(TomlErrorKind.Syntax, "expected a value after `=`, found {r.what()}")
+        }
+        let path = try joined(&current_names, &keys, r.here())
+        var owner = current_origin
+        if keys.len() > 1 {
+            owner = TableOrigin.Dotted
+        }
+        r.depth = current_depth + keys.len() - 1
+        let item = try r.value(&path, keys[keys.len() - 1].at, true, owner)
+        try r.end_of_line("the value")
+        try insert_current(&var root, &current, 0, &keys, move item)
+    }
+    return
 }

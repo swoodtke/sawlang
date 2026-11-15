@@ -401,16 +401,6 @@ libs/imgformat/src/lib.saw	refs.position	1	it against its OWN tag; a mismatch is
 libs/imgformat/src/lib.saw	refs.position	1	these values are the wire format, not an implementation detail — design 47.
 libs/semver/src/lib.saw	refs.count	1	A real dogfood of design 48 (Comparable/Equatable) and design 56 (Printable):
 libs/semver/src/lib.saw	refs.position	2	A real dogfood of design 48 (Comparable/Equatable) and design 56 (Printable):
-libs/toml/src/lib.saw	refs.count	1	DF-232f rider narrowed it to `public(package)` on a file-local reading (the
-libs/toml/src/lib.saw	refs.position	1	A TOML error is a Printable error (design 56): it renders itself, so it can be
-libs/toml/src/lib.saw	refs.position	1	An inline table value: `key = { subkey = "v", ... }` (one level, design 64
-libs/toml/src/lib.saw	refs.position	1	DF-232f rider narrowed it to `public(package)` on a file-local reading (the
-libs/toml/src/lib.saw	refs.position	1	Typed access (design 57 dogfood): parse the stored string as an integer.
-libs/toml/src/lib.saw	refs.position	1	Typed lookup (design 57 dogfood): a value parsed as an integer, or None if
-libs/toml/src/lib.saw	refs.position	1	`key`. Minimal (design 64 B1): one level, comma-separated `subkey = "value"`
-libs/toml/src/lib.saw	refs.position	1	audit DF-232q found inverted); the Aug-21 signature-visibility rule refuses
-libs/toml/src/lib.saw	refs.position	1	toml — a minimal TOML reader for Saw.toml / Saw.lock (design 64 B8, extracted
-libs/toml/src/lib.saw	refs.position	1	two lookups destroyed one section twice (DF-132a). Pair it with
 runtime/common/mem.saw	refs.count	1	allocation (design 123).
 runtime/common/mem.saw	refs.position	1	The global allocation seams (design 113b), authored in Saw.
 runtime/common/op_budget.saw	refs.count	1	reset would discard another's progress (design 225). The loop-backedge budget needs no

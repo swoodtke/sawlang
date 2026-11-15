@@ -1,0 +1,187 @@
+// Verbatim copies of the Saw.toml and Saw.lock files Blade reads today, each
+// with the tree the reader must make of it. The copies are not read from the
+// tree at run time: a changed manifest must not change this test.
+import toml.*
+
+func accept(id: String, src: String, want: String) -> Int {
+    match TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            let got = "{doc}"
+            if got == want {
+                return 0
+            }
+            print("FAIL {id}: read {got}, want {want}")
+            return 1
+        },
+        case Err(e) -> {
+            print("FAIL {id}: refused: {e}")
+            return 1
+        }
+    }
+}
+
+// blade/Saw.toml
+func blade_manifest() -> String {
+    var b = StringBuilder()
+    try! b.append("[package]\n")
+    try! b.append("name = \"blade\"\n")
+    try! b.append("version = \"0.1.0\"\n")
+    try! b.append("\n")
+    try! b.append("[dependencies]\n")
+    try! b.append("toml = \{ path = \"../libs/toml\" \}\n")
+    try! b.append("semver = \{ path = \"../libs/semver\" \}\n")
+    try! b.append("# The sosimg layout, shared with the kernel that loads the images this emits\n")
+    try! b.append("# (sos/kernel/core reaches the same sources through --module-path). It sits in\n")
+    try! b.append("# `libs/` beside toml and semver — design 238 D-a — so sawlang builds Blade\n")
+    try! b.append("# without an SOS tree present.\n")
+    try! b.append("imgformat = \{ path = \"../libs/imgformat\" \}\n")
+    b.build()
+}
+
+// blade/Saw.lock
+func blade_lock() -> String {
+    var b = StringBuilder()
+    try! b.append("[lock]\n")
+    try! b.append("manifest_hash = \"5464318453959711802\"\n")
+    try! b.append("\n")
+    try! b.append("[pkg.imgformat]\n")
+    try! b.append("version = \"0.1.0\"\n")
+    try! b.append("source = \"path\"\n")
+    try! b.append("loc = \"../libs/imgformat\"\n")
+    try! b.append("rev = \"\"\n")
+    try! b.append("\n")
+    try! b.append("[pkg.semver]\n")
+    try! b.append("version = \"0.1.0\"\n")
+    try! b.append("source = \"path\"\n")
+    try! b.append("loc = \"../libs/semver\"\n")
+    try! b.append("rev = \"\"\n")
+    try! b.append("\n")
+    try! b.append("[pkg.toml]\n")
+    try! b.append("version = \"0.1.0\"\n")
+    try! b.append("source = \"path\"\n")
+    try! b.append("loc = \"../libs/toml\"\n")
+    try! b.append("rev = \"\"\n")
+    b.build()
+}
+
+// blade/tests/fixtures/sosapp/Saw.toml
+func sosapp_manifest() -> String {
+    var b = StringBuilder()
+    try! b.append("[package]\n")
+    try! b.append("name = \"sosapp\"\n")
+    try! b.append("version = \"0.2.0\"\n")
+    try! b.append("\n")
+    try! b.append("[sos]\n")
+    try! b.append("emit = \"sosimg\"\n")
+    try! b.append("target = \"riscv32-unknown-none-elf\"\n")
+    try! b.append("linker-script = \"app.ld\"\n")
+    try! b.append("native = \"src/rt.c\"\n")
+    try! b.append("priorities = \{ background = 0, low = 2, normal = 3, high = 7 \}\n")
+    try! b.append("\n")
+    try! b.append("# design 178 M2 unit 4: a driver package DECLARES the MMIO window it wants\n")
+    try! b.append("# granted. Hex because addresses are written in hex; the size is stated here\n")
+    try! b.append("# rather than defaulted so the test covers both keys.\n")
+    try! b.append("device-window = \"0x10000000\"\n")
+    try! b.append("device-window-size = \"0x2000\"\n")
+    b.build()
+}
+
+// blade/tests/fixtures/sosmulti/Saw.toml
+func sosmulti_manifest() -> String {
+    var b = StringBuilder()
+    try! b.append("[package]\n")
+    try! b.append("name = \"sosmulti\"\n")
+    try! b.append("version = \"0.1.0\"\n")
+    try! b.append("\n")
+    try! b.append("[sos]\n")
+    try! b.append("emit = \"sosimg\"\n")
+    try! b.append("\n")
+    try! b.append("[sos.riscv32-unknown-none-elf]\n")
+    try! b.append("linker-script = \"rv.ld\"\n")
+    try! b.append("native = \"rv.c\"\n")
+    try! b.append("\n")
+    try! b.append("[sos.xtensa-esp-unknown-elf]\n")
+    try! b.append("linker-script = \"xt.ld\"\n")
+    try! b.append("native = \"xt.c boot.S\"\n")
+    try! b.append("\n")
+    try! b.append("[sos.aarch64-unknown-none-elf]\n")
+    try! b.append("linker-script = \"a64.ld\"\n")
+    try! b.append("native = \"a64.c\"\n")
+    b.build()
+}
+
+// tests/freestanding/bladepkg/Saw.toml
+func bladepkg_manifest() -> String {
+    var b = StringBuilder()
+    try! b.append("[package]\n")
+    try! b.append("name = \"fsblade\"\n")
+    try! b.append("version = \"0.1.0\"\n")
+    try! b.append("\n")
+    try! b.append("# BLADE'S NON-HOST TARGET PATH (design 238 unit 1). Everything the other cases\n")
+    try! b.append("# reach through a command line in `tools/freestanding_runner.py`, this package\n")
+    try! b.append("# reaches through a MANIFEST — which is the only way that path is exercised at\n")
+    try! b.append("# all, and it is what `blade build --target <triple>` means.\n")
+    try! b.append("#\n")
+    try! b.append("# design 149 + 172 part 2: this image CARRIES ITS OWN RUNTIME. The four frozen\n")
+    try! b.append("# `__saw_rt_*` seams come from the `fscore -> fsrt` dependency chain, and a\n")
+    try! b.append("# package build compiles its whole module graph into one unit — so this compile\n")
+    try! b.append("# is where those definitions land, and it is the compile that has to say so.\n")
+    try! b.append("# Blade passes `--runtime`, which permits the exports and checks each\n")
+    try! b.append("# signature against runtime/ABI.md. This is the SECOND door that flag has; the\n")
+    try! b.append("# runner's command line is the first, and the suite covers both because a\n")
+    try! b.append("# regression could close either one alone.\n")
+    try! b.append("runtime = true\n")
+    try! b.append("\n")
+    try! b.append("[dependencies]\n")
+    try! b.append("# One entry, not three: `fsrt` and `fsdata` arrive transitively through\n")
+    try! b.append("# `fscore`, so this manifest also asserts that Blade resolves a path dependency\n")
+    try! b.append("# GRAPH rather than a list.\n")
+    try! b.append("fscore = \{ path = \"../core\" \}\n")
+    try! b.append("\n")
+    try! b.append("# What is true of the PROGRAM, whichever machine it is built for.\n")
+    try! b.append("[sos]\n")
+    try! b.append("emit = \"sosimg\"\n")
+    try! b.append("\n")
+    try! b.append("# Blade's sosimg emitter needs a priority map to write. This image is never\n")
+    try! b.append("# LOADED by a kernel — the runner boots the ELF Blade produced on the way to it\n")
+    try! b.append("# — so the numbers are the ordinary ones and nothing reads them. The `.sosimg`\n")
+    try! b.append("# is still emitted and still has to succeed, which is what keeps this row a\n")
+    try! b.append("# test of the whole target path rather than of its first half.\n")
+    try! b.append("priorities = \{ background = 0, low = 1, normal = 1, high = 1 \}\n")
+    try! b.append("\n")
+    try! b.append("# What is true of the MACHINE. The package's own `src/` names no architecture —\n")
+    try! b.append("# everything that does is the boot stub, which is why both sections point into\n")
+    try! b.append("# `tests/freestanding/hal/<arch>/` and `src/main.saw` is identical for both.\n")
+    try! b.append("# `-march`/`-mabi`/`--target-features` are NOT written here: Blade's\n")
+    try! b.append("# per-triple toolchain defaults already carry the riscv32 profile\n")
+    try! b.append("# (`rv32imac_zicsr` / `ilp32` / `+m,+a,+c`), and restating them would be a\n")
+    try! b.append("# second copy of a fact that lives in `blade/src/sosimg.saw`.\n")
+    try! b.append("[sos.riscv32-unknown-none-elf]\n")
+    try! b.append("linker-script = \"../hal/riscv32/link.ld\"\n")
+    try! b.append("native = \"../hal/riscv32/boot.S ../hal/support.c\"\n")
+    try! b.append("\n")
+    try! b.append("[sos.aarch64-unknown-none-elf]\n")
+    try! b.append("linker-script = \"../hal/arm64/link.ld\"\n")
+    try! b.append("native = \"../hal/arm64/boot.S ../hal/support.c\"\n")
+    try! b.append("\n")
+    try! b.append("[sos.xtensa-esp-unknown-elf]\n")
+    try! b.append("linker-script = \"../hal/xtensa/link.ld\"\n")
+    try! b.append("native = \"../hal/xtensa/boot.S ../hal/support.c\"\n")
+    b.build()
+}
+
+func main() {
+    var failed = 0
+    failed += accept("blade_manifest", blade_manifest(),
+                     "\{package = \{name = \"blade\", version = \"0.1.0\"\}, dependencies = \{toml = \{path = \"../libs/toml\"\}, semver = \{path = \"../libs/semver\"\}, imgformat = \{path = \"../libs/imgformat\"\}\}\}")
+    failed += accept("blade_lock", blade_lock(),
+                     "\{lock = \{manifest_hash = \"5464318453959711802\"\}, pkg = \{imgformat = \{version = \"0.1.0\", source = \"path\", loc = \"../libs/imgformat\", rev = \"\"\}, semver = \{version = \"0.1.0\", source = \"path\", loc = \"../libs/semver\", rev = \"\"\}, toml = \{version = \"0.1.0\", source = \"path\", loc = \"../libs/toml\", rev = \"\"\}\}\}")
+    failed += accept("sosapp_manifest", sosapp_manifest(),
+                     "\{package = \{name = \"sosapp\", version = \"0.2.0\"\}, sos = \{emit = \"sosimg\", target = \"riscv32-unknown-none-elf\", linker-script = \"app.ld\", native = \"src/rt.c\", priorities = \{background = 0, low = 2, normal = 3, high = 7\}, device-window = \"0x10000000\", device-window-size = \"0x2000\"\}\}")
+    failed += accept("sosmulti_manifest", sosmulti_manifest(),
+                     "\{package = \{name = \"sosmulti\", version = \"0.1.0\"\}, sos = \{emit = \"sosimg\", riscv32-unknown-none-elf = \{linker-script = \"rv.ld\", native = \"rv.c\"\}, xtensa-esp-unknown-elf = \{linker-script = \"xt.ld\", native = \"xt.c boot.S\"\}, aarch64-unknown-none-elf = \{linker-script = \"a64.ld\", native = \"a64.c\"\}\}\}")
+    failed += accept("bladepkg_manifest", bladepkg_manifest(),
+                     "\{package = \{name = \"fsblade\", version = \"0.1.0\", runtime = true\}, dependencies = \{fscore = \{path = \"../core\"\}\}, sos = \{emit = \"sosimg\", priorities = \{background = 0, low = 1, normal = 1, high = 1\}, riscv32-unknown-none-elf = \{linker-script = \"../hal/riscv32/link.ld\", native = \"../hal/riscv32/boot.S ../hal/support.c\"\}, aarch64-unknown-none-elf = \{linker-script = \"../hal/arm64/link.ld\", native = \"../hal/arm64/boot.S ../hal/support.c\"\}, xtensa-esp-unknown-elf = \{linker-script = \"../hal/xtensa/link.ld\", native = \"../hal/xtensa/boot.S ../hal/support.c\"\}\}\}")
+    assert(failed == 0, "{failed} rows failed")
+    print("reads_blade_manifests: ok")
+}

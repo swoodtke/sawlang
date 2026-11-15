@@ -1,0 +1,377 @@
+// Every accessor: a required read and its optional twin on a present key, an
+// absent key and a key of another kind; `expect` and `require`; the places
+// `table`, `array` and `value`; positions, paths and key order; arrays by
+// index; `string_literal` and `key_literal`.
+import toml.*
+
+func source() -> String {
+    "name = \"x\"\nn = 7\nneg = -3\nbig = 0xFFFF_FFFF_FFFF_FFFF\nflag = true\nitems = [1, \"a\", true, 0x8000_0000_0000_0000, -1]\nx = \{ a = 1 \}\n[sub]\nk = \"v\"\n[[el]]\na = 1\n[[el]]\na = 2\n"
+}
+
+// `r` failed with `kind` at `line`:`column` and `message`.
+func fails<T>(id: String, r: Result<T, TomlError>, kind: TomlErrorKind, line: Int, column: Int,
+              message: String) -> Int {
+    match r {
+        case Ok(_) -> {
+            print("FAIL {id}: the read succeeded")
+            return 1
+        },
+        case Err(e) -> {
+            if e.kind == kind && e.line == line && e.column == column && e.message == message {
+                return 0
+            }
+            print("FAIL {id}: refused with {e} (kind matches: {e.kind == kind}), want line {line}, column {column}: {message}")
+            return 1
+        }
+    }
+}
+
+func is_true(id: String, got: Bool) -> Int {
+    if got {
+        return 0
+    }
+    print("FAIL {id}")
+    return 1
+}
+
+func same_text(id: String, got: String, want: String) -> Int {
+    if got == want {
+        return 0
+    }
+    print("FAIL {id}: {got}, want {want}")
+    return 1
+}
+
+func same_int(id: String, got: Int, want: Int) -> Int {
+    if got == want {
+        return 0
+    }
+    print("FAIL {id}: {got}, want {want}")
+    return 1
+}
+
+func at_place(id: String, got: TomlPosition?, line: Int, column: Int) -> Int {
+    if let p = got {
+        if p.line == line && p.column == column {
+            return 0
+        }
+        print("FAIL {id}: {p}, want line {line}, column {column}")
+        return 1
+    }
+    print("FAIL {id}: no position")
+    return 1
+}
+
+func table_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    // string
+    failed += same_text("string", try! root.string("name"), "x")
+    failed += fails("string absent", root.string("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("string wrong", root.string("n"), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a string")
+    failed += same_text("optional_string", try! root.optional_string("name") ?? "-", "x")
+    failed += same_text("optional_string absent", try! root.optional_string("absent") ?? "-", "-")
+    failed += fails("optional_string wrong", root.optional_string("n"), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a string")
+    // integer
+    failed += same_int("integer", try! root.integer("n") as Int, 7)
+    failed += fails("integer absent", root.integer("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("integer wrong", root.integer("flag"), TomlErrorKind.WrongType, 5, 8,
+                    "`flag` in the top-level table is a boolean, not an integer")
+    failed += fails("integer string", root.integer("name"), TomlErrorKind.WrongType, 1, 8,
+                    "`name` in the top-level table is a string, not an integer")
+    failed += fails("integer unsigned", root.integer("big"), TomlErrorKind.OutOfRange, 4, 7,
+                    "`big` in the top-level table is 0xFFFFFFFFFFFFFFFF, which does not fit in a 64-bit signed integer")
+    failed += same_int("optional_integer", (try! root.optional_integer("neg") ?? 0) as Int, -3)
+    failed += is_true("optional_integer absent", (try! root.optional_integer("absent")) == None)
+    failed += fails("optional_integer wrong", root.optional_integer("flag"), TomlErrorKind.WrongType, 5, 8,
+                    "`flag` in the top-level table is a boolean, not an integer")
+    failed += fails("optional_integer big", root.optional_integer("big"), TomlErrorKind.OutOfRange, 4, 7,
+                    "`big` in the top-level table is 0xFFFFFFFFFFFFFFFF, which does not fit in a 64-bit signed integer")
+    // unsigned
+    failed += is_true("unsigned", (try! root.unsigned("n")) == 7)
+    failed += is_true("unsigned big", (try! root.unsigned("big")) == UInt64.max)
+    failed += fails("unsigned negative", root.unsigned("neg"), TomlErrorKind.OutOfRange, 3, 7,
+                    "`neg` in the top-level table is -3, which is negative")
+    failed += fails("unsigned absent", root.unsigned("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("unsigned wrong", root.unsigned("name"), TomlErrorKind.WrongType, 1, 8,
+                    "`name` in the top-level table is a string, not an integer")
+    failed += is_true("optional_unsigned", (try! root.optional_unsigned("big")) == UInt64.max)
+    failed += is_true("optional_unsigned absent", (try! root.optional_unsigned("absent")) == None)
+    failed += fails("optional_unsigned negative", root.optional_unsigned("neg"), TomlErrorKind.OutOfRange, 3, 7,
+                    "`neg` in the top-level table is -3, which is negative")
+    failed += fails("optional_unsigned wrong", root.optional_unsigned("name"), TomlErrorKind.WrongType, 1, 8,
+                    "`name` in the top-level table is a string, not an integer")
+    // boolean
+    failed += is_true("boolean", try! root.boolean("flag"))
+    failed += fails("boolean absent", root.boolean("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("boolean wrong", root.boolean("n"), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a boolean")
+    failed += is_true("optional_boolean", (try! root.optional_boolean("flag")) == true)
+    failed += is_true("optional_boolean absent", (try! root.optional_boolean("absent")) == None)
+    failed += fails("optional_boolean wrong", root.optional_boolean("n"), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a boolean")
+    // float and date_time: no float or date-time is read yet, so the reads
+    // answer Missing for an absent key and WrongType for any other
+    failed += fails("float absent", root.float("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("float wrong", root.float("n"), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a float")
+    failed += is_true("optional_float absent", (try! root.optional_float("absent")) == None)
+    failed += fails("optional_float wrong", root.optional_float("n"), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a float")
+    failed += fails("date_time absent", root.date_time("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("date_time wrong", root.date_time("name"), TomlErrorKind.WrongType, 1, 8,
+                    "`name` in the top-level table is a string, not a date-time")
+    failed += is_true("optional_date_time absent", (try! root.optional_date_time("absent")) == None)
+    failed += fails("optional_date_time wrong", root.optional_date_time("name"), TomlErrorKind.WrongType, 1, 8,
+                    "`name` in the top-level table is a string, not a date-time")
+    return failed
+}
+
+func presence_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    // expect
+    failed += is_true("expect present", try! root.expect("sub", TomlKind.Table))
+    failed += is_true("expect absent", not (try! root.expect("absent", TomlKind.Table)))
+    failed += fails("expect wrong", root.expect("n", TomlKind.Table), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not a table")
+    // require
+    match root.require("el", TomlKind.Array) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("FAIL require present: {e}")
+            failed += 1
+        }
+    }
+    failed += fails("require absent", root.require("absent", TomlKind.Table), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += fails("require wrong", root.require("n", TomlKind.Array), TomlErrorKind.WrongType, 2, 5,
+                    "`n` in the top-level table is an integer, not an array")
+    // table and array answer None for absent and for another kind
+    failed += is_true("table absent", root.table("absent") == None)
+    failed += is_true("table wrong kind", root.table("n") == None)
+    failed += is_true("array absent", root.array("absent") == None)
+    failed += is_true("array wrong kind", root.array("sub") == None)
+    failed += is_true("value absent", root.value("absent") == None)
+    failed += is_true("table present", root.table("sub") != None)
+    failed += is_true("array present", root.array("items") != None)
+    match root.value("neg") {
+        case Some(v) -> {
+            match v {
+                case Integer(n) -> { failed += same_int("value integer", n as Int, -3) },
+                case _ -> {
+                    print("FAIL value: not an integer")
+                    failed += 1
+                }
+            }
+        },
+        case None -> {
+            print("FAIL value: absent")
+            failed += 1
+        }
+    }
+    return failed
+}
+
+func shape_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    failed += same_int("len", root.len(), 9)
+    let keys = try! root.keys()
+    failed += same_text("keys", "{keys[0]} {keys[1]} {keys[2]} {keys[3]} {keys[4]} {keys[5]} {keys[6]} {keys[7]} {keys[8]}",
+                        "name n neg big flag items x sub el")
+    failed += is_true("contains", root.contains("sub") && not root.contains("absent"))
+    failed += is_true("kind", root.kind("n") == TomlKind.Integer)
+    failed += is_true("kind big", root.kind("big") == TomlKind.Integer)
+    failed += is_true("kind absent", root.kind("absent") == None)
+    failed += is_true("kind table", root.kind("sub") == TomlKind.Table)
+    failed += at_place("position", root.position("n"), 2, 1)
+    failed += at_place("position of a header", root.position("sub"), 8, 2)
+    failed += is_true("position absent", root.position("absent") == None)
+    failed += same_text("root path", root.path(), "")
+    let defined = root.defined_at()
+    failed += same_int("root defined line", defined.line, 1)
+    failed += same_int("root defined column", defined.column, 1)
+    return failed
+}
+
+func nested_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    failed += same_text("header path", root.table("sub")!.path(), "sub")
+    failed += at_place("header defined_at", root.table("sub")!.defined_at(), 8, 2)
+    failed += same_text("sub string", try! root.table("sub")!.string("k"), "v")
+    failed += fails("sub missing", root.table("sub")!.string("zzz"), TomlErrorKind.Missing, 8, 2,
+                    "`zzz` is missing from [sub]")
+    failed += same_text("inline path", root.table("x")!.path(), "x")
+    failed += at_place("inline defined_at", root.table("x")!.defined_at(), 7, 1)
+    failed += fails("inline missing", root.table("x")!.integer("zzz"), TomlErrorKind.Missing, 7, 1,
+                    "`zzz` is missing from the inline table `x`")
+    failed += same_int("inline value", try! root.table("x")!.integer("a") as Int, 1)
+    failed += same_text("element path", root.array("el")!.table(0)!.path(), "el")
+    failed += at_place("element 0 defined_at", root.array("el")!.table(0)!.defined_at(), 10, 3)
+    failed += at_place("element 1 defined_at", root.array("el")!.table(1)!.defined_at(), 12, 3)
+    failed += fails("element missing", root.array("el")!.table(1)!.string("zzz"), TomlErrorKind.Missing, 12, 3,
+                    "`zzz` is missing from [[el]]")
+    failed += same_int("element value", try! root.array("el")!.table(1)!.integer("a") as Int, 2)
+    return failed
+}
+
+func array_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    failed += same_int("array len", root.array("items")!.len(), 5)
+    failed += same_int("array integer", try! root.array("items")!.integer(0) as Int, 1)
+    failed += same_text("array string", try! root.array("items")!.string(1), "a")
+    failed += is_true("array boolean", try! root.array("items")!.boolean(2))
+    failed += is_true("array unsigned", (try! root.array("items")!.unsigned(3)) == 9223372036854775808)
+    failed += is_true("array unsigned of an integer", (try! root.array("items")!.unsigned(0)) == 1)
+    failed += is_true("array kind", root.array("items")!.kind(2) == TomlKind.Boolean)
+    failed += is_true("array kind out of range", root.array("items")!.kind(5) == None)
+    failed += is_true("array kind negative", root.array("items")!.kind(-1) == None)
+    failed += at_place("array position", root.array("items")!.position(1), 6, 13)
+    failed += at_place("array position 3", root.array("items")!.position(3), 6, 24)
+    failed += is_true("array position out of range", root.array("items")!.position(9) == None)
+    failed += at_place("array defined_at", root.array("items")!.defined_at(), 6, 1)
+    failed += fails("array past the end", root.array("items")!.string(99), TomlErrorKind.Missing, 6, 1,
+                    "element 99 is past the end of `items` in the top-level table, which has 5")
+    failed += fails("array negative", root.array("items")!.integer(-1), TomlErrorKind.Missing, 6, 1,
+                    "element -1 is past the end of `items` in the top-level table, which has 5")
+    failed += fails("array wrong", root.array("items")!.string(0), TomlErrorKind.WrongType, 6, 10,
+                    "element 0 of `items` is an integer, not a string")
+    failed += fails("array out of range integer", root.array("items")!.integer(3), TomlErrorKind.OutOfRange, 6, 24,
+                    "element 3 of `items` is 0x8000000000000000, which does not fit in a 64-bit signed integer")
+    failed += fails("array negative unsigned", root.array("items")!.unsigned(4), TomlErrorKind.OutOfRange, 6, 47,
+                    "element 4 of `items` is -1, which is negative")
+    failed += fails("array boolean wrong", root.array("items")!.boolean(0), TomlErrorKind.WrongType, 6, 10,
+                    "element 0 of `items` is an integer, not a boolean")
+    failed += fails("array float", root.array("items")!.float(0), TomlErrorKind.WrongType, 6, 10,
+                    "element 0 of `items` is an integer, not a float")
+    failed += fails("array date_time", root.array("items")!.date_time(1), TomlErrorKind.WrongType, 6, 13,
+                    "element 1 of `items` is a string, not a date-time")
+    failed += is_true("array table out of range", root.array("el")!.table(2) == None)
+    failed += is_true("array table of a scalar", root.array("items")!.table(0) == None)
+    failed += is_true("array array of a scalar", root.array("items")!.array(0) == None)
+    failed += is_true("array value out of range", root.array("items")!.value(7) == None)
+    failed += is_true("array value", root.array("items")!.value(1) != None)
+    return failed
+}
+
+// A key is written as a key in a message, and the table an array lives in is
+// named as a table is: a quoted key, an array in an inline table, in a
+// `[[...]]` element, under a dotted key, in a header and in a quoted header.
+func quoted_source() -> String {
+    "\"a b\" = 1\n\"q\\\"k\" = \"s\"\n\"o k\" = 0x8000_0000_0000_0000\nx = \{ arr = [1, 2], \"in ner\" = [3] \}\n[[el]]\nlist = [\"z\"]\n[top.mid.leaf]\nk = [1]\n[s]\ny.z = [7]\n[\"w k\"]\nl = [1]\n"
+}
+
+func quoted_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    failed += fails("quoted missing", root.string("no such"), TomlErrorKind.Missing, 1, 1,
+                    "`\"no such\"` is missing from the top-level table")
+    failed += fails("quoted wrong", root.string("a b"), TomlErrorKind.WrongType, 1, 9,
+                    "`\"a b\"` in the top-level table is an integer, not a string")
+    failed += fails("quoted escape wrong", root.integer("q\"k"), TomlErrorKind.WrongType, 2, 10,
+                    "`\"q\\\"k\"` in the top-level table is a string, not an integer")
+    failed += fails("quoted out of range", root.integer("o k"), TomlErrorKind.OutOfRange, 3, 9,
+                    "`\"o k\"` in the top-level table is 0x8000000000000000, which does not fit in a 64-bit signed integer")
+    failed += fails("array in inline table", root.table("x")!.array("arr")!.string(5), TomlErrorKind.Missing, 4, 7,
+                    "element 5 is past the end of `arr` in the inline table `x`, which has 2")
+    failed += fails("quoted array in inline table", root.table("x")!.array("in ner")!.string(5),
+                    TomlErrorKind.Missing, 4, 21,
+                    "element 5 is past the end of `\"in ner\"` in the inline table `x`, which has 1")
+    failed += fails("quoted array wrong", root.table("x")!.array("in ner")!.string(0), TomlErrorKind.WrongType, 4, 33,
+                    "element 0 of `\"in ner\"` is an integer, not a string")
+    failed += fails("array in an element", root.array("el")!.table(0)!.array("list")!.integer(3),
+                    TomlErrorKind.Missing, 6, 1,
+                    "element 3 is past the end of `list` in [[el]], which has 1")
+    failed += fails("array in a header", root.table("top")!.table("mid")!.table("leaf")!.array("k")!.string(2),
+                    TomlErrorKind.Missing, 8, 1,
+                    "element 2 is past the end of `k` in [top.mid.leaf], which has 1")
+    failed += fails("array under a dotted key", root.table("s")!.table("y")!.array("z")!.string(4),
+                    TomlErrorKind.Missing, 10, 3,
+                    "element 4 is past the end of `z` in [s.y], which has 1")
+    failed += fails("array in a quoted header", root.table("w k")!.array("l")!.string(1),
+                    TomlErrorKind.Missing, 12, 1,
+                    "element 1 is past the end of `l` in [\"w k\"], which has 1")
+    return failed
+}
+
+func main() {
+    var failed = 0
+    match TomlDoc.parse(quoted_source()) {
+        case Ok(doc) -> {
+            borrow let root = doc.root() {
+                failed += quoted_reads(&root)
+            }
+        },
+        case Err(e) -> {
+            print("FAIL: the quoted document is refused: {e}")
+            failed += 1
+        }
+    }
+    // Columns count scalars across several positions on a line and on the next.
+    match TomlDoc.parse("a = [\"\u{E9}\", 1, \"\u{FC}\", 22]\nb = [\"\u{FC}\", 1]\n") {
+        case Ok(doc) -> {
+            failed += at_place("scalar column 0", doc.root().array("a")!.position(0), 1, 6)
+            failed += at_place("scalar column 1", doc.root().array("a")!.position(1), 1, 11)
+            failed += at_place("scalar column 2", doc.root().array("a")!.position(2), 1, 14)
+            failed += at_place("scalar column 3", doc.root().array("a")!.position(3), 1, 19)
+            failed += at_place("scalar column next line", doc.root().array("b")!.position(1), 2, 11)
+        },
+        case Err(e) -> {
+            print("FAIL: the non-ASCII document is refused: {e}")
+            failed += 1
+        }
+    }
+    // A table an implied header made and a dotted key then entered is that key's.
+    match TomlDoc.parse("[x.y.z]\n[x]\ny.w = 1\n") {
+        case Ok(doc) -> {
+            failed += at_place("implied then dotted defined_at", doc.root().table("x")!.table("y")!.defined_at(), 3, 1)
+            failed += at_place("implied then dotted position", doc.root().table("x")!.position("y"), 3, 1)
+            failed += same_text("implied then dotted path", doc.root().table("x")!.table("y")!.path(), "x.y")
+        },
+        case Err(e) -> {
+            print("FAIL: the implied-then-dotted document is refused: {e}")
+            failed += 1
+        }
+    }
+    match TomlDoc.parse(source()) {
+        case Ok(doc) -> {
+            borrow let root = doc.root() {
+                failed += table_reads(&root)
+                failed += presence_reads(&root)
+                failed += shape_reads(&root)
+                failed += nested_reads(&root)
+                failed += array_reads(&root)
+            }
+        },
+        case Err(e) -> {
+            print("FAIL: the document is refused: {e}")
+            failed += 1
+        }
+    }
+    // The writers.
+    failed += same_text("string_literal", string_literal("a\"b\\c\n\t\r\u{8}\u{C}\u{1}\u{7F} \u{E9}"),
+                        "\"a\\\"b\\\\c\\n\\t\\r\\b\\f\\u0001\\u007F \u{E9}\"")
+    failed += same_text("string_literal empty", string_literal(""), "\"\"")
+    failed += same_text("key_literal bare", key_literal("abc-DEF_09"), "abc-DEF_09")
+    failed += same_text("key_literal dot", key_literal("a.b"), "\"a.b\"")
+    failed += same_text("key_literal space", key_literal("a b"), "\"a b\"")
+    failed += same_text("key_literal empty", key_literal(""), "\"\"")
+    failed += same_text("key_literal non-ASCII", key_literal("caf\u{E9}"), "\"caf\u{E9}\"")
+    // The writers' output reads back.
+    match TomlDoc.parse("{key_literal("a b")} = {string_literal("a\"b\\c\n")}\n") {
+        case Ok(doc) -> {
+            failed += same_text("round trip", try! doc.root().string("a b"), "a\"b\\c\n")
+        },
+        case Err(e) -> {
+            print("FAIL round trip: {e}")
+            failed += 1
+        }
+    }
+    assert(failed == 0, "{failed} rows failed")
+    print("typed_reads: ok")
+}
