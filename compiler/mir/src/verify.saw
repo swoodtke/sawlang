@@ -11,6 +11,10 @@
 //     type, and a call's argument the type its target takes at the call's
 //     own instantiation, synthesized calls and externs included (a builtin
 //     declares no signature, and a C variadic tail no type);
+//   - every aggregate's operand has exactly the type its part declares
+//     at the aggregate's own type: a case's payload field, a struct's
+//     field, a tuple's, an array's or a collection literal's element;
+//     a closure's captures declare none and are not checked;
 //   - every call names its target and a complete instantiation, and is a
 //     suspension point exactly as typecheck's summaries make it, a
 //     conditional one with its conditions;
@@ -57,7 +61,7 @@ import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 // For the extension writing `casts_backing`.
-import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.bodies.{TcCand, TcCandKind, tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
@@ -1377,6 +1381,9 @@ extension MirProgram {
             if stmt.kind == MirStmtKind.Assign {
                 self.verify_place(f, stmt.place, &var out)
                 self.verify_rvalue(f, stmt.rvalue, &var out)
+                if stmt.rvalue >= 0 && stmt.rvalue < self.rvalues.len() {
+                    self.verify_aggregate(f, b, stmt.rvalue, &var out)
+                }
                 if stmt.place >= 0 && stmt.rvalue >= 0 {
                     let pt = self.places[stmt.place].ty
                     let rt = self.rvalues[stmt.rvalue].ty
@@ -1427,6 +1434,144 @@ extension MirProgram {
             case Return -> {},
             case Unreachable -> {}
         }
+    }
+
+    // An aggregate's operands are its parts' values: each has exactly the
+    // type its slot declares at the aggregate's own type, a case's payload
+    // field, a struct's field, a tuple's, an array's or a collection
+    // literal's element, so nothing else, a reference to the value above
+    // all, is built in its place. A closure's operands are its captures,
+    // which declare no slot of their own (SL-1124).
+    func verify_aggregate(&var self, f: Int, b: Int, r: Int, out: &var Vector<String>) {
+        let rv = self.rvalues[r]
+        if rv.kind != MirRvalueKind.Aggregate || rv.ty < 0 {
+            return
+        }
+        var slots = Vector<Int>()
+        if not self.aggregate_slots(&rv, &var slots) {
+            return
+        }
+        if slots.len() != rv.count {
+            var text = StringBuilder()
+            try! text.append("bb")
+            try! text.append(b)
+            try! text.append(" builds a `")
+            try! text.append(self.tc.type_text(rv.ty))
+            try! text.append("` from ")
+            try! text.append(rv.count)
+            try! text.append(" operands where it has ")
+            try! text.append(slots.len())
+            try! text.append(" parts")
+            self.problem(f, &var out, text.build())
+            return
+        }
+        var k = 0
+        while k < rv.count {
+            let o = self.lists[rv.first + k]
+            let want = slots[k]
+            k = k + 1
+            if o < 0 || o >= self.operands.len() || want < 0 {
+                continue
+            }
+            let have = self.operands[o].ty
+            if have == want || have < 0 {
+                continue
+            }
+            var text = StringBuilder()
+            try! text.append("bb")
+            try! text.append(b)
+            try! text.append(" builds a `")
+            try! text.append(self.tc.type_text(rv.ty))
+            try! text.append("` from a `")
+            try! text.append(self.tc.type_text(have))
+            try! text.append("` where its part ")
+            try! text.append(k - 1)
+            try! text.append(" is a `")
+            try! text.append(self.tc.type_text(want))
+            try! text.append("`")
+            self.problem(f, &var out, text.build())
+        }
+    }
+
+    // The type each operand of aggregate `rv` must have, in operand order,
+    // into `slots`; false for a kind with no declared slots.
+    func aggregate_slots(&var self, rv: &MirRvalue, slots: &var Vector<Int>) -> Bool {
+        let t = rv.ty
+        match rv.aggregate {
+            case Struct -> {
+                var fields = Vector<Int>()
+                self.struct_fields(t, &var fields, &var slots)
+                true
+            },
+            case Case -> {
+                if rv.decl < 0 {
+                    return false
+                }
+                let cand = TcCand(decl: rv.decl, kind: TcCandKind.Case, member: -1, owner: t)
+                let count = self.tc.cand_param_count(cand)
+                let d = self.tc.res.decls[rv.decl].parent
+                let sub = TcSubst(owner: d, args: self.tc.nominal_args(t))
+                var k = 0
+                while k < count {
+                    let raw = self.tc.cand_param_type(cand, k)
+                    try! slots.push(self.tc.subst(raw, &sub))
+                    k = k + 1
+                }
+                true
+            },
+            case Tuple -> {
+                if self.tc.kind_of(t) != TcKind.Tuple {
+                    return false
+                }
+                let n = self.tc.types.ty(t).count
+                var k = 0
+                while k < n {
+                    try! slots.push(self.tc.types.arg(t, k))
+                    k = k + 1
+                }
+                true
+            },
+            case Array -> {
+                if self.tc.kind_of(t) != TcKind.Array {
+                    return false
+                }
+                let element = self.tc.types.ty(t).b
+                var k = 0
+                while k < rv.count {
+                    try! slots.push(element)
+                    k = k + 1
+                }
+                true
+            },
+            case Repeat -> {
+                if self.tc.kind_of(t) != TcKind.Array || rv.count != 2 {
+                    return false
+                }
+                try! slots.push(self.tc.types.ty(t).b)
+                try! slots.push(-1)
+                true
+            },
+            case Vector -> self.element_slots(t, rv.count, false, &var slots),
+            case Set -> self.element_slots(t, rv.count, false, &var slots),
+            case Map -> self.element_slots(t, rv.count, true, &var slots),
+            case _ -> false
+        }
+    }
+
+    // A collection literal's slots: its element type for each operand, or a
+    // map's key and value types in turn.
+    func element_slots(&self, t: Int, count: Int, pairs: Bool, slots: &var Vector<Int>) -> Bool {
+        let info = self.tc.types.ty(t)
+        if info.kind != TcKind.Nominal || info.count < 1 || (pairs && info.count < 2) {
+            return false
+        }
+        var k = 0
+        while k < count {
+            let at = if pairs { k % 2 } else { 0 }
+            try! slots.push(self.tc.types.arg(t, at))
+            k = k + 1
+        }
+        true
     }
 
     func verify_edge(&self, f: Int, target: Int, out: &var Vector<String>) {

@@ -664,6 +664,15 @@ nowhere, and checks, from the MIR alone:
   `lend` the reference its accessor lends; a default's result its
   parameter's type. Only a builtin, which declares no signature, and a C
   variadic tail, which no declaration types, go unchecked;
+- every aggregate's operand has exactly its part's type at the aggregate's
+  own type, a case's payload field, a struct's field, a tuple's, an array's or
+  a collection literal's element, the type parameter itself in a generic body,
+  never a reference to it; a closure's captures declare no part and are not
+  checked (SL-1124). No lowering builds one, so the unit program
+  `compiler/mir/tests/verify_aggregates.saw` edits one operand of each kind
+  of aggregate `inject/aggregates.saw` builds (a case, struct, tuple, array,
+  repeat, `Vector`, `Set` and `Map`) to the type of a `&String`, and a
+  struct's operand count, and requires the one report each;
 - every call names its target (a declaration, a builtin, a function value)
   and an instantiation as long as its target's generic list;
 - every call is a suspension point exactly as typecheck's summaries,

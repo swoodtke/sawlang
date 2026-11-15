@@ -1,0 +1,50 @@
+// The program compiler/mir/tests/verify_aggregates.saw lowers, then edits: one
+// function per kind of aggregate, each building its kind once from its
+// parameters. `wrap` binds a `String` where a `String?` is expected, so the
+// lowering copies the place through `String.copy()`, which it hands a shared
+// reference, and moves the copy into the `Some`; the edit gives an
+// aggregate's operand the type of that reference instead, which the MIR
+// verifier must refuse. `wrap` stays the first function, so the first
+// reference the program finds is that one. A `Vector` literal stands for the collection
+// kinds that share one slot rule with a `Set` literal, which `members` builds
+// as well; the map's key and value types differ, so a value checked against
+// the key type is refused.
+
+func wrap(want: String) -> String? {
+    let w: String? = want
+    w
+}
+
+struct Pair {
+    name: String
+    size: Int
+}
+
+func pair(name: String, size: Int) -> Pair {
+    Pair(name: name, size: size)
+}
+
+func tuple(name: String, size: Int) -> (String, Int) {
+    (name, size)
+}
+
+func three(a: Int, b: Int, c: Int) -> [Int; 3] {
+    [a, b, c]
+}
+
+func zeros(v: Int) -> [Int; 4] {
+    [v; 4]
+}
+
+func list(a: String, b: String) -> Vector<String> {
+    [a, b]
+}
+
+func members(a: Int, b: Int) -> Set<Int> {
+    let s: Set<Int> = {a, b}
+    move s
+}
+
+func table(key: String, value: Int) -> Map<String, Int> {
+    {key: value}
+}

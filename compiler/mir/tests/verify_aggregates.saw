@@ -1,0 +1,170 @@
+// The MIR verifier refuses an aggregate whose operand's type is not its
+// part's: a `Some` built from a reference to its payload rather than the
+// payload (SL-1124). The verifier reads no text, so the fixture
+// `compiler/tests/mir/inject/aggregates.saw`, which builds each kind of
+// aggregate once, is lowered afresh for each edit, found clean, then edited:
+// one operand of the kind's aggregate takes the type of the `&String` the
+// fixture's `String.copy()` is handed, and the verifier must report exactly
+// that part. A struct's operand is dropped as well, which the verifier must
+// report as a count (an element kind's slots follow its operand count, so a
+// kind whose slots come from its type, here the struct, is the one that can
+// disagree with it). Paths are the repository root's, where the runner runs.
+import sawmir.api.{mir_lower_file}
+import sawtarget.layout.{target_front_end}
+import sawmir.model.{MirAggregate, MirRvalueKind, MirStmtKind}
+import sawmir.program.{MirProgram}
+import sawmir.verify.{mir_verify_module}
+
+// The index of module `name`, or -1.
+func module_index(p: &MirProgram, name: String) -> Int {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        if p.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` hold `word`.
+func reported(found: &Vector<String>, word: String) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, word) {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// The first statement of rvalue kind `kind` in module `m`'s functions, as its
+// rvalue; for a `Ref`, as its place. An `Aggregate` is of kind `shape`. -1
+// when there is none.
+func first_rvalue(p: &MirProgram, m: Int, kind: MirRvalueKind, shape: MirAggregate) -> Int {
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        f = f + 1
+        if info.module != m {
+            continue
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = p.blocks[info.block_first + b]
+            b = b + 1
+            var s = block.first
+            while s >= 0 {
+                let stmt = p.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+                    continue
+                }
+                let rv = p.rvalues[stmt.rvalue]
+                if rv.kind != kind {
+                    continue
+                }
+                if kind == MirRvalueKind.Aggregate && rv.aggregate != shape {
+                    continue
+                }
+                if kind == MirRvalueKind.Ref {
+                    return stmt.place
+                }
+                return stmt.rvalue
+            }
+        }
+    }
+    return -1
+}
+
+// The fixture, lowered and found clean.
+func lowered() -> MirProgram {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var lowerings = 0
+    var p = mir_lower_file("compiler/tests/mir/inject/aggregates.saw", "std", &names, &dirs, &var lowerings,
+                           target: target_front_end("arm64-apple-darwin", ""))
+    let m = module_index(&p, "aggregates")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
+    let before = mir_verify_module(&var p, m)
+    assert(before.len() == 0, "the fixture's MIR is not clean before the edit")
+    return move p
+}
+
+// The fixture's aggregate of kind `shape`, which takes `count` operands.
+func aggregate(p: &MirProgram, shape: MirAggregate, count: Int) -> Int {
+    let r = first_rvalue(&p, module_index(&p, "aggregates"), MirRvalueKind.Aggregate, shape)
+    assert(r >= 0, "the fixture builds no aggregate of the kind")
+    assert(p.rvalues[r].count == count, "the aggregate does not take the operands the fixture gives it")
+    return r
+}
+
+// Operand `part` of the aggregate of kind `shape` (of `count` operands) in a
+// fresh lowering takes the type of the fixture's `&String`, and the verifier
+// reports exactly one problem, that `part` is a `want`. Only the type is
+// edited: a place's local is numbered within its function, so another
+// function's place would be a second problem.
+func refuse_operand(label: String, shape: MirAggregate, count: Int, part: Int, want: String) {
+    var p = lowered()
+    let m = module_index(&p, "aggregates")
+    let r = aggregate(&p, shape, count)
+    let reference = first_rvalue(&p, m, MirRvalueKind.Ref, MirAggregate.Case)
+    assert(reference >= 0, "the fixture takes no reference for the copy")
+    let o = p.lists[p.rvalues[r].first + part]
+    var edited = p.operands[o]
+    edited.ty = p.places[reference].ty
+    p.operands[o] = edited
+    let after = mir_verify_module(&var p, m)
+    var text = StringBuilder()
+    try! text.append("from a `&String` where its part ")
+    try! text.append(part)
+    try! text.append(" is a `")
+    try! text.append(want)
+    try! text.append("`")
+    assert(reported(&after, text.build()) == 1, "the verifier does not refuse the edited {} operand", label)
+    assert(after.len() == 1, "the edit is reported as more than the {} operand", label)
+}
+
+func main() {
+    refuse_operand("case", MirAggregate.Case, 1, 0, "String")
+    refuse_operand("struct", MirAggregate.Struct, 2, 1, "Int")
+    refuse_operand("tuple", MirAggregate.Tuple, 2, 0, "String")
+    refuse_operand("array", MirAggregate.Array, 3, 2, "Int")
+    refuse_operand("repeat", MirAggregate.Repeat, 2, 0, "Int")
+    refuse_operand("vector", MirAggregate.Vector, 2, 1, "String")
+    refuse_operand("set", MirAggregate.Set, 2, 0, "Int")
+    // A map's value is its second operand and `Int`, not the key's `String`.
+    refuse_operand("map", MirAggregate.Map, 2, 1, "Int")
+
+    var p = lowered()
+    let m = module_index(&p, "aggregates")
+    let r = aggregate(&p, MirAggregate.Struct, 2)
+    var shorter = p.rvalues[r]
+    shorter.count = 1
+    p.rvalues[r] = shorter
+    let after = mir_verify_module(&var p, m)
+    assert(reported(&after, " from 1 operands where it has 2 parts") == 1, "the verifier does not count a struct's operands")
+    assert(after.len() == 1, "the dropped operand is reported as more than the count")
+}
