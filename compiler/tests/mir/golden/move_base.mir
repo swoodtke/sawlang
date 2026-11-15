@@ -1,0 +1,168 @@
+module move_base
+
+fn move_base.Token.deinit() -> Void {
+    let _0: Void;  // return
+    let _1: &var move_base.Token;  // self
+
+    bb0: {
+        call builtin print [format "drop {}", copy (*_1).id] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn move_base.Pl.bump() -> Int {
+    let _0: Int;  // return
+    let _1: &var move_base.Pl;  // self
+    let _2: Int;
+
+    bb0: {
+        _2 = Add(copy (*_1).n, const 1: Int);
+        (*_1).n = move _2;
+        _0 = copy (*_1).n;
+        return;
+    }
+}
+
+fn move_base.make() -> move_base.Pl {
+    let _0: move_base.Pl;  // return
+    let _1: move_base.Token;
+    let _2: move_base.Pl;
+
+    bb0: {
+        _1 = move_base.Token { id: const 1: Int };
+        _2 = move_base.Pl { t: move _1, n: const 10: Int, s: const "abc": String };
+        _0 = move _2;
+        return;
+    }
+}
+
+fn move_base.make_optional() -> move_base.Pl? {
+    let _0: move_base.Pl?;  // return
+    let _1: move_base.Pl;
+    let _2: move_base.Pl?;
+
+    bb0: {
+        _1 = call move_base.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move_base.Pl?::Some(move _1);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn move_base.field_read() -> String {
+    let _0: String;  // return
+    let _1: move_base.Pl;  // p
+    let _2: move_base.Pl;
+    let _3: move_base.Pl;
+    let _4: String;
+
+    bb0: {
+        _2 = call move_base.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = move _1;
+        _4 = move _3.s;
+        drop(_3.t);
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+}
+
+fn move_base.force_read() -> String {
+    let _0: String;  // return
+    let _1: move_base.Pl?;  // o
+    let _2: move_base.Pl?;
+    let _3: move_base.Pl?;
+    let _4: String;
+
+    bb0: {
+        _2 = call move_base.make_optional() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = move _1;
+        _4 = move (_3 as Some!).0.s;
+        drop((_3 as Some!).0.t);
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+}
+
+fn move_base.hop_read() -> Int? {
+    let _0: Int?;  // return
+    let _1: move_base.Pl?;  // o
+    let _2: move_base.Pl?;
+    let _3: Int?;
+    let _4: move_base.Pl?;
+    let _5: Int?;
+
+    bb0: {
+        _2 = call move_base.make_optional() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _4 = move _1;
+        switch discriminant(_4) -> [Some: bb4, None: bb5];
+    }
+
+    bb2: {
+        _5 = Int?::None;
+        _3 = move _5;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = move _3;
+        drop(_4);
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _3 = Int?::Some(copy (_4 as Some).0.n);
+        goto -> bb3;
+    }
+
+    bb5: {
+        goto -> bb2;
+    }
+}
+
+fn move_base.receiver_call() -> Int {
+    let _0: Int;  // return
+    let _1: move_base.Pl;  // p
+    let _2: move_base.Pl;
+    let _3: move_base.Pl;
+    let _4: &var move_base.Pl;
+    let _5: Int;
+
+    bb0: {
+        _2 = call move_base.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = move _1;
+        _4 = ref(exclusive, _3);
+        _5 = call move_base.Pl.bump() (owner move_base.Pl) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        drop(_3);
+        drop(_1);
+        return;
+    }
+}

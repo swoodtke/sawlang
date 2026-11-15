@@ -494,7 +494,7 @@ conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	pass	judged by its ow
 conformance/V101_copy_family_carries_the_tier.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V102_derived_copy_duplicates_every_field.saw	pass	-	-
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	pass	judged by its own directives (edited since its oracle)	-
-conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc "if 5", Stage 0 "drop 4"
+conformance/V104_unbound_value_is_released.saw	pass	-	-
 conformance/V105_copy_capture_releases_its_duplicate.saw	pass	-	-
 conformance/V106_driven_copy_capture_duplicates_once.saw	stage0-wrong	annotated SL-525	sawc meets its directives
 conformance/V107_capture_survives_repeated_invocation.saw	stage0-wrong	annotated SL-525	sawc meets its directives
@@ -515,6 +515,8 @@ conformance/V173_lone_case_refused_in_optional_slot.saw	pass	judged by its own d
 conformance/V173_lone_case_refused_in_result_slot.saw	pass	judged by its own directives (no oracle)	type.mismatch: expected `Result<UInt, V173_lone_case_refused_in_result_slot.Other>`, the type of the function's result, and found `V173_lone_case_refused_in_result_slot.Why`; a raw-backed case is an i
 conformance/V174_closure_called_in_place_is_dropped.saw	pass	judged by its own directives (no oracle)	-
 conformance/V174b_closure_called_in_place_is_dropped_O2.saw	pass	judged by its own directives (no oracle)	-
+conformance/V175_move_base_ends_the_binding.saw	pass	judged by its own directives (no oracle)	-
+conformance/V175_move_base_later_use_is_refused.saw	pass	judged by its own directives (no oracle)	move.use-after: `x.n` is used after it may have been moved (moved at 27:14); a moved value is gone until it is assigned again
 conformance/V18_discard_nocopy_without_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.box.Box<Int, std.alloc.GlobalAllocator>`, which is NoCopy, by value: only a Copy type copies silently; write `move b` to take it, or borrow it
 conformance/V21_optional_explicitcopy_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 conformance/V25_implicitcopy_deinit_once.saw	pass	-	-

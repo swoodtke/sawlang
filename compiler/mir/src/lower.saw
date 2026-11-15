@@ -2557,7 +2557,8 @@ extension MirProgram {
         self.prepare_base(inner, &var steps)
         let p = self.realize_all(&steps)
         if last < 0 || not self.tc.text(m, last).equals("!") {
-            if self.tc.expr_use[e] == TcUse.Borrow {
+            let u = self.tc.expr_use[e]
+            if u == TcUse.Borrow || u == TcUse.Project || u == TcUse.BorrowVar {
                 return self.moved_to_temporary(p)
             }
             return MirVal(place: p, fresh: false)
@@ -2576,10 +2577,13 @@ extension MirProgram {
         MirVal(place: self.operands[moved].place, fresh: true)
     }
 
-    // A spelled `move` where its position borrows the value, a format
-    // argument, a comparison operand or a receiver: the place still moves,
-    // into a temporary the position borrows and its statement drops (spec,
-    // Temporaries), so the binding ends there as the reader wrote.
+    // A spelled `move` where its position does not take the value itself: a
+    // format argument, a comparison operand, a receiver, or the base of a
+    // field read, a force, a `?.` hop, a tuple index or a subscript. The
+    // place still moves, into a temporary its statement owns (spec,
+    // Temporaries): the position borrows it or reads a part out of it, and
+    // the statement drops the rest, so the binding ends there as the reader
+    // wrote.
     func moved_to_temporary(&var self, p: Int) -> MirVal {
         let pt = self.place_type(p)
         let t = self.new_temp(pt)

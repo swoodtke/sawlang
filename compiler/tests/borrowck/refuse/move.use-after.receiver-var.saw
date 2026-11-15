@@ -1,0 +1,16 @@
+// refuses: move.use-after at 15:5
+// a spelled `move` as the receiver of an exclusive-borrow method moves the
+// value into a temporary the statement drops, so a later use of the binding
+// is a use after the move (conformance V175)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+extension Res {
+    func bump(&var self) -> Int { self.n = self.n + 1; return self.n }
+}
+
+func main() {
+    let a = Res(n: 1)
+    let n = (move a).bump()
+    print("{} {}", n, a.n)
+}

@@ -1,0 +1,54 @@
+// Conformance row V175 — a use of a binding after a `move` of it as the base
+// of a field read, a forced or chained read, or a method call is refused
+//
+// The `move` ends the binding at its statement (`V175_move_base_ends_the_binding.saw`
+// runs each form), so each function below reads a binding the build knows is
+// gone. The compiler reports every one of them; the directive names the rule.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is used after it may have been moved
+
+struct Inner { n: Int }
+
+struct Pl { s: String, n: Int, inner: Inner }
+
+extension Pl: NoCopy {}
+
+extension Pl {
+    func bump(&var self) -> Int { self.n = self.n + 1; return self.n }
+}
+
+func mk() -> Pl { Pl(s: "abc", n: 10, inner: Inner(n: 5)) }
+
+func mko() -> Pl? { return mk() }
+
+func field_then_use() {
+    let x = mk()
+    let r = (move x).s
+    print("{r} {x.n}")
+}
+
+func force_then_use() {
+    let x = mko()
+    let r = (move x)!.n
+    print("{r} {x?.n ?? -1}")
+}
+
+func chain_then_use() {
+    let x = mko()
+    let r = (move x)?.n
+    print("{r ?? -1} {x?.n ?? -1}")
+}
+
+func receiver_then_use() {
+    let x = mk()
+    let r = (move x).bump()
+    print("{r} {x.n}")
+}
+
+func main() {
+    field_then_use()
+    force_then_use()
+    chain_then_use()
+    receiver_then_use()
+}

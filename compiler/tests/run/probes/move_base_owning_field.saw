@@ -1,0 +1,85 @@
+// probe: stated
+// about: a spelled `move` as the base of a field read takes an owning field out of a temporary and drops the rest at the statement (SL-1125)
+// stage 0: not run; the run program in conformance V175 holds the rows Stage 0 agrees on
+// speeds: -O0 -O2
+// SL-1125's smallest form, `(move p).s` over an owning field, stopped the
+// build with an internal error because the read went through `p`, which its
+// scope then dropped whole. The read goes through a temporary now: the part
+// moves out, the rest of the value drops at the statement, and `p` is gone.
+// The forced, chained and tuple spellings, and an owned `Token` taken out
+// whole, follow the same rule.
+// prints: drop 1
+// prints: field abc
+// prints: drop 2
+// prints: force abc
+// prints: drop 3
+// prints: chain abc
+// prints: drop 4
+// prints: tuple abc
+// prints: token 5
+// prints: drop 5
+// prints: end
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Pl {
+    t: Token
+    s: String
+}
+
+extension Pl: NoCopy {}
+
+func make(id: Int) -> Pl {
+    Pl(t: Token(id: id), s: "abc")
+}
+
+func make_optional(id: Int) -> Pl? {
+    return make(id: id)
+}
+
+func field_read() {
+    let p = make(id: 1)
+    let r = (move p).s
+    print("field {}", r)
+}
+
+func force_read() {
+    let o = make_optional(id: 2)
+    let r = (move o)!.s
+    print("force {}", r)
+}
+
+func chain_read() {
+    let o = make_optional(id: 3)
+    let r = (move o)?.s
+    print("chain {}", r ?? "none")
+}
+
+func tuple_read() {
+    let t = (Token(id: 4), "abc")
+    let r = (move t).1
+    print("tuple {}", r)
+}
+
+func token_read() {
+    let p = make(id: 5)
+    let r = (move p).t
+    print("token {}", r.id)
+}
+
+func main() {
+    field_read()
+    force_read()
+    chain_read()
+    tuple_read()
+    token_read()
+    print("end")
+}

@@ -1,0 +1,15 @@
+// refuses: move.use-after at 14:29
+// a spelled `move` as the base of a `?.` hop moves the Optional into a
+// temporary the statement drops, so a later use of the binding is a use after
+// the move (conformance V175)
+
+struct Res { s: String, n: Int }
+extension Res: NoCopy {}
+
+func make() -> Res? { Res(s: "a", n: 1) }
+
+func main() {
+    let a = make()
+    let n = (move a)?.n
+    print("{} {}", n ?? -1, a?.n ?? -1)
+}

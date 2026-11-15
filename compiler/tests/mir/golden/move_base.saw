@@ -1,0 +1,58 @@
+// A spelled `move` as the base of a field read, a force, a `?.` hop or a
+// receiver moves the binding into a temporary its statement owns: the part
+// the position reads moves out of the temporary, which is dissolved around it,
+// and the rest of the value drops at the statement's end, never at the
+// binding's scope end (SL-1126, SL-1125).
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Pl {
+    t: Token
+    n: Int
+    s: String
+}
+
+extension Pl: NoCopy {}
+
+extension Pl {
+    func bump(&var self) -> Int {
+        self.n = self.n + 1
+        return self.n
+    }
+}
+
+func make() -> Pl {
+    Pl(t: Token(id: 1), n: 10, s: "abc")
+}
+
+func make_optional() -> Pl? {
+    return make()
+}
+
+func field_read() -> String {
+    let p = make()
+    return (move p).s
+}
+
+func force_read() -> String {
+    let o = make_optional()
+    return (move o)!.s
+}
+
+func hop_read() -> Int? {
+    let o = make_optional()
+    return (move o)?.n
+}
+
+func receiver_call() -> Int {
+    let p = make()
+    return (move p).bump()
+}

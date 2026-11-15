@@ -1,0 +1,164 @@
+// Conformance row V175 — a `move` as the base of a field read, a forced or
+// chained read, or a method call ends the binding at that statement
+//
+// THE GUARANTEE: `(move x)` ends `x` where it is written. Whatever the base
+// goes on to do — read a field, force an Optional, hop a `?.`, index a fixed
+// array, call a method of either receiver kind — the value moves into a
+// temporary its statement owns, a field read that takes an owning part moves
+// that part out of the temporary, and the rest drops at the end of the
+// statement. The read never goes through `x` itself, so `x` is not dropped
+// again at the end of its scope. The refusal of a later use of `x` is the
+// program beside this one (`V175_move_base_later_use_is_refused.saw`).
+//
+// THE ORACLE IS A PRINTING `deinit` ON A NoCopy FIELD: `Pl` holds a `Token`,
+// so every form must print exactly one `drop token`, directly before the
+// line after its statement, except the forms that take the `Token` itself
+// out, which hand it to a binding that drops it at its scope's end.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: drop token 1
+// EXPECT-OUTPUT: dot 10
+// EXPECT-OUTPUT: drop token 2
+// EXPECT-OUTPUT: str abc
+// EXPECT-OUTPUT: drop token 3
+// EXPECT-OUTPUT: inner 5
+// EXPECT-OUTPUT: token 4
+// EXPECT-OUTPUT: drop token 4
+// EXPECT-OUTPUT: drop token 5
+// EXPECT-OUTPUT: tuple 5
+// EXPECT-OUTPUT: drop token 6
+// EXPECT-OUTPUT: array 10
+// EXPECT-OUTPUT: drop token 7
+// EXPECT-OUTPUT: force 10
+// EXPECT-OUTPUT: drop token 8
+// EXPECT-OUTPUT: chain 10
+// EXPECT-OUTPUT: drop token 9
+// EXPECT-OUTPUT: peek 10
+// EXPECT-OUTPUT: drop token 10
+// EXPECT-OUTPUT: bump 11
+// EXPECT-OUTPUT: drop token 11
+// EXPECT-OUTPUT: finish 10
+// EXPECT-OUTPUT: drop token 12
+// EXPECT-OUTPUT: hop peek 10
+// EXPECT-OUTPUT: drop token 13
+// EXPECT-OUTPUT: hop bump 11
+// EXPECT-OUTPUT: end
+
+struct Token { id: Int }
+
+extension Token: NoCopy {
+    func deinit(&var self) { print("drop token {self.id}") }
+}
+
+struct Inner { n: Int }
+
+struct Pl { t: Token, n: Int, s: String, inner: Inner }
+
+extension Pl: NoCopy {}
+
+extension Pl {
+    func peek(&self) -> Int { self.n }
+    func bump(&var self) -> Int { self.n = self.n + 1; return self.n }
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func mk(id: Int) -> Pl { Pl(t: Token(id: id), n: 10, s: "abc", inner: Inner(n: 5)) }
+
+func mko(id: Int) -> Pl? { return mk(id: id) }
+
+func dot_read() {
+    let x = mk(id: 1)
+    let r = (move x).n
+    print("dot {r}")
+}
+
+func string_field_read() {
+    var x = mk(id: 2)
+    x.n = 20
+    let r = (move x).s
+    print("str {r}")
+}
+
+func nested_field_read(x: Pl) {
+    let r = (move x).inner.n
+    print("inner {r}")
+}
+
+// The `Token` itself leaves: its binding drops it at the function's end.
+func token_field_read() {
+    let x = mk(id: 4)
+    let r = (move x).t
+    print("token {r.id}")
+}
+
+func tuple_read() {
+    let x = (Token(id: 5), 5)
+    let r = (move x).1
+    print("tuple {r}")
+}
+
+func array_read() {
+    let x = [mk(id: 6)]
+    let r = (move x)[0].n
+    print("array {r}")
+}
+
+func force_read() {
+    let x = mko(id: 7)
+    let r = (move x)!.n
+    print("force {r}")
+}
+
+func chain_read() {
+    let x = mko(id: 8)
+    let r = (move x)?.n
+    print("chain {r ?? -1}")
+}
+
+func peek_call() {
+    let x = mk(id: 9)
+    let r = (move x).peek()
+    print("peek {r}")
+}
+
+func bump_call() {
+    let x = mk(id: 10)
+    let r = (move x).bump()
+    print("bump {r}")
+}
+
+func finish_call() {
+    let x = mk(id: 11)
+    let r = (move x).finish()
+    print("finish {r}")
+}
+
+func hop_peek() {
+    let x = mko(id: 12)
+    let r = (move x)?.peek()
+    print("hop peek {r ?? -1}")
+}
+
+func hop_bump() {
+    var x = mko(id: 13)
+    x?.n = 10
+    let r = (move x)?.bump()
+    print("hop bump {r ?? -1}")
+}
+
+func main() {
+    dot_read()
+    string_field_read()
+    nested_field_read(x: mk(id: 3))
+    token_field_read()
+    tuple_read()
+    array_read()
+    force_read()
+    chain_read()
+    peek_call()
+    bump_call()
+    finish_call()
+    hop_peek()
+    hop_bump()
+    print("end")
+}
