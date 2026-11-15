@@ -100,10 +100,10 @@ typedef struct {
 /* How many parts one `writev` carries, the line break included. */
 #define SAW_IOV_BATCH 64
 
-/* Waits until fd 1 accepts bytes again. An inherited descriptor in
+/* Waits until `fd` accepts bytes again. An inherited descriptor in
  * non-blocking mode answers EAGAIN, which is not a failure of the write. */
-static long saw_wait_writable(void) {
-    struct pollfd out = { .fd = 1, .events = POLLOUT, .revents = 0 };
+static long saw_wait_writable(int fd) {
+    struct pollfd out = { .fd = fd, .events = POLLOUT, .revents = 0 };
     for (;;) {
         int ready = poll(&out, 1, -1);
         if (ready > 0)
@@ -121,7 +121,7 @@ static long saw_writev_all(struct iovec *iov, int n) {
             if (errno == EINTR)
                 continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                long status = saw_wait_writable();
+                long status = saw_wait_writable(1);
                 if (status != 0)
                     return status;
                 continue;
@@ -197,13 +197,20 @@ void __saw_rt_output_unlock(void) {
 /* Standard error, unbuffered: `write(2)` on fd 2, so nothing a panic says
  * waits in a stdio buffer that `abort` discards. Best-effort and void: a
  * write that fails on the way to an abort has no one left to report to. It
- * stays in C beside the sink because the sink calls it.
+ * waits when the descriptor is non-blocking and full, so a long line is not
+ * cut at the pipe's capacity. It stays in C beside the sink because the sink
+ * calls it.
  */
 void __saw_rt_write_error(const char *ptr, size_t len) {
     while (len > 0) {
         ssize_t n = write(2, ptr, len);
         if (n < 0 && errno == EINTR)
             continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (saw_wait_writable(2) != 0)
+                return;
+            continue;
+        }
         if (n <= 0)
             return;
         ptr += n;

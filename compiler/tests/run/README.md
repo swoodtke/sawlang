@@ -906,11 +906,16 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are eighteen.
+says why the check cannot be header lines. There are nineteen.
 `main_error_bounded_no_hidden_alloc.saw` returns a 5,000-byte `Err` from
 `main`: built without a flag its standard error is `error: ` and the whole
 error, and built with `--no-hidden-alloc` it is `error: ` and the error cut
 within 512 bytes and ending in `…` (a header line cannot give a build flag).
+`main_error_whole_to_nonblocking_pipe.saw` returns a 1,000,004-byte `Err`
+from `main`: run with standard error the write end of a pipe set `O_NONBLOCK`
+and read a second late, at both speeds, its standard error is `error: `, the
+whole error and a line break, and it exits 1 (a header line cannot set the
+descriptor's mode or delay the reader) (SL-1131).
 `memory_volatile_survives_optimization.saw` writes a `Device` view's register
 twice and reads it twice, does the same through a field a `Device` view
 projects, and a `Normal` view's register the same way: its `.ll`, as sawc

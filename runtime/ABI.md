@@ -181,8 +181,9 @@ it); past that the claimer proceeds without the lock.
 
 ### `__saw_rt_write_error(ptr: i8*, len: word) -> void`
 Writes `len` bytes from `ptr` to standard error, unbuffered: the hosted default
-calls `write(2)` on fd 2 until every byte is out, retrying an interrupted call,
-so nothing waits in a buffer an abort discards. It takes no lock. It is
+calls `write(2)` on fd 2 until every byte is out, retrying an interrupted call
+and polling fd 2 for room when it is non-blocking and full (a long line is not
+cut at a pipe's capacity), so nothing waits in a buffer an abort discards. It takes no lock. It is
 best-effort and returns nothing by design: its callers are on the way to an
 abort, or writing the one `error: ` line of a `main` that returned an `Err`
 just before the exit status 1, and a failed write there has no one left to

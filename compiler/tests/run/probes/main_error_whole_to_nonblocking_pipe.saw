@@ -1,0 +1,30 @@
+// probe: custom
+// about: a `main() -> Result<Void, Failure>` returning an `Err` of 1,000,004 bytes, with standard error a non-blocking pipe read late, writes the whole error and its line break, and exits 1 (SL-1131)
+
+struct Failure {
+    message: String
+}
+
+extension Failure: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.message)
+    }
+}
+
+extension Failure: Error {}
+
+// 1,000,000 digits, then a marker, so a cut shows where it fell.
+func long_message() -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < 100000 {
+        try! b.append("0123456789")
+        i = i + 1
+    }
+    try! b.append(" END")
+    return b.build()
+}
+
+func main() -> Result<Void, Failure> {
+    return Failure(message: long_message())
+}

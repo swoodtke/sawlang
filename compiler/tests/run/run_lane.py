@@ -108,6 +108,7 @@ runs either.
 Stage 0's recorded run is the oracle; a difference is a sawc bug until shown
 otherwise (SL:architecture §5).
 """
+import fcntl
 import glob
 import os
 import re
@@ -4466,8 +4467,59 @@ def check_main_error_bounded(failures, counts):
                     failures.extend(found)
 
 
+NONBLOCKING_ERROR_DIGITS = 1000000
+NONBLOCKING_ERROR_LATE = 1.0
+
+
+def check_main_error_whole_to_nonblocking_pipe(failures, counts):
+    """`probes/main_error_whole_to_nonblocking_pipe.saw` returns an `Err` of
+    1,000,004 bytes, far past a pipe's capacity, with standard error the
+    write end of a pipe set `O_NONBLOCK` and read only after a delay: its
+    standard error is `error: `, the whole error and a line break, and the
+    exit status is 1. A header line cannot set a descriptor's mode."""
+    probe = os.path.join(PROBES, "main_error_whole_to_nonblocking_pipe.saw")
+    whole = b"error: " + b"0123456789" * (NONBLOCKING_ERROR_DIGITS // 10) + b" END\n"
+    for speed in ("-O0", "-O2"):
+        where = "run %s %s" % (rel(probe), speed)
+        binary = os.path.join(OUT, "main_error_nonblocking" + speed[1:])
+        r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags()
+                           + [rel(probe), "-o", binary], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said:
+            failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:300]))
+            continue
+        read_end, write_end = os.pipe()
+        fcntl.fcntl(write_end, fcntl.F_SETFL, fcntl.fcntl(write_end, fcntl.F_GETFL) | os.O_NONBLOCK)
+        child = subprocess.Popen([binary], cwd=OUT, stdout=subprocess.DEVNULL, stderr=write_end)
+        os.close(write_end)
+        time.sleep(NONBLOCKING_ERROR_LATE)
+        chunks = []
+        deadline = time.monotonic() + RUN_TIMEOUT
+        while time.monotonic() < deadline:
+            chunk = os.read(read_end, 1 << 16)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        os.close(read_end)
+        try:
+            code = child.wait(timeout=RUN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+            code = None
+        err = b"".join(chunks)
+        if code != 1 or err != whole:
+            failures.append("%s: exit %s, %d bytes on standard error (not %d) ending %r"
+                            % (where, code, len(err), len(whole), err[-24:]))
+            continue
+        counts["run main errors written whole to a non-blocking pipe"] = counts.get(
+            "run main errors written whole to a non-blocking pipe", 0) + 1
+
+
 CUSTOM_PROBES = {
     "main_error_bounded_no_hidden_alloc.saw": check_main_error_bounded,
+    "main_error_whole_to_nonblocking_pipe.saw": check_main_error_whole_to_nonblocking_pipe,
     OBJECT_PROBE: check_object_output,
     ATTRIBUTE_PROBE: check_attribute_groups,
     VOLATILE_PROBE: check_volatile_accesses,
