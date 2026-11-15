@@ -44,7 +44,8 @@ public func mono_copies_bitwise(tc: &var TcProgram, t: Int) -> Bool {
 }
 
 // The length of concrete array type `t`, the folded constant its type
-// carries.
+// carries: a laid-out length, which fits `Int` (a constant of 2^63 or more
+// is refused before layout), so its `a` is the value.
 public func mono_array_length(tc: &TcProgram, t: Int) -> Int {
     let length = tc.types.arg(t, 0)
     tc.types.ty(length).a

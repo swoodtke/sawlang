@@ -4,6 +4,7 @@
 
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.lang.{ResLang}
+import sawtypecheck.arith.{tc_arith_text}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE}
@@ -134,7 +135,7 @@ extension TcProgram {
                 try! out.append("any ")
                 try! out.append(self.nominal_name(info.decl))
             },
-            case ConstInt -> try! out.append(info.a),
+            case ConstInt -> try! out.append(tc_arith_text(info.a, 64, info.b == 0)),
             case ConstExpr -> self.append_const_expr(&var out, t),
             case Error -> try! out.append("(error)")
         }
@@ -181,7 +182,7 @@ extension TcProgram {
         } else if own < 0 {
             parens = class > 0
         } else if info.kind == TcKind.ConstInt {
-            parens = info.a < 0
+            parens = info.b == 0 && info.a < 0
         }
         if parens {
             try! out.append("(")

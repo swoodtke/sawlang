@@ -500,7 +500,7 @@ extension TcProgram {
         if arr >= 0 && self.kind_of(arr) == TcKind.Array {
             let length = self.types.arg(arr, 0)
             let li = self.types.ty(length)
-            if li.kind == TcKind.ConstInt && li.a <= 1 {
+            if li.kind == TcKind.ConstInt && li.b == 0 && li.a <= 1 {
                 return
             }
         }

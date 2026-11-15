@@ -556,6 +556,10 @@ extension Target {
                 if lt.kind != TcKind.ConstInt {
                     return self.unsupported("an array whose length is not a folded constant")
                 }
+                if lt.b != 0 {
+                    // A constant of 2^63 or more, which no `Int` counts.
+                    return self.unsupported("an array of more elements than `Int` counts on this target")
+                }
                 if lt.a < 0 {
                     var why = StringBuilder()
                     try! why.append("an array whose length is negative (`")

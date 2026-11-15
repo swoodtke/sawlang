@@ -1942,16 +1942,10 @@ extension TcProgram {
         TcFaultText(rule: rule, message: msg.build())
     }
 
-    // The fold `f` of a stuck constant as the fold the fault sentences read:
-    // a value that did not fit is held as a signed 64-bit integer, so it
-    // reads in decimal, not wrapped at the operation's width.
+    // The fold `f` of a stuck constant as the fold the fault sentences read;
+    // a value that did not fit reads at `f.ty` as the value itself.
     public func fault_fold(&var self, f: &TcConstFold) -> TcFold {
-        var ty = f.ty
-        if f.v.fault == TcFault.NotFit {
-            let none = Vector<Int>()
-            ty = self.mk_nominal(self.known.int64, &none)
-        }
-        TcFold(ok: false, bits: f.v.bits, ty: ty, fault: f.v.fault, at: -1)
+        TcFold(ok: false, bits: f.v.bits, ty: f.ty, fault: f.v.fault, at: -1)
     }
 }
 
@@ -6849,7 +6843,7 @@ extension TcProgram {
             self.refuse(e, "type.mismatch", msg.build())
             return TcSymbolic(t: self.error_type, ty: self.error_type)
         }
-        TcSymbolic(t: self.mk_const(r.bits), ty: v.ty)
+        TcSymbolic(t: self.mk_const_at(v.bits, v.ty), ty: v.ty)
     }
 
     // A flat operator chain over symbolic parts, left to right, each operator
@@ -10796,7 +10790,7 @@ extension TcProgram {
         }
         let length = self.types.ty(self.types.arg(viewed, 0))
         let index = self.fold_constant(args.values[0])
-        if length.kind == TcKind.ConstInt && index.ok && index.ty >= 0 && self.is_integer(index.ty) && (index.bits < 0 || index.bits >= length.a) {
+        if length.kind == TcKind.ConstInt && length.b == 0 && index.ok &&index.ty >= 0 && self.is_integer(index.ty) && (index.bits < 0 || index.bits >= length.a) {
             var msg = StringBuilder()
             try! msg.append("the constant index ")
             try! msg.append(index.bits)
@@ -13027,7 +13021,7 @@ extension TcProgram {
             let v = solve.sol[k]
             if g.is_const && g.leaf >= 0 && v >= 0 && self.types.ty(v).kind == TcKind.ConstInt {
                 let name = self.text(self.res.decls[owner].module, g.leaf)
-                let _ = self.check_constant_fit(e, self.types.ty(v).a, g.const_type, &name, true)
+                let _ = self.check_constant_fit(e, v, g.const_type, &name, true)
             }
             k = k + 1
         }

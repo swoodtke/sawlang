@@ -575,12 +575,12 @@ extension MonoProgram {
             return true
         }
         let g = self.dp.bc.mir.tc.generics[self.dp.bc.mir.tc.sigs[owner].generic_first + index]
-        if g.leaf < 0 || not self.dp.bc.mir.tc.constant_misfit(info.a, g.const_type) {
+        if g.leaf < 0 || not self.dp.bc.mir.tc.constant_misfit(t, g.const_type) {
             return true
         }
         let name = self.dp.bc.mir.tc.text(self.dp.bc.mir.tc.res.decls[owner].module, g.leaf)
         var msg = StringBuilder()
-        try! msg.append(self.dp.bc.mir.tc.constant_fit_text(&written, info.a, g.const_type, &name, false))
+        try! msg.append(self.dp.bc.mir.tc.constant_fit_text(&written, t, g.const_type, &name, false))
         try! msg.append(", ")
         try! msg.append(at)
         self.refuse(node, "type.mismatch", msg.build())
@@ -800,10 +800,10 @@ extension MonoProgram {
             if (info.holds & TC_HOLDS_UNFOLDED) != 0 {
                 try! self.stuck_meetings.push(MonoStuckMeeting(ty: v, node: node, owner: owner, index: j - 1, current: self.current))
                 fits = false
-            } else if info.kind == TcKind.ConstInt && self.dp.bc.mir.tc.constant_misfit(info.a, g.const_type) {
+            } else if info.kind == TcKind.ConstInt && self.dp.bc.mir.tc.constant_misfit(v, g.const_type) {
                 let name = self.dp.bc.mir.tc.text(self.dp.bc.mir.tc.res.decls[owner].module, g.leaf)
                 let written = ""
-                self.refuse(node, "type.mismatch", self.dp.bc.mir.tc.constant_fit_text(&written, info.a, g.const_type, &name, true))
+                self.refuse(node, "type.mismatch", self.dp.bc.mir.tc.constant_fit_text(&written, v, g.const_type, &name, true))
                 fits = false
             }
         }
@@ -1290,9 +1290,11 @@ extension MonoProgram {
     }
 
     // THE CONST-ARGUMENT FUNNEL: the value const parameter `param` (the type
-    // it denotes in its body) takes at item `k`, at its declared integer type
-    // `ty`. An instance always gives one, so a missing value is an invariant
-    // broken upstream, never a zero (spec, Const generics).
+    // it denotes in its body) takes at item `k`, as its bits at its declared
+    // integer type `ty`. An instance always gives one its type holds (the
+    // instance checks refuse any other first), so a missing or misfit value
+    // is an invariant broken upstream, never a zero or a wrap (spec, Const
+    // generics).
     // ENTRY POINTS:
     //     copy_operand
     //     mono_check_instance
@@ -1301,6 +1303,10 @@ extension MonoProgram {
         if arg < 0 || self.dp.bc.mir.tc.kind_of(arg) != TcKind.ConstInt || not self.dp.bc.mir.tc.is_integer(ty) {
             try! self.problems.push("a const parameter read as a value has no constant argument at its instance")
             return TcFold(fault: TcFault.NotConstant, ty: ty, at: -1)
+        }
+        if not self.dp.bc.mir.tc.const_fits(arg, ty) {
+            try! self.problems.push("a const parameter's value at its instance does not fit its type")
+            return TcFold(fault: TcFault.NotFit, ty: ty, at: -1)
         }
         let w = self.dp.bc.mir.tc.int_width(ty)
         let signed = not self.dp.bc.mir.tc.is_unsigned(ty)

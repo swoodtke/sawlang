@@ -65,7 +65,10 @@ public enum TcKind: UInt8 {
     case Array = 8,
     // `any Trait`: `decl` the trait.
     case Any = 9,
-    // A constant argument: `a` its value.
+    // A constant: its value, in [-2^63, 2^64), whatever type holds it. `a`
+    // is the value's low 64 bits and `b` is 1 when the value is 2^63 or
+    // more, so `a` alone misreads such a value as negative: read it through
+    // `const_fits`, `const_negative` and `const_text` (`mk_const_at`).
     case ConstInt = 10,
     // A type that could not be formed; a refusal says why.
     case Error = 11,
