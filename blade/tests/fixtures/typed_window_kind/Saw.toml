@@ -1,0 +1,9 @@
+[package]
+name = "typed_window_kind"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "app.ld"
+device-window = true

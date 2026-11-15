@@ -1,0 +1,4 @@
+[package]
+name = "typed_runtime_string"
+version = "0.1.0"
+runtime = "true"

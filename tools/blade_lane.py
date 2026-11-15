@@ -12,6 +12,9 @@ Steps, each printed, the first failure ending the run:
      the ones sawc writes for the Saw half (`--emit-ll`, no clang needed).
   5. Blade refuses an unknown flag or word; `--module-path`, `--out-dir` and
      `--linker-script` reach the build and its freshness check.
+  5a. A dependency whose path holds a backslash or a double quote, or whose key
+     needs quotes, resolves, locks and builds twice; a manifest the resolver
+     cannot read is refused with its path, position and reason.
   5b. Each input a build reads or chooses (nested sources, a root main.saw, a
      dependency's manifest, native units, the tool and compiler choices, the
      compiler's version) changes the freshness check.
@@ -648,6 +651,85 @@ def check_blade_freshness_images(binary=None):
                    env)
 
 
+def write_text(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def manifest_app(work, deps):
+    """`work/app`, a package whose Saw.toml states `deps` under [dependencies]."""
+    package = os.path.join(work, "app")
+    write_text(os.path.join(package, "Saw.toml"),
+               '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\n%s\n' % deps)
+    write_text(os.path.join(package, "src", "main.saw"), "func main() {\n    print(1)\n}\n")
+    return package
+
+
+def manifest_library(directory, manifest):
+    write_text(os.path.join(directory, "Saw.toml"), manifest)
+    write_text(os.path.join(directory, "src", "lib.saw"), "public func one() -> Int {\n    1\n}\n")
+
+
+def check_blade_lock_quoting(binary=None):
+    """A dependency whose path holds a backslash or a double quote, or whose key
+    needs quotes, resolves, is locked and builds twice (the second one up to
+    date). The directories are made here: a name with a backslash or a quote is
+    legal on macOS and Linux and is no tracked fixture path."""
+    binary = binary or SELF_BUILT
+    rows = (
+        ("backslash", "l\\ib", 'lib = { path = "../l\\\\ib" }'),
+        ("quote", 'l"ib', 'lib = { path = "../l\\"ib" }'),
+        ("key", "mylib", '"my lib" = { path = "../mylib" }'),
+    )
+    for name, directory, declaration in rows:
+        work = os.path.join(WORK_DIR, "lock_quoting", name)
+        shutil.rmtree(work, ignore_errors=True)
+        package = manifest_app(work, declaration)
+        manifest_library(os.path.join(work, directory), '[package]\nname = "lib"\nversion = "0.1.0"\n')
+        print("blade: a dependency with %s resolves, locks and builds twice" % {
+            "backslash": "a backslash in its path", "quote": "a double quote in its path",
+            "key": "a key that needs quotes"}[name], flush=True)
+        blade_ok(binary, ["update"], package, "Updated Saw.lock")
+        blade_ok(binary, ["build"], package, "Finished .build/host/app")
+        blade_ok(binary, ["build"], package, "(up to date)")
+
+
+def check_blade_resolver_says_why(binary=None):
+    """A manifest the resolver cannot read is refused with the manifest's own
+    text (its path, line, column and reason) by `blade build` and `blade tree`;
+    a missing one says so."""
+    binary = binary or SELF_BUILT
+    junk = '[package]\nname = "lib"\nversion = "0.1.0" junk\n'
+    rows = (
+        ("a dependency's manifest", 'lib = { path = "../lib" }', junk,
+         "cannot read manifest for `lib`: %s: line 3, column 19: expected the end of the line after the value, found `junk`",
+         "lib"),
+        ("a dependency's own dependencies", 'lib = { path = "../lib" }',
+         '[package]\nname = "lib"\nversion = "0.1.0"\n\n[dependencies]\ninner = { path = 7 }\n',
+         "cannot read dependencies of `lib`: %s: line 6, column 18: `path` in the inline table `dependencies.inner` is an integer, not a string",
+         "lib"),
+        ("the root's table", "lib = { path = 5 }", None,
+         "cannot read root dependencies: %s: line 6, column 16: `path` in the inline table `dependencies.lib` is an integer, not a string",
+         "app"),
+        ("a missing manifest", 'lib = { path = "../lib" }', False,
+         "cannot read manifest for `lib`: Saw.toml not found in %s", "lib"),
+    )
+    for index, (title, declaration, library, text, owner) in enumerate(rows):
+        work = os.path.join(WORK_DIR, "resolver_says_why", str(index))
+        shutil.rmtree(work, ignore_errors=True)
+        package = manifest_app(work, declaration)
+        if library is False:
+            os.makedirs(os.path.join(work, "lib"))
+        elif library is not None:
+            manifest_library(os.path.join(work, "lib"), library)
+        place = os.path.join(work, owner) if owner == "lib" else package
+        expected = text % (place if library is False else os.path.join(place, "Saw.toml"))
+        print("blade: %s is refused with its reason" % title, flush=True)
+        blade_refused(binary, ["build"], package, "dependency resolution failed: " + expected)
+        blade_ok(binary, ["tree"], package, "error: " + expected)
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -670,6 +752,8 @@ def lane():
         check_blade_finds_tools()
         check_blade_refuses_unknown_words()
         check_blade_module_path()
+        check_blade_lock_quoting()
+        check_blade_resolver_says_why()
         check_blade_out_dir_and_linker_script()
         check_blade_out_dir_names_target()
         check_blade_image_module_path()

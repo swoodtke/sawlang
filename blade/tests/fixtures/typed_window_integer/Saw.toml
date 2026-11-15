@@ -1,0 +1,10 @@
+[package]
+name = "typed_window_integer"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "app.ld"
+device-window = 0x1000_0000
+device-window-size = 0x2000

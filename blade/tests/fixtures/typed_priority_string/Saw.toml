@@ -1,0 +1,9 @@
+[package]
+name = "typed_priority_string"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "app.ld"
+priorities = { low = "2" }

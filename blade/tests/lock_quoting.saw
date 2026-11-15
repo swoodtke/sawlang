@@ -1,0 +1,38 @@
+// The lock's writer quotes what it writes: a name or a value that holds a
+// backslash, a double quote or a space is written as TOML text, so `parse_lock`
+// reads back every field it was given. A name and a value that need no
+// escaping are written as they always were.
+import blade.lock.*
+import blade.resolver.*
+
+func main() {
+    var res = Resolution()
+    res.add("lib", "0.1.0", "path", "/abs/l\\ib", "../l\\ib", "")
+    res.add("quoted", "0.2.0", "path", "/abs/l\"ib", "../l\"ib", "")
+    res.add("my lib", "1.0.0", "git", "https://example.com/my lib.git", "https://example.com/my lib.git", "ab12\tcd")
+    res.add("plain", "3.0.0", "path", "/abs/plain", "../plain", "")
+
+    let text = serialize(&res, "hash\"with\\both")
+    assert(text.contains("loc = \"../l\\\\ib\"\n"), "a backslash is written escaped: {text}")
+    assert(text.contains("loc = \"../l\\\"ib\"\n"), "a double quote is written escaped: {text}")
+    assert(text.contains("[pkg.\"my lib\"]\n"), "a name that needs quotes is written quoted: {text}")
+    assert(text.contains("[pkg.plain]\nversion = \"3.0.0\"\nsource = \"path\"\nloc = \"../plain\"\nrev = \"\"\n"),
+           "a name and values that need no escaping are written as before: {text}")
+
+    guard let lock = parse_lock(text) else {
+        panic("parse_lock refused what serialize wrote: {text}")
+    }
+    assert(lock.manifest_hash.equals("hash\"with\\both"), "the manifest hash reads back")
+    assert(lock.len() == 4, "four packages read back")
+    var i = 0
+    while i < res.len() {
+        let at = lock.index_of(res.name(i))
+        assert(at >= 0, "{res.name(i)} is locked")
+        assert(lock.version(at).equals(res.version(i)), "{res.name(i)}: version equal")
+        assert(lock.source(at).equals(res.kind(i)), "{res.name(i)}: source equal")
+        assert(lock.loc(at).equals(res.declared(i)), "{res.name(i)}: loc equal")
+        assert(lock.rev(at).equals(res.rev(i)), "{res.name(i)}: rev equal")
+        i = i + 1
+    }
+    print("lock_quoting: ok")
+}

@@ -869,14 +869,15 @@ var u = w.copy()       // explicit duplicate
   func drain(arr: &var Vector<Job>) { ... arr.len() ... arr[0] ... }
   drain(&var foo.bar.baz.arr)
   ```
-  The same move serves a NoCopy place you cannot bind (a `TomlSection` off
-  `doc.section_at(i)` re-opened at every read): pass the OWNER by reference
-  plus the index and do the lookup once inside the helper. Signals to split: a
+  The same move serves a NoCopy place you re-open at every read (a `TomlTable`
+  off `doc.root().table("sos")`): bind it once with `if let sos =
+  doc.root().table("sos")` and pass `&sos` to a helper, which does its reads
+  through the parameter. Signals to split: a
   function past ~60 lines, or the same 2+-hop chain spelled 3+ times. The
   borrow lasts exactly the call, so exclusivity stays easy to see — and the
   helper gets a name, which is what the chain never had. (Design 212 swept
   std + blade for exactly this; the taskgroup executor's repeated
-  `g[0].<field>` fetches and blade's `section_at` re-opens were the found
+  `g[0].<field>` fetches and blade's section re-opens were the found
   cases.)
 - Law of Exclusivity: one `&var` XOR many `&` to overlapping paths,
   statically checked. The receiver's SPELLING does not matter — a call through
@@ -1094,7 +1095,7 @@ var u = w.copy()       // explicit duplicate
   conditional lend; `v.get(i)` / `m.get(k)` return optional COPIES.
   `lend` may not be in a LOOP, so a body that has to
   SEARCH splits in two: a plain function finds the index, the accessor lends it
-  (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
+  (`libs/toml`'s `TomlTable` search beside `table`). VALUE READS out of a place
   follow design 131's table: retain for Copy, clean error for
   ExplicitCopy/NoCopy, whose hint names a block / `swap_out`. Rendering and
   comparing reach the element in place (`format(&self)`, `equals(&Self)`), so
@@ -5121,15 +5122,16 @@ construct in the owner and lend `&driver` down.
   two Optionals (`x == y`, or `x == v` with `v` a payload) still needs
   `T: Equatable`.
 - **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
-  `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
+  `if let _ = doc.root().table(name)`, `guard let _ = ...`, and a `match` arm like
   `case Empty` or `case Occupied(_)` look at the discriminant through the
   borrow — no copy, no drop — so they work on a move-only place, where a value
   read is refused. A `match` on a place matches it WHERE IT SITS, and an arm
   that does bind binds the payload in place, so the copy tier is consulted for
   that one binding rather than the whole element.
-  Holding one index and reading several values (`doc.section_at(i).get("a")`,
-  `...get("b")`) is still the idiom when reads must span STATEMENTS — a place
-  window is one expression, so an INDEX is what survives.
+  Reading several values (`t.optional_string("a")`, `t.optional_string("b")`)
+  across STATEMENTS binds the place once, `if let t = doc.root().table("x")`,
+  and passes `&t` to a helper — a place window is one expression, so the
+  binding is what survives.
   PRESENCE IS TIER-INDEPENDENT AT EVERY SPELLING (design 218, DF-218a) — a plain
   optional, a conditional lend (`v.get(i)`), and an UNCONDITIONAL lend whose
   element is itself optional (`Slot<T>.value()` at `T = Res?`) all answer the

@@ -6516,7 +6516,7 @@ func main() {}
 
 `lend` may not appear in a loop, so a body that has to *search* for the place
 splits in two: an ordinary function finds the index, and the accessor lends it.
-`libs/toml` is the worked example (`_section_index` beside `section`).
+`libs/toml` is the worked example (`TomlTable`'s search beside `table`).
 
 **The absent path opens no window and runs no epilogue.** There is nothing to
 lend, so there is nothing to close; the caller decides what absence means. A
@@ -7031,10 +7031,10 @@ permit a write that changes an element's hash and loses it in its own table.
 
 A caller that reads several values out of one move-only element binds it once,
 with the block form. `libs/toml` is the worked example:
-`TomlDoc.section(name) borrows -> &TomlSection?` is the named place, and
-`index_of(name)` plus `section_at(i)` reach it by index. Both are READ-ONLY
-lends: a parsed document is a view, and nothing a caller writes should reach
-its storage.
+`TomlTable.table(key) borrows -> &TomlTable?` is the named place, and
+`TomlDoc.root() borrows -> &TomlTable` is where a chain starts. Both are
+READ-ONLY lends: a parsed document is a view, and nothing a caller writes
+should reach its storage.
 
 `Map` and `Set` probe through their slots the same way. `K` is `Hashable +
 Equatable`, never `Copy`, so reading a whole slot out is not something the table
@@ -15542,8 +15542,8 @@ image tag for; the error names it.
 | `native` | string | machine | The C and assembly sources compiled beside the Saw object, separated by spaces. Default: none. |
 | `march`, `mabi` | string | machine | Passed to the C compiler as `-march=` and `-mabi=`. Default: `rv32imac_zicsr` and `ilp32` for a `riscv32` triple, none otherwise. |
 | `target-features` | string | machine | The list handed to `sawc --target-features`. Default: `+m,+a,+c` for a `riscv32` triple, none otherwise. On an `xtensa` triple it adds to sawc's default list, as `--target-features` does. |
-| `device-window` | string | machine | The base address of a memory-mapped window the image records, decimal or `0x`-prefixed hexadecimal. Default: no window. |
-| `device-window-size` | string | machine | The window's length in bytes, in the same two forms. Default: 4096. |
+| `device-window` | integer, or string | machine | The base address of a memory-mapped window the image records. An integer, or a string in decimal or `0x`-prefixed hexadecimal. Default: no window. |
+| `device-window-size` | integer, or string | machine | The window's length in bytes, in the same forms. Default: 4096. |
 
 `blade build` takes three flags beside `--target` and `--force`. `--linker-script
 <file>` replaces the selected machine's `linker-script` for that build; it is an

@@ -28,7 +28,6 @@ blade/src/manifest.saw	refs.position	1	(design 64 B1). Re-reads Saw.toml from `r
 blade/src/manifest.saw	refs.position	1	A manifest error is a Printable error (design 56): manifest loading returns
 blade/src/manifest.saw	refs.position	1	design 149: `runtime = true` declares this package a RUNTIME PROVIDER —
 blade/src/manifest.saw	refs.position	1	design 56 dogfood: this returns an ERASED Result. A `ManifestError`
-blade/src/manifest.saw	refs.position	1	does, so `try` carries the errno cause straight through (design 132
 blade/src/resolver.saw	history	1	The graph walk used to be a self-recursive `visit`, which is a SUSPENDING
 blade/src/resolver.saw	refs.count	1	dogfood. This was blocked until design 68 root-caused the cross-module
 blade/src/resolver.saw	refs.count	1	reap loop parks — and design 44 embeds a suspending callee's frame by value,
@@ -38,18 +37,14 @@ blade/src/resolver.saw	refs.position	1	package (design 64 B2), imported by path 
 blade/src/resolver.saw	refs.position	1	reap loop parks — and design 44 embeds a suspending callee's frame by value,
 blade/src/sosimg.saw	history	1	and design 170 turned the silent truncation that used to happen here into a
 blade/src/sosimg.saw	history	1	import used to work around is gone.)
-blade/src/sosimg.saw	history	1	rather than one per band (design 212 unit 2 — `load_sos_config` used to
 blade/src/sosimg.saw	history	1	values used to be the defaults for every target, so an arm64 image would
 blade/src/sosimg.saw	refs.count	1	SINCE v3 THE ADDRESSES NEED NO NARROWING (design 172 unit 8): `entry` and
 blade/src/sosimg.saw	refs.count	1	too, type annotations included, since design 150 — the DF-140c limit this
-blade/src/sosimg.saw	refs.position	1	PLACE rather than held (design 146). The search runs once here and every
 blade/src/sosimg.saw	refs.position	1	SINCE v3 THE ADDRESSES NEED NO NARROWING (design 172 unit 8): `entry` and
 blade/src/sosimg.saw	refs.position	1	THE DEVICE WINDOW (design 178's finale constraint 1). Absent for every
 blade/src/sosimg.saw	refs.position	1	TWO SPELLINGS, ONE MEANING (design 162 unit 4). A package that builds for
 blade/src/sosimg.saw	refs.position	1	Typed local (DF-140d): returning the value directly would have to
 blade/src/sosimg.saw	refs.position	1	and design 170 turned the silent truncation that used to happen here into a
-blade/src/sosimg.saw	refs.position	1	extension is module-private (design 80/142), so nothing outside this file
-blade/src/sosimg.saw	refs.position	1	rather than one per band (design 212 unit 2 — `load_sos_config` used to
 blade/src/sosimg.saw	refs.position	2	too, type annotations included, since design 150 — the DF-140c limit this
 blade/src/tester.saw	refs.position	1	Preflight (design 97): `blade test` compiles each test with `sawc`
 blade/src/tester.saw	refs.position	1	SURFACED, never swallowed (design 97: `blade test` must not hide why a

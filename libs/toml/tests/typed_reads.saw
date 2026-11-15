@@ -299,8 +299,42 @@ func quoted_reads(root: &TomlTable) -> Int {
     return failed
 }
 
+// The shape a manifest's `[dependencies]` takes: inline tables read by string,
+// an absent key answering `None`, and the keys counted.
+func dependency_reads(deps: &TomlTable) -> Int {
+    var failed = 0
+    failed += same_int("dependency count", deps.len(), 2)
+    failed += is_true("dependency is a table", deps.kind("mathx") == TomlKind.Table)
+    failed += same_text("dependency path", try! deps.table("mathx")!.string("path"), "../mathx")
+    failed += same_text("dependency git", try! deps.table("jsonx")!.string("git"), "https://x/jsonx")
+    failed += same_text("dependency version", try! deps.table("jsonx")!.string("version"), "1.2.0")
+    failed += is_true("dependency git absent", (try! deps.table("mathx")!.optional_string("git")) == None)
+    failed += fails("dependency git required", deps.table("mathx")!.string("git"), TomlErrorKind.Missing, 6, 1,
+                    "`git` is missing from the inline table `dependencies.mathx`")
+    return failed
+}
+
 func main() {
     var failed = 0
+    match TomlDoc.parse("# a comment\n[package]\nname = \"demo\"\nversion = \"1.2.3\"\n[dependencies]\nmathx = \{ path = \"../mathx\" \}\njsonx = \{ git = \"https://x/jsonx\", version = \"1.2.0\" \}\n") {
+        case Ok(doc) -> {
+            failed += same_text("package name", try! doc.root().table("package")!.string("name"), "demo")
+            failed += same_text("package version", try! doc.root().table("package")!.string("version"), "1.2.3")
+            failed += is_true("package license absent",
+                              (try! doc.root().table("package")!.optional_string("license")) == None)
+            failed += is_true("server absent", doc.root().table("server") == None)
+            if let deps = doc.root().table("dependencies") {
+                failed += dependency_reads(&deps)
+            } else {
+                print("FAIL: no dependencies table")
+                failed += 1
+            }
+        },
+        case Err(e) -> {
+            print("FAIL: the manifest is refused: {e}")
+            failed += 1
+        }
+    }
     match TomlDoc.parse(quoted_source()) {
         case Ok(doc) -> {
             borrow let root = doc.root() {

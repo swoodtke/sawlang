@@ -1,7 +1,7 @@
 // Manifest - Saw.toml package manifest handling
 // Part of the Blade package manager
 
-import toml.legacy
+import toml.{TomlDoc, TomlError, TomlKind, TomlTable}
 import std.data.{Data}
 import std.directory.{Directory}
 import std.file.{File}
@@ -23,7 +23,7 @@ extension ManifestError {
 
 // A manifest error is a Printable error (design 56): manifest loading returns
 // `Result<Manifest, Box<any Error>>`, so a ManifestError is auto-erased into the
-// box at the return boundary and a TomlError is re-boxed by `try` (below).
+// box at the return boundary and `try` boxes the one `in_manifest` makes.
 extension ManifestError: Error {
     public func format(&self, into: &var StringBuilder) {
         try! into.append(self.message)
@@ -120,13 +120,85 @@ public struct Manifest {
     root_dir: Path
 }
 
+// A read of a manifest's tree, with its file named: the value, or the library's
+// error behind `{path}: `, which is how a dependency's manifest is told from the
+// root's. The one place that text is made; every `TomlError` that can reach the
+// user passes through it.
+//
+// ENTRY POINTS: read_manifest (a parse error), read_package, read_dependencies,
+// load_sos_config, sos_config_from, read_priorities, band_level,
+// toolchain_fields_from, manifest_word, manifest_size
+public func in_manifest<T>(path: String, read: Result<T, TomlError>) -> Result<T, ManifestError> {
+    match move read {
+        case Ok(value) -> move value,
+        case Err(e) -> { return ManifestError(msg: "{path}: {e}") }
+    }
+}
+
+// Reads and parses the manifest at `path`; a parse error names the file, then
+// the line and column.
+public func read_manifest(path: Path) -> Result<TomlDoc, Box<any Error>> {
+    var file = try File.open(path)
+    let data = try file.read()
+    let content = try data.to_string()
+    let doc = try in_manifest(path.as_string(), TomlDoc.parse(content))
+    move doc
+}
+
+// The `[package]` table's fields. A missing `name` or `version` keeps its
+// placeholder; a key of the wrong type is an error. `path` is the manifest's.
+func read_package(doc: &TomlDoc, path: String) -> Result<Package, Box<any Error>> {
+    let has = try in_manifest(path, doc.root().expect("package", TomlKind.Table))
+    if not has {
+        return ManifestError(msg: "Missing [package] section in Saw.toml")
+    }
+    let name = try in_manifest(path, doc.root().table("package")!.optional_string("name")) ?? "unknown"
+    let version = try in_manifest(path, doc.root().table("package")!.optional_string("version")) ?? "0.0.0"
+    let runtime = try in_manifest(path, doc.root().table("package")!.optional_boolean("runtime")) ?? false
+    Package(name: name, version: version, runtime: runtime)
+}
+
+// The `[dependencies]` entries, each a table with a `path` or a `git` source.
+// `manifest` is the path of the manifest they are read from.
+func read_dependencies(deps: &TomlTable, manifest: String) -> Result<DepList, Box<any Error>> {
+    var list = DepList()
+    let names = try deps.keys()
+    for name in names.iter() {
+        if let dep = deps.table(name) {
+            // Empty-string sentinels: a present path/git is never empty, so
+            // `is_empty()` cleanly distinguishes present vs absent without the
+            // nested `if let ... { return }` shape that currently ICEs codegen.
+            let path_s = try in_manifest(manifest, dep.optional_string("path")) ?? ""
+            let git_s = try in_manifest(manifest, dep.optional_string("git")) ?? ""
+            let version = try in_manifest(manifest, dep.optional_string("version")) ?? ""
+            let has_path = not path_s.is_empty()
+            let has_git = not git_s.is_empty()
+
+            if has_path && has_git {
+                return ManifestError(msg: "dependency `{name}` has both path and git sources; pick one")
+            } else if has_path {
+                list.add(name, "path", path_s, version)
+            } else if has_git {
+                list.add(name, "git", git_s, version)
+            } else {
+                return ManifestError(msg: "dependency `{name}` has no path or git source")
+            }
+        } else {
+            // Bare version string, e.g. `tiny = "0.3.1"`: no source, and there
+            // is no registry in v1.
+            return ManifestError(msg: "dependency `{name}`: no registry yet; specify path or git")
+        }
+    }
+    move list
+}
+
 extension Manifest {
     // Load manifest from current directory.
     //
     // design 56 dogfood: this returns an ERASED Result. A `ManifestError`
     // returned here is auto-erased into the `Box<any Error>` at the return
-    // boundary; the `try` on the TOML parse re-boxes a `TomlError` into the same
-    // box at the propagation edge. Two distinct error types flow through one
+    // boundary; the `try` on a read re-boxes the `ManifestError` `in_manifest`
+    // made from a `TomlError`. Two distinct error types flow through one
     // return type without a hand-written union, and callers render either with
     // `{error}` via the Printable vtable.
     public static func load() -> Result<Manifest, Box<any Error>> {
@@ -136,30 +208,10 @@ extension Manifest {
             return ManifestError(msg: "Saw.toml not found in current directory")
         }
 
-        // An IoError boxes into the erased Result exactly as a ManifestError
-        // does, so `try` carries the errno cause straight through (design 132
-        // unit G gave these Results).
-        var file = try File.open(manifest_path)
-
-        let data = try file.read()
-
-        // Decode as UTF-8 (a Utf8Error boxes into the erased Result).
-        let content = try data.to_string()
-
-        // `try` re-boxes a TomlError into Box<any Error> on failure.
-        let doc = try legacy.TomlDoc.parse(content)
-
-        // A `TomlSection` is NoCopy and lives in the document, so it is reached
-        // as a PLACE rather than bound: find the index once, then read through
-        // it. `doc.section("package")!.get(...)` is the same borrow spelled
-        // without the index.
-        guard let pkg = doc.index_of("package") else {
-            return ManifestError(msg: "Missing [package] section in Saw.toml")
-        }
-
-        let name = doc.section_at(pkg).get("name") ?? "unknown"
-        let version = doc.section_at(pkg).get("version") ?? "0.0.0"
-        let runtime = (doc.section_at(pkg).get("runtime") ?? "false") == "true"
+        // An IoError, a Utf8Error and a parse error all box into the erased
+        // Result at `try`, beside a ManifestError (design 132 unit G).
+        let doc = try read_manifest(manifest_path)
+        let package = try read_package(&doc, manifest_path.as_string())
 
         // Get current directory as root
         let root = match Directory.current() {
@@ -167,9 +219,7 @@ extension Manifest {
             case Err(_) -> Path(s: ".")
         }
 
-        return Manifest(
-            package: Package(name: name, version: version, runtime: runtime),
-            root_dir: root)
+        return Manifest(package: package, root_dir: root)
     }
 
     // Load manifest from a specific directory (erased Result, as `load`).
@@ -180,25 +230,10 @@ extension Manifest {
             return ManifestError(msg: "Saw.toml not found in {dir.as_string()}")
         }
 
-        var file = try File.open(manifest_path)
+        let doc = try read_manifest(manifest_path)
+        let package = try read_package(&doc, manifest_path.as_string())
 
-        let data = try file.read()
-
-        let content = try data.to_string()
-
-        let doc = try legacy.TomlDoc.parse(content)
-
-        guard let pkg = doc.index_of("package") else {
-            return ManifestError(msg: "Missing [package] section in Saw.toml")
-        }
-
-        let name = doc.section_at(pkg).get("name") ?? "unknown"
-        let version = doc.section_at(pkg).get("version") ?? "0.0.0"
-        let runtime = (doc.section_at(pkg).get("runtime") ?? "false") == "true"
-
-        return Manifest(
-            package: Package(name: name, version: version, runtime: runtime),
-            root_dir: dir)
+        return Manifest(package: package, root_dir: dir)
     }
 
     // Read and validate the [dependencies] table from this package's manifest
@@ -209,46 +244,16 @@ extension Manifest {
     public func dependencies(&self) -> Result<DepList, Box<any Error>> {
         let manifest_path = self.root_dir.join("Saw.toml")
 
-        var file = try File.open(manifest_path)
-        let data = try file.read()
-        let content = try data.to_string()
-        let doc = try legacy.TomlDoc.parse(content)
+        let doc = try read_manifest(manifest_path)
 
-        var list = DepList()
-
-        guard let deps = doc.index_of("dependencies") else {
-            return move list
-        }
-
-        let names = doc.section_at(deps).names()
-        for name in names.iter() {
-            if doc.section_at(deps).is_table(name) {
-                // Empty-string sentinels: a present path/git is never empty, so
-                // `is_empty()` cleanly distinguishes present vs absent without the
-                // nested `if let ... { return }` shape that currently ICEs codegen.
-                let path_s = doc.section_at(deps).table_value(name, "path") ?? ""
-                let git_s = doc.section_at(deps).table_value(name, "git") ?? ""
-                let version = doc.section_at(deps).table_value(name, "version") ?? ""
-                let has_path = not path_s.is_empty()
-                let has_git = not git_s.is_empty()
-
-                if has_path && has_git {
-                    return ManifestError(msg: "dependency `{name}` has both path and git sources; pick one")
-                } else if has_path {
-                    list.add(name, "path", path_s, version)
-                } else if has_git {
-                    list.add(name, "git", git_s, version)
-                } else {
-                    return ManifestError(msg: "dependency `{name}` has no path or git source")
-                }
-            } else {
-                // Bare version string, e.g. `tiny = "0.3.1"`: no source, and there
-                // is no registry in v1.
-                return ManifestError(msg: "dependency `{name}`: no registry yet; specify path or git")
+        let named = manifest_path.as_string()
+        let has = try in_manifest(named, doc.root().expect("dependencies", TomlKind.Table))
+        if has {
+            if let deps = doc.root().table("dependencies") {
+                return read_dependencies(&deps, named)
             }
         }
-
-        move list
+        DepList()
     }
 
     // Get the package name

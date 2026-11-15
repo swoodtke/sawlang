@@ -6,7 +6,7 @@
 // detected as drift (build errors toward `blade update` rather than silently
 // re-resolving).
 //
-// Format (parseable by the existing toml module — one [section] per package):
+// Format (TOML, read as the tables `lock` and `pkg`, one `pkg` table per package):
 //   [lock]
 //   manifest_hash = "..."
 //
@@ -16,7 +16,7 @@
 //   loc     = "<dir or url>"
 //   rev     = "<sha or empty>"
 
-import toml.legacy
+import toml.{TomlDoc, TomlKind, TomlTable, key_literal, string_literal}
 import blade.manifest.*
 import blade.resolver.*
 import std.file.{File}
@@ -161,7 +161,8 @@ public func manifest_deps_hash(m: Manifest) -> String {
 // =============================================================================
 
 // The exact lock text for a resolution. Deterministic: packages sorted by name,
-// no timestamps.
+// no timestamps. Every name and value is written as TOML text, so what Blade
+// resolves is what `parse_lock` reads back, whatever characters it holds.
 public func serialize(res: &Resolution, manifest_hash: String) -> String {
     var names = Vector<String>()
     var i = 0
@@ -173,27 +174,27 @@ public func serialize(res: &Resolution, manifest_hash: String) -> String {
 
     var b = StringBuilder()
     try! b.append("[lock]\n")
-    try! b.append("manifest_hash = \"")
-    try! b.append(manifest_hash)
-    try! b.append("\"\n")
+    try! b.append("manifest_hash = ")
+    try! b.append(string_literal(manifest_hash))
+    try! b.append("\n")
 
     for n in names.iter() {
         let idx = res.index_of(n)
         try! b.append("\n[pkg.")
-        try! b.append(n)
+        try! b.append(key_literal(n))
         try! b.append("]\n")
-        try! b.append("version = \"")
-        try! b.append(res.version(idx))
-        try! b.append("\"\n")
-        try! b.append("source = \"")
-        try! b.append(res.kind(idx))
-        try! b.append("\"\n")
-        try! b.append("loc = \"")
-        try! b.append(res.declared(idx))  // portable declared source, not the abs dir
-        try! b.append("\"\n")
-        try! b.append("rev = \"")
-        try! b.append(res.rev(idx))
-        try! b.append("\"\n")
+        try! b.append("version = ")
+        try! b.append(string_literal(res.version(idx)))
+        try! b.append("\n")
+        try! b.append("source = ")
+        try! b.append(string_literal(res.kind(idx)))
+        try! b.append("\n")
+        try! b.append("loc = ")
+        try! b.append(string_literal(res.declared(idx)))  // portable declared source, not the abs dir
+        try! b.append("\n")
+        try! b.append("rev = ")
+        try! b.append(string_literal(res.rev(idx)))
+        try! b.append("\n")
     }
     b.build()
 }
@@ -223,34 +224,77 @@ public func write_lock(res: &Resolution, manifest_hash: String, path: Path) -> B
 // Parse
 // =============================================================================
 
+// The `[lock]` table's `manifest_hash`: `""` when the key is absent, `None`
+// when there is no `[lock]` table or the key is not a string.
+func lock_hash(doc: &TomlDoc) -> String? {
+    let stated = match doc.root().expect("lock", TomlKind.Table) {
+        case Ok(found) -> found,
+        case Err(_) -> { return None }
+    }
+    if stated {
+        if let lock = doc.root().table("lock") {
+            let hash = match lock.optional_string("manifest_hash") {
+                case Ok(text) -> text ?? "",
+                case Err(_) -> { return None }
+            }
+            return hash
+        }
+    }
+    return None
+}
+
+// One `[pkg.<name>]` table as an entry: a key that is absent reads as `""`,
+// and `None` answers a table with a key of another type or an entry that is
+// no table.
+func lock_entry(pkgs: &TomlTable, name: String) -> LockEntry? {
+    if let p = pkgs.table(name) {
+        let version = match p.optional_string("version") {
+            case Ok(text) -> text ?? "",
+            case Err(_) -> { return None }
+        }
+        let source = match p.optional_string("source") {
+            case Ok(text) -> text ?? "",
+            case Err(_) -> { return None }
+        }
+        let loc = match p.optional_string("loc") {
+            case Ok(text) -> text ?? "",
+            case Err(_) -> { return None }
+        }
+        let rev = match p.optional_string("rev") {
+            case Ok(text) -> text ?? "",
+            case Err(_) -> { return None }
+        }
+        return LockEntry(name: name, version: version, source: source, loc: loc, rev: rev)
+    }
+    return None
+}
+
 public func parse_lock(content: String) -> LockData? {
-    let doc = match legacy.TomlDoc.parse(content) {
+    let doc = match TomlDoc.parse(content) {
         case Ok(d) -> move d,
         case Err(_) -> { return None }
     }
 
     var data = LockData()
 
-    // A section is a PLACE in the document (it is NoCopy and stays there), so
-    // the index is what a caller holds across several reads.
-    guard let lock_sec = doc.index_of("lock") else {
+    guard let hash = lock_hash(&doc) else {
         return None
     }
-    data.manifest_hash = doc.section_at(lock_sec).get("manifest_hash") ?? ""
+    data.manifest_hash = hash
 
-    let secs = doc.section_names()
-    for name in secs.iter() {
-        if name.starts_with("pkg.") {
-            let pkg = name.substring(4, name.len())
-            guard let sec = doc.index_of(name) else {
-                continue
+    let has_pkg = match doc.root().expect("pkg", TomlKind.Table) {
+        case Ok(found) -> found,
+        case Err(_) -> { return None }
+    }
+    if has_pkg {
+        if let pkgs = doc.root().table("pkg") {
+            let names = try! pkgs.keys()
+            for name in names.iter() {
+                guard let entry = lock_entry(&pkgs, name) else {
+                    return None
+                }
+                data.add(entry)
             }
-            let version = doc.section_at(sec).get("version") ?? ""
-            let source = doc.section_at(sec).get("source") ?? ""
-            let loc = doc.section_at(sec).get("loc") ?? ""
-            let rev = doc.section_at(sec).get("rev") ?? ""
-            data.add(LockEntry(name: pkg, version: version, source: source,
-                               loc: loc, rev: rev))
         }
     }
 

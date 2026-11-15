@@ -75,7 +75,7 @@ func main() {
         case Ok(_) -> panic("priorities stated twice should be refused"),
         case Err(e) -> {
             let said = "{e}"
-            assert(said.contains("both inline and as a [sos.priorities] section"), "the refusal names both spellings")
+            assert(said.contains("[sos.priorities]") && said.contains("inline table"), "the refusal names the header and the inline table")
         }
     }
 

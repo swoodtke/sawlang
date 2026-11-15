@@ -1,0 +1,85 @@
+// A manifest is read as TOML with types: a value of the wrong type is refused
+// where it is read, naming the key and the table, rather than read as text.
+//
+// `runtime = "true"` and `low = "2"` were accepted when every value was text.
+// `device-window` is an integer or a string, and a duplicate key is a parse
+// error that names the file.
+
+import blade.manifest.*
+import blade.sosimg.{load_sos_config}
+import std.path.{Path}
+
+func main() {
+    // A string where a boolean is wanted.
+    match Manifest.load_from(Path(s: "tests/fixtures/typed_runtime_string")) {
+        case Ok(_) -> panic("runtime = \"true\" should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("`runtime`") && said.contains("is a string, not a boolean"),
+                   "the refusal names the key and both types: {said}")
+            assert(said.contains("tests/fixtures/typed_runtime_string/Saw.toml: line 4, column 11"),
+                   "the refusal names the file and the position: {said}")
+        }
+    }
+
+    // A string where an integer is wanted, in the inline priorities table.
+    match load_sos_config(Path(s: "tests/fixtures/typed_priority_string")) {
+        case Ok(_) -> panic("low = \"2\" should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("tests/fixtures/typed_priority_string/Saw.toml: line "),
+                   "the refusal names the file before the position: {said}")
+            assert(said.contains("`low` in the inline table `sos.priorities` is a string, not an integer"),
+                   "the refusal names the key, the table and both types: {said}")
+        }
+    }
+
+    // The window keys read as integers, hexadecimal with `_` included.
+    match load_sos_config(Path(s: "tests/fixtures/typed_window_integer")) {
+        case Ok(found) -> {
+            guard let cfg = found else {
+                panic("the [sos] section should be found")
+            }
+            assert(cfg.device_base == 268435456, "device-window = 0x1000_0000 reads as 268435456")
+            assert(cfg.device_len == 8192, "device-window-size = 0x2000 reads as 8192")
+        },
+        case Err(e) -> panic("integer window keys should load: {e}")
+    }
+
+    // A negative window is refused.
+    match load_sos_config(Path(s: "tests/fixtures/typed_window_negative")) {
+        case Ok(_) -> panic("device-window = -1 should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("tests/fixtures/typed_window_negative/Saw.toml: line "),
+                   "the refusal names the file before the position: {said}")
+            assert(said.contains("`device-window` in [sos] is -1, which is negative"),
+                   "the refusal names the key and the value: {said}")
+        }
+    }
+
+    // A window of neither kind is refused naming the kind it found.
+    match load_sos_config(Path(s: "tests/fixtures/typed_window_kind")) {
+        case Ok(_) -> panic("device-window = true should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("expected an integer or a string, found a boolean"),
+                   "the refusal names what it found: {said}")
+            assert(said.starts_with("tests/fixtures/typed_window_kind/Saw.toml: line 9, column 1: [sos] sos.device-window: "),
+                   "the refusal names the file and the position: {said}")
+        }
+    }
+
+    // A duplicate key is a parse error that names the file, the line and the
+    // column, and both places.
+    match Manifest.load_from(Path(s: "tests/fixtures/typed_duplicate_key")) {
+        case Ok(_) -> panic("a duplicate key should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("tests/fixtures/typed_duplicate_key/Saw.toml: line 4, column 1: duplicate key `name` in [package]; first defined at line 2, column 1"),
+                   "the refusal names the file and both places: {said}")
+        }
+    }
+
+    print("manifest_typed_values: ok")
+}

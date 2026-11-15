@@ -20,7 +20,8 @@
 // survives a rename upstream. (A `toml.` qualifier would work in every position
 // too, type annotations included, since design 150 — the DF-140c limit this
 // import used to work around is gone.)
-import toml.legacy.{TomlDoc, TomlSection}
+import toml.{TomlKind, TomlTable}
+import blade.manifest.{in_manifest, read_manifest}
 import imgformat.{
     SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
 }
@@ -243,59 +244,46 @@ public func toolchain_defaults(target: String) -> ToolchainDefaults {
                       native_features: "")
 }
 
-// Reading a band is *about* a section, so it reads as a method on one. The
-// extension is module-private (design 80/142), so nothing outside this file
-// sees a `band_level` on `TomlSection`.
-extension TomlSection {
-    /// The level for one spec §7 priority band, or `fallback` when
-    /// `[sos.priorities]` does not name it. A malformed or out-of-range level is
-    /// an ERROR, never a silent fallback: a typo'd level would otherwise ship an
-    /// image whose scheduling silently disagrees with its manifest. `dotted` says
-    /// the table is its own `[sos.priorities]` section, whose keys are `self`'s
-    /// own; otherwise it is the inline `priorities = { ... }` value of `[sos]`.
-    func band_level(&self, band: String, fallback: Int, dotted: Bool) -> Result<Int, SosError> {
-        let stated = if dotted { self.get(band) } else { self.table_value("priorities", band) }
-        guard let raw = stated else {
-            return fallback
-        }
-        guard let level = raw.to_int() else {
-            return SosError(msg: "[sos] priorities.{band}: `{raw}` is not an integer")
-        }
-        if level < 0 || level > PRIORITY_LEVEL_MAX {
-            return SosError(msg: "[sos] priorities.{band}: level {level} is outside 0..{PRIORITY_LEVEL_MAX}")
-        }
-        level
+/// The level for one spec §7 priority band, or `fallback` when `priorities`
+/// does not name it. A malformed or out-of-range level is an ERROR, never a
+/// silent fallback: a typo'd level would otherwise ship an image whose
+/// scheduling silently disagrees with its manifest. `p` is the `priorities`
+/// table, whether it is written inline in `[sos]` or as `[sos.priorities]`;
+/// `manifest` is the path of the manifest it is read from.
+func band_level(p: &TomlTable, manifest: String, band: String, fallback: Int) -> Result<Int, Box<any Error>> {
+    guard let level = try in_manifest(manifest, p.optional_integer(band)) else {
+        return fallback
     }
+    if level < 0 || level > (PRIORITY_LEVEL_MAX as Int64) {
+        return SosError(msg: "[sos] priorities.{band}: level {level} is outside 0..{PRIORITY_LEVEL_MAX}")
+    }
+    level as Int
 }
 
-// The `[sos]` priorities table, read through ONE place-window on `index`
-// rather than one per band (design 212 unit 2 — `load_sos_config` used to
-// spell `section_at` four times here, one per band). TOML gives the table two
-// spellings, an inline `priorities = { ... }` in `[sos]` and a `[sos.priorities]`
-// section, and they read the same; stating both is an error.
-func read_priorities(doc: &TomlDoc, index: Int) -> Result<UInt, SosError> {
-    guard let own = doc.index_of("sos.priorities") else {
-        return try priorities_from(&doc.section_at(index), false)
+// The `[sos]` priorities table. TOML gives it two spellings, an inline
+// `priorities = { ... }` in `[sos]` and a `[sos.priorities]` header, and they
+// read the same; the parser refuses a file that states both.
+func read_priorities(sos: &TomlTable, manifest: String) -> Result<UInt, Box<any Error>> {
+    let stated = try in_manifest(manifest, sos.expect("priorities", TomlKind.Table))
+    if stated {
+        if let p = sos.table("priorities") {
+            return priorities_from(&p, manifest)
+        }
     }
-    if doc.section_at(index).is_table("priorities") {
-        return SosError(msg: "[sos] priorities: stated both inline and as a [sos.priorities] section")
-    }
-    try priorities_from(&doc.section_at(own), true)
+    pack_priorities(DEFAULT_BACKGROUND, DEFAULT_LOW, DEFAULT_NORMAL, DEFAULT_HIGH)
 }
 
-func priorities_from(section: &TomlSection, dotted: Bool) -> Result<UInt, SosError> {
-    let background = try section.band_level("background", DEFAULT_BACKGROUND, dotted)
-    let low = try section.band_level("low", DEFAULT_LOW, dotted)
-    let normal = try section.band_level("normal", DEFAULT_NORMAL, dotted)
-    let high = try section.band_level("high", DEFAULT_HIGH, dotted)
+func priorities_from(p: &TomlTable, manifest: String) -> Result<UInt, Box<any Error>> {
+    let background = try band_level(&p, manifest, "background", DEFAULT_BACKGROUND)
+    let low = try band_level(&p, manifest, "low", DEFAULT_LOW)
+    let normal = try band_level(&p, manifest, "normal", DEFAULT_NORMAL)
+    let high = try band_level(&p, manifest, "high", DEFAULT_HIGH)
     pack_priorities(background, low, normal, high)
 }
 
 // The `[sos]` / `[sos.<triple>]` toolchain keys `load_sos_config` folds into
-// a `SosConfig`, read through ONE place-window on `index` rather than one per
-// field (design 212 unit 2 — five spellings of `section_at` before this).
-// Fields stay `None` when absent: this reader has no target triple to fall
-// back to, so the caller applies each field's own default
+// a `SosConfig`. Fields stay `None` when absent: this reader has no target
+// triple to fall back to, so the caller applies each field's own default
 // (`""` for `linker_script`/`native`, the triple's `ToolchainDefaults` for
 // the rest).
 struct ToolchainFields {
@@ -306,25 +294,82 @@ struct ToolchainFields {
     mcpu: String?
     target_features: String?
     native: String?
-    device_window: String?
-    device_window_size: String?
+    device_window: UInt?
+    device_window_size: UInt?
 }
 
-func read_toolchain_fields(doc: &TomlDoc, index: Int) -> ToolchainFields {
-    toolchain_fields_from(&doc.section_at(index))
-}
-
-func toolchain_fields_from(section: &TomlSection) -> ToolchainFields {
+// `label` names the table in a refusal, `sos` or `sos.<triple>`; `manifest` is
+// the path of the manifest it is read from.
+func toolchain_fields_from(t: &TomlTable, manifest: String, label: String) -> Result<ToolchainFields, Box<any Error>> {
+    let linker_script = try in_manifest(manifest, t.optional_string("linker-script"))
+    let march = try in_manifest(manifest, t.optional_string("march"))
+    let mabi = try in_manifest(manifest, t.optional_string("mabi"))
+    let mcpu = try in_manifest(manifest, t.optional_string("mcpu"))
+    let target_features = try in_manifest(manifest, t.optional_string("target-features"))
+    let native = try in_manifest(manifest, t.optional_string("native"))
+    let window = try manifest_word(&t, manifest, "device-window", "{label}.device-window")
+    // A size without a window asks for nothing, so it is not read.
+    var window_size: UInt? = None
+    if window != None {
+        window_size = try manifest_size(&t, manifest, "device-window-size", "{label}.device-window-size")
+    }
     ToolchainFields(
-        linker_script: section.get("linker-script"),
-        march: section.get("march"),
-        mabi: section.get("mabi"),
-        mcpu: section.get("mcpu"),
-        target_features: section.get("target-features"),
-        native: section.get("native"),
-        device_window: section.get("device-window"),
-        device_window_size: section.get("device-window-size"),
+        linker_script: linker_script,
+        march: march,
+        mabi: mabi,
+        mcpu: mcpu,
+        target_features: target_features,
+        native: native,
+        device_window: window,
+        device_window_size: window_size,
     )
+}
+
+/// Read an address or a size out of the manifest: an integer, or a string in
+/// `0x`-prefixed hexadecimal or plain decimal. `None` when `key` is absent.
+///
+/// A negative integer, a value `UInt` cannot hold and any other kind of value
+/// are ERRORS naming the key, never a zero. `manifest` is the manifest's path.
+func manifest_word(t: &TomlTable, manifest: String, key: String, label: String) -> Result<UInt?, Box<any Error>> {
+    guard let kind = t.kind(key) else {
+        let absent: UInt? = None
+        return absent
+    }
+    if kind == TomlKind.Integer {
+        guard let wide = try in_manifest(manifest, t.optional_unsigned(key)) else {
+            let absent: UInt? = None
+            return absent
+        }
+        guard let word = UInt.from(wide) else {
+            return SosError(msg: "[sos] {label}: `{wide}` does not fit in an unsigned word")
+        }
+        let found: UInt? = word
+        return found
+    }
+    if kind == TomlKind.Text {
+        let raw = try in_manifest(manifest, t.optional_string(key)) ?? ""
+        let parsed = try parse_manifest_word(raw, label)
+        let found: UInt? = parsed
+        return found
+    }
+    // Every other refusal here starts with the manifest's path and the position,
+    // so this one does too.
+    if let at = t.position(key) {
+        return SosError(msg: "{manifest}: {at}: [sos] {label}: expected an integer or a string, found {kind}")
+    }
+    return SosError(msg: "{manifest}: [sos] {label}: expected an integer or a string, found {kind}")
+}
+
+// A size is stated like an address, and an empty string states none.
+func manifest_size(t: &TomlTable, manifest: String, key: String, label: String) -> Result<UInt?, Box<any Error>> {
+    if t.kind(key) == TomlKind.Text {
+        let raw = try in_manifest(manifest, t.optional_string(key)) ?? ""
+        if raw.is_empty() {
+            let absent: UInt? = None
+            return absent
+        }
+    }
+    manifest_word(&t, manifest, key, label)
 }
 
 /// Read an address or a size out of the manifest: `0x`-prefixed hexadecimal, or
@@ -384,55 +429,54 @@ static HEX_PREFIX_LEN: Int = 2      // "0x"
 /// to the first section, which would be a wrong-machine image with a valid
 /// header.
 public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConfig?, Box<any Error>> {
-    let manifest_path = dir.join("Saw.toml")
-    // std.file surfaces its IoError on open and read alike (design 92); `try`
-    // re-boxes each into the erased Result, alongside the Utf8Error and the
-    // TomlError below.
-    var file = try File.open(manifest_path)
-    let data = try file.read()
-    let content = try data.to_string()
-    let doc = try TomlDoc.parse(content)
-
-    // A `TomlSection` is NoCopy and stays IN the document, so it is reached as a
-    // PLACE rather than held (design 146). The search runs once here and every
-    // read below opens its own window off the index — which is exactly the
-    // pairing `index_of` and `section_at` exist for when one section feeds a
-    // dozen reads. (`section(name)` is the one-read spelling.)
-    guard let sos = doc.index_of("sos") else {
+    // A `TomlTable` is NoCopy and stays IN the document, so `[sos]` is reached
+    // as a PLACE and handed to the helper by reference.
+    let manifest = dir.join("Saw.toml")
+    let doc = try read_manifest(manifest)
+    let named = manifest.as_string()
+    let stated = try in_manifest(named, doc.root().expect("sos", TomlKind.Table))
+    if not stated {
         // The absent case is spelled through a typed local: a bare
         // `return None` from a `Result<T?, E>` is an internal compiler error
         // (DF-140d).
         let absent: SosConfig? = None
         return absent
     }
+    if let sos = doc.root().table("sos") {
+        return sos_config_from(&sos, named, requested)
+    }
+    return SosError(msg: "internal: [sos] vanished")
+}
 
-    let emit = doc.section_at(sos).get("emit") ?? ""
+// `load_sos_config` from the `[sos]` table on; `manifest` is the manifest's path.
+func sos_config_from(sos: &TomlTable, manifest: String, requested: String) -> Result<SosConfig?, Box<any Error>> {
+    let emit = try in_manifest(manifest, sos.optional_string("emit")) ?? ""
     if not emit.equals("sosimg") {
         return SosError(msg: "[sos] emit: expected \"sosimg\", got `{emit}`")
     }
 
-    try check_sos_subtables(&doc)
+    try check_sos_subtables(&sos)
 
     // `priorities` describes the PROGRAM, so it is read from `[sos]` whichever
     // spelling the per-machine keys use.
-    let packed = try read_priorities(&doc, sos)
+    let packed = try read_priorities(&sos, manifest)
 
-    // Which section carries the per-machine keys, and which triple it is for.
-    let flat_target = doc.section_at(sos).get("target") ?? ""
-    let per_target = sos_target_sections(&doc)
+    // Which table carries the per-machine keys, and which triple it is for.
+    let flat_target = try in_manifest(manifest, sos.optional_string("target")) ?? ""
+    let per_target = sos_target_sections(&sos)
     var section_name = ""
     var target = ""
 
     if not requested.is_empty() {
         let named = "sos.{requested}"
-        if doc.has_section(named) {
+        if sos.kind(requested) == TomlKind.Table {
             section_name = named
             target = requested
         } else if flat_target.equals(requested) {
             section_name = "sos"
             target = requested
         } else {
-            return SosError(msg: "[sos]: no configuration for target `{requested}` ({sos_targets_summary(&doc, flat_target)})")
+            return SosError(msg: "[sos]: no configuration for target `{requested}` ({sos_targets_summary(&sos, flat_target)})")
         }
     } else if not flat_target.is_empty() {
         section_name = "sos"
@@ -443,14 +487,10 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     } else if per_target.len() == 0 {
         return SosError(msg: "[sos] target is required (the cross-compilation triple), or a [sos.<triple>] section per machine")
     } else {
-        return SosError(msg: "[sos]: this package builds for several machines — pass --target ({sos_targets_summary(&doc, flat_target)})")
+        return SosError(msg: "[sos]: this package builds for several machines — pass --target ({sos_targets_summary(&sos, flat_target)})")
     }
 
-    guard let chosen = doc.index_of(section_name) else {
-        return SosError(msg: "internal: [{section_name}] vanished")
-    }
-
-    let toolchain = read_toolchain_fields(&doc, chosen)
+    let toolchain = try chosen_toolchain(&sos, manifest, section_name.equals("sos"), target, section_name)
     // sawc takes the CPU from the triple and has no flag for it, so a stated
     // one could reach the C half alone and split the image's two halves.
     if toolchain.mcpu != None {
@@ -476,14 +516,8 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     var device_base: UInt = 0
     var device_len: UInt = 0
     if let window = toolchain.device_window {
-        device_base = try parse_manifest_word(window, "{section_name}.device-window")
-        let stated = toolchain.device_window_size ?? ""
-        if stated.is_empty() {
-            device_len = DEFAULT_DEVICE_WINDOW_BYTES
-        } else {
-            device_len = try parse_manifest_word(
-                stated, "{section_name}.device-window-size")
-        }
+        device_base = window
+        device_len = toolchain.device_window_size ?? DEFAULT_DEVICE_WINDOW_BYTES
     }
 
     // Typed local (DF-140d): returning the value directly would have to
@@ -512,33 +546,42 @@ func is_sos_own_table(name: String) -> Bool {
     name.equals("priorities")
 }
 
-/// Every triple this manifest has a `[sos.<triple>]` section for, in document
-/// order: the `[sos]` subtables that are not `[sos]`'s own keys.
-func sos_target_sections(doc: &TomlDoc) -> Vector<String> {
+/// Every triple this manifest has a `[sos.<triple>]` table for, in document
+/// order: the table-valued keys of `[sos]` that are not `[sos]`'s own.
+func sos_target_sections(sos: &TomlTable) -> Vector<String> {
     var out = Vector<String>()
-    let names = doc.section_names()
+    let names = try! sos.keys()
     var i = 0
     while i < names.len() {
         guard let name = names.get(i) else {
             i = i + 1
             continue
         }
-        if name.starts_with("sos.") {
-            let sub = name.substring(SOS_PREFIX_LEN, name.len())
-            if not is_sos_own_table(sub) {
-                try! out.push(sub)
-            }
+        if sos.kind(name) == TomlKind.Table && not is_sos_own_table(name) {
+            try! out.push(name)
         }
         i = i + 1
     }
     move out
 }
 
+// The table whose toolchain keys apply: `[sos]` itself when `flat`, else
+// `[sos.<target>]`. `label` names it in a refusal; `manifest` is the path.
+func chosen_toolchain(sos: &TomlTable, manifest: String, flat: Bool, target: String, label: String) -> Result<ToolchainFields, Box<any Error>> {
+    if flat {
+        return toolchain_fields_from(&sos, manifest, label)
+    }
+    if let machine = sos.table(target) {
+        return toolchain_fields_from(&machine, manifest, label)
+    }
+    return SosError(msg: "internal: [{label}] vanished")
+}
+
 /// Refuses a `[sos.<name>]` that is neither one of `[sos]`'s own tables nor a
 /// triple sosimg has an arch tag for, naming it: counting it as a machine would
 /// have it reported as one more machine to pass to `--target`.
-func check_sos_subtables(doc: &TomlDoc) -> Result<Void, SosError> {
-    let per_target = sos_target_sections(&doc)
+func check_sos_subtables(sos: &TomlTable) -> Result<Void, SosError> {
+    let per_target = sos_target_sections(&sos)
     var i = 0
     while i < per_target.len() {
         guard let name = per_target.get(i) else {
@@ -555,13 +598,11 @@ func check_sos_subtables(doc: &TomlDoc) -> Result<Void, SosError> {
     }
 }
 
-static SOS_PREFIX_LEN: Int = 4      // "sos."
-
 /// What a refusal tells the user they COULD have asked for. A list of names is
 /// the difference between an error you can act on and one you have to go read
 /// the manifest for.
-func sos_targets_summary(doc: &TomlDoc, flat_target: String) -> String {
-    let per_target = sos_target_sections(&doc)
+func sos_targets_summary(sos: &TomlTable, flat_target: String) -> String {
+    let per_target = sos_target_sections(&sos)
     if per_target.len() == 0 {
         if flat_target.is_empty() {
             return "this manifest declares no target"

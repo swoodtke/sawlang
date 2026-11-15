@@ -1009,37 +1009,34 @@ process. `blade test`:
    test failed (so CI fails the build).
 
 ```saw
-// libs/toml/tests/toml_parsing.saw (abridged)
+// libs/toml/tests/typed_reads.saw (abridged)
 import toml.*
 
 func main() {
     match TomlDoc.parse("[package]\nname = \"demo\"\n") {
         case Ok(doc) -> {
-            guard let pkg = doc.index_of("package") else {
-                panic("expected a [package] section")
-            }
-            assert((doc.section_at(pkg).get("name") ?? "").equals("demo"),
-                   "name should be demo")
+            let name = try! doc.root().table("package")!.string("name")
+            assert(name == "demo", "name should be demo")
 
-            // The named place reads the same section without the index.
-            assert((doc.section("package")!.get("name") ?? "").equals("demo"),
-                   "named place should read the same value")
-            print("toml_parsing: ok")
+            // A key that is absent answers None through the optional read.
+            let license = try! doc.root().table("package")!.optional_string("license")
+            assert(license == None, "license is absent")
+            print("typed_reads: ok")
         },
-        case Err(e) -> panic("parse failed: {e.message}")
+        case Err(e) -> panic("parse failed: {e}")
     }
 }
 ```
 
-`TomlSection` is `NoCopy`, so `section`/`section_at` are `borrows` accessors
-that lend the section where it sits rather than handing one back. An index plus
-`section_at` is what survives when several reads share one lookup, since a place
-window is a single expression.
+`TomlTable` is `NoCopy`, so `root` and `table` are `borrows` accessors that lend
+the table where it sits rather than handing one back. A caller that reads
+several values out of one table binds it once with `if let` and passes it to a
+helper by reference, since a lend lasts one expression.
 
 ```bash
 blade test
 #    Testing myproject v0.1.0
-# test toml_parsing ... ok
+# test typed_reads ... ok
 #
 # test result: ok. 1 passed; 0 failed (1 total)
 ```

@@ -438,7 +438,7 @@ func visit(
     // codegen; dogfood DF9).
     let m = match Manifest.load_from(dep_dir) {
         case Ok(x) -> x,
-        case Err(_) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}` at {dep_dir.as_string()}") }
+        case Err(e) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}`: {e}") }
     }
     if not is_git {
         resolved_version = m.version()
@@ -452,7 +452,7 @@ func visit(
     try! stack.push(dep_name)
     let sub = match m.dependencies() {
         case Ok(x) -> move x,
-        case Err(_) -> { return ResolveError(msg: "cannot read dependencies of `{dep_name}`") }
+        case Err(e) -> { return ResolveError(msg: "cannot read dependencies of `{dep_name}`: {e}") }
     }
     var children = Vector<WorkItem>()
     var j = 0
@@ -543,7 +543,7 @@ public func resolve(root: Manifest) -> Result<Resolution, ResolveError> {
 
     let deps = match root.dependencies() {
         case Ok(x) -> move x,
-        case Err(_) -> { return ResolveError(msg: "cannot read root dependencies") }
+        case Err(e) -> { return ResolveError(msg: "cannot read root dependencies: {e}") }
     }
     // The root's own edges seed the worklist. The root itself never joins the
     // ancestor stack (it never did) — a package depending on itself is the
