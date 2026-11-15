@@ -42,6 +42,12 @@
 // EXPECT-OUTPUT: hop peek 10
 // EXPECT-OUTPUT: drop token 13
 // EXPECT-OUTPUT: hop bump 11
+// EXPECT-OUTPUT: drop token 14
+// EXPECT-OUTPUT: hop finish 10
+// EXPECT-OUTPUT: drop token 15
+// EXPECT-OUTPUT: hop finish var 20
+// EXPECT-OUTPUT: drop token 16
+// EXPECT-OUTPUT: hop finish param 10
 // EXPECT-OUTPUT: end
 
 struct Token { id: Int }
@@ -146,6 +152,24 @@ func hop_bump() {
     print("hop bump {r ?? -1}")
 }
 
+func hop_finish() {
+    let x = mko(id: 14)
+    let r = (move x)?.finish()
+    print("hop finish {r ?? -1}")
+}
+
+func hop_finish_var() {
+    var x = mko(id: 15)
+    x?.n = 20
+    let r = (move x)?.finish()
+    print("hop finish var {r ?? -1}")
+}
+
+func hop_finish_param(x: Pl?) {
+    let r = (move x)?.finish()
+    print("hop finish param {r ?? -1}")
+}
+
 func main() {
     dot_read()
     string_field_read()
@@ -160,5 +184,8 @@ func main() {
     finish_call()
     hop_peek()
     hop_bump()
+    hop_finish()
+    hop_finish_var()
+    hop_finish_param(x: mko(id: 16))
     print("end")
 }

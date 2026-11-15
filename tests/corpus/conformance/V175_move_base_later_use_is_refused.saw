@@ -46,9 +46,20 @@ func receiver_then_use() {
     print("{r} {x.n}")
 }
 
+extension Pl {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func hop_finish_then_use() {
+    let x = mko()
+    let r = (move x)?.finish()
+    print("{r ?? -1} {x?.n ?? -1}")
+}
+
 func main() {
     field_then_use()
     force_then_use()
     chain_then_use()
     receiver_then_use()
+    hop_finish_then_use()
 }

@@ -1,7 +1,8 @@
-// Design 111: a final FIELD projection copies the value, so a move-only (NoCopy /
-// owns a resource) field cannot be the last segment of a chain.
+// Design 111: over a place head, a final FIELD projection copies the value, so a
+// move-only (NoCopy / owns a resource) field cannot be the last segment of a chain.
+// A temporary head moves the field out instead (conformance O06).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot project field `f` of type `F` through an optional chain
+// EXPECT-ERROR-CONTAINS: a `?.` chain's final field is copied out as the chain's value
 
 struct F { h: Int }
 extension F: NoCopy { func deinit(&var self) {} }
@@ -11,6 +12,7 @@ extension Wrap: NoCopy { func deinit(&var self) {} }
 func mk() -> Wrap? { return Wrap(f: F(h: 1), n: 2) }
 
 func main() {
-    let x = mk()?.f
+    let w = mk()
+    let x = w?.f
     print(x.h)
 }

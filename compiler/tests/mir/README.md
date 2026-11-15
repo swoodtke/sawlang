@@ -627,7 +627,7 @@ slice.not-yet at L:C`.
 | refused | fixture |
 |---|---|
 | a `for` over an iterator held in a place | iterator-place |
-| a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body: a pattern's, or a part read by value out of a temporary at any depth, through a statement-form `borrow` too | consuming-deinit, consuming-deinit-part-of-temporary, consuming-deinit-borrowed-part, consuming-deinit-forced-part |
+| a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body: a pattern's, or a part read by value out of a temporary at any depth, through a statement-form `borrow` or a `?.` chain's final field too | consuming-deinit, consuming-deinit-part-of-temporary, consuming-deinit-borrowed-part, consuming-deinit-forced-part, consuming-deinit-chain-field |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
 | a `lend` in the body of a `match`, `if let` or `while let` that holds leftovers: the scrutinee is partly moved out across the `lend`, and the accessor's state record cannot carry a partial value yet (`record_flag_slots` in `compiler/mir/src/split.saw`) | leftover-lend |

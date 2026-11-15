@@ -1,0 +1,221 @@
+// Conformance row O06 — a `?.` chain whose head is an owned temporary moves
+// its final field out
+//
+// THE GUARANTEE: where the chain's head is a temporary (a call's result, a
+// parenthesized call, a second hop's by-value result, a method's result in the
+// middle, a value `if`, a `try!`, a `??` result, a `move`d binding), the final
+// field is moved out of it, as `!.` and `.` already do, whatever the field's
+// type: a String, an ExplicitCopy `Label`, a NoCopy `Token`, a `Box<Token>`
+// and a nested Optional. The chain's value is the moved field, the rest of the
+// temporary is dropped at the end of the statement, and each `deinit` runs
+// once. An absent head makes nothing. A chain over a PLACE still copies its
+// final field and refuses a move-only one (`O19_chain_final_field_over_a_place_is_refused.saw`).
+//
+// THE ORACLE IS A PRINTING `deinit`: every case builds a `Token` in each
+// `H`. The rest of the temporary prints before the case's result line; the
+// moved field, when it is a `Token` or holds one, prints where the binding
+// holding it ends.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: drop token 12
+// EXPECT-OUTPUT: drop token 11
+// EXPECT-OUTPUT: call tk 10
+// EXPECT-OUTPUT: drop token 10
+// EXPECT-OUTPUT: drop token 21
+// EXPECT-OUTPUT: drop token 20
+// EXPECT-OUTPUT: call box
+// EXPECT-OUTPUT: drop token 22
+// EXPECT-OUTPUT: drop token 32
+// EXPECT-OUTPUT: drop token 31
+// EXPECT-OUTPUT: drop token 30
+// EXPECT-OUTPUT: call label lab
+// EXPECT-OUTPUT: drop token 42
+// EXPECT-OUTPUT: drop token 41
+// EXPECT-OUTPUT: drop token 40
+// EXPECT-OUTPUT: call string str
+// EXPECT-OUTPUT: drop token 52
+// EXPECT-OUTPUT: drop token 51
+// EXPECT-OUTPUT: drop token 50
+// EXPECT-OUTPUT: call nested 9
+// EXPECT-OUTPUT: drop token 62
+// EXPECT-OUTPUT: drop token 61
+// EXPECT-OUTPUT: paren tk 60
+// EXPECT-OUTPUT: drop token 60
+// EXPECT-OUTPUT: drop token 82
+// EXPECT-OUTPUT: drop token 81
+// EXPECT-OUTPUT: drop token 80
+// EXPECT-OUTPUT: drop token 72
+// EXPECT-OUTPUT: drop token 71
+// EXPECT-OUTPUT: hop tk 70
+// EXPECT-OUTPUT: drop token 70
+// EXPECT-OUTPUT: drop token 102
+// EXPECT-OUTPUT: drop token 101
+// EXPECT-OUTPUT: drop token 92
+// EXPECT-OUTPUT: drop token 91
+// EXPECT-OUTPUT: drop token 90
+// EXPECT-OUTPUT: plain hop tk 100
+// EXPECT-OUTPUT: drop token 100
+// EXPECT-OUTPUT: drop token 112
+// EXPECT-OUTPUT: drop token 111
+// EXPECT-OUTPUT: drop token 110
+// EXPECT-OUTPUT: drop token 122
+// EXPECT-OUTPUT: drop token 121
+// EXPECT-OUTPUT: middle method tk 120
+// EXPECT-OUTPUT: drop token 120
+// EXPECT-OUTPUT: drop token 142
+// EXPECT-OUTPUT: drop token 141
+// EXPECT-OUTPUT: if tk 140
+// EXPECT-OUTPUT: drop token 140
+// EXPECT-OUTPUT: drop token 152
+// EXPECT-OUTPUT: drop token 151
+// EXPECT-OUTPUT: try tk 150
+// EXPECT-OUTPUT: drop token 150
+// EXPECT-OUTPUT: drop token 162
+// EXPECT-OUTPUT: drop token 161
+// EXPECT-OUTPUT: coalesce tk 160
+// EXPECT-OUTPUT: drop token 160
+// EXPECT-OUTPUT: drop token 172
+// EXPECT-OUTPUT: drop token 171
+// EXPECT-OUTPUT: move tk 170
+// EXPECT-OUTPUT: drop token 170
+// EXPECT-OUTPUT: absent call none
+// EXPECT-OUTPUT: absent hop none
+// EXPECT-OUTPUT: absent move none
+// EXPECT-OUTPUT: absent if none
+// EXPECT-OUTPUT: end
+
+struct Token { id: Int }
+
+extension Token: NoCopy {
+    func deinit(&var self) { print("drop token {self.id}") }
+}
+
+struct Label { text: String }
+
+@synthesize
+extension Label: ExplicitCopy {}
+
+// `tk` is the field a case takes, `other` and the Box's token are the rest.
+struct H { tk: Token, other: Token, lb: Label, bx: Box<Token>, ni: Int?, s: String }
+
+extension H: NoCopy {}
+
+struct Outer { inner: H?, ih: H }
+
+extension Outer: NoCopy {}
+
+extension Outer {
+    func take_inner(&var self) consumes -> H { move self.ih }
+}
+
+func mkh(id: Int) -> H {
+    H(tk: Token(id: id), other: Token(id: id + 1), lb: Label(text: "lab"),
+      bx: try! Box<Token>.make(Token(id: id + 2)), ni: 9, s: "str")
+}
+
+func mkho(id: Int, present: Bool) -> H? {
+    if present { return mkh(id: id) }
+    return None
+}
+
+func mko(id: Int) -> Outer? {
+    Outer(inner: mkh(id: id), ih: mkh(id: id + 10))
+}
+
+func mkr(id: Int) -> Result<H?, Int> { Result<H?, Int>.Ok(value: mkho(id: id, present: true)) }
+
+func call_token() {
+    let r = mkho(id: 10, present: true)?.tk
+    if let q = move r { print("call tk {q.id}") }
+}
+
+func call_box() {
+    let r = mkho(id: 20, present: true)?.bx
+    if let _ = move r { print("call box") }
+}
+
+func call_label() {
+    let r = mkho(id: 30, present: true)?.lb
+    if let q = move r { print("call label {q.text}") }
+}
+
+func call_string() {
+    let r = mkho(id: 40, present: true)?.s
+    if let q = move r { print("call string {q}") }
+}
+
+func call_nested() {
+    let r = mkho(id: 50, present: true)?.ni
+    print("call nested {r ?? -1}")
+}
+
+func paren_call() {
+    let r = (mkho(id: 60, present: true))?.tk
+    if let q = move r { print("paren tk {q.id}") }
+}
+
+func hop_optional() {
+    let r = mko(id: 70)?.inner?.tk
+    if let q = move r { print("hop tk {q.id}") }
+}
+
+func hop_plain() {
+    let r = mko(id: 90)?.ih.tk
+    if let q = move r { print("plain hop tk {q.id}") }
+}
+
+func middle_method() {
+    let r = mko(id: 110)?.take_inner().tk
+    if let q = move r { print("middle method tk {q.id}") }
+}
+
+func value_if() {
+    let r = (if true { mkho(id: 140, present: true) } else { None })?.tk
+    if let q = move r { print("if tk {q.id}") }
+}
+
+func try_bang() {
+    let r = (try! mkr(id: 150))?.tk
+    if let q = move r { print("try tk {q.id}") }
+}
+
+func coalesce() {
+    let r = (mkho(id: 160, present: true) ?? mkho(id: 0, present: false))?.tk
+    if let q = move r { print("coalesce tk {q.id}") }
+}
+
+func moved_local() {
+    let h = mkho(id: 170, present: true)
+    let r = (move h)?.tk
+    if let q = move r { print("move tk {q.id}") }
+}
+
+func absent() {
+    let a = mkho(id: 180, present: false)?.tk
+    if let q = move a { print("absent call {q.id}") } else { print("absent call none") }
+    let c =(mkho(id: 190, present: false) ?? mkho(id: 0, present: false))?.tk
+    if let q = move c { print("absent hop {q.id}") } else { print("absent hop none") }
+    let h = mkho(id: 200, present: false)
+    let d = (move h)?.tk
+    if let q = move d { print("absent move {q.id}") } else { print("absent move none") }
+    let e = (if false { mkho(id: 210, present: true) } else { None })?.tk
+    if let q = move e { print("absent if {q.id}") } else { print("absent if none") }
+}
+
+func main() {
+    call_token()
+    call_box()
+    call_label()
+    call_string()
+    call_nested()
+    paren_call()
+    hop_optional()
+    hop_plain()
+    middle_method()
+    value_if()
+    try_bang()
+    coalesce()
+    moved_local()
+    absent()
+    print("end")
+}

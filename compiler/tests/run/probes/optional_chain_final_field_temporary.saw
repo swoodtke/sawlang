@@ -1,0 +1,73 @@
+// probe: stated
+// about: a chain over an owned temporary moves its final field out: a move-only field, a Box, an ExplicitCopy field, a field of a moved binding, and an absent head that makes nothing (SL-1126)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-1126)
+// speeds: -O0 -O2
+// leaks: none
+// prints: deinit 12
+// prints: deinit 11
+// prints: a 10
+// prints: deinit 10
+// prints: deinit 21
+// prints: deinit 20
+// prints: b
+// prints: deinit 22
+// prints: deinit 32
+// prints: deinit 31
+// prints: deinit 30
+// prints: c t30
+// prints: deinit 42
+// prints: deinit 41
+// prints: d 40
+// prints: deinit 40
+// prints: e absent
+// prints: end
+// The rest of the temporary drops at the end of the statement, the moved
+// field where its binding ends (conformance O06).
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+struct Tag {
+    text: String
+}
+
+@synthesize
+extension Tag: ExplicitCopy {}
+
+struct Holder {
+    first: Res
+    rest: Res
+    tag: Tag
+    boxed: Box<Res>
+}
+
+extension Holder: NoCopy {}
+
+func make(id: Int, present: Bool) -> Holder? {
+    if present {
+        return Holder(first: Res(id: id), rest: Res(id: id + 1), tag: Tag(text: "t{id}"), boxed: try! Box<Res>.make(Res(id: id + 2)))
+    }
+    return None
+}
+
+func main() {
+    let a = make(id: 10, present: true)?.first
+    if let r = move a { print("a {}", r.id) }
+    let b = make(id: 20, present: true)?.boxed
+    if let _ = move b { print("b") }
+    let c = make(id: 30, present: true)?.tag
+    if let t = move c { print("c {}", t.text) }
+    let h = make(id: 40, present: true)
+    let d = (move h)?.first
+    if let r = move d { print("d {}", r.id) }
+    let e = make(id: 50, present: false)?.first
+    if let r = move e { print("e {}", r.id) } else { print("e absent") }
+    print("end")
+}

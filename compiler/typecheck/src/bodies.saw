@@ -4409,10 +4409,12 @@ extension TcProgram {
     // last hop before the run closes. Its value is the top's, read by value
     // on the path where every hop is present, and `None` where one is absent:
     // `U?`, or the top's own type when that is already an Optional, never
-    // `U??`. A final field is copied out, so it must copy silently whatever
-    // the base (spec, Optionals, "a final FIELD projection copies its value"),
-    // unless the chain is a `None` comparison's tested operand, which reads
-    // the top's tag in place (`presence_chain`).
+    // `U??`. A final field of a chain over a place is copied out, so it must
+    // copy silently (spec, Optionals, "a final FIELD projection copies its
+    // value"); over an owned temporary it is moved out of it, for every type,
+    // as `!.` and `.` move it. A chain is over a place exactly when its top
+    // is one. A `None` comparison's tested operand reads the top's tag in
+    // place instead (`presence_chain`).
     //
     // ENTRY POINTS (optional_chain):
     //     expr
@@ -4435,7 +4437,7 @@ extension TcProgram {
         let field = self.has_alt(top, Alt.Expr_Member) || self.has_alt(top, Alt.Expr_OptionalMember)
         if e == self.presence_chain {
             self.set_use(top, TcUse.Borrow)
-        } else if field && not self.copies_silently(ft) {
+        } else if field && self.expr_place[top] && not self.copies_silently(ft) {
             let u = self.by_value_use(top)
             self.set_use(top, u)
             self.refuse_chain_field(top, ft)

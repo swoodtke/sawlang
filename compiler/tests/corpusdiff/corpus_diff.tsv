@@ -443,9 +443,11 @@ conformance/N08_align_local_is_honored.saw	pass	-	-
 conformance/N09_align_static_is_honored.saw	pass	-	-
 conformance/N10_align_rejects_non_power_of_two.saw	pass	-	constant.align: `@align` on the local `body` must be a power of two, but is `24`: an address is aligned to a power of two, and the nearest are `16` and `32`
 conformance/N11_align_refuses_frame_resident_local.saw	pass	-	coro.align-frame-resident: `@align` is not supported on `scratch`: it lives in this function's coroutine frame, not on the stack, and a frame field cannot carry an alignment yet — move the aligned buf
+conformance/O06_chain_final_field_over_a_temporary_moves_out.saw	pass	judged by its own directives (no oracle)	-
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	pass	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	pass	-	-
 conformance/O14_presence_test_is_tier_independent.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
+conformance/O19_chain_final_field_over_a_place_is_refused.saw	pass	judged by its own directives (no oracle)	transfer.implicit-copy: this reads a place of type `O19_chain_final_field_over_a_place_is_refused.Token`, which is NoCopy, by value: a `?.` chain's final field is copied out as the chain's value, and
 conformance/P08_borrows_body_suspends.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 conformance/P25_unnamed_lend_statement_window.saw	pass	judged by its own directives (no oracle)	-
 conformance/P26_unnamed_lend_head_closes_before_body.saw	pass	judged by its own directives (no oracle)	-
@@ -1237,7 +1239,7 @@ errors/optional_chain_assign_explicit_copy.saw	pass	-	transfer.implicit-copy: th
 errors/optional_chain_assign_immutable_head.saw	pass	-	mutability.immutable: this assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/optional_chain_assign_method_target.saw	pass	-	type.not-a-place: this is a value, not a place: it cannot be assigned, moved from or borrowed exclusively
 errors/optional_chain_compound_assign_immutable_head.saw	pass	-	mutability.immutable: this compound assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
-errors/optional_chain_nocopy_field.saw	pass	-	transfer.implicit-copy: this reads a place of type `optional_chain_nocopy_field.F`, which is NoCopy, by value: a `?.` chain's final field is copied out as the chain's value, and only a Copy type copie
+errors/optional_chain_nocopy_field.saw	pass	judged by its own directives (edited since its oracle)	transfer.implicit-copy: this reads a place of type `optional_chain_nocopy_field.F`, which is NoCopy, by value: a `?.` chain's final field is copied out as the chain's value, and only a Copy type copie
 errors/optional_chain_non_optional.saw	pass	-	operator.undefined: `?.` reads through an Optional, and this is `optional_chain_non_optional.P`
 errors/optional_coalesce_default_too_deep.saw	pass	-	format.argument: `Int?` is formatted here, and it is neither `Printable` nor a primitive
 errors/optional_move_unwrap_field.saw	pass	-	transfer.partial-move: cannot move out of field `r` of `h`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; `take()` moves an optional part's payload out and leaves

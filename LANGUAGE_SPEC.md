@@ -2600,9 +2600,13 @@ expression including a **call result** (`x.a()?.b?.c()`). The chain's type is
 `U?` where `U` is the final segment's non-optional type; an already-optional final
 segment stays `U?` (**never `U??`** — flattening). Intermediate payloads are
 borrowed IN PLACE (no copy, no consume — chaining an owned Optional does not
-consume it); a final FIELD projection copies its value (so the field must be
-copyable — a move-only NoCopy/ExplicitCopy field is rejected; end the chain in a
-method instead), while a final METHOD result is a fresh value, unrestricted. The
+consume it). A final FIELD projection of a chain over a place (a local, a
+parameter, a field, an element) copies its value, so the field must be copyable:
+a move-only NoCopy/ExplicitCopy field is rejected, and you end the chain in a
+method instead. Over an owned temporary (a call's result, a `move`d binding)
+the final field is moved out of it, whatever its type, and the rest of the
+temporary is dropped at the end of the statement, as `!.` and `.` do. A final
+METHOD result is a fresh value, unrestricted. The
 result composes as an ordinary Optional (`??`, `if let`, `guard let`, `!`, match
 all apply). `?.` on a non-Optional expression is a clean error.
 

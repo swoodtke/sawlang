@@ -2558,7 +2558,8 @@ extension MirProgram {
         let p = self.realize_all(&steps)
         if last < 0 || not self.tc.text(m, last).equals("!") {
             let u = self.tc.expr_use[e]
-            if u == TcUse.Borrow || u == TcUse.Project || u == TcUse.BorrowVar {
+            let hop = u == TcUse.Move && self.tc.reads_payload(e)
+            if u == TcUse.Borrow || u == TcUse.Project || u == TcUse.BorrowVar || hop {
                 return self.moved_to_temporary(p)
             }
             return MirVal(place: p, fresh: false)
@@ -2579,8 +2580,9 @@ extension MirProgram {
 
     // A spelled `move` where its position does not take the value itself: a
     // format argument, a comparison operand, a receiver, or the base of a
-    // field read, a force, a `?.` hop, a tuple index or a subscript. The
-    // place still moves, into a temporary its statement owns (spec,
+    // field read, a force, a `?.` hop, a tuple index or a subscript, or the
+    // base of a `?.` hop a `consumes` method takes whole. The place still
+    // moves, into a temporary its statement owns (spec,
     // Temporaries): the position borrows it or reads a part out of it, and
     // the statement drops the rest, so the binding ends there as the reader
     // wrote.

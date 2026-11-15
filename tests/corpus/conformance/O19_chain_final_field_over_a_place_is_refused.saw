@@ -1,0 +1,60 @@
+// Conformance row O19 — a `?.` chain over a PLACE copies its final field, so
+// a move-only one is refused
+//
+// THE GUARANTEE: where the chain's head is a place (a local, a parameter,
+// a field, an element), the payload stays where it is, and the chain's value
+// is a copy of its final field. Only a Copy type copies silently, so a NoCopy
+// or ExplicitCopy final field is refused, whatever the head's spelling; the
+// chain over a temporary moves it out instead
+// (`O06_chain_final_field_over_a_temporary_moves_out.saw`). The compiler
+// reports every function below; the directive names the rule.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `?.` chain's final field is copied out as the chain's value
+
+struct Token { id: Int }
+
+extension Token: NoCopy {}
+
+struct Label { text: String }
+
+@synthesize
+extension Label: ExplicitCopy {}
+
+struct H { tk: Token, lb: Label, n: Int }
+
+extension H: NoCopy {}
+
+struct W { inner: H?, ih: H }
+
+extension W: NoCopy {}
+
+func mkh() -> H? { H(tk: Token(id: 1), lb: Label(text: "l"), n: 3) }
+
+func local_head() {
+    let h = mkh()
+    let r = h?.tk
+}
+
+func var_head() {
+    var h = mkh()
+    let r = h?.lb
+}
+
+func param_head(h: H?) {
+    let r = h?.tk
+}
+
+func borrowed_head(h: &H?) {
+    let r = h?.tk
+}
+
+func field_head() {
+    let w = W(inner: mkh(), ih: H(tk: Token(id: 2), lb: Label(text: "l"), n: 4))
+    let r = w.inner?.tk
+}
+
+func element_head() {
+    let v = [mkh()]
+    let r = v[0]?.tk
+}

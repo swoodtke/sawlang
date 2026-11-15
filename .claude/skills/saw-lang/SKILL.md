@@ -1751,8 +1751,10 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   (`x.a()?.b`); each optional hop needs its own `?`, a plain intermediate uses
   `.`; the first None short-circuits the WHOLE tail INCLUDING skipped-call args
   (side effects don't run); result is `U?`, flattened (never `U??`). A final FIELD
-  projection copies → must be copyable (move-only field rejected — end in a method
-  instead); a final method result is unrestricted. Composes with `??`/`if let`/
+  projection over a PLACE head copies → must be copyable (move-only field rejected —
+  end in a method instead); over an owned TEMPORARY head (`make()?.f`, `(move x)?.f`)
+  it is moved out, any type, and the rest drops at the statement's end; a final
+  method result is unrestricted. Composes with `??`/`if let`/
   `guard let`/`!`. Chained ASSIGNMENT `x?.y = v` writes the payload field in place
   iff every hop is non-None (RULED, SL:open-questions W3: the RHS is evaluated
   FIRST, on both paths, and a short-circuit skips only the write; a place head
