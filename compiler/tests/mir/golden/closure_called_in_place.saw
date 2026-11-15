@@ -1,0 +1,67 @@
+// A capturing closure called where it is written is a temporary the call
+// borrows: the call reads it in place and its statement drops it. The
+// controls are the same closure bound first and a closure a call returns.
+
+func make() -> String { "abc" }
+
+func opt(n: Int) -> Int? { n }
+
+func maker() -> () -> Int {
+    let w = make()
+    return { [w] in w.len() }
+}
+
+func in_place() -> Int {
+    let w = make()
+    let r = { [w] in w.len() }()
+    return r
+}
+
+func in_place_with_argument() -> Int {
+    let w = make()
+    return { [w] x: Int in x + w.len() }(4)
+}
+
+func in_place_operand() -> Int {
+    let w = make()
+    return 1 + { [w] in w.len() }()
+}
+
+func in_place_scrutinee() -> Int {
+    let w = make()
+    if let x = { [w] in opt(w.len()) }() {
+        return x
+    }
+    return 0
+}
+
+func in_place_void() {
+    let w = make()
+    { [w] in print(w) }()
+}
+
+func bound_first() -> Int {
+    let w = make()
+    let f = { [w] in w.len() }
+    return f()
+}
+
+func result_called() -> Int {
+    return maker()()
+}
+
+func non_capturing() -> Int {
+    return { 5 }()
+}
+
+func parameter_plain(x: Int) -> Int {
+    let w = make()
+    let r = { [w] y: Int in w.len() }(x)
+    return r
+}
+
+func parameter_generic<T>(x: T) -> Int {
+    let w = make()
+    let r = { [w] y: T in w.len() }(move x)
+    return r
+}

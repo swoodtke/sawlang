@@ -407,6 +407,7 @@ through a reference to stay a reported move.
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
 | a closure | an aggregate of its captures, its body a function of its own; a non-escaping one that captures, its captures built into an environment local and the closure a `ref` of it | closures, takes |
+| a closure literal called where it is written, as a callee, an operand or a scrutinee | the closure into a temporary, `call value copy` of it, and the temporary's `drop` at its statement's end on every path out (SL-1134) | closure_called_in_place |
 | any capture of a reference parameter or a slice, `[&r]`, `[&var r]`, `[r]`, `[copy r]` or implicit; a slice's `&s` | a reborrow of the referent, `ref(MODE, (*_1))`, typed as the reference in that mode: the word's, or for a copy the reference's own | reborrow_captures |
 | a non-escaping `[move v]` of a value that owns something | `take(_L, _F)` in the environment; in the body, the flag's test, the take and the flag's clear | takes |
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |

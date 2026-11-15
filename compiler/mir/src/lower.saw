@@ -1921,10 +1921,14 @@ extension MirProgram {
         }
     }
 
-    // Whether operand `o` moves a temporary that `borrowed_value` passes by
-    // shared reference: an owning value no reference or function value is.
-    // A type naming a type parameter owns something only per instantiation,
-    // and a builtin operator over one reads its value, so it stays a move.
+    // Whether operand `o` moves a temporary that a position borrowing it
+    // reads in place: an owning value no reference is, a function value
+    // whose environment it owns among them (a call's callee is such a
+    // position). Any other type naming a type parameter owns something only
+    // per instantiation, and a builtin operator over one reads its value, so
+    // it stays a move. A function value is read by `copy` at every
+    // instantiation and owns its environment whatever its signature names,
+    // so a type parameter in its signature changes nothing.
     func borrows_owned_temporary(&var self, o: Int) -> Bool {
         let info = self.operands[o]
         if info.kind != MirOperandKind.Move {
@@ -1934,8 +1938,10 @@ extension MirProgram {
         if l < 0 || self.local(l).kind != MirLocalKind.Temp {
             return false
         }
-        let kind = self.tc.kind_of(info.ty)
-        kind != TcKind.Func && not self.tc.mentions_param(info.ty) && self.owns(info.ty)
+        if self.tc.kind_of(info.ty) == TcKind.Func {
+            return self.owns(info.ty)
+        }
+        not self.tc.mentions_param(info.ty) && self.owns(info.ty)
     }
 
     // A value a builtin operator, a format argument or an interpolated

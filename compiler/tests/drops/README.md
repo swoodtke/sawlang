@@ -296,6 +296,7 @@ there, counted over the program's own module. It counts the drop flags over the 
 | what a `match`, `if let` or `while let` leaves over, static, on each exit of its body: the arm's end, a `return`, across a suspension, per iteration and on `break` | leftovers |
 | a `consumes` body: field release, a field moved out and assigned again released with it, no flag | consumes |
 | a same-scope redefinition: the binding it replaces released there, static, elided or flagged, before the statement's temporaries; by `let`, a destructuring `let` and `guard let`; per iteration in a loop; a closure's own bindings redefined and its parameter shadowed | redefinitions |
+| a closure called where it is written: its temporary dropped at the statement's end, on each path of a scrutinee, with the closure environment's glue | closure_called_in_place |
 | statement temporaries in reverse creation order; one on a short circuit's right side, or `??`'s, dropped on that side before the sides join, unflagged, in a loop too | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |
 | a borrowing struct that owns something, built with `lends self`, destroyed before its window closes | borrowing_struct |

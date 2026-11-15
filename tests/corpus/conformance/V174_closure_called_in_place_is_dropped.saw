@@ -1,0 +1,171 @@
+// Conformance row V174 — a capturing closure called where it is written
+// releases its environment and destroys its captures exactly once, at the end
+// of the statement that calls it
+//
+// THE GUARANTEE: a closure literal that captures owns a heap environment
+// holding its captures. Used as the callee of a call and bound to nothing, it
+// is a temporary like any other: a call borrows its callee, so the statement
+// that holds the literal drops it, and the environment is freed and each
+// capture destroyed once, before the next statement runs.
+//
+// THE ORACLE IS THE NoCopy `Res` PRINTING ITS DESTRUCTION. A leaked
+// environment never runs a capture's `deinit`, so a missing `deinit N` line is
+// the defect; a doubled line would be a double drop. Each `deinit` line comes
+// after its statement's own output and before the next statement's, because
+// the temporary dies with the statement, not with the function. The cells are the literal as a
+// callee with a result, with arguments, in parentheses, as an operand, as an
+// argument, nested in another in-place call, with a void body, and repeated in
+// a loop. A generic body is a position too, and whatever the literal's own
+// type names, a type parameter included: a parameter `T`, `&T`, `&Holder<T>`,
+// two parameters of which one is `T`, in an `if` condition, in a method of an
+// extension of `Holder<T>`, and in a task body.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1
+// result 1
+// deinit 2
+// args 6
+// deinit 3
+// parenthesized 3
+// deinit 4
+// operand 14
+// 5
+// deinit 5
+// deinit 6
+// deinit 7
+// nested 13
+// void 8
+// deinit 8
+// deinit 100
+// deinit 101
+// deinit 102
+// loop 303
+// deinit 20
+// parameter 20
+// deinit 31
+// deinit 21
+// parameter 21
+// deinit 22
+// reference 22
+// deinit 23
+// holder 23
+// deinit 24
+// two 26
+// deinit 25
+// condition taken
+// deinit 26
+// method 26
+// deinit 27
+// task 27
+// joined 27
+// sum 139
+// end
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+struct Holder<T> { item: T }
+
+extension Holder<T> {
+    func in_method(&self, a: Res) -> Int {
+        let r = { [move a] y: &T in a.v }(&self.item)
+        print("method {r}")
+        return r
+    }
+}
+
+func generic_parameter<T>(x: T, a: Res) -> Int {
+    let r = { [move a] y: T in a.v }(move x)
+    print("parameter {r}")
+    return r
+}
+
+func generic_reference<T>(x: &T, a: Res) -> Int {
+    let r = { [move a] y: &T in a.v }(&x)
+    print("reference {r}")
+    return r
+}
+
+func generic_holder<T>(x: &Holder<T>, a: Res) -> Int {
+    let r = { [move a] y: &Holder<T> in a.v }(&x)
+    print("holder {r}")
+    return r
+}
+
+func generic_two<T>(x: T, a: Res) -> Int {
+    let r = { [move a] n: Int, y: T in a.v + n }(2, move x)
+    print("two {r}")
+    return r
+}
+
+func generic_condition<T>(x: T, a: Res) -> Int {
+    if { [move a] y: T in a.v > 0 }(move x) {
+        print("condition taken")
+        return 1
+    }
+    return 0
+}
+
+func generic_task<T>(x: T, a: Res) -> Int {
+    let r = { [move a] y: T in a.v }(move x)
+    print("task {r}")
+    return r
+}
+
+func main() {
+    let a = Res(v: 1)
+    let r1 = { [move a] in a.v }()
+    print("result {r1}")
+
+    let b = Res(v: 2)
+    let r2 = { [move b] x: Int in x + b.v }(4)
+    print("args {r2}")
+
+    let c = Res(v: 3)
+    let r3 = ({ [move c] in c.v })()
+    print("parenthesized {r3}")
+
+    let d = Res(v: 4)
+    let r4 = 10 + { [move d] in d.v }()
+    print("operand {r4}")
+
+    let e = Res(v: 5)
+    print({ [move e] in e.v }())
+
+    let f = Res(v: 7)
+    let r5 = { [move f] in
+        let g = Res(v: 6)
+        let fv = f.v
+        let t = { [move g] in fv + g.v }()
+        t
+    }()
+    print("nested {r5}")
+
+    let h = Res(v: 8)
+    { [move h] in print("void {h.v}") }()
+    var total = 0
+    var i = 0
+    while i < 3 {
+        let k = Res(v: 100 + i)
+        total = total + { [move k] in k.v }()
+        i = i + 1
+    }
+    print("loop {total}")
+    let n = 5
+    let holder = Holder(item: n)
+    let p1 = generic_parameter(5, Res(v: 20))
+    let p2 = generic_parameter(Res(v: 31), Res(v: 21))
+    let p3 = generic_reference(&n, Res(v: 22))
+    let p4 = generic_holder(&holder, Res(v: 23))
+    let p5 = generic_two(5, Res(v: 24))
+    let p6 = generic_condition(5, Res(v: 25))
+    let p7 = holder.in_method(Res(v: 26))
+    var group = TaskGroup()
+    let task = group.spawn(generic_task(5, Res(v: 27)))
+    print("joined {task.join()}")
+    print("sum {p1 + p2 + p3 + p4 + p5 + p6 + p7}")
+    print("end")
+}

@@ -1,0 +1,147 @@
+// probe: stated
+// about: a capturing closure called where it is written releases its environment at the end of its statement, at every position that calls it (SL-1134)
+// stage 0: not a comparison of two compilers: the environment leaks in sawc's own lowering
+// speeds: -O0 -O2
+// leaks: none
+// prints: callee 52000
+// prints: args 56000
+// prints: parenthesized 52000
+// prints: operand 53000
+// prints: nested 52000
+// prints: void 1000
+// prints: argument 52000
+// prints: if let 52000
+// prints: match 52000
+// prints: generic 1000
+// prints: generic parameter 52000
+// prints: task 52000
+// Each form runs a thousand times: a one-shot program leaks nothing the
+// check at -O0 can see, because something still reaches the block at exit.
+
+import std.task.*
+
+func make() -> String {
+    var b = StringBuilder()
+    try! b.append("a string long enough to live on the heap, not inline")
+    b.build()
+}
+
+func sink(n: Int) {}
+func opt(n: Int) -> Int? { n }
+func take(f: &() sendable -> Int) -> Int { f() }
+
+func generic<T>(x: T) -> Int {
+    let r = { [move x] in 1 }()
+    return r
+}
+
+func generic_taking<T>(x: T, w: String) -> Int {
+    let r = { [w] y: T in w.len() }(move x)
+    return r
+}
+
+func in_task() -> Int {
+    let w = make()
+    let r = { [w] in w.len() }() + slow()
+    return r - 1
+}
+
+func slow() -> Int {
+    yield_now()
+    return 1
+}
+
+func callee() -> Int {
+    let w = make()
+    return { [w] in w.len() }()
+}
+
+func args() -> Int {
+    let w = make()
+    return { [w] x: Int in x + w.len() }(4)
+}
+
+func parenthesized() -> Int {
+    let w = make()
+    return ({ [w] in w.len() })()
+}
+
+func operand() -> Int {
+    let w = make()
+    return 1 + { [w] in w.len() }()
+}
+
+func nested() -> Int {
+    let w = make()
+    return { [w] in
+        let n = w.len()
+        let v = make()
+        return { [move v] in n + 0 * v.len() }()
+    }()
+}
+
+func void_body() -> Int {
+    let w = make()
+    { [w] in sink(w.len()) }()
+    return 1
+}
+
+func argument() -> Int {
+    let w = make()
+    return take(&{ [w] in w.len() })
+}
+
+func if_let() -> Int {
+    let w = make()
+    if let x = { [w] in opt(w.len()) }() {
+        return x
+    }
+    return 0
+}
+
+func matched() -> Int {
+    let w = make()
+    return match { [w] in opt(w.len()) }() {
+        case Some(x) -> x,
+        case None -> 0
+    }
+}
+
+func generic_body() -> Int {
+    let w = make()
+    return generic(move w)
+}
+
+func generic_parameter() -> Int {
+    return generic_taking(1, make())
+}
+
+func task() -> Int {
+    let t = Task.spawn(in_task())
+    return t.join()
+}
+
+func run_times(name: String, f: () -> Int) {
+    var total = 0
+    var i = 0
+    while i < 1000 {
+        total = total + f()
+        i = i + 1
+    }
+    print("{name} {total}")
+}
+
+func main() {
+    run_times("callee", callee)
+    run_times("args", args)
+    run_times("parenthesized", parenthesized)
+    run_times("operand", operand)
+    run_times("nested", nested)
+    run_times("void", void_body)
+    run_times("argument", argument)
+    run_times("if let", if_let)
+    run_times("match", matched)
+    run_times("generic", generic_body)
+    run_times("generic parameter", generic_parameter)
+    run_times("task", task)
+}

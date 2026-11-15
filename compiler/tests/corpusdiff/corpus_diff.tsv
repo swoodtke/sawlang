@@ -513,6 +513,8 @@ conformance/V169_data_window_keeps_block.saw	pass	judged by its own directives (
 conformance/V172_error_enum_case_in_result_is_err.saw	pass	judged by its own directives (no oracle)	-
 conformance/V173_lone_case_refused_in_optional_slot.saw	pass	judged by its own directives (no oracle)	type.mismatch: expected `UInt?`, the type of the annotated binding, and found `V173_lone_case_refused_in_optional_slot.Why`; a raw-backed case is an integer only where the slot's own type is one: writ
 conformance/V173_lone_case_refused_in_result_slot.saw	pass	judged by its own directives (no oracle)	type.mismatch: expected `Result<UInt, V173_lone_case_refused_in_result_slot.Other>`, the type of the function's result, and found `V173_lone_case_refused_in_result_slot.Why`; a raw-backed case is an i
+conformance/V174_closure_called_in_place_is_dropped.saw	pass	judged by its own directives (no oracle)	-
+conformance/V174b_closure_called_in_place_is_dropped_O2.saw	pass	judged by its own directives (no oracle)	-
 conformance/V18_discard_nocopy_without_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.box.Box<Int, std.alloc.GlobalAllocator>`, which is NoCopy, by value: only a Copy type copies silently; write `move b` to take it, or borrow it
 conformance/V21_optional_explicitcopy_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 conformance/V25_implicitcopy_deinit_once.saw	pass	-	-
