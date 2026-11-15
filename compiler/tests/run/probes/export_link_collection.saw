@@ -1,0 +1,37 @@
+// probe: custom
+// about: a plain `@export` is kept into the object, and a collecting link keeps it only when it is referenced there or placed (SL-1083)
+// Three exported functions and three exported statics, one of each shape:
+// nothing references it, the entry references it, or `@section` places it.
+// The run lane builds the object at -O0 and -O1 and links it with and without
+// `-Wl,-dead_strip`. The section names are mach-O's form, which an ELF target
+// takes verbatim; the ELF half is `check_exported_placed_link`.
+
+@export("plain_unreferenced")
+func plain_unreferenced() -> Int {
+    1001
+}
+
+@export("plain_referenced")
+func plain_referenced() -> Int {
+    1002
+}
+
+@export("placed_unreferenced")
+@section("__TEXT,__sawfn,regular,pure_instructions")
+func placed_unreferenced() -> Int {
+    1003
+}
+
+@export("static_plain_unreferenced")
+static STATIC_PLAIN_UNREFERENCED: Int = 2001
+
+@export("static_plain_referenced")
+static STATIC_PLAIN_REFERENCED: Int = 2002
+
+@export("static_placed_unreferenced")
+@section("__DATA,__sawtag")
+static STATIC_PLACED_UNREFERENCED: Int = 2003
+
+func main() {
+    print(plain_referenced() + STATIC_PLAIN_REFERENCED)
+}

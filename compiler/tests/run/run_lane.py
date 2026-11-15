@@ -105,6 +105,9 @@ run of it, built against its own std.
 - each placed function or static of `section_function.saw`, `section_static.saw`
   and their `_unreached` twins is defined in the -O2 binary, whole-module and
   split (`check_placed_symbols`);
+- a plain `@export` is in the object and in sawc's own hosted link, and in a
+  `-Wl,-dead_strip` link only when referenced there or placed
+  (`probes/export_link_collection.saw`, mach-O hosts);
 - no record in `stage0/` names a program that is gone.
 
 `--stage0` records Stage 0's runs of every program not due, or of the NAMEs,
@@ -1908,6 +1911,93 @@ def check_exported_placed_link(failures, counts):
             else:
                 counts["run exported placed definitions kept by --gc-sections"] = \
                     counts.get("run exported placed definitions kept by --gc-sections", 0) + 1
+
+
+# What `probes/export_link_collection.saw`'s exports do through the link. Each
+# row is (symbol, kept in the object, kept by sawc's own link, kept by a
+# `-Wl,-dead_strip` link at -O0, the same at -O1). A referenced function is
+# collected at -O1, where the optimizer inlines its only call and no reference
+# reaches the link; the referenced static's reference stays.
+EXPORT_LINK_ROWS = (
+    ("plain_unreferenced", True, True, False, False),
+    ("plain_referenced", True, True, True, False),
+    ("placed_unreferenced", True, True, True, True),
+    ("static_plain_unreferenced", True, True, False, False),
+    ("static_plain_referenced", True, True, True, True),
+    ("static_placed_unreferenced", True, True, True, True),
+)
+
+
+def global_symbols(binary):
+    """The names `nm -g` lists as defined in `binary`, a leading underscore
+    cut off; (None, why) when `nm` cannot read it."""
+    r = subprocess.run(["nm", "-g", binary], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        return None, (r.stdout + r.stderr).strip()[:300]
+    names = set()
+    for line in r.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[-2] != "U":
+            names.add(fields[-1].lstrip("_"))
+    return names, ""
+
+
+def check_export_link_collection(failures, counts):
+    """A plain `@export` is in the object, and in a mach-O link that collects
+    (`-Wl,-dead_strip`) only when an object of the link references it or
+    `@section` places it; sawc's own link does not collect, so keeps every
+    export. A mach-O host alone: an ELF host's objects share one `.text`, so
+    `check_exported_placed_link` holds the ELF half (SL-1083)."""
+    where = "run export link collection"
+    triple = TARGET or build.host_triple()
+    if "-apple-" not in build.clang_triple(triple):
+        counts["run export link collection skipped: %s is not mach-O" % triple] = 1
+        return
+    clang, objects = None, []
+    with open(build.runtime_manifest(triple)) as fh:
+        for line in fh.read().splitlines():
+            if line.startswith("clang "):
+                clang = line[len("clang "):]
+            elif line.startswith("object "):
+                objects.append(line[len("object "):])
+    work = os.path.join(OUT, "export-link-collection")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    probe = os.path.join(PROBES, "export_link_collection.saw")
+    for column, speed in ((3, "-O0"), (4, "-O1")):
+        obj = os.path.join(work, "probe%s.o" % speed)
+        own = os.path.join(work, "own%s" % speed)
+        collected = os.path.join(work, "collected%s" % speed)
+        label = "%s %s" % (where, speed)
+        r = subprocess.run([build.SAWC, "build"] + target_flags() + [speed, "-g0", "-c", probe, "-o", obj],
+                           cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: the -c build fails: %s" % (label, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        r = subprocess.run([build.SAWC, "build"] + target_flags() + [speed, "-g0", probe, "-o", own],
+                           cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: the build fails: %s" % (label, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        r = subprocess.run([clang, "-target", build.clang_triple(triple), obj] + objects
+                           + build.link_libraries(triple) + ["-Wl,-dead_strip", "-o", collected],
+                           capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: the -dead_strip link fails: %s" % (label, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        for what, binary, index in (("the object", obj, 1), ("sawc's own link", own, 2),
+                                    ("the -dead_strip link", collected, column)):
+            names, why = global_symbols(binary)
+            if names is None:
+                failures.append("%s: nm cannot read %s: %s" % (label, what, why))
+                continue
+            for row in EXPORT_LINK_ROWS:
+                if (row[0] in names) != row[index]:
+                    failures.append("%s: %s %s `%s`, expected it %s" % (
+                        label, what, "holds" if row[0] in names else "does not hold", row[0],
+                        "held" if row[index] else "absent"))
+                counts["run export link collection symbols checked"] = \
+                    counts.get("run export link collection symbols checked", 0) + 1
 
 
 # The object cache's SHA-256 (compiler/driver/src/sha256.saw), driven through
@@ -4766,6 +4856,7 @@ CUSTOM_PROBES = {
     COOPERATIVE_PROBE: check_cooperative_provider,
     POOL_REFUSED_PROBE: check_pool_provider_refused,
     "executable_path.saw": check_executable_path,
+    "export_link_collection.saw": check_export_link_collection,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,
     "print_beside_a_panic.saw": check_print_beside_a_panic,

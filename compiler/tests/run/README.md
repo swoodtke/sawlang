@@ -935,7 +935,7 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are nineteen.
+says why the check cannot be header lines. There are twenty-one.
 `main_error_bounded_no_hidden_alloc.saw` returns a 5,000-byte `Err` from
 `main`: built without a flag its standard error is `error: ` and the whole
 error, and built with `--no-hidden-alloc` it is `error: ` and the error cut
@@ -1004,6 +1004,13 @@ the flag every group says `non-leaf`. Where Espressif's clang is configured,
 the probe built with `-O1 -c` must hold no `movsp` in any code section, and
 its eight-word function must read a7 before any instruction writes it; a
 machine without one skips that half, counting the skip.
+`export_link_collection.saw` exports three functions and three statics (one
+nothing references, one the entry references, one `@section` places), built
+with `-c` at -O0 and -O1 on a mach-O host: `nm` reads all six in the object and
+in sawc's own link, which does not collect; in a link with `-Wl,-dead_strip`
+the unreferenced unplaced ones are gone, and so is the referenced function at
+-O1, where the optimizer inlines its only call and no reference reaches the
+link (SL-1083). The ELF half is `check_exported_placed_link`.
 `leaks_check_sees_a_leak.saw` drops its only pointer to a block it got from
 C's `malloc`, and the leak check must report exactly that one block: a
 checker that sees nothing would pass every `// leaks: none` probe, and the

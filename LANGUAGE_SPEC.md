@@ -16067,8 +16067,8 @@ extern "C" {
 }
 
 // Export a Saw function under the exact C symbol `my_function` (design 58):
-// C calling convention, unmangled symbol, external linkage, kept alive
-// through DCE. See the Attributes section for the signature whitelist.
+// C calling convention, unmangled symbol, external linkage, kept into the
+// object. See the Attributes section for the signature whitelist.
 @export
 func my_function(x: Int32) -> Int32 {
     x * 2
@@ -16340,16 +16340,27 @@ for a later design.
 **`@export` / `@export("sym")`** makes a function or static callable from C. It
 is one unified attribute whose meaning is inseparable: **C calling convention +
 exact unmangled symbol** (or the explicit `"sym"`) **+ external linkage + kept
-alive through DCE** (via `@llvm.used`, so it survives the default -O1 pipeline
-even when nothing in the program references it — the `_start` / vector-table
-shape). There is deliberately no separate `no_mangle`/`c_abi` split.
+through the optimizer and code generation into the object**, whether or not
+anything in the program references it. There is deliberately no separate
+`no_mangle`/`c_abi` split.
 
-An export is a keep-root at all three points where unreached code is discarded:
-the `-O1` pipeline above, code generation (which emits only the functions
+An export is a keep-root at two points where unreached code is discarded: the
+optimizer's pipeline, and code generation (which emits only the functions
 reachable from `main`, the exports, and an `@section` placement, which is kept
-the same way whether or not anything reaches it), and the link
-(`-dead_strip` on mach-O, `--gc-sections` on ELF). So an exported function that
-nothing in the program calls is still in the object and still in the executable.
+the same way whether or not anything reaches it). So an exported function that
+nothing in the program calls is still in the object.
+
+At the link an export is an external symbol like a C one. The link `sawc` runs
+for a hosted program is not a collecting link, so every export is in the
+executable it writes. A collecting link (`-dead_strip` on mach-O,
+`--gc-sections` on ELF), such as a freestanding image's or a build tool's,
+keeps an export when something the link keeps references it (a call the
+optimizer inlined is not a reference, and neither is a call from code the link
+collects), when it is the entry, when it is also placed with
+`@section`, or when a linker script keeps it. An unreferenced, unplaced export
+may be collected there, and the compiler says nothing when it is. To keep a
+symbol nothing references, such as an entry named only to the linker or a
+vector table, write `@export @section(...)`.
 
 Restrictions on an exported **function** (each a clean error):
 
@@ -16371,7 +16382,7 @@ fixed-width integers, `Int`/`UInt`, `Float`, **arrays** thereof, and **structs**
 whose fields are all whitelisted (a `Float` static is not built in `sawc` yet,
 SL-722). Statics are already immortal and `Sync`-only
 (see [Statics](#module-level-statics)); `@export` only names the symbol and keeps
-it alive.
+it in the object.
 
 **Symbol hygiene.** Two exports resolving to the same symbol are an error (an
 unmangled C symbol must be unique); colliding with a reserved runtime symbol
@@ -16402,8 +16413,9 @@ every call. A generic placed function is the exception: it
 is emitted at each instance a call reaches and at none otherwise, and each such
 instance is placed and kept. At the link
 it is kept where the object format carries a retain flag, and a linker script
-decides otherwise. Section-name *syntax* is target-specific — ELF accepts
-`.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
+decides otherwise. A placement beside an `@export` is how a program retains an
+exported symbol at a collecting link. Section-name *syntax* is target-specific:
+ELF accepts `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
 mach-O target is a compile error naming the declaration and the two-part form:
 
 ```saw-fragment
@@ -16480,7 +16492,7 @@ Three consequences worth stating:
   no C entry and no argument accessors. Internalization applies alike to an
   executable, a `-c` object, `--freestanding` and a runtime build.
 - An internal definition nothing reaches is deleted by the `-O1` pipeline. That
-  is intended, and it is why `@export` carries a DCE keep-root with it.
+  is intended, and it is why `@export` keeps a symbol into the object.
 - Nothing in the language exposes a symbol name. To pin one, write `@export`.
 
 #### Alignment

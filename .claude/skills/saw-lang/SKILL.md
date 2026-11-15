@@ -4387,6 +4387,7 @@ ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
 error). You only touch this when authoring `runtime/`; run.py's
 `runtime_table` step (`compiler/tools/runtime_table.py`) then holds sawc's
 compiled-in ABI table to `runtime/ABI.md` and the runtime's sources.
+- **A collecting link may drop an export nothing it keeps references** (`--gc-sections`, `-dead_strip`; an inlined call is not a reference): an entry named only to the linker or a vector table is written `@export @section(...)`, which a collecting link keeps. `sawc`'s own hosted link keeps every export.
 - **`@export` IS THE ONLY WAY A DECLARATION REACHES THE LINKER (SL-274).** Every
   other definition is emitted with a MODULE-MANGLED symbol (`read` in a module
   `wire` is `read$m$wire`; the ENTRY module has no path and renders as the EMPTY
