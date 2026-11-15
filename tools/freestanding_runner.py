@@ -94,12 +94,22 @@ SOFT_FLOAT_ROUTINES = (
 )
 
 # The Xtensa C half names each feature as a clang cc1 flag, since clang has no
-# driver spelling for them.
+# driver spelling for them. The list is sawc's default for the triple: call0
+# (`-windowed`), no FPU (`-fp`), and the three the compiler never uses.
 XTENSA_FEATURES = ("-windowed", "-fp", "-loop", "-mac16", "-bool")
 
 
 def xtensa_features(features):
     return [flag for feature in features for flag in ("-Xclang", "-target-feature", "-Xclang", feature)]
+
+
+def xtensa_cc_args(windowed, extra=()):
+    """The C half's flags for an Xtensa row: `XTENSA_FEATURES`, with
+    `-windowed` turned to `+windowed` for the windowed ABI, then `extra`.
+    `-fintegrated-as` is for boot.S: the external assembler writes compressed
+    debug sections the linker refuses."""
+    features = ["+windowed" if windowed and f == "-windowed" else f for f in XTENSA_FEATURES]
+    return ["-mcpu=esp32s3"] + xtensa_features(features + list(extra)) + ["-fintegrated-as"]
 
 
 # Where each row finds its tools, and how it boots. `qemu_from`: "path" is the
@@ -110,10 +120,17 @@ def xtensa_features(features):
 # `PT_LOAD` segments (`flash_image`), `flash_base` being where flash executes.
 # `machine` names the board in the report. `ram_reads_negative` is whether a
 # stack address read as an `Int` is below zero: true only where RAM starts above
-# 2^31 on a 32-bit word.
+# 2^31 on a 32-bit word. `hal_dir` and `link_dir` name the `hal/` directories
+# that hold the row's `boot.S` and `link.ld`, so two rows of one triple can
+# share a linker script. `windowed` is whether the Xtensa row's objects use
+# the windowed ABI, which `check_abi` holds every object of its images to.
+# Everything a row builds or links is keyed by its `name`: two rows may share
+# a triple.
 ARCHES = [
     {
         "name": "riscv32",
+        "hal_dir": "riscv32",
+        "link_dir": "riscv32",
         "triple": "riscv32-unknown-none-elf",
         "qemu": "qemu-system-riscv32",
         "qemu_from": "path",
@@ -140,6 +157,8 @@ ARCHES = [
     },
     {
         "name": "arm64",
+        "hal_dir": "arm64",
+        "link_dir": "arm64",
         "triple": "aarch64-unknown-none-elf",
         "qemu": "qemu-system-aarch64",
         "qemu_from": "path",
@@ -165,6 +184,8 @@ ARCHES = [
     },
     {
         "name": "xtensa",
+        "hal_dir": "xtensa",
+        "link_dir": "xtensa",
         "triple": "xtensa-esp-unknown-elf",
         # Espressif's build of QEMU, the only one with an ESP32-S3 machine; it
         # boots the flash image the runner writes, as the part does, and
@@ -176,25 +197,36 @@ ARCHES = [
         "flash_base": 0x4200_0000,
         "machine": "esp32s3",
         "qemu_args": ["-machine", "esp32s3", "-semihosting"],
-        # The C half gets the five features sawc's default for the triple
-        # states: call0 (`-windowed`), no FPU (`-fp`), and the three the
-        # compiler never uses. `-fintegrated-as` is for boot.S: the external
-        # assembler writes compressed debug sections the linker refuses.
-        "cc_args": ["-mcpu=esp32s3"] + xtensa_features(XTENSA_FEATURES) + ["-fintegrated-as"],
+        "cc_args": xtensa_cc_args(False),
         # None keeps sawc's default for the triple.
         "features": None,
         # The part without `s32c1i`: its word atomics are `__atomic_*`
         # libcalls, which hal/xtensa/atomics.c supplies.
         "no_atomics": {"features": "-s32c1i",
-                       "cc_args": ["-mcpu=esp32s3"] + xtensa_features(XTENSA_FEATURES + ("-s32c1i",))
-                                  + ["-fintegrated-as"],
+                       "cc_args": xtensa_cc_args(False, ("-s32c1i",)),
                        "support": os.path.join(HAL_DIR, "xtensa", "atomics.c")},
         "word_bytes": 4,
         "load_base": 0x4200_0000,
         "ram_reads_negative": False,
+        "windowed": False,
         "off": None,
     },
 ]
+
+# The windowed ABI on the same part: the row above with sawc and the C half
+# both built `+windowed`, and the boot stub's own start-up and window vectors.
+# `link.ld` and `atomics.c` are the call0 row's files, used by path.
+ARCHES.append(dict(
+    next(a for a in ARCHES if a["name"] == "xtensa"),
+    name="xtensa-windowed",
+    hal_dir="xtensa-windowed",
+    features="+windowed",
+    cc_args=xtensa_cc_args(True),
+    no_atomics={"features": "-s32c1i,+windowed",
+                "cc_args": xtensa_cc_args(True, ("-s32c1i",)),
+                "support": os.path.join(HAL_DIR, "xtensa", "atomics.c")},
+    windowed=True,
+))
 
 # The offset `hal/<arch>/link.ld` places `.fsmark` at: one number, two
 # scripts, and `cases/link_address.saw` reads the resulting ADDRESS back.
@@ -202,7 +234,12 @@ FSMARK_OFFSET = 0x8_0000
 
 
 def build_dir(arch):
-    return os.path.join(build.BUILD_DIR, "freestanding", arch["triple"])
+    return os.path.join(build.BUILD_DIR, "freestanding", arch["name"])
+
+
+def hal_file(arch, kind):
+    """The path of the row's `boot.S` or `link.ld`."""
+    return os.path.join(HAL_DIR, arch["hal_dir" if kind == "boot.S" else "link_dir"], kind)
 
 
 def expectations(arch):
@@ -427,6 +464,20 @@ TEST_CASES = [
                        "fs check aggregate_return_magic=1",
                        "fs check aggregate_three_frames=1",
                        "fs done call_convention ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # Recursion deeper than a register file, and eight argument words
+        # passed 25 deep: where a windowed image spills and refills windows,
+        # each answer checked against a loop.
+        "name": "window_depth",
+        "expect_out": ["fs check chain_9=1",
+                       "fs check chain_40=1",
+                       "fs check chain_500=1",
+                       "fs check chain_2000=1",
+                       "fs check eight_arguments_depth_25=1",
+                       "fs value chain_2000_value=240505",
+                       "fs done window_depth ok"],
         "expect_clean_exit": True,
     },
     # --- module composition ---------------------------------------------------
@@ -698,7 +749,7 @@ TEST_CASES = [
         # an optimizer's repacking made a missing alignment a fault.
         "name": "align_attribute",
         "extra_flags": ["-Oz"],
-        "arches": ["riscv32", "xtensa"],
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
         "expect_out": ["fs check local_align_8=1",
                        "fs check local_align_64=1",
                        "fs check local_align_by_ref=1",
@@ -807,7 +858,7 @@ TEST_CASES = [
         # A wider-than-word integer renders whole; riscv32 only, since on arm64
         # the word already is 64 bits.
         "name": "wide_value_rendering",
-        "arches": ["riscv32", "xtensa"],
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
         "expect_out": ["fs value signed=20014547621496",
                        "fs value unsigned=20014547621496",
                        "fs value negative=-20014547621496",
@@ -853,7 +904,7 @@ TEST_CASES = [
         # host-computed rows, at -O0 and, below, at -O2 (SL-948).
         "name": "integer_helpers",
         "extra_flags": ["-O0"],
-        "arches": ["riscv32", "xtensa"],
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
         "expect_out": INTEGER_HELPER_CHECKS + ["fs done integer_helpers ok"],
         "expect_clean_exit": True,
     },
@@ -861,7 +912,7 @@ TEST_CASES = [
         "name": "integer_helpers_optimized",
         "source": "integer_helpers",
         "extra_flags": ["-O2"],
-        "arches": ["riscv32", "xtensa"],
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
         "expect_out": INTEGER_HELPER_CHECKS + ["fs done integer_helpers ok"],
         "expect_clean_exit": True,
     },
@@ -894,7 +945,7 @@ TEST_CASES = [
         "name": "int64_operators_size",
         "source": "int64_operators",
         "extra_flags": ["-Oz"],
-        "arches": ["riscv32", "xtensa"],
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
         "expect_out": INT64_OPERATOR_CHECKS + ["fs done int64_operators ok"],
         "expect_clean_exit": True,
     },
@@ -946,7 +997,7 @@ TEST_CASES = [
         # exactly the spec's five routines, which `hal/riscv32/atomics.c`
         # supplies (the user's ruling: the environment provides them).
         "name": "atomics_libcall",
-        "arches": ["riscv32", "xtensa"],
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
         "no_atomics": True,
         "expect_out": ["fs check load_after_store=1",
                        "fs check fetch_add_returns_before=1",
@@ -1182,8 +1233,7 @@ def build_shared(arch, clang):
     boot_o = os.path.join(out, "boot.o")
     support_o = os.path.join(out, "support.o")
     target = "--target=%s" % arch["triple"]
-    checked([clang, target] + arch["cc_args"] + ["-nostdlib", "-c", os.path.join(HAL_DIR, arch["name"], "boot.S"),
-                                                 "-o", boot_o])
+    checked([clang, target] + arch["cc_args"] + ["-nostdlib", "-c", hal_file(arch, "boot.S"), "-o", boot_o])
     # -fno-builtin: support.c DEFINES memcpy, and without it LLVM may rewrite
     # its byte loop into a call to itself.
     floor = ["-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections", "-nostdlib", "-O2", "-c"]
@@ -1204,6 +1254,45 @@ def nm_tool(clang):
     if os.path.exists(beside):
         return beside
     return shutil.which("llvm-nm") or "nm"
+
+
+def objdump_tool(clang):
+    """The disassembler that reads the arch's objects: the LLVM one beside its
+    clang, else one on PATH."""
+    beside = os.path.join(os.path.dirname(clang), "llvm-objdump")
+    if os.path.exists(beside):
+        return beside
+    return shutil.which("llvm-objdump") or "objdump"
+
+
+# An `entry` instruction as the disassembler prints it: the prologue of every
+# windowed-ABI function, and an instruction the call0 ABI never emits. Any
+# other line that starts with an address is code.
+ENTRY_LINE = re.compile(r"^\s*[0-9a-f]+:\s+entry\b")
+CODE_LINE = re.compile(r"^\s*[0-9a-f]+:\s+\S")
+
+
+def abi_problem(arch, objects, clang):
+    """Why an image of a windowed row may not link these objects, or None.
+    The linker draws no diagnostic for a call0 object in a windowed image, and
+    the call crashes when reached, so each object is read first: one that
+    holds code but no `entry` instruction was built for call0. An object with
+    no code at all (data alone) has no calling convention to disagree about,
+    and a windowed one always has an `entry`, so the test is exact for
+    objects a compiler built; the boot stub's own call0 helpers share an
+    object with windowed hooks, which carry the `entry`."""
+    if not arch.get("windowed"):
+        return None
+    for obj in objects:
+        code, out = run([objdump_tool(clang), "-d", "--no-show-raw-insn", obj], BUILD_TIMEOUT_S)
+        if code != 0:
+            return "llvm-objdump cannot read %s: %s" % (obj, out.strip()[:300])
+        lines = out.splitlines()
+        if any(CODE_LINE.match(line) for line in lines) and not any(ENTRY_LINE.match(line) for line in lines):
+            return ("%s holds code with no `entry` instruction, so it was built for the call0 ABI, and the %s row's "
+                    "image is windowed: every object of an image must use one ABI (`+windowed` for sawc and the C "
+                    "half alike), and the linker does not check" % (obj, arch["name"]))
+    return None
 
 
 def references_problem(case, arch, obj, clang):
@@ -1298,7 +1387,7 @@ def check_link_refusal(case, arch, shared, lld):
         checked(sawc_command(plain, arch, second))
     except ToolError as e:
         return "build error\n%s" % e
-    code, out = run([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
+    code, out = run([lld, "-T", hal_file(arch, "link.ld"), "--gc-sections", "-o", elf]
                     + shared["all"] + [obj, second], BUILD_TIMEOUT_S)
     if code == 0:
         return "expected the link to be REFUSED, but it succeeded"
@@ -1307,10 +1396,37 @@ def check_link_refusal(case, arch, shared, lld):
     return in_order(out, case["expect_link_error"], "link error")
 
 
+def blade_package(case, arch):
+    """The package directory Blade builds for the row. The checked-in manifest
+    states one boot stub and no target features per triple, so the windowed
+    row builds a copy of the package under its own build directory, with the
+    manifest's paths made absolute, the windowed boot stub, and `+windowed`
+    in the triple's section: Blade leaves its output under the package, so the
+    copy keeps the two Xtensa rows' images apart."""
+    package = os.path.join(FS_DIR, case["package"])
+    if not arch.get("windowed"):
+        return package
+    copy = os.path.join(build_dir(arch), "blade", case["package"])
+    shutil.rmtree(copy, ignore_errors=True)
+    shutil.copytree(os.path.join(package, "src"), os.path.join(copy, "src"))
+    with open(os.path.join(package, "Saw.toml"), encoding="utf-8") as fh:
+        text = fh.read()
+    section = "[sos.%s]\n" % arch["triple"]
+    stub = "/hal/%s/boot.S" % arch["link_dir"]
+    if section not in text or stub not in text:
+        raise ToolError("%s names no %s section with %s" % (os.path.join(package, "Saw.toml"), section.strip(), stub))
+    text = re.sub(r"(?<![\w./])\.\./", FS_DIR + "/", text)
+    text = text.replace(stub, "/hal/%s/boot.S" % arch["hal_dir"])
+    text = text.replace(section, section + 'target-features = "%s"\n' % arch["features"])
+    with open(os.path.join(copy, "Saw.toml"), "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return copy
+
+
 def build_with_blade(case, arch, lld, clang):
     """Build the case's package for the arch's triple through Blade, which is
     itself built by sawc. Returns the ELF's path; raises ToolError."""
-    package = os.path.join(FS_DIR, case["package"])
+    package = blade_package(case, arch)
     target_dir = os.path.join(package, ".build", arch["triple"])
     elf = os.path.join(target_dir, case["image"] + ".elf")
     # Blade skips a target whose outputs are current, so a stale ELF must go
@@ -1403,8 +1519,10 @@ def check_run(case, arch, shared, tools):
             problem = references_problem(case, arch, obj, clang)
             if problem:
                 return problem
-            checked([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
-                    + objects + [obj])
+            problem = abi_problem(arch, objects + [obj], clang)
+            if problem:
+                return problem
+            checked([lld, "-T", hal_file(arch, "link.ld"), "--gc-sections", "-o", elf] + objects + [obj])
     except ToolError as e:
         return "build error\n%s" % e
     try:

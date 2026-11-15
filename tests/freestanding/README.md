@@ -33,8 +33,9 @@ cannot be determined (no PATH, a tool that does not answer, a `SAWC_CLANG` that
 names no usable clang, an Espressif emulator without the machine) it fails. It
 is the battery's `freestanding` stage and a part of the per-patch gate.
 
-Three architectures run: riscv32 (`+m,+a,+c`, QEMU `virt -bios none`), arm64
-and xtensa (the ESP32-S3, call0, no FPU, QEMU `-machine esp32s3`). The xtensa
+Four rows run: riscv32 (`+m,+a,+c`, QEMU `virt -bios none`), arm64, xtensa
+(the ESP32-S3, call0, no FPU, QEMU `-machine esp32s3`) and xtensa-windowed,
+the same part in the windowed ABI. The xtensa
 row boots from a flash image the runner writes from the linked ELF: 4 MiB of
 0xFF with each `PT_LOAD` segment at its load address minus 0x4200_0000, as the
 ROM's direct boot expects (the magic words at 0x400, the first instruction at
@@ -42,6 +43,27 @@ ROM's direct boot expects (the magic words at 0x400, the first instruction at
 `.data` and `.bss` live in DRAM (`hal/xtensa/link.ld`); a segment outside the
 flash window fails the build. `hal/xtensa/boot.S` sets `ATOMCTL` itself, since
 the emulator makes `s32c1i` fault under values a `-kernel` boot leaves.
+
+The `xtensa-windowed` row builds every case with `--target-features +windowed`
+and every C and assembly object with the same feature, and runs the same cases
+as the call0 row. Its `hal/xtensa-windowed/boot.S` is the call0 stub with the
+differences windowed code needs: `PS.WOE` set and the case entered with
+`callx8`, a valid stack pointer word at `[sp-12]` for the first window spill,
+windowed `fs_*` hooks (`entry` / `retw`), and the six window overflow and
+underflow vectors, which are the architecture's fixed save and restore
+sequences, in place of the call0 stub's fault reports. `link.ld` and
+`atomics.c` are the call0 row's, used by path. Its objects and images are
+kept apart from the call0 row's: the runner's build directory is keyed by the
+row's name, and its Blade case builds a copy of `bladepkg/` whose manifest
+adds `+windowed` and names the windowed stub, since Blade leaves its output
+under the package. The linker draws no diagnostic for a call0 object in a
+windowed image, and the call crashes when reached, so the runner reads every
+object a windowed image links (`abi_problem`) and refuses one that holds code
+and no `entry` instruction: `entry` opens every windowed function and the call0
+ABI never emits it, and an object with no code, data alone, has no calling
+convention to disagree about. `window_depth` is the case for what only a
+windowed image gets wrong, recursion 2,000 deep and eight argument words 25
+deep, so windows spill and refill; it runs on every row.
 
 The cases marked `no_atomics` build for a part without native atomics (riscv32
 without the `A` extension, xtensa without `s32c1i`), where sawc's atomics are

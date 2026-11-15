@@ -15993,7 +15993,9 @@ agree on the calling convention. Word atomics are inline (`s32c1i`); with
 routines above, which the environment then supplies.
 `--target-features` ADDS to that default rather than replacing it, and a later
 mention wins: `+fp` gives call0 with the FPU, and windowed code takes an
-explicit `+windowed`. In `--emit-ll` output each function's attribute group
+explicit `+windowed`, which selects the windowed ABI: every object of an image,
+Saw, C and assembly alike, must agree on it, and the linker does not check.
+In `--emit-ll` output each function's attribute group
 carries the CPU and the default list, and the operand follows it:
 
 ```text

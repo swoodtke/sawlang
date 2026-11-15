@@ -1,0 +1,68 @@
+// Calls deeper than a register file holds. On a windowed Xtensa image the
+// recursion below spills and refills register windows through the overflow
+// and underflow vectors, so a wrong vector or stack word shows here and in
+// no shallower case. On every other target it is an ordinary deep call chain.
+// Each reference answer is a loop in the same program.
+
+import fscore.*
+
+// Not an accumulator form, so the optimizer cannot turn it into a loop.
+func chain(n: Int) -> Int {
+    if n == 0 {
+        return 1
+    }
+    (chain(n - 1) * 3 + n) % 1000003
+}
+
+func chain_loop(n: Int) -> Int {
+    var acc = 1
+    var k = 1
+    while k <= n {
+        acc = (acc * 3 + k) % 1000003
+        k = k + 1
+    }
+    acc
+}
+
+// Eight word arguments: a windowed call passes six in registers, so the
+// seventh and eighth travel on the stack, and each level rotates them.
+func eight(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, depth: Int) -> Int {
+    if depth == 0 {
+        return a + b + c + d + e + f + g
+    }
+    eight(b, c, d, e, f, g, a + 1, depth - 1) + 1
+}
+
+func eight_loop(a0: Int, b0: Int, c0: Int, d0: Int, e0: Int, f0: Int, g0: Int, depth: Int) -> Int {
+    var a = a0
+    var b = b0
+    var c = c0
+    var d = d0
+    var e = e0
+    var f = f0
+    var g = g0
+    var k = 0
+    while k < depth {
+        let next = a + 1
+        a = b
+        b = c
+        c = d
+        d = e
+        e = f
+        f = g
+        g = next
+        k = k + 1
+    }
+    a + b + c + d + e + f + g + depth
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_value("chain_9", chain(9), chain_loop(9))
+    check_value("chain_40", chain(40), chain_loop(40))
+    check_value("chain_500", chain(500), chain_loop(500))
+    check_value("chain_2000", chain(2000), chain_loop(2000))
+    check_value("eight_arguments_depth_25", eight(1, 2, 3, 4, 5, 6, 7, 25), eight_loop(1, 2, 3, 4, 5, 6, 7, 25))
+    report("chain_2000_value", chain(2000))
+    finish("window_depth")
+}

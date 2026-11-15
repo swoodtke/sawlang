@@ -185,7 +185,8 @@ Stage 0 snapshot's regeneration run it.
   and `coro/`, `compiler/` `llvm/`, `driver/` and `target/`, `build.py`,
   `runtime/` and `std/`; it has a row per architecture (riscv32, arm64 and the
   ESP32-S3, `xtensa-esp-unknown-elf`, which boots a flash image under
-  Espressif's QEMU and links with the `ld.lld` beside Espressif's clang), each
+  Espressif's QEMU and links with the `ld.lld` beside Espressif's clang, a call0
+  row and a second `xtensa-windowed` row for the windowed ABI), each
   finding its own tools: it SKIPS (passes) an architecture whose QEMU, ld.lld or
   target clang is known absent, naming it and the tool while the others run, and
   FAILS when it cannot tell. Espressif's clang and QEMU come from

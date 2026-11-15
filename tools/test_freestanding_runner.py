@@ -22,7 +22,8 @@ soft-float routine undefined; recomputes every row of
 holds `cases/soft_float_vectors.saw`'s `CHECKSUMS` equal to the checksums
 of `compiler/tests/run/softfloat/vectors.txt`, in the runner's order; and
 builds a flash image from a synthetic ELF, refusing a segment outside the
-flash window.
+flash window; and requires the windowed Xtensa row to refuse a call0 object
+(`abi_problem`), by name, while passing windowed and data-only ones.
 """
 import os
 import re
@@ -101,7 +102,8 @@ def homebrew_serves(*names):
     none that has an Espressif tree (so it cannot stand in for it)."""
     path = build.homebrew_clang()
     return os.path.exists(path) and all(
-        build.clang_capable(path, BY_NAME[n]["triple"]) == (n != "xtensa") for n in names if n in BY_NAME)
+        build.clang_capable(path, BY_NAME[n]["triple"]) == (not n.startswith("xtensa")) for n in names
+        if n in BY_NAME)
 
 
 # One case: its name; the stub tools on PATH (name -> body); the PATH entries
@@ -141,43 +143,48 @@ def cases():
     ]
     notes = []
     if "xtensa" in BY_NAME:
-        out += [
-            # Espressif's tools, as the Xtensa row finds them, are absent: no
-            # clang beside none, no emulator under no tools root.
-            case("no Espressif tools", present(), idf="empty", args=["--arch", "xtensa"],
-                 texts=["SKIPPED xtensa: no clang compiles for xtensa-esp-unknown-elf",
-                        "no architecture has its tools"], skipped=True),
-            # Every architecture's tools absent, named one by one.
-            case("every architecture absent", present(), idf="empty",
-                 texts=["SKIPPED riscv32", "SKIPPED arm64", "SKIPPED xtensa", "no architecture has its tools"],
-                 skipped=True),
-        ]
+        # Both Xtensa rows find the same Espressif tools, and each decides for
+        # itself: the same case per row.
+        rows = [n for n in ("xtensa", "xtensa-windowed") if n in BY_NAME]
         xtensa_clang = real_clang("xtensa")
+        for row in rows:
+            out += [
+                # Espressif's tools, as the Xtensa row finds them, are absent: no
+                # clang beside none, no emulator under no tools root.
+                case("no Espressif tools, %s" % row, present(), idf="empty", args=["--arch", row],
+                     texts=["SKIPPED %s: no clang compiles for xtensa-esp-unknown-elf" % row,
+                            "no architecture has its tools"], skipped=True),
+            ]
+            if xtensa_clang is not None:
+                out += [
+                    case("%s clang, no emulator" % row, present(), sawc_clang=xtensa_clang, idf="empty",
+                         args=["--arch", row], texts=["SKIPPED %s: qemu-system-xtensa is not under" % row],
+                         skipped=True),
+                    case("%s emulator lists no esp32s3" % row, present(), sawc_clang=xtensa_clang, idf="emulator",
+                         qemu=OTHER_QEMU, args=["--arch", row], status=4, texts=["lists no `esp32s3` machine"]),
+                    case("%s emulator does not answer" % row, present(), sawc_clang=xtensa_clang, idf="emulator",
+                         qemu=REFUSES, args=["--arch", row], status=4, texts=["so whether it runs is unknown"]),
+                    case("%s present" % row, present(), sawc_clang=xtensa_clang, idf="emulator",
+                         args=["--arch", row], texts=["every prerequisite is present"]),
+                ]
+        # Every architecture's tools absent, named one by one.
+        out.append(case("every architecture absent", present(), idf="empty",
+                        texts=["SKIPPED riscv32", "SKIPPED arm64"] + ["SKIPPED %s" % row for row in rows]
+                        + ["no architecture has its tools"], skipped=True))
         if xtensa_clang is None:
             notes.append("no Espressif clang here compiles for xtensa-esp-unknown-elf")
-        else:
-            out += [
-                case("Xtensa clang, no emulator", present(), sawc_clang=xtensa_clang, idf="empty",
-                     args=["--arch", "xtensa"], texts=["SKIPPED xtensa: qemu-system-xtensa is not under"],
-                     skipped=True),
-                case("Xtensa emulator lists no esp32s3", present(), sawc_clang=xtensa_clang, idf="emulator",
-                     qemu=OTHER_QEMU, args=["--arch", "xtensa"], status=4,
-                     texts=["lists no `esp32s3` machine"]),
-                case("Xtensa emulator does not answer", present(), sawc_clang=xtensa_clang, idf="emulator",
-                     qemu=REFUSES, args=["--arch", "xtensa"], status=4, texts=["so whether it runs is unknown"]),
-                case("Xtensa present", present(), sawc_clang=xtensa_clang, idf="emulator",
-                     args=["--arch", "xtensa"], texts=["every prerequisite is present"]),
-            ]
         if homebrew_serves("riscv32", "arm64", "xtensa"):
             # Xtensa's tools absent and the others present: the others run,
-            # Xtensa is skipped by name, each row choosing its own clang.
+            # each Xtensa row is skipped by name, each row choosing its own clang.
             out.append(case("Xtensa absent, the others present", present(), idf="empty", homebrew=True,
                             texts=["SKIPPED xtensa: no clang compiles for xtensa-esp-unknown-elf",
-                                   "freestanding: riscv32:", "freestanding: arm64:", "2 ran, 1 skipped (xtensa)"],
+                                   "freestanding: riscv32:", "freestanding: arm64:",
+                                   "2 ran, %d skipped (%s)" % (len(rows), ", ".join(rows))],
                             skipped=True))
             if espressif_root() is not None:
                 out.append(case("a clang per architecture", present(), idf="with clang", homebrew=True,
-                                texts=["every prerequisite is present", "freestanding: xtensa:", "esp-clang"]))
+                                texts=["every prerequisite is present", "esp-clang"]
+                                + ["freestanding: %s:" % row for row in rows]))
             else:
                 notes.append("no Espressif tools root here, for a clang per architecture")
         else:
@@ -293,6 +300,63 @@ def flash_problems():
     said = build_image([(0x42000408, b"\x06\x00\x00\x00")])
     if said is None or "magic" not in said:
         problems.append("flash_image accepts an image with no magic words: %s" % said)
+    return problems
+
+
+DATA_ONLY_C = "const int fs_table[4] = {1, 2, 3, 4};\n"
+
+
+def abi_problems():
+    """Why `abi_problem` does not hold a windowed image to one calling
+    convention, or []: with the real Espressif clang, the C floor and the call0
+    boot stub built call0 are refused, each by name, and the same sources built
+    windowed, the windowed boot stub, and an object with data and no code pass.
+    The call0 row is never held to it. Returns [] when no Espressif clang
+    compiles for Xtensa here (`cases` names that)."""
+    clang = real_clang("xtensa-windowed")
+    if clang is None:
+        return []
+    call0_row, windowed_row = BY_NAME["xtensa"], BY_NAME["xtensa-windowed"]
+    out = os.path.join(OUT, "abi")
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
+    data_c = os.path.join(out, "data.c")
+    with open(data_c, "w") as fh:
+        fh.write(DATA_ONLY_C)
+    floor = ["-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections", "-nostdlib", "-O2", "-c"]
+    sources = {"support": [freestanding_runner.SUPPORT_C] + floor,
+               "data": [data_c] + floor,
+               "boot_call0": [freestanding_runner.hal_file(call0_row, "boot.S"), "-nostdlib", "-c"],
+               "boot_windowed": [freestanding_runner.hal_file(windowed_row, "boot.S"), "-nostdlib", "-c"]}
+    built = {}
+    for abi, row in (("call0", call0_row), ("windowed", windowed_row)):
+        for name, args in sources.items():
+            if name.startswith("boot_") and name != "boot_" + abi:
+                continue
+            path = os.path.join(out, "%s_%s.o" % (name, abi))
+            code, said = freestanding_runner.run([clang, "--target=" + row["triple"]] + row["cc_args"] + args
+                                                 + ["-o", path], freestanding_runner.BUILD_TIMEOUT_S)
+            if code != 0:
+                return ["abi pin: cannot build %s for %s: %s" % (name, abi, said.strip()[:300])]
+            built[(name, abi)] = path
+    problems = []
+
+    def check(row, objs, refused, why):
+        said = freestanding_runner.abi_problem(row, objs, clang)
+        if refused and (said is None or not all(o in said for o in objs[-1:])):
+            problems.append("abi pin: %s: %s is not refused by name (%s)" % (row["name"], why, said))
+        if not refused and said is not None:
+            problems.append("abi pin: %s: %s is refused (%s)" % (row["name"], why, said))
+
+    check(windowed_row, [built["support", "call0"]], True, "a call0 support.o")
+    check(windowed_row, [built["boot_windowed", "windowed"], built["support", "windowed"],
+                         built["support", "call0"]], True, "a call0 support.o beside windowed ones")
+    check(windowed_row, [built["boot_call0", "call0"]], True, "a call0 boot stub")
+    check(windowed_row, [built["support", "windowed"]], False, "a windowed support.o")
+    check(windowed_row, [built["boot_windowed", "windowed"]], False, "the windowed boot stub")
+    check(windowed_row, [built["data", "call0"]], False, "a call0 data-only object")
+    check(windowed_row, [built["data", "windowed"]], False, "a windowed data-only object")
+    check(call0_row, [built["support", "windowed"]], False, "any object on the call0 row")
     return problems
 
 
@@ -436,10 +500,11 @@ def main():
     failures += vector_problems()
     failures += checksum_problems()
     failures += flash_problems()
+    failures += abi_problems()
     for failure in failures:
         print(failure)
     print("freestanding runner: %s: %d tool-decision cases, the soft-float list and symbol check, the integer helpers' "
-          "vectors, the soft-float checksums" % ("FAIL (%d)" % len(failures) if failures else "ok", ran))
+          "vectors, the soft-float checksums, the windowed row's ABI check" %("FAIL (%d)" % len(failures) if failures else "ok", ran))
     return 1 if failures else 0
 
 
