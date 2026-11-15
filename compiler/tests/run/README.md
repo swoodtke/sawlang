@@ -223,6 +223,31 @@ Nothing is cached here: `build.py` keys and caches the directory (D41's
 ruling). Two builds into two directories write the same bytes. With
 `--emit-ll FILE`, that one runtime source's `.ll` goes to standard output.
 
+## `sawc --build-id`
+
+```sh
+.build/sawc-stage1 --build-id [--std-root DIR]
+```
+
+Prints one line of 64 hexadecimal digits for a build tool's freshness check,
+and exits 0; a part it cannot read is a message on standard error and status
+1, with nothing on standard output. The digest covers the running binary, every
+`.saw` file of the std root by relative path and bytes (so two trees holding
+the same std have one identity), each `sawc-runtime*.txt` record beside the
+binary and the objects it names, and `SAWC_CODEGEN_UNITS` and `SAWC_LTO`. The
+cache variables are not in it. The binary's digest and the std file list are
+the ones the front cache's key holds (`driver_binary_digest`,
+`driver_front_std_files`), so the key is the same with or without this command.
+The lane's `check_build_id` pins it: the same twice, the same for a copy of
+`std/`, another for one changed byte of it or another `SAWC_LTO`, the same for
+another `SAWC_CACHE_DIR`; a copy of the binary beside copies of its records is
+the original's identity, a line added to a record or one byte added to a copy
+of an object it names makes another, and that object gone is a refusal; the
+other stage's binary has another identity, `SAWC_CODEGEN_UNITS=1` has another,
+and an empty one is the same as none (fourteen cases). The identity holds the
+binary's own digest, so Stage 1 and Stage 2 never print the same line: the
+check is left out under the twin (`NOT_UNDER_TWIN`).
+
 ## The clang
 
 sawc's `.ll` uses opaque pointers (`ptr`) throughout, which LLVM 15 made the

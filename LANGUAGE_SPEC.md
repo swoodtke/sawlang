@@ -15561,8 +15561,10 @@ is this package or a dependency. The `NAME`, the `DIR` as written and the `.saw`
 files under it are part of the up-to-date check. So are an image's native units
 (`native`, by path and content: a header a unit includes is not tracked, and
 `--force` rebuilds), the C compiler and linker the build will run, the `SAWC`
-command and the first line of `sawc --version`; a compiler whose version cannot
-be read is never up to date. Each flag value follows its flag
+command and the compiler's identity: the line `sawc --build-id` prints, which
+covers the compiler binary, its std and its runtime records, or the first line
+of `sawc --version` for a compiler that refuses `--build-id` as a usage error.
+A compiler whose identity cannot be read is never up to date. Each flag value follows its flag
 as a separate word or as `--flag=value`. A flag Blade does not know, a flag with
 no value, a flag given twice that does not repeat and a stray word are errors
 for every subcommand.
@@ -17604,11 +17606,22 @@ sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
 sawc tools [--target TRIPLE]
 sawc lex | parse | resolve | typecheck | mir | eval | borrowck | drops | mono | coro ...
 sawc --version
+sawc --build-id [--std-root DIR]
 ```
 
 - `--version` prints the release: a plain semver, and the only thing a
   consumer that pinned a toolchain can check an installed compiler against, so
   a change to user-visible behaviour bumps it.
+- `--build-id` prints one line of 64 hexadecimal digits that identifies the
+  compiler, the std it compiles against and its runtime records, for a build
+  tool's freshness check. It changes with the compiler binary, with any byte of
+  any `.saw` file of the std root (the default one, or `--std-root`), with each
+  runtime record beside the binary and the objects it names, and with the
+  values of `SAWC_CODEGEN_UNITS` and `SAWC_LTO`. It does not change with the
+  std root's location or with the cache settings (`SAWC_CACHE_DIR`,
+  `SAWC_OBJECT_CACHE`, `SAWC_FRONT_CACHE`, `SAWC_CACHE_ENTRIES`,
+  `SAWC_FRONT_VERIFY`). A part that cannot be read is a message on standard
+  error and exit status 1, with nothing on standard output.
 - `-o` names the executable (default: `.build/<source>`;
   `sawc` makes `.build` when it is missing); `--emit-ll` writes the program's LLVM IR
   instead and links nothing.

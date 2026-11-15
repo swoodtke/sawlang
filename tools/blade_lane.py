@@ -528,11 +528,23 @@ def fake_compiler(directory, version="sawc 9.0.0"):
     """A `SAWC` script in `directory` that compiles with `build.SAWC`; its
     `--version` is the first line of `version.txt` beside it (`FAIL` exits 1,
     `EMPTY` prints nothing) and `sawc tools` prints `tools.txt` when there is
-    one. Returns the script's path."""
+    one. Its `--build-id` refuses the flag as usage (status 2, as an older
+    `sawc` does) until `set_build_id` writes `build-id.txt`: its text is the
+    answer, `FAIL` prints a line and exits 1, `EMPTY` prints nothing and
+    `MANY` prints two lines.
+    Returns the script's path."""
     os.makedirs(directory, exist_ok=True)
     script = os.path.join(directory, "fakesawc.sh")
     write_script(script, (
         '#!/bin/bash\nD=$(dirname "$0")\n'
+        'if [ "$1" = "--build-id" ]; then\n'
+        '  if [ ! -f "$D/build-id.txt" ]; then exit 2; fi\n'
+        '  v=$(cat "$D/build-id.txt")\n'
+        '  if [ "$v" = FAIL ]; then echo partial-id; exit 1; fi\n'
+        '  if [ "$v" = EMPTY ]; then exit 0; fi\n'
+        '  if [ "$v" = MANY ]; then printf "first\\nsecond\\n"; exit 0; fi\n'
+        '  echo "$v"; exit 0\n'
+        'fi\n'
         'if [ "$1" = "--version" ] && [ -f "$D/version.txt" ]; then\n'
         '  v=$(cat "$D/version.txt")\n'
         '  if [ "$v" = FAIL ]; then exit 1; fi\n'
@@ -548,6 +560,45 @@ def fake_compiler(directory, version="sawc 9.0.0"):
 def set_version(directory, text):
     with open(os.path.join(directory, "version.txt"), "w", encoding="utf-8") as f:
         f.write(text + "\n")
+
+
+def set_build_id(directory, text):
+    with open(os.path.join(directory, "build-id.txt"), "w", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+
+def std_copy_compiler(directory):
+    """A `SAWC` script in `directory` that is `build.SAWC` compiling against
+    the copy of `std/` beside it, and answering `--build-id` for that copy;
+    its `--version` is the real one, so only the std copy tells it apart from
+    the compiler it wraps. Returns the script's path."""
+    os.makedirs(directory, exist_ok=True)
+    shutil.copytree(build.STD_ROOT, os.path.join(directory, "std"))
+    script = os.path.join(directory, "stdcopysawc.sh")
+    write_script(script, (
+        '#!/bin/bash\nD=$(dirname "$0")\n'
+        'case "$1" in\n'
+        '  --version) exec "%s" --version;;\n'
+        '  --build-id) exec "%s" --build-id --std-root "$D/std";;\n'
+        'esac\n'
+        'exec "%s" --std-root "$D/std" "$@"\n' % (build.SAWC, build.SAWC, build.SAWC)))
+    return script
+
+
+def stage_switch_compiler(directory, binary):
+    """A `SAWC` script in `directory` that runs the binary `which.txt` names;
+    `set_stage` points it. Both stages print one version line, so only the
+    compiler's identity tells the two apart. Returns the script's path."""
+    os.makedirs(directory, exist_ok=True)
+    script = os.path.join(directory, "stageswitchsawc.sh")
+    write_script(script, '#!/bin/bash\nD=$(dirname "$0")\nexec "$(cat "$D/which.txt")" "$@"\n')
+    set_stage(directory, binary)
+    return script
+
+
+def set_stage(directory, binary):
+    with open(os.path.join(directory, "which.txt"), "w", encoding="utf-8") as f:
+        f.write(binary + "\n")
 
 
 def rebuilds_after(binary, name, args, package, change, before_env=None, after_env=None):
@@ -571,8 +622,10 @@ def check_blade_freshness_hosted(binary=None):
     """A hosted build is up to date only while every input the build reads or
     chooses is unchanged: a source in a subdirectory of the package's `src` or a
     dependency's `src`, a root `main.saw`, a dependency's `Saw.toml`, the `SAWC`
-    command and the compiler's version. A compiler whose version cannot be
-    read is never up to date."""
+    command and the compiler's identity, which is `sawc --build-id` (its binary,
+    its std and its runtime), or the version for a compiler that refuses the
+    flag as usage. A compiler whose identity cannot be read is never up to
+    date."""
     binary = binary or SELF_BUILT
     work = os.path.join(WORK_DIR, "freshness")
     shutil.rmtree(work, ignore_errors=True)
@@ -605,6 +658,29 @@ def check_blade_freshness_hosted(binary=None):
         set_version(versioned, "sawc 9.0.1")
         blade_ok(binary, ["build"], package, "Compiling", env)
         blade_ok(binary, ["build"], package, "(up to date)", env)
+    identified = os.path.join(work, "identified")
+    env = blade_environment({"SAWC": fake_compiler(identified)})
+    set_build_id(identified, "id-1")
+    rebuilds_after(binary, "compiler identity", ["build"], package,
+                   lambda: set_build_id(identified, "id-2"), env)
+    for state in ("FAIL", "EMPTY", "MANY"):
+        print("blade: a compiler whose --build-id is %s is never up to date" % state, flush=True)
+        set_build_id(identified, state)
+        for attempt in (1, 2):
+            out = blade_ok(binary, ["build"], package, "Compiling", env)
+            if "(up to date)" in out:
+                raise Failure("a build with a compiler whose --build-id is %s was up to date\n%s" % (state, out))
+        set_build_id(identified, "id-2")
+        blade_ok(binary, ["build"], package, "Compiling", env)
+        blade_ok(binary, ["build"], package, "(up to date)", env)
+    stdcopy = os.path.join(work, "stdcopy")
+    env = blade_environment({"SAWC": std_copy_compiler(stdcopy)})
+    rebuilds_after(binary, "std the compiler compiles against", ["build"], package,
+                   lambda: append_text(os.path.join(stdcopy, "std", "vector.saw"), "\n// edited\n"), env)
+    switched = os.path.join(work, "stageswitch")
+    env = blade_environment({"SAWC": stage_switch_compiler(switched, build.STAGE2)})
+    rebuilds_after(binary, "compiler binary, with the version line unchanged", ["build"], package,
+                   lambda: set_stage(switched, build.STAGE1), env)
 
 
 def check_blade_freshness_images(binary=None):

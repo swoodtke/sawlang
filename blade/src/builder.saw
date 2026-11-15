@@ -288,9 +288,38 @@ extension Builder {
         lines.get(0) ?? ""
     }
 
+    // What `<compiler> --build-id` prints, run as `compiler_command` builds it:
+    // the one non-empty line it answers with, which names the compiler binary,
+    // its std and its runtime. A compiler that refuses the flag as a usage
+    // error (exit status 2, as an older `sawc` does) is identified by
+    // `compiler_version()` instead. "" when the command cannot run, fails
+    // otherwise, or prints anything but one line.
+    func compiler_identity(&self) -> String {
+        var query = self.compiler_command()
+        try! query.arg("--build-id")
+        guard let out = try? query.output() else {
+            return ""
+        }
+        if out.exit_code == (2 as Int32) {
+            return self.compiler_version()
+        }
+        if not out.success() {
+            return ""
+        }
+        let lines = try! out.stdout.split("\n")
+        var i = 1
+        while i < lines.len() {
+            if not (lines.get(i) ?? "").is_empty() {
+                return ""
+            }
+            i = i + 1
+        }
+        lines.get(0) ?? ""
+    }
+
     // Content hash of everything the build reads or chooses, hashing CONTENT,
     // not mtimes. One line per class of input:
-    //   - the marker `blade-hash-2;`, so a stamp from another hash layout never matches
+    //   - the marker `blade-hash-3;`, so a stamp from another hash layout never matches
     //   - `Saw.toml` and `Saw.lock`
     //   - every `*.saw` under the package's `src` and under each dependency's
     //     `src`, subdirectories included, in sorted order
@@ -307,8 +336,10 @@ extension Builder {
     //   - `tools`, the C compiler and linker an image build will run ("" for a
     //     hosted build)
     //   - the `SAWC` command, or that it is unset
-    //   - the compiler's version, `compiler_version()`
-    // Returns "" when the compiler's version cannot be read: that build is
+    //   - the compiler's identity, `compiler_identity()`: `sawc --build-id`,
+    //     which covers the binary, its std and its runtime, or the first line
+    //     of `--version` for a compiler that does not know the flag
+    // Returns "" when the compiler's identity cannot be read: that build is
     // never up to date, and compiling reports the real failure.
     //
     // ENTRY POINTS:
@@ -316,12 +347,12 @@ extension Builder {
     //   build_sos_image
     public func build_hash(&self, res: &Resolution, layout: &BuildLayout, linker_script: String,
                            native: String, tools: String) -> String {
-        let version = self.compiler_version()
-        if version.is_empty() {
+        let identity = self.compiler_identity()
+        if identity.is_empty() {
             return ""
         }
         var b = StringBuilder()
-        try! b.append("blade-hash-2;")
+        try! b.append("blade-hash-3;")
         try! b.append(read_file("Saw.toml"))
         try! b.append(read_file("Saw.lock"))
         append_tree_saw(&var b, "src")
@@ -365,7 +396,7 @@ extension Builder {
         } else {
             try! b.append("\nsawc-unset\n")
         }
-        try! b.append("\ncompiler-version={version}\n")
+        try! b.append("\ncompiler-identity={identity}\n")
         hash_string(b.build())
     }
 

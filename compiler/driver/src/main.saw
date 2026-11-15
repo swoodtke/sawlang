@@ -44,6 +44,8 @@
 //   sawc tools [--target TRIPLE]   the clang, ld.lld and objcopy the records beside the binary name for the target, as `NAME PATH` lines
 //   sawc [FLAG]... FILE.saw        `sawc build` with the subcommand left out, Stage 0's command line
 //   sawc --version                 `sawc VERSION`, the release a toolchain pin names
+//   sawc --build-id [--std-root DIR]  one line of 64 hex digits that changes with the binary, the std it
+//                                  compiles against, its runtime records and the variables that change a build
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
 // parser's are described in compiler/parse/README.md, the resolver's in
@@ -146,6 +148,8 @@ func driver_usage() -> Int {
     print("       sawc tools [--target TRIPLE]")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
     print("       sawc --version")
+    print("       sawc --build-id [--std-root DIR]   an identity of the compiler, the std it compiles against and its")
+    print("                                          runtime records, for a build tool's freshness check")
     DRIVER_EXIT_USAGE
 }
 
@@ -696,25 +700,42 @@ func driver_beside_binary(command: String, name: String) -> String {
 //     driver_coro
 //     driver_runtime
 func driver_std_root(command: String, given: String) -> String {
+    var root = ""
+    let problem = driver_locate_std_root(command, given, &var root)
+    if problem.len() > 0 {
+        print("{}", problem)
+        return ""
+    }
+    root
+}
+
+// `driver_std_root`'s search, printing nothing: the root lands in `root` and
+// the result is "", or the refusal text, headed by `command`, with `root`
+// left empty. `sawc --build-id` reports the refusal on standard error.
+// ENTRY POINTS:
+//     driver_std_root
+//     driver_build_id
+func driver_locate_std_root(command: String, given: String, root: &var String) -> String {
     if given.len() > 0 {
         let new_std = driver_file_exists(driver_path(given, "prelude.saw", ""))
         let frozen_std = driver_file_exists(driver_path(given, "builtin.saw", ""))
         if new_std || frozen_std {
-            return given
+            root = given
+            return ""
         }
-        print("{}: --std-root {} holds no std: neither prelude.saw (the new std) nor builtin.saw (Stage 0's frozen std) is there", command, given)
-        return ""
+        return "{command}: --std-root {given} holds no std: neither prelude.saw (the new std) nor builtin.saw (Stage 0's frozen std) is there"
     }
-    let root = driver_sawlang_root(command)
-    if root.len() == 0 {
-        return ""
+    var tree = ""
+    let problem = driver_locate_sawlang_root(command, &var tree)
+    if problem.len() > 0 {
+        return problem
     }
-    let found = driver_path(root, "std", "")
+    let found = driver_path(tree, "std", "")
     if not driver_file_exists(driver_path(found, "prelude.saw", "")) {
-        print("{}: no std at {}: the sawlang tree this binary was built in holds no std/prelude.saw; pass --std-root DIR", command, found)
-        return ""
+        return "{command}: no std at {found}: the sawlang tree this binary was built in holds no std/prelude.saw; pass --std-root DIR"
     }
-    found
+    root = found
+    ""
 }
 
 // The runtime root `sawc runtime` reads its sources from: `given`, the
@@ -736,18 +757,30 @@ func driver_rt_root(command: String, given: String) -> String {
 // the `.build/` of the tree it builds. "" once the reason it cannot be found
 // is printed, headed by `command`.
 // ENTRY POINTS:
-//     driver_std_root
+//     driver_locate_std_root
 //     driver_rt_root
 func driver_sawlang_root(command: String) -> String {
+    var root = ""
+    let problem = driver_locate_sawlang_root(command, &var root)
+    if problem.len() > 0 {
+        print("{}", problem)
+        return ""
+    }
+    root
+}
+
+// `driver_sawlang_root`'s search, printing nothing: the tree lands in `root`
+// and the result is "", or the refusal text with `root` left empty.
+func driver_locate_sawlang_root(command: String, root: &var String) -> String {
     let found = Env.executable_path()
     let binary = match found {
         case Ok(path) -> path,
         case Err(e) -> {
-            print("{}: cannot find this executable's path: {}", command, e)
-            return ""
+            return "{command}: cannot find this executable's path: {e}"
         }
     }
-    driver_parent(driver_parent(binary))
+    root = driver_parent(driver_parent(binary))
+    ""
 }
 
 // `path` without its last `/` and what follows it: "." when it has none, and
@@ -2144,6 +2177,13 @@ func driver_cache_warning(text: String) unsafe {
     var line = StringBuilder()
     try! line.append("sawc build: warning: ")
     try! line.append(text)
+    driver_write_error(line.build())
+}
+
+// `text` and a newline on standard error.
+func driver_write_error(text: String) unsafe {
+    var line = StringBuilder()
+    try! line.append(text)
     try! line.append("\n")
     let message = line.build()
     if let bytes = message.c_string() {
@@ -2754,19 +2794,11 @@ func driver_key_text(out: &var StringBuilder, text: String) {
 // ENTRY POINTS:
 //     driver_front_open
 func driver_front_key(front: &DriverFront) unsafe -> String? {
-    let binary = match Env.executable_path() {
-        case Ok(path) -> path,
-        case Err(e) -> {
-            driver_cache_warning("no front cache: cannot find this executable's path: {e}, so std's front end is computed")
-            return None
-        }
-    }
-    let compiler = match driver_read_bytes(binary) {
-        case Ok(bytes) -> driver_object_digest(&bytes),
-        case Err(e) -> {
-            driver_cache_warning("no front cache: cannot read {binary}: {e}, so std's front end is computed")
-            return None
-        }
+    var problem = ""
+    let compiler = driver_binary_digest(&var problem)
+    if problem.len() > 0 {
+        driver_cache_warning("no front cache: {problem}, so std's front end is computed")
+        return None
     }
     let real = match Path(s: front.std_root).canonical() {
         case Ok(p) -> p.as_string(),
@@ -2810,15 +2842,46 @@ func driver_front_key(front: &DriverFront) unsafe -> String? {
     try! head.append("\n")
     let text = head.build()
     hash.update(&text)
+    let unread = driver_hash_std_files(&var hash, front.std_root, &files)
+    if unread.len() > 0 {
+        driver_cache_warning("no front cache: {unread}, so std's front end is computed")
+        return None
+    }
+    hash.finish()
+}
+
+// The hex SHA-256 of the running binary, which both the front cache's key and
+// `sawc --build-id` hold; "" once `problem` says why it cannot be had.
+func driver_binary_digest(problem: &var String) unsafe -> String {
+    let binary = match Env.executable_path() {
+        case Ok(path) -> path,
+        case Err(e) -> {
+            problem = "cannot find this executable's path: {e}"
+            return ""
+        }
+    }
+    match driver_read_bytes(binary) {
+        case Ok(bytes) -> driver_object_digest(&bytes),
+        case Err(e) -> {
+            problem = "cannot read {binary}: {e}"
+            ""
+        }
+    }
+}
+
+// Feeds `hash`, for each of `files` (`driver_front_std_files`' list) under the
+// std root `root`, a line naming its path and length, then its bytes, which
+// is the part of the front cache's key and of `sawc --build-id` that reads
+// std; "" once it is done, else why a file could not be read.
+func driver_hash_std_files(hash: &var Sha256, root: String, files: &Vector<String>) unsafe -> String {
     var k = 0
     while k < files.len() {
         let rel = files[k]
         k = k + 1
-        let bytes = match driver_read_bytes(driver_path(front.std_root, rel, "")) {
+        let bytes = match driver_read_bytes(driver_path(root, rel, "")) {
             case Ok(b) -> b,
             case Err(e) -> {
-                driver_cache_warning("no front cache: cannot read {rel} in the std root: {e}, so std's front end is computed")
-                return None
+                return "cannot read {rel} in the std root: {e}"
             }
         }
         var line = StringBuilder()
@@ -2833,7 +2896,7 @@ func driver_front_key(front: &DriverFront) unsafe -> String? {
         hash.update(&named)
         hash.update(&bytes)
     }
-    hash.finish()
+    ""
 }
 
 // Every `.saw` file std's layer can read under the std root `root`, as paths
@@ -2886,6 +2949,202 @@ func driver_front_walk(root: String, rel: String, out: &var Vector<String>) unsa
         }
     }
     true
+}
+
+// THE BUILD IDENTITY: the one line `sawc --build-id` prints, 64 hex digits of a
+// SHA-256 over everything of the toolchain that decides what `sawc build`
+// makes from a source, for a build tool's freshness check. `given` is the
+// `--std-root` ("" for the default). "" once the reason a part cannot be read
+// is on standard error.
+//
+//   in it                                  why
+//   the format line `sawc-build-id 1`      another recipe never collides
+//   the running binary's SHA-256           the compiler's own behaviour
+//                                          (`driver_binary_digest`)
+//   every `.saw` file of the std root      what a program compiles against, by
+//                                          relative path and bytes
+//                                          (`driver_front_std_files`), never the
+//                                          root's absolute path
+//   each runtime record beside the binary  which clang, linker and objects a
+//   (`sawc-runtime*.txt`), by name and     target uses, and what those objects
+//   bytes, and each object it names, by    are
+//   bytes
+//   `SAWC_CODEGEN_UNITS`, `SAWC_LTO`       the two variables that change what
+//                                          a build produces
+//
+//   not in it                              why
+//   the cache switches and directory       they change how fast a build runs,
+//   (`SAWC_CACHE_DIR`, `SAWC_OBJECT_CACHE`, never what it produces
+//   `SAWC_FRONT_CACHE`, `SAWC_CACHE_ENTRIES`,
+//   `SAWC_FRONT_VERIFY`), `SAW_GATE_JOBS`
+// ENTRY POINTS:
+//     driver_build_id_command
+func driver_build_id(given: String) unsafe -> String {
+    var problem = ""
+    let compiler = driver_binary_digest(&var problem)
+    if problem.len() > 0 {
+        driver_write_error("sawc --build-id: {problem}")
+        return ""
+    }
+    var root = ""
+    problem = driver_locate_std_root("sawc --build-id", given, &var root)
+    if problem.len() > 0 {
+        driver_write_error(problem)
+        return ""
+    }
+    guard let files = driver_front_std_files(root) else {
+        driver_write_error("sawc --build-id: cannot list the std root {root}")
+        return ""
+    }
+    var hash = Sha256()
+    var head = StringBuilder()
+    try! head.append("sawc-build-id 1\ncompiler ")
+    try! head.append(compiler)
+    try! head.append("\nstd\n")
+    let text = head.build()
+    hash.update(&text)
+    problem = driver_hash_std_files(&var hash, root, &files)
+    if problem.len() > 0 {
+        driver_write_error("sawc --build-id: {problem}")
+        return ""
+    }
+    problem = driver_hash_runtime_records(&var hash)
+    if problem.len() > 0 {
+        driver_write_error("sawc --build-id: {problem}")
+        return ""
+    }
+    var settings = StringBuilder()
+    try! settings.append("environment\n")
+    driver_environment_line(&var settings, "SAWC_CODEGEN_UNITS")
+    driver_environment_line(&var settings, "SAWC_LTO")
+    let environment = settings.build()
+    hash.update(&environment)
+    hash.finish()
+}
+
+// `sawc --build-id [--std-root DIR]`: the identity on standard output and
+// status 0, or status 1 with nothing on it; the usage status for anything else.
+func driver_build_id_command(args: &Vector<String>) -> Int {
+    var given = ""
+    var i = 2
+    while i < args.len() {
+        let value = args.get(i + 1) ?? ""
+        if not (args.get(i) ?? "").equals("--std-root") || value.len() == 0 {
+            return driver_usage()
+        }
+        given = value
+        i = i + 2
+    }
+    let id = driver_build_id(given)
+    if id.len() == 0 {
+        return 1
+    }
+    print("{}", id)
+    0
+}
+
+// Feeds `hash` each runtime record in the directory of the running binary
+// (`sawc-runtime.txt` and `sawc-runtime-TRIPLE.txt`, in name order), by name
+// and bytes, then each object a record names (`object PATH`), by bytes; ""
+// when done, else why a file could not be read.
+func driver_hash_runtime_records(hash: &var Sha256) unsafe -> String {
+    let binary = match Env.executable_path() {
+        case Ok(path) -> path,
+        case Err(e) -> {
+            return "cannot find this executable's path: {e}"
+        }
+    }
+    let beside = driver_parent(binary)
+    let entries = match Directory.list(Path(s: beside)) {
+        case Ok(found) -> move found,
+        case Err(e) -> {
+            return "cannot list {beside}: {e}"
+        }
+    }
+    var names = Vector<String>()
+    var k = 0
+    while k < entries.len() {
+        let name = entries[k].file_name() ?? ""
+        k = k + 1
+        let record = name.equals("sawc-runtime.txt") || (name.starts_with("sawc-runtime-") && name.ends_with(".txt"))
+        if record {
+            try! names.push(name)
+        }
+    }
+    names.sort()
+    var n = 0
+    while n < names.len() {
+        let name = names[n]
+        n = n + 1
+        let path = driver_path(beside, name, "")
+        let bytes = match driver_read_bytes(path) {
+            case Ok(b) -> b,
+            case Err(e) -> {
+                return "cannot read {path}: {e}"
+            }
+        }
+        var line = StringBuilder()
+        try! line.append("runtime-record ")
+        driver_key_text(&var line, name)
+        try! line.append(bytes.len())
+        try! line.append("\n")
+        let named = line.build()
+        hash.update(&named)
+        hash.update(&bytes)
+        let record = match bytes.to_string() {
+            case Ok(s) -> s,
+            case Err(_) -> {
+                return "{path} is not valid UTF-8"
+            }
+        }
+        let problem = driver_hash_record_objects(&var hash, record)
+        if problem.len() > 0 {
+            return problem
+        }
+    }
+    ""
+}
+
+// Feeds `hash` the bytes of each object the runtime record `record` names.
+func driver_hash_record_objects(hash: &var Sha256, record: String) unsafe -> String {
+    let lines = try! record.split("\n")
+    var k = 0
+    while k < lines.len() {
+        let line = lines[k]
+        k = k + 1
+        if not line.starts_with("object ") {
+            continue
+        }
+        let path = line.substring(7, line.len())
+        let bytes = match driver_read_bytes(path) {
+            case Ok(b) -> b,
+            case Err(e) -> {
+                return "cannot read the runtime object {path}: {e}"
+            }
+        }
+        var head = StringBuilder()
+        try! head.append("object ")
+        try! head.append(bytes.len())
+        try! head.append("\n")
+        let named = head.build()
+        hash.update(&named)
+        hash.update(&bytes)
+    }
+    ""
+}
+
+// `NAME=value` or `NAME unset` and a newline, appended to `out`; an empty
+// value reads as unset, as every reader of the variable treats it.
+func driver_environment_line(out: &var StringBuilder, name: String) {
+    let value = driver_environment(name)
+    try! out.append(name)
+    if value.len() == 0 {
+        try! out.append(" unset\n")
+    } else {
+        try! out.append("=")
+        try! out.append(value)
+        try! out.append("\n")
+    }
 }
 
 // THE THINLTO CACHE FLAGS: a ThinLTO link keeps each module's optimised
@@ -4008,6 +4267,9 @@ func main() -> Int {
     if command.equals("--version") {
         print("sawc {}", driver_version())
         return 0
+    }
+    if command.equals("--build-id") {
+        return driver_build_id_command(&args)
     }
     if command.equals("--help") {
         driver_usage()

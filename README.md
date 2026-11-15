@@ -758,6 +758,7 @@ sawc fix [--check] FILE...
 sawc runtime (--out DIR | --emit-ll FILE)
 sawc tools [--target TRIPLE]
 sawc --version
+sawc --build-id [--std-root DIR]
 ```
 
 The `-O` level goes to clang and is `-O0` when none is given. `-c` writes an
@@ -766,7 +767,10 @@ freestanding profile, rooted at its `@export`s. `--runtime` builds a program
 that is its own runtime, defining every `__saw_rt_*` seam it reaches (checked
 against `runtime/ABI.md`). `sawc runtime` builds the hosted runtime from
 `runtime/`. `sawc tools` prints the `clang`, `ld.lld` and `objcopy` recorded for
-a target, one `NAME PATH` line each. The spec documents some flags `sawc` does not take yet: the `-W`
+a target, one `NAME PATH` line each. `sawc --build-id` prints one line that
+identifies the compiler binary, the std it compiles against and its runtime
+records, which Blade uses to tell a rebuilt toolchain from the one that made
+the last build. The spec documents some flags `sawc` does not take yet: the `-W`
 categories other than `borrow-prefix` (SL-879) and `--emit-docs` (SL-880).
 
 ## Running tests
@@ -815,10 +819,11 @@ what the build reads and chooses matches the one the last build recorded: the
 manifest and lock, every `.saw` file under the package's `src` and each
 dependency's `src`, a root `main.saw`, each dependency's `Saw.toml`, an image's
 native units, the `SAWC` command, the C compiler and linker an image build
-runs, and the first line of `sawc --version`. A header a native unit includes
-is not tracked, and neither is a compiler whose version is unchanged (a
-rebuilt development compiler, an edited `std/`): `--force` rebuilds in both
-cases.
+runs, and the compiler's identity: the line `sawc --build-id` prints, which
+covers the compiler binary, its std and its runtime records, or the first line
+of `sawc --version` for a compiler that does not know the flag. A rebuilt
+development compiler or an edited `std/` therefore rebuilds. A header a native
+unit includes is not tracked: `--force` rebuilds.
 
 A project declares dependencies in its `Saw.toml`:
 

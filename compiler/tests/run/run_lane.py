@@ -91,6 +91,11 @@ run of it, built against its own std.
   directory, compile against the new std of the tree sawc was built in; a
   copy of sawc in a tree with no `std/`, and an explicit root holding no
   std, each refuse with exit status 2, naming the path;
+- `sawc --build-id` prints one line of 64 hexadecimal digits and exits 0,
+  the same twice in a row and with `--std-root` naming a copy of `std/`;
+  one byte of a std file of the copy, or another `SAWC_LTO`, makes another,
+  and another `SAWC_CACHE_DIR` does not; a root holding no std exits 1 with
+  nothing on standard output;
 - a generated accessor with a local live across its `lend` and 1100 `if`s
   after it, which Stage 0 cannot parse, is held as a stated probe to the `42`
   and `5` it prints;
@@ -1179,6 +1184,136 @@ def check_scratch_files(failures, counts):
             failures.append("run scratch files (%s): a file named prog.tool that was there before the build is %s "
                             "after it" % (label, "gone" if kept is None else "changed to %r" % kept[:80]))
     counts["run scratch file cases"] = len(cases)
+
+
+def check_build_id(failures, counts):
+    """`sawc --build-id` prints one line of 64 hexadecimal digits and exits 0,
+    the same twice in a row; with `--std-root` naming a copy of `std/` it is
+    the same as without, and one byte of one std file of the copy changed
+    makes another; another `SAWC_LTO` makes another, and another
+    `SAWC_CACHE_DIR` the same. Each of the other parts of the identity has a
+    case: a copy of the binary beside copies of its runtime records is the
+    original's identity, a line added to a record makes another, one byte added
+    to a copy of an object a record names makes another, and that object gone
+    is a refusal; the other stage's binary has another identity, as does
+    `SAWC_CODEGEN_UNITS=1`, and an empty one is the same as none. The twin's
+    wrapper has no binary of its own to ask, so the whole check is left out
+    under one (`NOT_UNDER_TWIN`, SL-1102)."""
+    work = os.path.join(OUT, "build-id")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    std = os.path.join(work, "std")
+    shutil.copytree(build.STD_ROOT, std)
+
+    def identity(label, args=(), extra=None, binary=None):
+        env = dict(os.environ)
+        for name in ("SAWC_LTO", "SAWC_CODEGEN_UNITS"):
+            env.pop(name, None)
+        env.update(extra or {})
+        r = subprocess.run([binary or build.SAWC, "--build-id"] + list(args), cwd=work, capture_output=True,
+                           text=True, timeout=BUILD_TIMEOUT, env=env)
+        lines = r.stdout.splitlines()
+        if r.returncode != 0 or len(lines) != 1 or not re.fullmatch(r"[0-9a-f]{64}", lines[0]):
+            failures.append("run build id (%s): exits %d printing %r, not one line of 64 hexadecimal digits "
+                            "and status 0: %s" % (label, r.returncode, r.stdout[:200], r.stderr.strip()[:200]))
+            return None
+        return lines[0]
+
+    plain = identity("plain")
+    if plain is None:
+        return
+    again = identity("again")
+    if again != plain:
+        failures.append("run build id: two calls print %s and %s" % (plain, again))
+    copied = identity("a copy of std/", ["--std-root", std])
+    if copied != plain:
+        failures.append("run build id: --std-root naming a copy of std/ prints %s, not %s" % (copied, plain))
+    edited = os.path.join(std, "vector.saw")
+    with open(edited, "ab") as fh:
+        fh.write(b"\n")
+    changed = identity("one byte of std changed", ["--std-root", std])
+    if changed is not None and changed == plain:
+        failures.append("run build id: one byte added to a std file of the copy leaves the identity %s" % plain)
+    other_lto = identity("another SAWC_LTO", extra={"SAWC_LTO": "full"})
+    if other_lto is not None and other_lto == plain:
+        failures.append("run build id: SAWC_LTO=full leaves the identity %s" % plain)
+    caches = identity("another SAWC_CACHE_DIR", extra={"SAWC_CACHE_DIR": os.path.join(work, "cache")})
+    if caches is not None and caches != plain:
+        failures.append("run build id: another SAWC_CACHE_DIR prints %s, not %s" % (caches, plain))
+    units = identity("SAWC_CODEGEN_UNITS=1", extra={"SAWC_CODEGEN_UNITS": "1"})
+    if units is not None and units == plain:
+        failures.append("run build id: SAWC_CODEGEN_UNITS=1 leaves the identity %s" % plain)
+    no_units = identity("SAWC_CODEGEN_UNITS empty", extra={"SAWC_CODEGEN_UNITS": ""})
+    if no_units is not None and no_units != plain:
+        failures.append("run build id: an empty SAWC_CODEGEN_UNITS prints %s, not %s" % (no_units, plain))
+    stages = [os.path.realpath(path) for path in (build.STAGE1, build.STAGE2)]
+    others = [path for path in stages if path != os.path.realpath(build.SAWC) and os.path.exists(path)]
+    if not others:
+        failures.append("run build id: no second stage binary to ask beside %s" % rel(build.SAWC))
+    else:
+        other = identity("the other stage", binary=others[0])
+        if other is not None and other == plain:
+            failures.append("run build id: %s prints the identity of %s, %s" % (rel(others[0]), rel(build.SAWC), plain))
+    beside = os.path.dirname(os.path.realpath(build.SAWC))
+    records = sorted(glob.glob(os.path.join(beside, "sawc-runtime*.txt")))
+    copy_dir = os.path.join(work, "bin")
+    os.makedirs(copy_dir)
+    copy = os.path.join(copy_dir, "sawc")
+    shutil.copy(build.SAWC, copy)
+    for path in records:
+        shutil.copy(path, copy_dir)
+    names = {}
+    for path in records:
+        with open(path) as fh:
+            names[path] = [line[len("object "):].rstrip("\n") for line in fh if line.startswith("object ")]
+    host = max(records, key=lambda path: len(names[path])) if records else None
+    if not host or not names[host]:
+        failures.append("run build id: no runtime record beside %s names an object" % rel(build.SAWC))
+    else:
+        root = ["--std-root", build.STD_ROOT]
+        copied_binary = identity("a copy of the binary and its records", root, binary=copy)
+        if copied_binary is not None and copied_binary != identity("the original", root):
+            failures.append("run build id: a copy of the binary beside copies of its records prints %s, not the "
+                            "original's" % copied_binary)
+        record = os.path.join(copy_dir, os.path.basename(host))
+        with open(record) as fh:
+            text = fh.read()
+        with open(record, "a") as fh:
+            fh.write("# a line\n")
+        edited_record = identity("a line added to a record", root, binary=copy)
+        if edited_record is not None and edited_record == copied_binary:
+            failures.append("run build id: a line added to %s leaves the identity %s"
+                            % (os.path.basename(host), copied_binary))
+        object_dir = os.path.join(copy_dir, "objects")
+        os.makedirs(object_dir)
+        for k, path in enumerate(names[host]):
+            moved = os.path.join(object_dir, "%d_%s" % (k, os.path.basename(path)))
+            shutil.copy(path, moved)
+            text = text.replace("object " + path, "object " + moved)
+        with open(record, "w") as fh:
+            fh.write(text)
+        baseline = identity("a record naming copies of its objects", root, binary=copy)
+        target = os.path.join(object_dir, "0_%s" % os.path.basename(names[host][0]))
+        with open(target, "ab") as fh:
+            fh.write(b"\0")
+        edited_object = identity("one byte added to a copied object", root, binary=copy)
+        if baseline is not None and edited_object is not None and edited_object == baseline:
+            failures.append("run build id: one byte added to a copy of %s leaves the identity %s"
+                            % (os.path.basename(names[host][0]), baseline))
+        os.remove(target)
+        r = subprocess.run([copy, "--build-id"] + root, cwd=work, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        if r.returncode != 1 or r.stdout or "cannot read the runtime object" not in r.stderr:
+            failures.append("run build id: a record naming an object that is gone exits %d printing %r on standard "
+                            "output and %r on standard error, not 1, nothing and a refusal"
+                            % (r.returncode, r.stdout[:200], r.stderr[:200]))
+    r = subprocess.run([build.SAWC, "--build-id", "--std-root", os.path.join(work, "nowhere")], cwd=work,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 1 or r.stdout or "holds no std" not in r.stderr:
+        failures.append("run build id: a root holding no std exits %d printing %r on standard output and %r on "
+                        "standard error, not 1, nothing and a refusal" % (r.returncode, r.stdout[:200],
+                                                                          r.stderr[:200]))
+    counts["run build id cases"] = 14
 
 
 TIME_STAGES_SOURCE = """func main() {
@@ -4705,6 +4840,7 @@ NOT_UNDER_TWIN = (
     (check_front_layers, True, "it counts one compiler's cache parts and expects the other stage to miss them"),
     (check_link_arguments, True, "it copies the binary beside made-up runtime records, and the twin is a wrapper "
                                  "with no record beside it"),
+    (check_build_id, True, "its output is the running binary's own digest, which the two stages never share"),
 )
 
 
@@ -4770,6 +4906,7 @@ def run(names=None, write=False):
         check_default_std_root(failures, counts)
         check_default_output(failures, counts)
         check_scratch_files(failures, counts)
+        run_check(check_build_id, failures, counts)
         check_time_stages(failures, counts)
         check_codegen_units(failures, counts)
         check_unit_stability(failures, counts)
