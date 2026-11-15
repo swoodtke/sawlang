@@ -174,6 +174,10 @@ OWNERSHIP = (
             CORPUS + "optional_payload_read_retains.saw",
             CORPUS + "conformance/V99_every_payload_read_retains_once.saw",
             CORPUS + "optional_field_store_retain.saw",
+            # An Optional compared with a bare value at every payload tier, no
+            # wrapper built and nothing released twice (SL-1124).
+            CORPUS + "conformance/C15_optional_compared_with_value.saw",
+            CORPUS + "conformance/C16_generic_optional_compared_with_value.saw",
             # A String scrutinee matched against literals, then used again.
             CORPUS + "match_string_scrutinee_refcount.saw",
             # Each owning element of a destructured tuple drops once.

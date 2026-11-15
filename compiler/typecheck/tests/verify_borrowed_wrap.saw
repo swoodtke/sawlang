@@ -1,0 +1,233 @@
+// The body verifier admits `s == want` with `s: String?` and `want: String`
+// (a builtin comparison) and the same over a type with a declared `equals`,
+// as typecheck leaves them: no wrap on the bare operand and the comparison's
+// record naming the Optional operand. It reports a wrap re-added to the
+// borrowed operand (a `Some`, an `Ok` or an `Err`), a record whose Optional
+// operand is the comparison itself, one that names the bare operand, one on a
+// call that is no equality, and one on a comparison of two Optionals. The
+// verifier reads no text, so the fixture
+// `compiler/tests/typecheck/inject/borrowed_wrap.saw` is checked clean, then
+// edited. Paths are the repository root's, where the runner runs.
+// For the extension writing `first_node_child`.
+import sawresolve.collect.{res_is_top_level}
+// For the extension writing `add_adjust`.
+import sawtypecheck.adjust.{TC_FIT_EXACT}
+import sawtypecheck.api.{typecheck_program}
+import sawtarget.layout.{target_front_end}
+import sawtypecheck.bodyverify.{tc_verify_bodies}
+import sawtypecheck.model.{TcAdjustKind, TcRole}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.types.{TcKind}
+
+func fixture() -> String {
+    "compiler/tests/typecheck/inject/borrowed_wrap.saw"
+}
+
+// The index of module `name`, or -1.
+func module_index(p: &TcProgram, name: String) -> Int {
+    var m = 0
+    while m < p.res.module_count() {
+        if p.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// The record of the first, or the last, comparison of module `m` that names an
+// Optional operand, or -1.
+func present_comparison(p: &TcProgram, m: Int, last: Bool) -> Int {
+    let base = p.res.modules[m].node_base
+    let end = base + p.res.modules[m].node_count
+    var found = -1
+    var k = 0
+    while k < p.calls.len() {
+        let node = p.calls[k].node
+        if p.calls[k].optional_operand >= 0 && node >= base && node < end {
+            if found < 0 || last {
+                found = k
+            }
+        }
+        k = k + 1
+    }
+    found
+}
+
+// The record of the first call of module `m` that is a plain call, or -1.
+func plain_call(p: &TcProgram, m: Int) -> Int {
+    let base = p.res.modules[m].node_base
+    let end = base + p.res.modules[m].node_count
+    var k = 0
+    while k < p.calls.len() {
+        let node = p.calls[k].node
+        let plain = p.calls[k].optional_operand < 0 && p.calls[k].role == TcRole.Call && p.calls[k].target >= 0
+        if plain && node >= base && node < end {
+            return k
+        }
+        k = k + 1
+    }
+    -1
+}
+
+// Whether type `t` is an Optional.
+func is_optional_type(p: &TcProgram, t: Int) -> Bool {
+    let info = p.types.ty(t)
+    info.kind == TcKind.Nominal && info.decl == p.known.optional
+}
+
+// The record of the first call of module `m` whose two operands are both
+// Optionals, a comparison of two of them, or -1.
+func two_optionals(p: &TcProgram, m: Int) -> Int {
+    let base = p.res.modules[m].node_base
+    let end = base + p.res.modules[m].node_count
+    var k = 0
+    while k < p.calls.len() {
+        let node = p.calls[k].node
+        if p.calls[k].optional_operand < 0 && node >= base && node < end {
+            let left = p.res.first_node_child(node)
+            let right = p.res.last_node_child(node)
+            if left >= 0 && right >= 0 && left != right {
+                if is_optional_type(&p, p.expr_types[left]) && is_optional_type(&p, p.expr_types[right]) {
+                    return k
+                }
+            }
+        }
+        k = k + 1
+    }
+    -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` hold `word`.
+func reporting(found: &Vector<String>, word: String) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, word) {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// The problems the verifier finds after record `which` (the first or last
+// comparison) is edited: `how` 0 re-adds the `Some` wrap on the bare operand,
+// 1 names the comparison itself as the Optional operand, 2 names the bare
+// operand, 3 and 4 re-add an `Ok` and an `Err` wrap on the bare operand.
+func edited(which: Bool, how: Int) -> Vector<String> {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = typecheck_program(fixture(), "std", &names, &dirs, target: target_front_end("arm64-apple-darwin", ""))
+    let m = module_index(&p, "borrowed_wrap")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    let k = present_comparison(&p, m, which)
+    assert(k >= 0, "the fixture's comparison names no Optional operand")
+    let node = p.calls[k].node
+    let left = p.res.first_node_child(node)
+    let right = p.res.last_node_child(node)
+    let optional = p.calls[k].optional_operand
+    let bare = if optional == left { right } else { left }
+    if how == 0 {
+        p.add_adjust(bare, TcAdjustKind.Some, p.expr_types[optional])
+    } else if how == 3 || how == 4 {
+        var args = Vector<Int>()
+        try! args.push(p.expr_types[bare])
+        try! args.push(p.expr_types[bare])
+        let none = Vector<Int>()
+        let result = p.types.intern(TcKind.Nominal, p.known.result, 0, 0, &args, &none)
+        p.add_adjust(bare, if how == 3 { TcAdjustKind.Ok } else { TcAdjustKind.Err }, result)
+    } else if how == 1 {
+        p.calls[k].optional_operand = node
+    } else {
+        p.calls[k].optional_operand = bare
+    }
+    return tc_verify_bodies(&p, m)
+}
+
+// The problems the verifier finds after the record of a node that is no
+// comparison of an Optional with a bare value is edited: `how` 0 puts a record
+// on a plain call, 1 names the left operand of a comparison of two Optionals,
+// whose payload is no `String`, as its Optional operand.
+func edited_elsewhere(how: Int) -> Vector<String> {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = typecheck_program(fixture(), "std", &names, &dirs, target: target_front_end("arm64-apple-darwin", ""))
+    let m = module_index(&p, "borrowed_wrap")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    if how == 0 {
+        let k = plain_call(&p, m)
+        assert(k >= 0, "the fixture has no plain call")
+        p.calls[k].optional_operand = p.res.first_node_child(p.calls[k].node)
+    } else {
+        let k = two_optionals(&p, m)
+        assert(k >= 0, "the fixture has no comparison of two Optionals")
+        p.calls[k].optional_operand = p.res.first_node_child(p.calls[k].node)
+    }
+    return tc_verify_bodies(&p, m)
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    let p = typecheck_program(fixture(), "std", &names, &dirs, target: target_front_end("arm64-apple-darwin", ""))
+    let m = module_index(&p, "borrowed_wrap")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    let clean = tc_verify_bodies(&p, m)
+    assert(clean.len() == 0, "the verifier refuses a comparison of an Optional with a bare value")
+
+    // The builtin String comparison, then the declared `equals`'s.
+    var which = 0
+    while which < 2 {
+        let last = which == 1
+        // A wrap also changes the bare operand's type, so the comparison's own
+        // check reports a second problem; these count the wrap's.
+        let wrapped = edited(last, 0)
+        assert(reporting(&wrapped, "a borrowed value is wrapped in a case") == 1,
+               "the verifier admits a wrap on a borrowed operand")
+        let ok = edited(last, 3)
+        assert(reporting(&ok, "a borrowed value is wrapped in a case") == 1,
+               "the verifier admits an `Ok` wrap on a borrowed operand")
+        let err = edited(last, 4)
+        assert(reporting(&err, "a borrowed value is wrapped in a case") == 1,
+               "the verifier admits an `Err` wrap on a borrowed operand")
+        let named = edited(last, 1)
+        assert(named.len() == 1 && reporting(&named, "is not one of its operands") == 1,
+               "the verifier admits an Optional operand that is no operand")
+        let moved = edited(last, 2)
+        assert(moved.len() == 1 && reporting(&moved, "operands are not an Optional and its payload") == 1,
+               "the verifier admits the bare operand as the Optional one")
+        which = which + 1
+    }
+
+    // A record where the node is no equality, then on a comparison of two
+    // Optionals, whose named operand's payload is not the other's type.
+    let call = edited_elsewhere(0)
+    assert(call.len() == 1 && reporting(&call, "recorded on a node that is not an equality") == 1,
+           "the verifier admits a record on a node that is no equality")
+    let pair = edited_elsewhere(1)
+    assert(pair.len() == 1 && reporting(&pair, "operands are not an Optional and its payload") == 1,
+           "the verifier admits an Optional named against an Optional")
+}

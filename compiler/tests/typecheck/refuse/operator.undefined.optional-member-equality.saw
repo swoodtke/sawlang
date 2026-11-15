@@ -1,0 +1,14 @@
+// refuses: operator.undefined at 13:17
+// An Optional compared with a bare value of its payload type is present and
+// equal, which needs the payload to compare; an `equals` declared on
+// `Optional` itself does not answer it, since that would wrap the borrowed
+// bare operand in a `Some` holding a reference (SL-1124).
+struct Name { text: String }
+extension Optional {
+    func equals(&self, other: &Self) -> Bool { true }
+}
+func main() {
+    let s: Name? = Name(text: "a")
+    let want = Name(text: "a")
+    print("{}", s == want)
+}

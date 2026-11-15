@@ -1,0 +1,60 @@
+// Conformance row C16 — `T? == T` in a generic body
+//
+// The same rule as C15 in a body that knows its payload only as `T: Equatable`:
+// `a == b` means "a holds a value, and it equals b", compared in place, at a
+// String, a NoCopy type and an Int. It is wrong at `Int` too if the generic
+// body wraps `b` by reference.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// string true false false
+// string differ false true true
+// int true false false
+// int differ false true true
+// drop a
+// drop a
+// drop a
+// drop b
+// drop a
+// tag true false false
+// tag differ false true
+// drop c
+// drop c
+
+struct Tag { id: String }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+
+func same<T: Equatable>(a: T?, b: T) -> Bool {
+    a == b
+}
+
+func differ<T: Equatable>(a: &T?, b: &T) -> Bool {
+    a != b
+}
+
+func main() {
+    let sa: String? = "x"
+    let sb: String? = "y"
+    let sn: String? = None
+    let sv = "x"
+    print("string {} {} {}", same(sa, sv), same(sb, sv), same(sn, sv))
+    let sref = "x"
+    print("string differ {} {} {}", differ(&sa, &sref), differ(&sb, &sref), differ(&sn, &sref))
+
+    let ia: Int? = 3
+    let ib: Int? = 4
+    let inone: Int? = None
+    print("int {} {} {}", same(ia, 3), same(ib, 3), same(inone, 3))
+    let three = 3
+    print("int differ {} {} {}", differ(&ia, &three), differ(&ib, &three), differ(&inone, &three))
+
+    print("tag {} {} {}", same(Tag(id: "a"), Tag(id: "a")), same(Tag(id: "b"), Tag(id: "a")), same(None, Tag(id: "a")))
+    let ta: Tag? = Tag(id: "c")
+    let tn: Tag? = None
+    let tc = Tag(id: "c")
+    print("tag differ {} {}", differ(&ta, &tc), differ(&tn, &tc))
+}

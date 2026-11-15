@@ -313,6 +313,7 @@ whose docstring lists them), each covered by a golden case:
 | a builtin's arguments: `print`, `panic`, `assert`, a builtin method | `builtin_operand` | operands, drops |
 | a format argument, an interpolated segment | `format_operand` | operands, drops |
 | a declared `equals` or `compare` a comparison calls | `operator_call` | operands |
+| an Optional compared with a bare value of its payload type: both operands, as the payload comparison reads them, before the tag test | `present_comparison` | optional_compared |
 | a conversion's argument, `as` | `conversion_operand` | operands |
 
 **Transfers**: a spelled `move` and a generic local's single-path read moves

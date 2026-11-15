@@ -6,7 +6,9 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**820 rows**, when SL-1090 added V173, a lone raw-backed case refused through
+**823 rows**, when SL-1124 added C15-C17, an Optional compared with a bare
+value of its payload type, in a concrete and a generic body, and the refusals
+beside it, C17 owed to the self-hosted compiler; previously **820 rows**, when SL-1090 added V173, a lone raw-backed case refused through
 an `Optional` or a `Result`, which carries two files here; previously **819 rows**, when SL-1087 added V172, an error enum's case in a `Result`
 slot, which carries a file here; previously **818 rows**, when SL-1018 added
 V170-V171, the `@synthesize` copy-policy refusals, both owed to the
@@ -1063,6 +1065,9 @@ is comparable, and it is sound.
 | C12 | a comparison destroys neither operand, at any tier | `C12_implicitcopy_operand_survives_consuming_equals.saw` | 239 — the eighth position, past the seven the class sweep probed. The stopgap excluded the Copy tier on the premise that retain semantics made the borrow sound; probed, the retain was never there, so 200 comparisons over-released a heap `String` (SIGTRAP on macOS, tolerated by glibc). The row pins the PROPERTY, and the reference satisfies it at every tier at once |
 | C13 | an Equatable/Comparable conformance must take `other` by reference | `C13_comparison_conformance_must_borrow.saw` | 239 — the declaration-site half. The rule is general (a conformance's parameters mirror the requirement's borrows, both directions, `&` vs `&var` included) and reference-ness only; parameter types were previously not compared at all |
 | C14 | a comparison body cannot consume its operand | `C14_comparison_body_cannot_consume_operand.saw` | 239 — the by-construction half, and why the class is closed rather than guarded: `move other` is the ordinary "cannot move out of reference", reported in the body at the line that wrote it |
+| C15 | `==` and `!=` of an Optional with a bare value of its payload type mean "present and the payload equals", compared in place, and destroy neither operand: a `String`, a Copy-tier struct holding a String, an enum with a payload, an ExplicitCopy and a NoCopy type with a hand `equals`, a nested Optional; the bare side a binding, a parameter, a `&` parameter, a field, an index, a call's result; the Optional on either side; a right operand that changes the Optional the left operand names is read after the left, which sees the value from before the call | `C15_optional_compared_with_value.saw`, and at `-O2` `C15b_optional_compared_with_value_O2.saw` | SL-1124: the bare operand was wrapped in a `Some` that held a REFERENCE to it, compared through the Optional's `equals` and then dropped as if it owned the payload (wrong answers, out-of-bounds reads, over-releases) |
+| C16 | the same in a GENERIC body, `T? == T` under `T: Equatable`, at a String, a NoCopy type and `Int` | `C16_generic_optional_compared_with_value.saw` | SL-1124: wrong even at `Int` (the generic body wrapped a `&T`) |
+| C17 | an ordering of an Optional with a bare value, or an equality whose payload is not `Equatable`, is refused even where a member an extension declares on `Optional` would answer it | owed to the self-hosted compiler (SL-1124): `compiler/tests/typecheck/refuse/operator.undefined.optional-member-ordering.saw`, `operator.undefined.optional-member-equality.saw` | SL-1124: answering it wraps the borrowed operand by reference |
 
 ## Shadowing
 

@@ -1,0 +1,60 @@
+// An Optional compared with a bare value of its payload type (SL-1124): both
+// operands are read as two payloads would be, the Optional's tag is tested
+// where it lies, and on the present edge its payload is compared in place;
+// the absent edge answers `false`, and `!=` negates the joined answer. No
+// Optional is built around the bare operand, so nothing is copied and no
+// reference stands where a payload belongs: a builtin payload comparison
+// reads borrowed values, a declared `equals` takes two references, the
+// Optional on either side, and a generic body asks its bound at `T`.
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+
+enum Kind { case Named(text: String), case Blank }
+@synthesize
+extension Kind: Equatable {}
+
+func make(id: Int) -> String {
+    "k{id}"
+}
+
+func same_binding(id: Int) -> Bool {
+    let s: String? = "i{id}"
+    let want = "i{id}"
+    s == want
+}
+
+func differs(n: Int?, want: Int) -> Bool {
+    n != want
+}
+
+func fresh_right(s: String?, id: Int) -> Bool {
+    s == make(id)
+}
+
+func move_only(t: Tag?, want: &Tag) -> Bool {
+    t == want
+}
+
+func member_left(k: Kind?) -> Bool {
+    .Named(text: "x") == k
+}
+
+func same<T: Equatable>(a: T?, b: T) -> Bool {
+    a == b
+}
+
+// The right operand changes the Optional the left one names, so the left is
+// read into a temporary before the call runs.
+func bump(o: &var Int?, to: Int) -> Int {
+    o = to
+    to
+}
+
+func right_changes(start: Int?) -> Bool {
+    var o = start
+    return o == bump(&var o, 9)
+}

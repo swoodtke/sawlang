@@ -9,8 +9,12 @@
 //   - every call has a target and a complete instantiation naming only type
 //     parameters its body sees, and a call the overload filter resolved a
 //     total argument binding;
+//   - every call record that names an Optional operand sits on an `==` or
+//     `!=` and names one of that node's own two operands, whose type is the
+//     Optional of the other's;
 //   - every closure records a capture of each enclosing binding it names;
-//   - every adjustment chain composes, each step's source the last's result;
+//   - every adjustment chain composes, each step's source the last's result,
+//     and wraps no value a position borrows in a case;
 //   - every catch block's `error` binding has a type;
 //   - every type written in a body was built exactly once, and resolved.
 // Nothing under a construct refused as outside the slice is asked about.
@@ -183,6 +187,12 @@ extension TcProgram {
             }
             if self.is_call_node(id) {
                 self.verify_call(&var problems, m, id, d, refused)
+            }
+            if not refused && id < self.call_at.len() && self.call_at[id] >= 0 {
+                let c = self.calls[self.call_at[id]]
+                if c.optional_operand >= 0 {
+                    self.verify_optional_operand(&var problems, m, id, &c)
+                }
             }
             let n = self.child_count(id)
             var c = n - 1
@@ -446,6 +456,13 @@ extension TcProgram {
                 self.body_problem(&var problems, m, id, "an adjustment chain does not compose")
                 return
             }
+            // A borrowed value stays where it lies, so a case built around it
+            // would hold a reference where its payload belongs (SL-1124).
+            let wraps = adj.kind == TcAdjustKind.Some || adj.kind == TcAdjustKind.Ok || adj.kind == TcAdjustKind.Err
+            if not refused && wraps && u == TcUse.Borrow {
+                self.body_problem(&var problems, m, id, "a borrowed value is wrapped in a case")
+                return
+            }
             from = adj.to
             a = adj.next
         }
@@ -551,6 +568,58 @@ extension TcProgram {
         if c.role == TcRole.Call || c.role == TcRole.Memberwise || c.role == TcRole.Case {
             self.verify_binding(&var problems, m, id, &c)
         }
+    }
+
+    // A present-and-equal comparison's record, on any node that has a record
+    // and whatever its target: it sits on an `==` or `!=`, and names one of
+    // the node's own two operands, an Optional whose payload type is the
+    // other's, each read through any references. The one site of the check.
+    func verify_optional_operand(&self, problems: &var Vector<String>, m: Int, id: Int, c: &TcCall) {
+        let left = self.res.first_node_child(id)
+        let right = self.res.last_node_child(id)
+        if not self.is_equality_node(m, id) {
+            self.body_problem(&var problems, m, id, "an optional operand is recorded on a node that is not an equality")
+            return
+        }
+        let o = c.optional_operand
+        if o != left && o != right {
+            self.body_problem(&var problems, m, id, "a comparison's Optional operand is not one of its operands")
+            return
+        }
+        let other = if o == left { right } else { left }
+        let optional = self.read_through(self.final_type(o))
+        let bare = self.read_through(self.final_type(other))
+        if not self.is_optional(optional) || self.arg_of(optional, 0) != bare {
+            self.body_problem(&var problems, m, id, "a present-and-equal comparison's operands are not an Optional and its payload")
+        }
+    }
+
+    // Whether node `id` is a comparison of two operands whose operator is
+    // `==` or `!=`.
+    func is_equality_node(&self, m: Int, id: Int) -> Bool {
+        if not self.has_alt(id, Alt.Expr_Compare_Pair) {
+            return false
+        }
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if self.is_leaf(c) {
+                let op = self.text(m, c)
+                return op.equals("==") || op.equals("!=")
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Type `t` read through every reference it is.
+    func read_through(&self, t: Int) -> Int {
+        var x = t
+        while x >= 0 && self.referent(x) >= 0 {
+            x = self.referent(x)
+        }
+        x
     }
 
     // A resolved call's argument binding is total: every written argument

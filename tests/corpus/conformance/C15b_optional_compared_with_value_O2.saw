@@ -1,0 +1,499 @@
+// Conformance row C15 (at -O2) — `==` and `!=` of an Optional with a bare
+// value of its payload type
+//
+// `s == want` with `s: T?` and `want: T` means "s holds a value, and it equals
+// want". Both operands are compared in place: no `Some` is built around the
+// bare side, nothing is copied, and neither operand is destroyed early or
+// twice. Per payload tier the cells are the bare side (a local, a parameter, a
+// `&` parameter, a field, an index, a call's result) against a present equal
+// Optional, a present unequal one and an absent one. Each row prints `==` of
+// equal values, `!=` of unequal ones, `==` of an absent one and `!=` of an
+// absent one: true true false true. The NoCopy `Tag` prints each destruction.
+// The last row, `right_changes`, is a comparison whose right operand changes the
+// Optional its left operand names: it sees the value from before the call.
+// The same program as C15 compiled at -O2, where the defect died on a signal.
+// COMPILE-FLAGS: -O2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int true
+// literal true
+// binding true
+// differs true
+// s_local true true false true
+// s_param true true false true
+// s_ref true true false true
+// s_field true true false true
+// s_index true true false true
+// s_call true true false true
+// t_local true true false true
+// t_param true true false true
+// t_ref true true false true
+// t_field true true false true
+// t_index true true false true
+// t_call true true false true
+// e_local true true false true
+// e_param true true false true
+// e_ref true true false true
+// e_field true true false true
+// e_index true true false true
+// e_call true true false true
+// e_right true true false true
+// b_local true true false true
+// b_param true true false true
+// b_ref true true false true
+// b_field true true false true
+// b_index true true false true
+// b_call true true false true
+// drop i7
+// drop i7
+// drop i7
+// drop i8
+// drop i7
+// drop i7
+// g_local true true false true
+// drop i7
+// drop i7
+// drop i8
+// drop i7
+// drop i7
+// drop i7
+// g_param true true false true
+// drop i7
+// drop i7
+// drop i8
+// drop i7
+// drop i7
+// drop i7
+// g_ref true true false true
+// drop i7
+// drop i7
+// drop i7
+// drop i8
+// drop i7
+// drop i7
+// g_field true true false true
+// drop i7
+// drop i7
+// drop i7
+// drop i8
+// drop i7
+// drop i7
+// g_index true true false true
+// drop i7
+// drop i7
+// drop i7
+// drop i8
+// drop i7
+// drop i7
+// g_call true true false true
+// o_local true true false true
+// o_call true true false true
+// right_changes true 9 false 1 true false false 3
+
+// ---- the four shapes the defect was reported with
+
+func same_binding(id: Int) -> Bool {
+    let s: String? = "i{id}"
+    let want = "i{id}"
+    s == want
+}
+
+func differs(id: Int) -> Bool {
+    let s: String? = "i{id}"
+    let want = "j{id}"
+    s != want
+}
+
+func same_literal(id: Int) -> Bool {
+    let s: String? = "i{id}"
+    s == "i7"
+}
+
+func same_int(id: Int) -> Bool {
+    let n: Int? = id
+    let want = id
+    n == want
+}
+
+// ---- String
+
+func s_mk(n: Int) -> String {
+    "i{n}"
+}
+func s_opt(n: Int) -> String? {
+    if n == 0 { return None }
+    return s_mk(n)
+}
+struct SHolder { w: String }
+extension SHolder: NoCopy {}
+func s_local(n: Int, ne: Bool) -> Bool {
+    let s = s_opt(n)
+    let want = s_mk(7)
+    if ne { return s != want }
+    return s == want
+}
+func s_param_in(want: String, n: Int, ne: Bool) -> Bool {
+    let s = s_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func s_param(n: Int, ne: Bool) -> Bool {
+    s_param_in(s_mk(7), n, ne)
+}
+func s_ref_in(want: &String, n: Int, ne: Bool) -> Bool {
+    let s = s_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func s_ref(n: Int, ne: Bool) -> Bool {
+    let w = s_mk(7)
+    return s_ref_in(&w, n, ne)
+}
+func s_field(n: Int, ne: Bool) -> Bool {
+    let s = s_opt(n)
+    let h = SHolder(w: s_mk(7))
+    if ne { return s != h.w }
+    return s == h.w
+}
+func s_index(n: Int, ne: Bool) -> Bool {
+    let s = s_opt(n)
+    var v = Vector<String>()
+    try! v.push(s_mk(7))
+    if ne { return s != v[0] }
+    return s == v[0]
+}
+func s_call(n: Int, ne: Bool) -> Bool {
+    let s = s_opt(n)
+    if ne { return s != s_mk(7) }
+    return s == s_mk(7)
+}
+
+// ---- a Copy-tier struct holding a String
+
+struct Tier { name: String }
+@synthesize
+extension Tier: Equatable {}
+func t_mk(n: Int) -> Tier {
+    Tier(name: "i{n}")
+}
+func t_opt(n: Int) -> Tier? {
+    if n == 0 { return None }
+    return t_mk(n)
+}
+struct THolder { w: Tier }
+extension THolder: NoCopy {}
+func t_local(n: Int, ne: Bool) -> Bool {
+    let s = t_opt(n)
+    let want = t_mk(7)
+    if ne { return s != want }
+    return s == want
+}
+func t_param_in(want: Tier, n: Int, ne: Bool) -> Bool {
+    let s = t_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func t_param(n: Int, ne: Bool) -> Bool {
+    t_param_in(t_mk(7), n, ne)
+}
+func t_ref_in(want: &Tier, n: Int, ne: Bool) -> Bool {
+    let s = t_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func t_ref(n: Int, ne: Bool) -> Bool {
+    let w = t_mk(7)
+    return t_ref_in(&w, n, ne)
+}
+func t_field(n: Int, ne: Bool) -> Bool {
+    let s = t_opt(n)
+    let h = THolder(w: t_mk(7))
+    if ne { return s != h.w }
+    return s == h.w
+}
+func t_index(n: Int, ne: Bool) -> Bool {
+    let s = t_opt(n)
+    var v = Vector<Tier>()
+    try! v.push(t_mk(7))
+    if ne { return s != v[0] }
+    return s == v[0]
+}
+func t_call(n: Int, ne: Bool) -> Bool {
+    let s = t_opt(n)
+    if ne { return s != t_mk(7) }
+    return s == t_mk(7)
+}
+
+// ---- an enum with a payload
+
+enum Ev { case A(name: String), case B }
+@synthesize
+extension Ev: Equatable {}
+func e_mk(n: Int) -> Ev {
+    Ev.A(name: "i{n}")
+}
+func e_opt(n: Int) -> Ev? {
+    if n == 0 { return None }
+    return e_mk(n)
+}
+struct EHolder { w: Ev }
+extension EHolder: NoCopy {}
+func e_local(n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    let want = e_mk(7)
+    if ne { return s != want }
+    return s == want
+}
+func e_param_in(want: Ev, n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func e_param(n: Int, ne: Bool) -> Bool {
+    e_param_in(e_mk(7), n, ne)
+}
+func e_ref_in(want: &Ev, n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func e_ref(n: Int, ne: Bool) -> Bool {
+    let w = e_mk(7)
+    return e_ref_in(&w, n, ne)
+}
+func e_field(n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    let h = EHolder(w: e_mk(7))
+    if ne { return s != h.w }
+    return s == h.w
+}
+func e_index(n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    var v = Vector<Ev>()
+    try! v.push(e_mk(7))
+    if ne { return s != v[0] }
+    return s == v[0]
+}
+func e_call(n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    if ne { return s != e_mk(7) }
+    return s == e_mk(7)
+}
+func e_right(n: Int, ne: Bool) -> Bool {
+    let s = e_opt(n)
+    if ne { return .A(name: "i7") != s }
+    return .A(name: "i7") == s
+}
+
+// ---- an ExplicitCopy struct with a hand-written equals
+
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+extension Bag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.items.len() == other.items.len() }
+}
+func b_mk(n: Int) -> Bag {
+    var v = Vector<Int>()
+    var i = 0
+    while i < n {
+        try! v.push(i)
+        i += 1
+    }
+    return Bag(items: move v)
+}
+func b_opt(n: Int) -> Bag? {
+    if n == 0 { return None }
+    return b_mk(n)
+}
+struct BHolder { w: Bag }
+extension BHolder: NoCopy {}
+func b_local(n: Int, ne: Bool) -> Bool {
+    let s = b_opt(n)
+    let want = b_mk(7)
+    if ne { return s != want }
+    return s == want
+}
+func b_param_in(want: Bag, n: Int, ne: Bool) -> Bool {
+    let s = b_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func b_param(n: Int, ne: Bool) -> Bool {
+    b_param_in(b_mk(7), n, ne)
+}
+func b_ref_in(want: &Bag, n: Int, ne: Bool) -> Bool {
+    let s = b_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func b_ref(n: Int, ne: Bool) -> Bool {
+    let w = b_mk(7)
+    return b_ref_in(&w, n, ne)
+}
+func b_field(n: Int, ne: Bool) -> Bool {
+    let s = b_opt(n)
+    let h = BHolder(w: b_mk(7))
+    if ne { return s != h.w }
+    return s == h.w
+}
+func b_index(n: Int, ne: Bool) -> Bool {
+    let s = b_opt(n)
+    var v = Vector<Bag>()
+    try! v.push(b_mk(7))
+    if ne { return s != v[0] }
+    return s == v[0]
+}
+func b_call(n: Int, ne: Bool) -> Bool {
+    let s = b_opt(n)
+    if ne { return s != b_mk(7) }
+    return s == b_mk(7)
+}
+
+// ---- a NoCopy struct with a hand-written equals and a deinit
+
+struct Tag { id: String }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+func g_mk(n: Int) -> Tag {
+    Tag(id: "i{n}")
+}
+func g_opt(n: Int) -> Tag? {
+    if n == 0 { return None }
+    return g_mk(n)
+}
+struct GHolder { w: Tag }
+extension GHolder: NoCopy {}
+func g_local(n: Int, ne: Bool) -> Bool {
+    let s = g_opt(n)
+    let want = g_mk(7)
+    if ne { return s != want }
+    return s == want
+}
+func g_param_in(want: Tag, n: Int, ne: Bool) -> Bool {
+    let s = g_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func g_param(n: Int, ne: Bool) -> Bool {
+    g_param_in(g_mk(7), n, ne)
+}
+func g_ref_in(want: &Tag, n: Int, ne: Bool) -> Bool {
+    let s = g_opt(n)
+    if ne { return s != want }
+    return s == want
+}
+func g_ref(n: Int, ne: Bool) -> Bool {
+    let w = g_mk(7)
+    return g_ref_in(&w, n, ne)
+}
+func g_field(n: Int, ne: Bool) -> Bool {
+    let s = g_opt(n)
+    let h = GHolder(w: g_mk(7))
+    if ne { return s != h.w }
+    return s == h.w
+}
+func g_index(n: Int, ne: Bool) -> Bool {
+    let s = g_opt(n)
+    var v = Vector<Tag>()
+    try! v.push(g_mk(7))
+    if ne { return s != v[0] }
+    return s == v[0]
+}
+func g_call(n: Int, ne: Bool) -> Bool {
+    let s = g_opt(n)
+    if ne { return s != g_mk(7) }
+    return s == g_mk(7)
+}
+
+// ---- a nested Optional against its payload
+
+func o_mk(n: Int) -> String? {
+    "i{n}"
+}
+func o_opt(n: Int) -> String?? {
+    if n == 0 { return None }
+    return o_mk(n)
+}
+func o_local(n: Int, ne: Bool) -> Bool {
+    let s = o_opt(n)
+    let want = o_mk(7)
+    if ne { return s != want }
+    return s == want
+}
+func o_call(n: Int, ne: Bool) -> Bool {
+    let s = o_opt(n)
+    if ne { return s != o_mk(7) }
+    return s == o_mk(7)
+}
+
+// ---- the right operand changes the Optional the left operand names
+
+func bump(o: &var Int?, to: Int, answer: Int) -> Int {
+    o = to
+    answer
+}
+
+func clear(o: &var Int?, answer: Int) -> Int {
+    o = None
+    answer
+}
+
+func right_changes() -> String {
+    var o: Int? = 5
+    let a = o == bump(&var o, 9, 5)
+    let after_a = o ?? 0
+    let b = o != bump(&var o, 1, 9)
+    let after_b = o ?? 0
+    let c = o == clear(&var o, 1)
+    let gone = o == 1
+    var p: Int? = None
+    let d = p == bump(&var p, 3, 3)
+    let after_d = p ?? 0
+    return "{a} {after_a} {b} {after_b} {c} {gone} {d} {after_d}"
+}
+
+func main() {
+    print("int {}", same_int(7))
+    print("literal {}", same_literal(7))
+    print("binding {}", same_binding(7))
+    print("differs {}", differs(7))
+    print("s_local {} {} {} {}", s_local(7, false), s_local(8, true), s_local(0, false), s_local(0, true))
+    print("s_param {} {} {} {}", s_param(7, false), s_param(8, true), s_param(0, false), s_param(0, true))
+    print("s_ref {} {} {} {}", s_ref(7, false), s_ref(8, true), s_ref(0, false), s_ref(0, true))
+    print("s_field {} {} {} {}", s_field(7, false), s_field(8, true), s_field(0, false), s_field(0, true))
+    print("s_index {} {} {} {}", s_index(7, false), s_index(8, true), s_index(0, false), s_index(0, true))
+    print("s_call {} {} {} {}", s_call(7, false), s_call(8, true), s_call(0, false), s_call(0, true))
+    print("t_local {} {} {} {}", t_local(7, false), t_local(8, true), t_local(0, false), t_local(0, true))
+    print("t_param {} {} {} {}", t_param(7, false), t_param(8, true), t_param(0, false), t_param(0, true))
+    print("t_ref {} {} {} {}", t_ref(7, false), t_ref(8, true), t_ref(0, false), t_ref(0, true))
+    print("t_field {} {} {} {}", t_field(7, false), t_field(8, true), t_field(0, false), t_field(0, true))
+    print("t_index {} {} {} {}", t_index(7, false), t_index(8, true), t_index(0, false), t_index(0, true))
+    print("t_call {} {} {} {}", t_call(7, false), t_call(8, true), t_call(0, false), t_call(0, true))
+    print("e_local {} {} {} {}", e_local(7, false), e_local(8, true), e_local(0, false), e_local(0, true))
+    print("e_param {} {} {} {}", e_param(7, false), e_param(8, true), e_param(0, false), e_param(0, true))
+    print("e_ref {} {} {} {}", e_ref(7, false), e_ref(8, true), e_ref(0, false), e_ref(0, true))
+    print("e_field {} {} {} {}", e_field(7, false), e_field(8, true), e_field(0, false), e_field(0, true))
+    print("e_index {} {} {} {}", e_index(7, false), e_index(8, true), e_index(0, false), e_index(0, true))
+    print("e_call {} {} {} {}", e_call(7, false), e_call(8, true), e_call(0, false), e_call(0, true))
+    print("e_right {} {} {} {}", e_right(7, false), e_right(8, true), e_right(0, false), e_right(0, true))
+    print("b_local {} {} {} {}", b_local(7, false), b_local(8, true), b_local(0, false), b_local(0, true))
+    print("b_param {} {} {} {}", b_param(7, false), b_param(8, true), b_param(0, false), b_param(0, true))
+    print("b_ref {} {} {} {}", b_ref(7, false), b_ref(8, true), b_ref(0, false), b_ref(0, true))
+    print("b_field {} {} {} {}", b_field(7, false), b_field(8, true), b_field(0, false), b_field(0, true))
+    print("b_index {} {} {} {}", b_index(7, false), b_index(8, true), b_index(0, false), b_index(0, true))
+    print("b_call {} {} {} {}", b_call(7, false), b_call(8, true), b_call(0, false), b_call(0, true))
+    print("g_local {} {} {} {}", g_local(7, false), g_local(8, true), g_local(0, false), g_local(0, true))
+    print("g_param {} {} {} {}", g_param(7, false), g_param(8, true), g_param(0, false), g_param(0, true))
+    print("g_ref {} {} {} {}", g_ref(7, false), g_ref(8, true), g_ref(0, false), g_ref(0, true))
+    print("g_field {} {} {} {}", g_field(7, false), g_field(8, true), g_field(0, false), g_field(0, true))
+    print("g_index {} {} {} {}", g_index(7, false), g_index(8, true), g_index(0, false), g_index(0, true))
+    print("g_call {} {} {} {}", g_call(7, false), g_call(8, true), g_call(0, false), g_call(0, true))
+    print("o_local {} {} {} {}", o_local(7, false), o_local(8, true), o_local(0, false), o_local(0, true))
+    print("o_call {} {} {} {}", o_call(7, false), o_call(8, true), o_call(0, false), o_call(0, true))
+    print("right_changes {}", right_changes())
+}

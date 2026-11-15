@@ -43,6 +43,30 @@ extension TcProgram {
         self.adj_tail[e] = at
     }
 
+    // Drops the last step of expression `e`'s adjustment chain, the `Some`
+    // wrap a present-and-equal comparison's bare operand was given while it
+    // was checked against the Optional's type (`present_comparison`).
+    public func unwrap_compared(&var self, e: Int) {
+        let tail = self.adj_tail[e]
+        if tail < 0 {
+            return
+        }
+        let head = self.adj_head[e]
+        if head == tail {
+            self.adj_head[e] = -1
+            self.adj_tail[e] = -1
+            return
+        }
+        var k = head
+        while self.adjusts[k].next != tail {
+            k = self.adjusts[k].next
+        }
+        var last = self.adjusts[k]
+        last.next = -1
+        self.adjusts[k] = last
+        self.adj_tail[e] = k
+    }
+
     // The type expression `e` has once its adjustments are applied.
     public func final_type(&self, e: Int) -> Int {
         let tail = self.adj_tail[e]

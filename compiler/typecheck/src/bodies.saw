@@ -551,7 +551,7 @@ extension TcProgram {
         try! self.calls.push(TcCall(node: e, target: target, role: role, derived: false, owner: owner,
                                     inst_first: first, inst_count: inst.len(), spelling: -1, twin: -1, pair: -1,
                                     bind_first: -1, bind_count: 0, variadic_from: -1,
-                                    test: in_test))
+                                    test: in_test, optional_operand: -1))
         self.call_at[e] = at
         at
     }
@@ -5228,7 +5228,9 @@ extension TcProgram {
     // goes first, and the other expects its type (the funnel's mixed-operand
     // entry); both are borrowed, since a comparison's operands are references.
     // A `None` comparison of an Optional is a presence test, which asks
-    // nothing of the payload (`none_compared`).
+    // nothing of the payload (`none_compared`), and an equality of an
+    // Optional with a bare value of its payload type tests presence and then
+    // the payload (`present_comparison`).
     func compare_expr(&var self, e: Int) -> Int {
         let left = self.res.first_node_child(e)
         let right = self.res.last_node_child(e)
@@ -5241,11 +5243,13 @@ extension TcProgram {
         }
         let left_peer = self.needs_expectation(left)
         let right_peer = self.needs_expectation(right)
+        var checked = right
         if left_peer && not right_peer {
             let _ = self.expr(right, TC_WANT_NONE)
             t = self.through_refs(right)
             self.presence_chain = saved
             let _ = self.check_compared(left, t)
+            checked = left
         } else {
             let _ = self.expr(left, TC_WANT_NONE)
             t = self.through_refs(left)
@@ -5263,8 +5267,89 @@ extension TcProgram {
             return self.set_type(e, b, false)
         }
         let equality = spelling.equals("==") || spelling.equals("!=")
+        let wrapped = self.wrapped_compared(checked)
+        if equality && wrapped {
+            let payload = self.arg_of(t, 0)
+            if self.payload_compares(payload) {
+                self.present_comparison(e, checked, payload, spelling)
+                return self.set_type(e, b, false)
+            }
+        }
         self.resolve_comparison(e, t, equality, spelling)
+        if wrapped && self.call_at[e] >= 0 {
+            self.refuse_wrapped_comparison(e, t, equality, spelling)
+        }
         self.set_type(e, b, false)
+    }
+
+    // THE PRESENT-AND-EQUAL COMPARISON: `p == b`, with `p` an Optional and
+    // `b` a bare value of its payload type `payload`, on either side, is
+    // "`p` is present and its payload equals `b`", and `!=` its negation.
+    // The operand the Optional's type was expected of loses the wrap the
+    // funnel gave it, so it stays the borrowed value it is, and the
+    // comparison resolves at the payload; the record names the Optional
+    // operand, which MIR tests before comparing its payload in place
+    // (`present_comparison` there). No Optional is built around a borrowed
+    // operand, which would hold a reference where a payload belongs.
+    // ENTRY POINTS:
+    //     compare_expr
+    func present_comparison(&var self, e: Int, checked: Int, payload: Int, spelling: String) {
+        self.unwrap_compared(checked)
+        self.resolve_comparison(e, payload, true, spelling)
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let left = self.res.first_node_child(e)
+        let right = self.res.last_node_child(e)
+        var c = self.calls[at]
+        c.optional_operand = if checked == left { right } else { left }
+        self.calls[at] = c
+    }
+
+    // Whether comparison operand `e`'s last adjustment wraps it in `Some`,
+    // the type of the other operand being the Optional of its own.
+    func wrapped_compared(&self, e: Int) -> Bool {
+        let tail = self.adj_tail[e]
+        tail >= 0 && self.adjusts[tail].kind == TcAdjustKind.Some
+    }
+
+    // Whether two values of `payload` compare by `==`: a builtin comparison
+    // or an `Equatable` one, whatever answers it (`resolve_comparison`).
+    func payload_compares(&var self, payload: Int) -> Bool {
+        if self.builtin_comparable(payload, true) {
+            return true
+        }
+        let equatable = self.known.equatable
+        let env = self.current_decl
+        let ext = self.current_ext
+        let m = self.current
+        let in_test = self.current_test
+        self.satisfies(payload, equatable, env, ext, m, in_test)
+    }
+
+    // Comparison `e` of an Optional of type `t` with a bare value of its
+    // payload type, which a member an extension declares on `Optional`
+    // answered, and which no present-and-equal comparison replaces: an
+    // ordering, or an equality whose payload does not compare. Answering it
+    // would wrap the borrowed bare operand in a `Some` that holds a reference.
+    func refuse_wrapped_comparison(&var self, e: Int, t: Int, equality: Bool, spelling: String) {
+        let payload = self.arg_of(t, 0)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(spelling)
+        try! msg.append("` compares a `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` with a bare `")
+        try! msg.append(self.type_text(payload))
+        if equality {
+            try! msg.append("`, which tests that the Optional is present and its payload equals the value, and `")
+            try! msg.append(self.type_text(payload))
+            try! msg.append("` is not `Equatable`")
+        } else {
+            try! msg.append("`: only `==` and `!=` compare an Optional with a bare value; test the Optional with `if let` first")
+        }
+        self.refuse(e, "operator.undefined", msg.build())
     }
 
     // A comparison's second operand, through the funnel's mixed-operand
@@ -8536,7 +8621,8 @@ extension TcProgram {
         }
         let record = TcCall(node: e, target: target, role: TcRole.Builtin, derived: false, owner: owner,
                             inst_first: first, inst_count: 0, spelling: self.res.intern("init"), twin: -1,
-                            pair: -1, bind_first: bind_first, bind_count: bind_count, variadic_from: -1, test: in_test)
+                            pair: -1, bind_first: bind_first, bind_count: bind_count, variadic_from: -1, test: in_test,
+                            optional_operand: -1)
         if at >= 0 {
             self.calls[at] = record
         } else {

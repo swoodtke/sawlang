@@ -1,0 +1,20 @@
+// refuses: effect.sync at 19:5
+// flags: --std-root std
+// message: `same` is declared `sync`, and it calls `Slow.equals`, which may suspend (`Slow.equals` → `yield_now` (parks the task))
+// an Optional compared with a bare value in a `sync` function: the comparison
+// calls the payload's `equals`, which parks
+
+import std.task.{yield_now}
+
+struct Slow { n: Int }
+
+extension Slow: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        yield_now()
+        self.n == other.n
+    }
+}
+
+func same(s: Slow?, want: Slow) sync -> Bool {
+    s == want
+}

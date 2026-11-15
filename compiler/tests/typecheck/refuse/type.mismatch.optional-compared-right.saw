@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 6:10
+// an Optional on the right of a comparison whose left operand has a type of its own, a binding: only a left operand that takes its type from the comparison reads the right as an Optional
+// message: expected `Int`, the type of the other operand, and found `Int?`
+
+func same(n: Int, o: Int?) -> Bool {
+    n == o
+}

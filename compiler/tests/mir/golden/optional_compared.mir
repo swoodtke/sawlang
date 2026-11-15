@@ -1,0 +1,305 @@
+module optional_compared
+
+fn optional_compared.Tag.equals(other: &optional_compared.Tag) -> Bool {
+    let _0: Bool;  // return
+    let _1: &optional_compared.Tag;  // self
+    let _2: &optional_compared.Tag;  // param other
+    let _3: Bool;
+
+    bb0: {
+        _3 = Eq(copy (*_1).id, copy (*_2).id);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn optional_compared.make(id: Int) -> String {
+    let _0: String;  // return
+    let _1: Int;  // param id
+    let _2: String;
+
+    bb0: {
+        _2 = interpolate [const "k": String, copy _1];
+        _0 = move _2;
+        return;
+    }
+}
+
+fn optional_compared.same_binding(id: Int) -> Bool {
+    let _0: Bool;  // return
+    let _1: Int;  // param id
+    let _2: String?;  // s
+    let _3: String;
+    let _4: String?;
+    let _5: String;  // want
+    let _6: String;
+    let _7: &String?;
+    let _8: &String;
+    let _9: Bool;
+    let _10: &String;
+
+    bb0: {
+        _3 = interpolate [const "i": String, copy _1];
+        _4 = String?::Some(move _3);
+        _2 = move _4;
+        _6 = interpolate [const "i": String, copy _1];
+        _5 = move _6;
+        _7 = ref(shared, _2);
+        _8 = ref(shared, _5);
+        switch discriminant((*_7)) -> [Some: bb1, None: bb2];
+    }
+
+    bb1: {
+        _10 = ref(shared, ((*_7) as Some).0);
+        _9 = Eq(move _10, move _8);
+        goto -> bb3;
+    }
+
+    bb2: {
+        _9 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = move _9;
+        drop(_5);
+        drop(_2);
+        return;
+    }
+}
+
+fn optional_compared.differs(n: Int?, want: Int) -> Bool {
+    let _0: Bool;  // return
+    let _1: Int?;  // param n
+    let _2: Int;  // param want
+    let _3: Int?;
+    let _4: Bool;
+    let _5: Bool;
+
+    bb0: {
+        _3 = copy _1;
+        switch discriminant(_3) -> [Some: bb1, None: bb2];
+    }
+
+    bb1: {
+        _4 = Eq(copy (_3 as Some).0, copy _2);
+        goto -> bb3;
+    }
+
+    bb2: {
+        _4 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _5 = Not(move _4);
+        _0 = move _5;
+        return;
+    }
+}
+
+fn optional_compared.fresh_right(s: String?, id: Int) -> Bool {
+    let _0: Bool;  // return
+    let _1: String?;  // param s
+    let _2: Int;  // param id
+    let _3: &String?;
+    let _4: String;
+    let _5: &String;
+    let _6: Bool;
+    let _7: &String;
+
+    bb0: {
+        _3 = ref(shared, _1);
+        _4 = call optional_compared.make(id: Int) [copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, _4);
+        switch discriminant((*_3)) -> [Some: bb2, None: bb3];
+    }
+
+    bb2: {
+        _7 = ref(shared, ((*_3) as Some).0);
+        _6 = Eq(move _7, move _5);
+        goto -> bb4;
+    }
+
+    bb3: {
+        _6 = const false: Bool;
+        goto -> bb4;
+    }
+
+    bb4: {
+        _0 = move _6;
+        drop(_4);
+        drop(_1);
+        return;
+    }
+}
+
+fn optional_compared.move_only(t: optional_compared.Tag?, want: &optional_compared.Tag) -> Bool {
+    let _0: Bool;  // return
+    let _1: optional_compared.Tag?;  // param t
+    let _2: &optional_compared.Tag;  // param want
+    let _3: &optional_compared.Tag?;
+    let _4: &optional_compared.Tag;
+    let _5: Bool;
+    let _6: &optional_compared.Tag;
+    let _7: Bool;
+
+    bb0: {
+        _3 = ref(shared, _1);
+        _4 = ref(shared, (*_2));
+        switch discriminant((*_3)) -> [Some: bb1, None: bb2];
+    }
+
+    bb1: {
+        _6 = ref(shared, ((*_3) as Some).0);
+        _7 = call optional_compared.Tag.equals(other: &optional_compared.Tag) (owner optional_compared.Tag) [move _6, move _4] -> [return: bb4];
+    }
+
+    bb2: {
+        _5 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = move _5;
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _5 = move _7;
+        goto -> bb3;
+    }
+}
+
+fn optional_compared.member_left(k: optional_compared.Kind?) -> Bool {
+    let _0: Bool;  // return
+    let _1: optional_compared.Kind?;  // param k
+    let _2: optional_compared.Kind;
+    let _3: &optional_compared.Kind;
+    let _4: &optional_compared.Kind?;
+    let _5: Bool;
+    let _6: &optional_compared.Kind;
+    let _7: Bool;
+
+    bb0: {
+        _2 = optional_compared.Kind::Named(const "x": String);
+        _3 = ref(shared, _2);
+        _4 = ref(shared, _1);
+        switch discriminant((*_4)) -> [Some: bb1, None: bb2];
+    }
+
+    bb1: {
+        _6 = ref(shared, ((*_4) as Some).0);
+        _7 = call Equatable.equals(other: &Self) (owner optional_compared.Kind) [move _3, move _6] -> [return: bb4];
+    }
+
+    bb2: {
+        _5 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = move _5;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _5 = move _7;
+        goto -> bb3;
+    }
+}
+
+fn optional_compared.same(a: T?, b: T) -> Bool {
+    let _0: Bool;  // return
+    let _1: T?;  // param a
+    let _2: T;  // param b
+    let _3: &T?;
+    let _4: &T;
+    let _5: Bool;
+    let _6: &T;
+    let _7: Bool;
+
+    bb0: {
+        _3 = ref(shared, _1);
+        _4 = ref(shared, _2);
+        switch discriminant((*_3)) -> [Some: bb1, None: bb2];
+    }
+
+    bb1: {
+        _6 = ref(shared, ((*_3) as Some).0);
+        _7 = call Equatable.equals(other: &Self) (owner T) [move _6, move _4] -> [return: bb4] suspends when T.Equatable.equals;
+    }
+
+    bb2: {
+        _5 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = move _5;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _5 = move _7;
+        goto -> bb3;
+    }
+}
+
+fn optional_compared.bump(o: &var Int?, to: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &var Int?;  // param o
+    let _2: Int;  // param to
+    let _3: Int?;
+
+    bb0: {
+        _3 = Int?::Some(copy _2);
+        (*_1) = move _3;
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn optional_compared.right_changes(start: Int?) -> Bool {
+    let _0: Bool;  // return
+    let _1: Int?;  // param start
+    let _2: Int?;  // o
+    let _3: Int?;
+    let _4: &var Int?;
+    let _5: Int;
+    let _6: Bool;
+
+    bb0: {
+        _2 = copy _1;
+        _3 = copy _2;
+        _4 = ref(exclusive, _2);
+        _5 = call optional_compared.bump(o: &var Int?, to: Int) [move _4, const 9: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_3) -> [Some: bb2, None: bb3];
+    }
+
+    bb2: {
+        _6 = Eq(copy (_3 as Some).0, copy _5);
+        goto -> bb4;
+    }
+
+    bb3: {
+        _6 = const false: Bool;
+        goto -> bb4;
+    }
+
+    bb4: {
+        _0 = move _6;
+        return;
+    }
+}

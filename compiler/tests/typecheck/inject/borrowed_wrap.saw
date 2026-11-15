@@ -1,0 +1,24 @@
+// An Optional compared with a bare value of its payload type.
+// `compiler/typecheck/tests/verify_borrowed_wrap.saw` checks it clean, then
+// re-adds the wrap the comparison drops, names a node that is not an operand
+// as the comparison's Optional, and puts the record on the other comparisons
+// and calls, which have none.
+
+func f(s: String?, want: String) -> Bool { s == want }
+
+func ne(s: String?, want: String) -> Bool { s != want }
+
+struct Tier { name: String }
+@synthesize
+extension Tier: Equatable {}
+
+func g(s: Tier?, want: Tier) -> Bool { s == want }
+
+func both(a: String?, b: String?) -> Bool { a == b }
+
+func main() {
+    print(f("a", "a"))
+    print(ne("a", "b"))
+    print(g(Tier(name: "a"), Tier(name: "a")))
+    print(both("a", "a"))
+}

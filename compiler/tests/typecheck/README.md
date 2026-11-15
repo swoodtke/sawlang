@@ -195,7 +195,7 @@ A module's dump is one S-expression, one entry per line, in this layout:
     propagates out of;
   - CALL, for a call, operator, subscript, `for` or pattern case: `(ROLE
     [TARGET] [SPELLING] [derived] [(owner TYPE)] [(inst TYPE...)]
-    [(bind PARAM=ARG...)] [(variadic K)])`. ROLE is
+    [(bind PARAM=ARG...)] [(variadic K)] [(optional left|right)])`. ROLE is
     `call`, `memberwise`, `case`, `builtin`, `conversion`, `op` (a builtin
     operator, by its spelling), `operator` (a declared `equals` or `compare`),
     `getitem`, `setitem`, `place` (SL:borrowing §5's roles, `derived` when the
@@ -207,7 +207,10 @@ A module's dump is one S-expression, one entry per line, in this layout:
     (design 66): each parameter in order, with the position among the written
     arguments of the one that binds it, or `default` when its default fills
     it. It is printed only when the binding is not one to one in order, and
-    `variadic` names the first argument a C variadic tail takes.
+    `variadic` names the first argument a C variadic tail takes. `optional`
+    marks a comparison of an Optional with a bare value of its payload type,
+    resolved at the payload, and names the Optional operand, whose presence is
+    tested before its payload is compared.
 
 ### Type spellings
 
@@ -473,6 +476,8 @@ list for each kind (SL-754):
 | a `T: Comparable` bound at each | refused | type.bound.comparable-tuple, -optional, -array |
 | `Vector.sort` over tuples, its extension's `T: Comparable` | refused | type.bound.sort-tuple |
 | `Equatable` and `Hashable` through a tuple's and an Optional's parts, at a bound, `==` and a `Map` key, and through a fixed array's as a struct's field | allowed | run programs aggregate_equals, aggregate_hash, aggregate_map_keys |
+| `==` and `!=` of an Optional with a bare value of its payload type, either side | present and equal: resolved at the payload, the bare operand unwrapped, the Optional operand recorded (`(optional left\|right)`) | wraps; mir golden optional_compared |
+| the same through a member an extension declares on `Optional`: an ordering, or an equality whose payload does not compare | refused, `operator.undefined` | operator.undefined.optional-member-ordering, -optional-member-equality |
 
 A fourth filter is the specialized extension's (spec, Type Extensions; SL-740):
 a head that names a type for every parameter it writes, `extension

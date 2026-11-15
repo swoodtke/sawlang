@@ -4,6 +4,8 @@
 
 import sawparse.grammar.{Alt, alt_kind}
 import sawparse.tree.{NodeShape}
+// For the extension writing `first_node_child`.
+import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
@@ -213,7 +215,8 @@ extension TcProgram {
         try! out.append(")")
     }
 
-    // A call record: `(ROLE TARGET [derived] [(owner T)] [(inst T...)])`.
+    // A call record: `(ROLE TARGET [derived] [(owner T)] [(inst T...)]
+    // [(optional left|right)])`.
     func append_call(&self, out: &var StringBuilder, at: Int) {
         let c = self.calls[at]
         try! out.append(" (")
@@ -266,6 +269,13 @@ extension TcProgram {
             try! out.append(" (variadic ")
             try! out.append(c.variadic_from)
             try! out.append(")")
+        }
+        if c.optional_operand >= 0 {
+            if c.optional_operand == self.res.first_node_child(c.node) {
+                try! out.append(" (optional left)")
+            } else {
+                try! out.append(" (optional right)")
+            }
         }
         try! out.append(")")
     }

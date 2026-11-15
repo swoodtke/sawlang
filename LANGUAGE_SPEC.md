@@ -8975,6 +8975,21 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   the payload, whatever spells `x`: a local, a field, a call's result, a
   conditional lend, an optional chain, or a `T?` in a generic body with `T`
   unbounded. Comparing two `Optional` values still needs `T: Equatable`.
+- **Comparing an `Optional` with a value of its payload type tests presence,
+  then the payload** (`x == v`, `x != v`): `x == v` is true exactly when `x`
+  holds a value equal to `v`, and `!=` is its negation. The Optional is the
+  left operand, or the right one when the left takes its type from the
+  comparison: an integer literal (`5 == x`) or an implicit member
+  (`.Red == c`). A left operand with a type of its own, a binding, a call's
+  result or a string literal, against an Optional on the right is a
+  `type.mismatch`. Nothing is wrapped or copied, so it works for every
+  `Equatable` payload, a move-only one and a `T` in a generic body included.
+  One case is not built in `sawc` yet (SL-1135): an Optional that is a
+  conditional lend of a payload that does not copy silently, where
+  `v.find(0) == w` is refused (`borrows.optional-place-read`) though
+  `v.find(0) == None` reads it in place.
+  Only `==` and `!=` compare this way; an ordering of an Optional is refused
+  whatever the other operand is.
 - `a == b` on a conforming user type lowers to its `equals`; primitives keep
   direct `icmp`/`fcmp`. `!=` is always the negation of `==`. `String ==` is
   content equality. **Float keeps IEEE semantics** — `NaN != NaN`.

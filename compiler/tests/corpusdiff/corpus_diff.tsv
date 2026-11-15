@@ -276,6 +276,9 @@ conformance/C11_explicitcopy_operand_handwritten_compare.saw	pass	-	-
 conformance/C12_implicitcopy_operand_survives_consuming_equals.saw	pass	-	-
 conformance/C13_comparison_conformance_must_borrow.saw	pass	-	conformance.signature: `Tag.equals` does not meet `Equatable.equals`, as `Tag` conforms to `Equatable` needs: a parameter's type differs
 conformance/C14_comparison_body_cannot_consume_operand.saw	pass	-	transfer.move-from-borrow: cannot move out of `other`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an option
+conformance/C15_optional_compared_with_value.saw	pass	judged by its own directives (no oracle)	-
+conformance/C15b_optional_compared_with_value_O2.saw	pass	judged by its own directives (no oracle)	-
+conformance/C16_generic_optional_compared_with_value.saw	pass	judged by its own directives (no oracle)	-
 conformance/D01_guard_else_diverging_exit.saw	pass	-	-
 conformance/D02_return_diverging_operand.saw	pass	-	-
 conformance/D03_diverging_call_argument.saw	pass	-	-

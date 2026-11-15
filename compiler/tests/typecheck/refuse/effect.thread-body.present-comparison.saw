@@ -1,0 +1,25 @@
+// refuses: effect.thread-body at 22:9
+// flags: --std-root std
+// message: cannot suspend in a `Thread.spawn { ... }` body: closure calls `Slow.equals` → `yield_now` (parks the task)
+// an Optional compared with a bare value in a `Thread.spawn` body: the
+// comparison calls the payload's `equals`, which parks
+
+import std.task.{yield_now}
+
+struct Slow { n: Int }
+
+extension Slow: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        yield_now()
+        self.n == other.n
+    }
+}
+
+func main() {
+    var t = try! Thread.spawn {
+        let s: Slow? = Slow(n: 1)
+        let want = Slow(n: 1)
+        s == want
+    }
+    print(t.join())
+}

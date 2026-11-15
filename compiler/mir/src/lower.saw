@@ -1638,6 +1638,7 @@ extension MirProgram {
     //     builtin_operand
     //     format_operand
     //     operator_call
+    //     present_comparison
     //     conversion_operand
     public func operand(&var self, e: Int) -> Int {
         self.operand_as(e, false)
@@ -4868,8 +4869,9 @@ extension MirProgram {
     }
 
     // `a == b` and the other comparisons: a `None` comparison's presence
-    // test, a builtin operator over borrowed operands, or a declared `equals`
-    // or `compare` called with both by reference.
+    // test, an Optional's present-and-equal test against a bare value, a
+    // builtin operator over borrowed operands, or a declared `equals` or
+    // `compare` called with both by reference.
     func comparison(&var self, e: Int) -> Int {
         let left = self.tc.res.first_node_child(e)
         let right = self.tc.res.last_node_child(e)
@@ -4896,6 +4898,9 @@ extension MirProgram {
             return self.dead_operand(t)
         }
         let c = self.tc.calls[at]
+        if c.optional_operand >= 0 {
+            return self.present_comparison(e, &c, left, right, op)
+        }
         if c.role == TcRole.Operator {
             return self.operator_call(e, &c, left, right, op)
         }
@@ -4912,6 +4917,112 @@ extension MirProgram {
         let o = self.temp_operand(rv)
         self.close_argument_windows(mark)
         o
+    }
+
+    // An Optional compared with a bare value of its payload type, which
+    // typecheck resolved at the payload and recorded the Optional operand
+    // of: present and equal, `!=` its negation. Both operands are read as
+    // the payload comparison reads two payloads, left to right, a builtin's
+    // borrowed values or a declared `equals`'s references; the Optional's
+    // tag is then tested where it lies, and on the present path its payload
+    // is compared in place, so no Optional is built and nothing is copied.
+    // The absent path answers `false`, and the windows the operands opened
+    // close once the paths join.
+    // ENTRY POINTS:
+    //     comparison
+    func present_comparison(&var self, e: Int, c: &TcCall, left: Int, right: Int, op: String) -> Int {
+        let b = self.tc.bool_type()
+        let mark = self.scope.len()
+        let declared = c.role == TcRole.Operator
+        var a = -1
+        var r = -1
+        if declared {
+            a = self.operand_as(left, true)
+            r = self.operand_as(right, true)
+        } else {
+            a = self.operand(left)
+            if not self.is_pure(right) {
+                a = self.snapshot(a)
+            }
+            r = self.operand(right)
+        }
+        let optional_left = c.optional_operand == left
+        let held = if optional_left { a } else { r }
+        let side = if optional_left { left } else { right }
+        var p = self.as_place(MirVal(operand: held), side)
+        while self.place_referent(p) >= 0 {
+            let inner = self.place_referent(p)
+            p = self.project(p, MirProjKind.Deref, -1, -1, inner)
+        }
+        let result = self.new_temp(b)
+        let present = self.new_block()
+        let absent = self.new_block()
+        let join = self.new_block()
+        let some = self.optional_case("Some")
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(self.optional_case("None"))
+        var targets = Vector<Int>()
+        try! targets.push(present)
+        try! targets.push(absent)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(present)
+        let payload_type = self.place_arg(p, 0)
+        let payload = self.payload_place(p, some, 0, payload_type)
+        var pair = Vector<Int>()
+        if declared {
+            let q = self.shared_ref(payload)
+            if optional_left {
+                try! pair.push(q)
+                try! pair.push(r)
+            } else {
+                try! pair.push(a)
+                try! pair.push(q)
+            }
+            let s = self.tc.sigs[c.target]
+            let answer = self.tc.call_subst(s.result, c.target, &c)
+            let l = self.new_temp(answer)
+            var call = self.blank_call(MirCallKind.Function, e)
+            call.target = c.target
+            call.owner = c.owner
+            self.instantiate(&var call, &c)
+            call.arg_first = self.push_args(&pair)
+            call.arg_count = 2
+            call.dest = self.place_local(l)
+            self.suspension(e, &var call)
+            let _ = self.call_and_continue(call)
+            let rp = self.place_local(result)
+            let lp = self.place_local(l)
+            let rv = self.rv_move(lp)
+            self.assign(rp, rv)
+        } else {
+            let v = self.borrowed_value(payload)
+            if optional_left {
+                try! pair.push(v)
+                try! pair.push(r)
+            } else {
+                try! pair.push(a)
+                try! pair.push(v)
+            }
+            let rv = self.rv_over(MirRvalueKind.Binary, b, "==", &pair)
+            let rp = self.place_local(result)
+            self.assign(rp, rv)
+        }
+        self.goto(join)
+        self.enter(absent)
+        let no = self.op_const(MirConstKind.Bool, "false", b)
+        let nrv = self.rv_use(no)
+        let np = self.place_local(result)
+        self.assign(np, nrv)
+        self.goto(join)
+        self.enter(join)
+        self.close_argument_windows(mark)
+        let value = self.move_local(result)
+        if op.equals("!=") {
+            let rv = self.rv_one(MirRvalueKind.Unary, b, "not", value)
+            return self.temp_operand(rv)
+        }
+        value
     }
 
     // The Optional operand, unparenthesized, of comparison `e` when it

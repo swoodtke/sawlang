@@ -1,0 +1,14 @@
+// refuses: operator.undefined at 13:17
+// An ordering of an Optional with a bare value of its payload type, which a
+// `compare` declared on `Optional` itself would answer: only `==` and `!=`
+// compare an Optional with a bare value, as present and equal, and answering
+// it would wrap the borrowed bare operand in a `Some` holding a reference
+// (SL-1124).
+extension Optional {
+    func compare(&self, other: &Self) -> Ordering { Ordering.Less }
+}
+func main() {
+    let s: String? = "a"
+    let want = "b"
+    print("{}", s < want)
+}
