@@ -1,0 +1,12 @@
+// Conformance row W27: 2^64 - 1 is never an `Int64` constant. The value is
+// refused by the signed parameter it fills, not read as -1.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the constant argument `18446744073709551615u64` is 18446744073709551615, which does not fit `Int64`, the type of `N`
+
+func value<const N: Int64>() -> Int64 {
+    N
+}
+
+func main() {
+    print(value<18446744073709551615u64>())
+}

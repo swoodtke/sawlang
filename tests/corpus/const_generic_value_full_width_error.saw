@@ -1,0 +1,12 @@
+// Conformance row W27: a negative value is never a `UInt64` constant. `-1i64`
+// is refused by the unsigned parameter it fills, not read as 2^64 - 1.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the constant argument `-1i64` is -1, which does not fit `UInt64`, the type of `N`
+
+func value<const N: UInt64>() -> UInt64 {
+    N
+}
+
+func main() {
+    print(value<-1i64>())
+}

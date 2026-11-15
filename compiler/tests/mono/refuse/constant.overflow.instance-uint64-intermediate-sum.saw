@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 7:20
+// message: constant expression overflows `UInt64` (range 0..=18446744073709551615)
+// message: (in the instantiation `doubled<8388608>`)
+// Each `K << 40` is 2^63, a `UInt64` value, and their sum leaves `UInt64`.
+
+func doubled<const K: UInt64>() -> Int {
+    let a = [0u8; (K << 40) + (K << 40)]
+    a.len()
+}
+
+func main() {
+    print(doubled<8388608>())
+}

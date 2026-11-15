@@ -14074,7 +14074,12 @@ Scope, deliberately narrow in this version:
 
 - **Value type**: any primitive integer type, `Int` and `UInt` or a fixed
   width from `Int8` to `UInt64`. Read as a value, the parameter has that type,
-  so a `const N: UInt8` is a `UInt8` and its arithmetic runs at `UInt8`. A
+  so a `const N: UInt8` is a `UInt8` and its arithmetic runs at `UInt8`. It
+  takes every value of that type, whatever the target's `Int`: a
+  `const M: UInt32` takes `0x8000_0000u32` on riscv32 and a `const N: UInt64`
+  takes `UInt64.max`. An argument is folded at its own type and then checked
+  against the parameter, so a value past `Int` is written with a suffix
+  (`Mask<0x8000_0000u32>`): a literal with no suffix is an `Int`. A
   parameter of any other type, such as `Bool`, `String` or a struct, is
   refused at the declaration, and so is a distinct alias of an integer
   (`Byte`), which is a type of its own rather than a width: write the type it
@@ -14085,7 +14090,9 @@ Scope, deliberately narrow in this version:
   compile error there), `sizeof` arithmetic, a repeat-literal count, and any
   expression position wanting a value of its type, where it reads as its
   instance's value. It never adopts another integer type: `let b: UInt8 = N`
-  over a `const N: Int` needs a conversion, as any `Int` value does.
+  over a `const N: Int` needs a conversion, as any `Int` value does. A length
+  is an `Int`, so a value past it is refused at the instance where it would
+  size an array.
 - **Const arithmetic** in instantiation position: literals, const parameters,
   and `+ - * / %` over them, plus `sizeof<T>()` / `alignof<T>()`
   (`Ring<sizeof<UInt64>()>`, which is `Ring<8>`; both are built-in names, so
@@ -14109,7 +14116,7 @@ Scope, deliberately narrow in this version:
   What only an instance decides is checked at each instance: a length, a
   repeat count or an argument over a const parameter that faults (an overflow
   at the parameter's type, a shift out of range, a division by zero), a length
-  or count that comes out negative, and an argument that does not fit the
+  or count that comes out negative or past `Int`, and an argument that does not fit the
   parameter it fills are compile errors there. The error is reported at the
   expression written in the generic and names the instance (`f<0>`). An
   argument is checked even when its callee never reads it.

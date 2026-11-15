@@ -1,0 +1,14 @@
+// refuses: type.mismatch at 8:19
+// message: a repeat count `N` is 9223372036854775808, which does not fit `Int`, at this instance
+// message: (in the instantiation `c<9223372036854775808>`)
+// A `UInt64` takes 2^63, which no `Int` counts, so the instance that would
+// repeat a value that many times is refused where the count is written.
+
+func c<const N: UInt64>() -> Int {
+    let a = [0u8; N]
+    a.len()
+}
+
+func main() {
+    print(c<0x8000_0000_0000_0000u64>())
+}

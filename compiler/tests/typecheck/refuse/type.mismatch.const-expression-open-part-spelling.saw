@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 7:18
+// message: found `[UInt8; (9223372036854775808 + J) >> 60]`
+// A part of a length that names no parameter folds to its value at its own
+// type, past `Int64.max` here, and the type spells it in decimal.
+
+func f<const J: UInt64>(a: [UInt8; (0x8000_0000_0000_0000u64 + J) >> 60]) -> Int {
+    let n: Int = a
+    n
+}

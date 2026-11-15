@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 12:7
+// message: the constant argument `K` is 9223372036854775808, which does not fit `UInt8`, the type of `N`, at this instance
+// message: (in the instantiation `g<9223372036854775808>`)
+// A forwarded value that the parameter it fills cannot hold is refused at the
+// instance that forwards it, never wrapped.
+
+func w<const N: UInt8>() -> UInt8 {
+    N
+}
+
+func g<const K: UInt64>() -> UInt8 {
+    w<K>()
+}
+
+func main() {
+    print(g<0x8000_0000_0000_0000u64>())
+}

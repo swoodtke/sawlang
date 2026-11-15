@@ -1,0 +1,15 @@
+// refuses: type.mismatch at 10:20
+// flags: --target riscv32-unknown-none-elf
+// message: an array length `N` is 2147483648, which does not fit `Int`, at this instance
+// message: (in the instantiation `c<2147483648>`)
+// A `UInt32` takes 0x8000_0000 on a 32-bit target, and a length is an `Int`
+// there, so the instance that would size an array with it is refused where
+// the length is written, as a negative one is.
+
+func c<const N: UInt32>() -> Int {
+    sizeof<[UInt8; N]>()
+}
+
+func main() {
+    print(c<0x8000_0000u32>())
+}

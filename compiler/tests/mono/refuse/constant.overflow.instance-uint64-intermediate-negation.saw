@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 7:19
+// message: constant expression overflows `UInt64` (range 0..=18446744073709551615)
+// message: (in the instantiation `negated<8388608>`)
+// `K << 40` is 2^63, and no non-zero `UInt64` negates.
+
+func negated<const K: UInt64>() -> Int {
+    let a = [0u8; -(K << 40)]
+    a.len()
+}
+
+func main() {
+    print(negated<8388608>())
+}

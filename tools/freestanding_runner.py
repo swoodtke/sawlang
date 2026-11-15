@@ -1014,6 +1014,25 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # A const generic value takes every value of its parameter's type: a
+        # `UInt32` past `Int32.max` on a 32-bit `Int`, a `UInt64` past
+        # `Int64.max` (arm64's `Int` is the host's, so its rows are the host's).
+        "name": "const_generic_wide",
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
+        "expect_out": ["fs value u32_high=2147483648",
+                       "fs value u32_max=4294967295",
+                       "fs value mask=2147483648",
+                       "fs value static=2147483648",
+                       "fs value forward=4294967295",
+                       "fs value plus_one=2147483648",
+                       "fs value u64_high=9223372036854775808",
+                       "fs value u64_max=18446744073709551615",
+                       "fs value count=8",
+                       "fs value restored=9223372036854775807",
+                       "fs done const_generic_wide ok"],
+        "expect_clean_exit": True,
+    },
+    {
         # A `SpinLock` stays refused on the part without atomics.
         "name": "spinlock_without_atomics",
         # The refusal's wording names the target and the feature that restores

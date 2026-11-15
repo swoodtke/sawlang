@@ -1,0 +1,74 @@
+// probe: stated
+// about: a const generic value takes every value of its parameter's type, and an expression over one computes at that type, its intermediate values past `Int.max` included (SL-1129)
+// stage 0: not run: Stage 0 refuses a `UInt64` argument past `Int.max`
+// speeds: -O0 -O2
+// prints: 9223372036854775808 18446744073709551615
+// prints: 9223372036854775809 true
+// prints: 576460752303423488 1152921504606846975
+// prints: 8 9223372036854775807
+// prints: 3074457345618258602 808
+// prints: 1 7
+// prints: 8 8 8
+
+func value<const N: UInt64>() -> UInt64 {
+    N
+}
+
+func successor<const N: UInt64>() -> UInt64 {
+    N + 1
+}
+
+func above_zero<const N: UInt64>() -> Bool {
+    N > 0u64
+}
+
+func shifted<const N: UInt64>() -> UInt64 {
+    N >> 4
+}
+
+// An intermediate of 2^63 or more whose result is below it.
+func count<const K: UInt64>() -> Int {
+    let a = [7u8; (K << 40) >> 60]
+    a.len()
+}
+
+func restored<const K: UInt64>() -> UInt64 {
+    value<(K + 1) - 1>()
+}
+
+func divided<const K: UInt64>() -> UInt64 {
+    value<K / 3>()
+}
+
+func remainder<const K: UInt64>() -> UInt64 {
+    value<K % 1000>()
+}
+
+func high_bit<const K: UInt64>() -> Int {
+    let a = [7u8; K >> 63]
+    a.len()
+}
+
+func complement<const K: UInt64>() -> Int {
+    let a = [7u8; (~K) >> 60]
+    a.len()
+}
+
+struct Holder<const K: UInt64> {
+    data: [UInt8; (K << 40) >> 60]
+}
+
+func result<const K: UInt64>() -> [UInt8; (K << 40) >> 60] {
+    [1; (K << 40) >> 60]
+}
+
+func main() {
+    print("{} {}", value<0x8000_0000_0000_0000u64>(), value<0xFFFF_FFFF_FFFF_FFFFu64>())
+    print("{} {}", successor<0x8000_0000_0000_0000u64>(), above_zero<0xFFFF_FFFF_FFFF_FFFFu64>())
+    print("{} {}", shifted<0x8000_0000_0000_0000u64>(), shifted<0xFFFF_FFFF_FFFF_FFFFu64>())
+    print("{} {}", count<8388608>(), restored<0x7FFF_FFFF_FFFF_FFFFu64>())
+    print("{} {}", divided<0x8000_0000_0000_0000u64>(), remainder<0x8000_0000_0000_0000u64>())
+    print("{} {}", high_bit<0x8000_0000_0000_0000u64>(), complement<0x8000_0000_0000_0000u64>())
+    let h = Holder<8388608>(data: [0; 8])
+    print("{} {} {}", h.data.len(), result<8388608>().len(), count<8388608>())
+}

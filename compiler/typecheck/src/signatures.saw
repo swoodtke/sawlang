@@ -680,9 +680,24 @@ extension TcProgram {
         self.types.intern(TcKind.Slice, -1, a, element, &none, &unlabeled)
     }
 
+    // An array's length is an `Int`: an expression over a const parameter at
+    // another type, which a constant argument substituted for a bare length
+    // brings, converts to `Int` here, so it is the type the same length
+    // written in place forms.
     public func mk_array(&var self, element: Int, length: Int) -> Int {
+        var held = length
+        if length >= 0 && self.types.ty(length).kind == TcKind.ConstExpr {
+            let none = Vector<Int>()
+            let word = self.mk_nominal(self.known.int, &none)
+            let at = self.types.ty(length).b
+            if at != word {
+                var operand = Vector<Int>()
+                try! operand.push(length)
+                held = self.mk_const_expr(TC_CONST_ADOPT, word, at, &operand)
+            }
+        }
         var args = Vector<Int>()
-        try! args.push(length)
+        try! args.push(held)
         let none = Vector<Int>()
         self.types.intern(TcKind.Array, -1, 0, element, &args, &none)
     }
@@ -1663,19 +1678,19 @@ extension TcProgram {
     // a constant for use `use`, as the constant it stands for, or the error
     // type once refused. Its verdict was reached before signatures
     // (`evaluate_constant_statics`): an integer static whose initializer
-    // folds stands for its value; a mutable, non-integer or uninitialized
-    // static is no constant, and neither is one whose initializer does not
-    // fold or whose value does not fit an `Int`; each refusal names the
-    // static and why; one whose own declaration is refused is the error type
-    // here, reported once there. A static whose own initializer is being
-    // typed is reached again only through itself, which is a cycle.
+    // folds stands for its value, at whatever width its type has; a mutable,
+    // non-integer or uninitialized static is no constant, and neither is one
+    // whose initializer does not fold; each refusal names the static and why;
+    // one whose own declaration is refused is the error type here, reported
+    // once there. A static whose own initializer is being typed is reached
+    // again only through itself, which is a cycle.
     // ENTRY POINTS:
     //     constant_named
     //     refuse_unfolded_constant
     public func static_constant(&var self, d: Int, at: Int, use: TcConstPosition) -> Int {
         let verdict = self.static_verdicts[d]
         if verdict == TcStaticVerdict.Folds {
-            return self.mk_const(self.static_values[d])
+            return self.mk_const_at(self.static_values[d], self.sigs[d].result)
         }
         if verdict == TcStaticVerdict.Poisoned {
             return self.error_type
@@ -1683,15 +1698,6 @@ extension TcProgram {
         let m = self.current
         if verdict == TcStaticVerdict.NotConstant {
             self.refuse_not_compile_time(at, use, self.static_reasons.get(d) ?? "")
-            return self.error_type
-        }
-        if verdict == TcStaticVerdict.Unfit {
-            var msg = StringBuilder()
-            try! msg.append(self.static_reasons.get(d) ?? "")
-            try! msg.append(", as ")
-            try! msg.append(tc_const_use_phrase(use))
-            try! msg.append(" must")
-            self.refuse(at, "type.mismatch", msg.build())
             return self.error_type
         }
         var msg = StringBuilder()

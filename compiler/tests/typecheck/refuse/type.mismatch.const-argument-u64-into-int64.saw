@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 11:7
+// message: the constant argument `18446744073709551615u64` is 18446744073709551615, which does not fit `Int64`, the type of `N`
+// A `UInt64` value past `Int64.max` is judged by the parameter it fills: an
+// `Int64` refuses it, and it is never read as -1.
+
+func v<const N: Int64>() -> Int64 {
+    N
+}
+
+func use() -> Int64 {
+    v<18446744073709551615u64>()
+}

@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:7
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: the constant argument `4294967296i64` is 4294967296, which does not fit `UInt32`, the type of `N`
+// An argument is folded at its own type, so a 64-bit value reaches the
+// parameter whole and a `UInt32` refuses it, here as on every target.
+
+func v<const N: UInt32>() -> UInt32 {
+    N
+}
+
+func use() -> UInt32 {
+    v<4294967296i64>()
+}

@@ -613,14 +613,12 @@ public enum TcStaticTyping: UInt8 {
 
 // What a static stands for where a type fixes a constant: not evaluated (it
 // is named in no such position), the constant it folds to, a static that is
-// no constant, or one whose value does not fit an `Int`, each with its
-// reason; or one whose type or initializer was refused already, which its
-// own declaration reports.
+// no constant, with its reason; or one whose type or initializer was refused
+// already, which its own declaration reports.
 public enum TcStaticVerdict: UInt8 {
     case Unevaluated = 0,
     case Folds = 1,
     case NotConstant = 2,
-    case Unfit = 3,
     case Poisoned = 4
 }
 

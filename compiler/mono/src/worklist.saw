@@ -29,7 +29,7 @@ import sawtypecheck.fold.{TcFold}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.signatures.{TcContext, tc_const_use_phrase}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawresolve.lang.{ResLang}
@@ -554,8 +554,23 @@ extension MonoProgram {
         let m = self.dp.bc.mir.tc.node_module(node)
         let written = self.dp.bc.mir.tc.text(m, node)
         if use != TcConstPosition.Argument {
-            if info.a >= 0 {
+            let word = self.dp.bc.mir.tc.int_type()
+            if not self.dp.bc.mir.tc.const_negative(t) && self.dp.bc.mir.tc.const_fits(t, word) {
                 return true
+            }
+            if not self.dp.bc.mir.tc.const_negative(t) {
+                // A length is an `Int`, so a value only a wider parameter
+                // holds is no length on this target.
+                var long = StringBuilder()
+                try! long.append(tc_const_use_phrase(use))
+                try! long.append(" `")
+                try! long.append(written)
+                try! long.append("` is ")
+                try! long.append(self.dp.bc.mir.tc.const_text(t))
+                try! long.append(", which does not fit `Int`, ")
+                try! long.append(at)
+                self.refuse(node, "type.mismatch", long.build())
+                return false
             }
             var why = StringBuilder()
             try! why.append("`")

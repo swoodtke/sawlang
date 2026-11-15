@@ -1,0 +1,13 @@
+// refuses: constant.overflow at 7:20
+// message: constant expression overflows `UInt64` (range 0..=18446744073709551615)
+// message: (in the instantiation `plus_times<9223372036854775807>`)
+// `K + 1` is 2^63, a `UInt64` value, and doubling it leaves `UInt64`.
+
+func plus_times<const K: UInt64>() -> Int {
+    let a = [0u8; (K + 1) * 2]
+    a.len()
+}
+
+func main() {
+    print(plus_times<0x7FFF_FFFF_FFFF_FFFFu64>())
+}

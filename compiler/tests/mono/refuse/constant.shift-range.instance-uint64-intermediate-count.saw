@@ -1,0 +1,13 @@
+// refuses: constant.shift-range at 7:19
+// message: constant expression shifts a value of type `Int` by a count outside its width
+// message: (in the instantiation `shifted_by<8388608>`)
+// The count `K << 40` is 2^63, a `UInt64` value, far outside any width.
+
+func shifted_by<const K: UInt64>() -> Int {
+    let a = [0u8; 1 >> (K << 40)]
+    a.len()
+}
+
+func main() {
+    print(shifted_by<8388608>())
+}

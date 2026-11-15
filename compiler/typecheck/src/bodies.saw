@@ -6571,14 +6571,14 @@ extension TcProgram {
         if array >= 0 {
             let length = self.types.arg(array, 0)
             let li = self.types.ty(length)
-            if li.kind == TcKind.ConstInt && li.a != values.len() {
+            if li.kind == TcKind.ConstInt && (li.b != 0 || li.a != values.len()) {
                 var msg = StringBuilder()
                 try! msg.append("this array literal has ")
                 try! msg.append(values.len())
                 try! msg.append(" elements, and `")
                 try! msg.append(self.type_text(array))
                 try! msg.append("` holds ")
-                try! msg.append(li.a)
+                try! msg.append(self.const_text(length))
                 self.refuse(e, "type.mismatch", msg.build())
             } else if li.kind != TcKind.ConstInt && li.kind != TcKind.Error {
                 // A parameter length is fixed only at each instantiation, so a
@@ -6724,10 +6724,11 @@ extension TcProgram {
     }
 
     // The symbolic constant arithmetic over const parameters at `node` stands
-    // for, an integer converted to `Int` as every length and argument is: a
-    // `ConstExpr` or a const parameter, folded to a `ConstInt` once its
-    // parameters have values (`mk_const_expr`). -1 when `node` is outside what
-    // folds per instance, the error type once refused.
+    // for: a `ConstExpr` or a const parameter, folded to a `ConstInt` once its
+    // parameters have values (`mk_const_expr`). A length or count converts to
+    // `Int`; an argument keeps its own type, since the parameter it fills
+    // judges its value at each instance. -1 when `node` is outside what folds
+    // per instance, the error type once refused.
     func parameter_constant(&var self, node: Int, use: TcConstPosition) -> Int {
         let s = self.symbolic_part(node)
         if s.t < 0 {
@@ -6741,7 +6742,7 @@ extension TcProgram {
             return self.error_type
         }
         let word = self.int_type()
-        if s.ty == word {
+        if s.ty == word || use == TcConstPosition.Argument {
             return s.t
         }
         self.symbolic_convert(node, TC_CONST_ADOPT, word, s).t
@@ -6814,8 +6815,7 @@ extension TcProgram {
         s
     }
 
-    // A part of a symbolic constant that names no parameter: its folded value,
-    // as a signed 64-bit integer.
+    // A part of a symbolic constant that names no parameter: its folded value.
     func symbolic_free_part(&var self, e: Int) -> TcSymbolic {
         let none = TcSymbolic(t: -1, ty: -1)
         let v = self.fold_constant(e)
@@ -6831,17 +6831,6 @@ extension TcProgram {
         }
         if not self.is_integer(v.ty) {
             return TcSymbolic(t: self.mk_const(v.bits), ty: v.ty)
-        }
-        let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), 64, true)
-        if not r.ok {
-            var msg = StringBuilder()
-            try! msg.append("constant `")
-            try! msg.append(self.text(self.node_module(e), e))
-            try! msg.append("` is ")
-            try! msg.append(tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty)))
-            try! msg.append(", which an expression over a const parameter cannot hold: its parts are held in `Int64`")
-            self.refuse(e, "type.mismatch", msg.build())
-            return TcSymbolic(t: self.error_type, ty: self.error_type)
         }
         TcSymbolic(t: self.mk_const_at(v.bits, v.ty), ty: v.ty)
     }
@@ -7011,7 +7000,7 @@ extension TcProgram {
 
     // The leaf of the first static expression `e` names whose verdict is no
     // value: a refusal, or with `pending` one not yet reached; -1 when there
-    // is none. A value past `Int` is a value here.
+    // is none.
     public func unfolded_static_leaf(&self, e: Int, pending: Bool) -> Int {
         if e < 0 {
             return -1
@@ -7049,11 +7038,11 @@ extension TcProgram {
     }
 
     // THE LENGTH CONVERSION: the length or constant argument expression
-    // `node` at `use` stands for, from its fold `v`: the integer value
-    // converted to `Int` (one past `Int` is `type.mismatch`, a negative length
-    // `constant.negative-length`; an argument may be negative, its parameter's
-    // use decides), or the error type once refused. A value of another type
-    // is no length.
+    // `node` at `use` stands for, from its fold `v`: a length's integer value
+    // converted to `Int` (one past `Int` is `type.mismatch`, a negative one
+    // `constant.negative-length`); an argument's value as it is, whatever its
+    // type, which the parameter it fills judges (`check_argument_kind`); or
+    // the error type once refused. A value of another type is no length.
     // ENTRY POINTS:
     //     repeat_length
     //     type_constant_ahead
@@ -7061,6 +7050,9 @@ extension TcProgram {
         if not self.is_integer(v.ty) {
             self.refuse_non_integer_constant(node, use, v.ty)
             return self.error_type
+        }
+        if use == TcConstPosition.Argument {
+            return self.mk_const_at(v.bits, v.ty)
         }
         let word = self.int_type()
         let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(word), true)
@@ -7072,9 +7064,6 @@ extension TcProgram {
             try! msg.append(", which does not fit `Int`")
             self.refuse(node, "type.mismatch", msg.build())
             return self.error_type
-        }
-        if use == TcConstPosition.Argument {
-            return self.mk_const(r.bits)
         }
         self.folded_length(node, use, r.bits)
     }
@@ -10790,7 +10779,7 @@ extension TcProgram {
         }
         let length = self.types.ty(self.types.arg(viewed, 0))
         let index = self.fold_constant(args.values[0])
-        if length.kind == TcKind.ConstInt && length.b == 0 && index.ok &&index.ty >= 0 && self.is_integer(index.ty) && (index.bits < 0 || index.bits >= length.a) {
+        if length.kind == TcKind.ConstInt && length.b == 0 && index.ok && index.ty >= 0 && self.is_integer(index.ty) && (index.bits < 0 || index.bits >= length.a) {
             var msg = StringBuilder()
             try! msg.append("the constant index ")
             try! msg.append(index.bits)

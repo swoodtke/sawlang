@@ -14,7 +14,6 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
 import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResDeclKind}
-import sawtypecheck.arith.{tc_arith_convert, tc_arith_text}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
@@ -466,9 +465,8 @@ extension TcProgram {
         v
     }
 
-    // Whether expression `e` names a static whose verdict is neither a folded
-    // value nor a value past `Int`, which the fold reports by its own
-    // position's wording.
+    // Whether expression `e` names a static whose verdict is no folded value,
+    // which the fold reports by its own position's wording.
     func names_unfolded_static(&self, e: Int) -> Bool {
         self.unfolded_static_leaf(e, true) >= 0
     }
@@ -535,20 +533,9 @@ extension TcProgram {
             self.static_refused(d, "the static `", &name, "`'s initializer does not fold")
             return
         }
-        let int_t = self.int_type()
-        let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(int_t), true)
-        if not r.ok {
-            var why = StringBuilder()
-            try! why.append("the static `")
-            try! why.append(name)
-            try! why.append("` is ")
-            try! why.append(tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty)))
-            try! why.append(", which does not fit `Int`")
-            self.static_reasons[d] = why.build()
-            self.static_verdicts[d] = TcStaticVerdict.Unfit
-            return
-        }
-        self.static_values[d] = r.bits
+        // The value's bits at the static's own type: `static_constant` reads
+        // them there, so a `UInt64` past `Int.max` keeps its value.
+        self.static_values[d] = v.bits
         self.static_verdicts[d] = TcStaticVerdict.Folds
     }
 

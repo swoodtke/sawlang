@@ -1,0 +1,17 @@
+// refuses: constant.overflow at 12:7
+// message: constant expression overflows `UInt64` (range 0..=18446744073709551615)
+// message: (in the instantiation `g<18446744073709551615>`)
+// An expression over a `UInt64` parameter computes at `UInt64`, so `K + 1` at
+// `UInt64.max` overflows there, at that instance only.
+
+func v<const N: UInt64>() -> UInt64 {
+    N
+}
+
+func g<const K: UInt64>() -> UInt64 {
+    v<K + 1>()
+}
+
+func main() {
+    print(g<0xFFFF_FFFF_FFFF_FFFEu64>() + g<0xFFFF_FFFF_FFFF_FFFFu64>())
+}

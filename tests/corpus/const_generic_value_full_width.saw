@@ -1,0 +1,100 @@
+// Conformance row W27: a const generic value is its parameter type's value at
+// every width. A `UInt64` parameter takes 2^63 and `UInt64.max` however it is
+// reached (a suffixed argument, a static, a default, a forwarded parameter, an
+// expression over one, an inferred value, a struct's parameter), the value
+// reads back whole in a body, and two values that differ only past `Int64.max`
+// are two instantiations.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9223372036854775808
+// 18446744073709551615
+// 9223372036854775808
+// 9223372036854775808
+// 18446744073709551615
+// 9223372036854775808
+// 18446744073709551615
+// 9223372036854775808
+// 9223372036854775808
+// 18446744073709551615
+// 18446744073709551615
+// 9223372036854775808
+// 9223372036854775808
+// 9223372036854775809
+// true
+// 576460752303423488
+// 1152921504606846975
+// 9223372036854775808 9223372036854775807 18446744073709551615
+
+func value<const N: UInt64>() -> UInt64 {
+    N
+}
+
+static HIGH: UInt64 = 0x8000_0000_0000_0000
+static TOP: UInt64 = 0xFFFF_FFFF_FFFF_FFFF
+
+func with_default<const N: UInt64 = 0x8000_0000_0000_0000u64>() -> UInt64 {
+    N
+}
+
+struct Tagged<const N: UInt64 = 0xFFFF_FFFF_FFFF_FFFFu64> {
+    x: Int
+}
+
+func tag_value<const N: UInt64>(t: Tagged<N>) -> UInt64 {
+    N
+}
+
+struct Mask<const M: UInt64> {
+    x: Int
+}
+
+extension Mask<M> {
+    func bits(&self) -> UInt64 {
+        M
+    }
+}
+
+func infer<const N: UInt64>(m: Mask<N>) -> UInt64 {
+    N
+}
+
+func forward<const K: UInt64>() -> UInt64 {
+    value<K>()
+}
+
+func successor<const K: UInt64>() -> UInt64 {
+    value<K + 1>()
+}
+
+func above_zero<const N: UInt64>() -> Bool {
+    N > 0u64
+}
+
+func shifted<const N: UInt64>() -> UInt64 {
+    N >> 4
+}
+
+func by_default<const N: UInt64>(by: UInt64 = N) -> UInt64 {
+    by
+}
+
+func main() {
+    print(value<0x8000_0000_0000_0000u64>())
+    print(value<0xFFFF_FFFF_FFFF_FFFFu64>())
+    print(value<HIGH>())
+    print(with_default())
+    print(tag_value(Tagged(x: 1)))
+    print(forward<0x8000_0000_0000_0000u64>())
+    print(forward<0xFFFF_FFFF_FFFF_FFFFu64>())
+    print(infer(Mask<0x8000_0000_0000_0000u64>(x: 1)))
+    print(Mask<0x8000_0000_0000_0000u64>(x: 1).bits())
+    print(Mask<TOP>(x: 1).bits())
+    print(successor<0xFFFF_FFFF_FFFF_FFFEu64>())
+    print(successor<0x7FFF_FFFF_FFFF_FFFFu64>())
+    print(by_default<0x8000_0000_0000_0000u64>())
+    print(value<0x7FFF_FFFF_FFFF_FFFFu64 + 2>())
+    print(above_zero<0x8000_0000_0000_0000u64>())
+    print(shifted<0x8000_0000_0000_0000u64>())
+    print(shifted<0xFFFF_FFFF_FFFF_FFFFu64>())
+    print("{} {} {}", value<0x8000_0000_0000_0000u64>(), value<0x7FFF_FFFF_FFFF_FFFFu64>(), value<0xFFFF_FFFF_FFFF_FFFFu64>())
+}

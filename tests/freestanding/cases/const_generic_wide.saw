@@ -1,0 +1,63 @@
+// A const generic value takes every value of its parameter's type, whatever
+// the target's `Int`: a `UInt32` past `Int32.max` on a 32-bit target, a
+// `UInt64` past `Int64.max`, read in a body, through a struct's parameter,
+// from a static, forwarded into a wider parameter and computed at the
+// parameter's own type.
+
+import fscore.*
+
+struct Mask<const M: UInt32> {
+    x: Int
+}
+
+extension Mask<M> {
+    func bits(&self) -> UInt32 {
+        M
+    }
+}
+
+func value32<const N: UInt32>() -> UInt32 {
+    N
+}
+
+func value64<const N: UInt64>() -> UInt64 {
+    N
+}
+
+func forward<const K: UInt32>() -> UInt64 {
+    value64<K>()
+}
+
+func plus_one<const K: UInt32>() -> UInt32 {
+    value32<K + 1>()
+}
+
+static HIGH: UInt32 = 0x8000_0000
+
+// An expression over a `UInt64` parameter whose intermediate value is past
+// `Int.max` and whose result is below it, as a repeat count and as an
+// argument.
+func count<const K: UInt64>() -> Int {
+    let a = [7u8; (K << 40) >> 60]
+    a.len()
+}
+
+func restored<const K: UInt64>() -> UInt64 {
+    value64<(K + 1) - 1>()
+}
+
+@export("fs_main")
+func fs_main() {
+    report_unsigned_wide("u32_high", value32<0x8000_0000u32>() as UInt64)
+    report_unsigned_wide("u32_max", value32<0xFFFF_FFFFu32>() as UInt64)
+    let m = Mask<0x8000_0000u32>(x: 1)
+    report_unsigned_wide("mask", m.bits() as UInt64)
+    report_unsigned_wide("static", value32<HIGH>() as UInt64)
+    report_unsigned_wide("forward", forward<0xFFFF_FFFFu32>())
+    report_unsigned_wide("plus_one", plus_one<0x7FFF_FFFFu32>() as UInt64)
+    report_unsigned_wide("u64_high", value64<0x8000_0000_0000_0000u64>())
+    report_unsigned_wide("u64_max", value64<0xFFFF_FFFF_FFFF_FFFFu64>())
+    report_unsigned_wide("count", count<8388608>() as UInt64)
+    report_unsigned_wide("restored", restored<0x7FFF_FFFF_FFFF_FFFFu64>())
+    finish("const_generic_wide")
+}
