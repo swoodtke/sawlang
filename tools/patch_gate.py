@@ -84,6 +84,7 @@ SUITE_INPUTS = {
     "freestanding": (
         "tests/freestanding/",           # the cases, the three modules, the boot stubs and link scripts
         "tools/freestanding_runner.py",  # the runner and its expectations
+        "tools/test_freestanding_runner.py",  # the runner's unit test, which the part runs first
         # Every stage decides what a refusal row says or what an object holds.
         "compiler/typecheck/src/",
         "compiler/mir/src/",
@@ -108,15 +109,18 @@ SUITE_INPUTS = {
 
 GRAMMAR_CORPUS = "compiler/tests/grammar/corpus.py"
 
-# (name, command) in running order. The first always runs, and builds the
-# sawc the others find cached.
+# (name, commands) in running order. The first always runs, and builds the
+# sawc the others find cached. A part's commands run in order and the part
+# stops at the first that fails; the freestanding runner's own unit test runs
+# first, as tools/battery.sh's freestanding stage does, because it needs no
+# QEMU and pins the runner's tool decisions.
 PARTS = (
-    ("compiler tests", ["compiler/tests/run.py"]),
-    ("fixpoint", ["compiler/tests/fixpoint/fixpoint_lane.py"]),
-    ("grammar corpus", [GRAMMAR_CORPUS]),
-    ("corpusdiff", ["compiler/tests/corpusdiff/corpusdiff.py", "gate"]),
-    ("blade", ["tools/blade_lane.py"]),
-    ("freestanding", ["tools/freestanding_runner.py"]),
+    ("compiler tests", [["compiler/tests/run.py"]]),
+    ("fixpoint", [["compiler/tests/fixpoint/fixpoint_lane.py"]]),
+    ("grammar corpus", [[GRAMMAR_CORPUS]]),
+    ("corpusdiff", [["compiler/tests/corpusdiff/corpusdiff.py", "gate"]]),
+    ("blade", [["tools/blade_lane.py"]]),
+    ("freestanding", [["tools/test_freestanding_runner.py"], ["tools/freestanding_runner.py"]]),
 )
 
 # The parser corpus, whose case files corpus.py skips too.
@@ -173,22 +177,22 @@ def _strip_side(side):
 
 
 def plan(paths, source):
-    """[(part name, run?, reason, command)] for the changed `paths` (None = unknown)."""
+    """[(part name, run?, reason, commands)] for the changed `paths` (None = unknown)."""
     decisions = [(PARTS[0][0], True, "always", PARTS[0][1])]
-    for name, command in PARTS[1:]:
+    for name, commands in PARTS[1:]:
         if paths is None:
-            decisions.append((name, True, "the changed paths are unknown: %s" % source, command))
+            decisions.append((name, True, "the changed paths are unknown: %s" % source, commands))
             continue
         hit = _first_hit(paths, GATE_DEFINITION)
         if hit:
-            decisions.append((name, True, "%s changes the gate itself" % hit, command))
+            decisions.append((name, True, "%s changes the gate itself" % hit, commands))
             continue
         hit = _first_hit(paths, SUITE_INPUTS[name])
         if hit:
-            decisions.append((name, True, "%s is one of its inputs" % hit, command))
+            decisions.append((name, True, "%s is one of its inputs" % hit, commands))
         else:
             decisions.append((name, False, "no changed path is one of its inputs: %s"
-                              % ", ".join(SUITE_INPUTS[name]), command))
+                              % ", ".join(SUITE_INPUTS[name]), commands))
     for entry in PER_FILE:
         decisions.append(_per_file(paths, decisions, *entry))
     return decisions
@@ -202,7 +206,7 @@ def _per_file(paths, decisions, name, full, elsewhere, command):
     if not saw:
         return (name, False, "no .saw file changed outside %s" % ", ".join(elsewhere), None)
     shown = ", ".join(saw[:5]) + (", ..." if len(saw) > 5 else "")
-    return (name, True, "%d changed: %s" % (len(saw), shown), command + saw)
+    return (name, True, "%d changed: %s" % (len(saw), shown), [command + saw])
 
 
 def _first_hit(paths, prefixes):
@@ -241,8 +245,10 @@ def main():
     else:
         print("gate: changed paths: %d, %s" % (len(paths), how))
     decisions = plan(paths, how)
-    for name, run, reason, _ in decisions:
+    for name, run, reason, commands in decisions:
         print("gate: %s: %s (%s)" % (name, "run" if run else "skip", reason))
+        if run and len(commands) > 1:
+            print("gate:   in order: %s" % "; ".join(" ".join(c) for c in commands))
     cache, why = gate_cache(dry_run=args.dry_run)
     print("gate: sawc cache: %s (%s)" % (os.path.relpath(cache, REPO), why))
     if args.dry_run:
@@ -250,7 +256,7 @@ def main():
 
     results = []
     tests_start = time.time()
-    for name, run, _, command in decisions:
+    for name, run, _, commands in decisions:
         if not run:
             results.append("%s skipped" % name)
             continue
@@ -260,12 +266,29 @@ def main():
         if args.changed_since:
             # The revision a part compares committed data against (comment baseline).
             part_env["SAW_GATE_BASE"] = args.changed_since
-        rc = subprocess.run([sys.executable] + command, cwd=REPO, env=part_env).returncode
+        rc = run_part(commands, part_env)
         took = duration(time.time() - start)
         results.append("%s %s (%s)" % (name, "passed" if rc == 0 else "FAILED, exit %d" % rc, took))
     print("gate: " + "; ".join(results))
     print("gate: time: %s; tests %s" % (lock_wait(), duration(time.time() - tests_start)))
     return 1 if any("FAILED" in r for r in results) else 0
+
+
+def _start(command, env):
+    """The one place a part's command becomes a process; its exit code."""
+    return subprocess.run([sys.executable] + command, cwd=REPO, env=env).returncode
+
+
+def run_part(commands, env, start=_start):
+    """The part's exit code: its commands run in order, and the first to fail
+    ends the part with its code, the rest never started. `start` is the
+    stand-in point for tools/test_patch_gate.py."""
+    rc = 0
+    for command in commands:
+        rc = start(command, env)
+        if rc != 0:
+            break
+    return rc
 
 
 # The variable a gate run names its cache directory in, beside SAWC_CACHE_DIR,

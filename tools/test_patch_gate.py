@@ -67,7 +67,7 @@ CASES = (
     ({"tests/freestanding/hal/support.c"}, ("compiler tests", "freestanding")),
     ({"tests/freestanding/README.md"}, ("compiler tests", "freestanding")),
     ({"tools/freestanding_runner.py"}, ("compiler tests", "freestanding")),
-    ({"tools/test_freestanding_runner.py"}, ("compiler tests",)),
+    ({"tools/test_freestanding_runner.py"}, ("compiler tests", "freestanding")),
     ({"tools/gate_jobs.py"}, ("compiler tests", "fixpoint", "corpusdiff", "blade", "freestanding")),
     ({"blade/src/main.saw", "libs/toml/src/lib.saw"}, ("compiler tests", "blade", "freestanding", GRAMMAR_FILES)),
     ({"blade/tests/lock_cbor.saw"}, ("compiler tests", "blade", "freestanding", GRAMMAR_FILES)),
@@ -111,12 +111,20 @@ def check_parts():
     check(names == list(ALL), "the gate's parts are %s, want %s" % (names, list(ALL)))
     # A part naming a script that is gone would fail every patch at run time,
     # not here, and only on the patches that reach it.
-    for name, command in patch_gate.PARTS:
-        script = command[0]
-        check(os.path.isfile(os.path.join(REPO, script)), "part %s runs %s, which does not exist" % (name, script))
+    for name, commands in patch_gate.PARTS:
+        for command in commands:
+            script = command[0]
+            check(os.path.isfile(os.path.join(REPO, script)), "part %s runs %s, which does not exist" % (name, script))
     for _, _, _, command in patch_gate.PER_FILE:
         check(os.path.isfile(os.path.join(REPO, command[0])), "a per-file check runs %s, which does not exist"
               % command[0])
+    # The runner's unit test runs before the runner, as the battery's stage does,
+    # and a change to it re-runs the part: the battery is the only other caller.
+    scripts = [c[0] for c in dict(patch_gate.PARTS)["freestanding"]]
+    check(scripts == ["tools/test_freestanding_runner.py", "tools/freestanding_runner.py"],
+          "the freestanding part runs %s, want its unit test and then the runner" % scripts)
+    check("tools/test_freestanding_runner.py" in patch_gate.SUITE_INPUTS["freestanding"],
+          "the runner's unit test is no freestanding input")
     for part, inputs in patch_gate.SUITE_INPUTS.items():
         check(part in names, "SUITE_INPUTS names %s, which is no part" % part)
     for _, directory in patch_gate.build.STAGE_PACKAGES:
@@ -127,6 +135,26 @@ def check_parts():
     for part in ("freestanding", "blade"):
         for path in patch_gate.SUITE_INPUTS[part]:
             check(os.path.exists(os.path.join(REPO, path)), "%s input %s does not exist" % (part, path))
+
+
+def check_run_part():
+    """A part's commands run in order; the first failure ends the part with
+    its exit code and starts nothing after it. The process start is a stand-in."""
+    for codes, want_started, want in (
+        ((0, 0), ["a", "b"], 0),
+        ((3, 0), ["a"], 3),
+        ((0, 2), ["a", "b"], 2),
+    ):
+        started = []
+
+        def start(command, env, codes=codes, started=started):
+            started.append(command[0])
+            return codes[len(started) - 1]
+
+        got = patch_gate.run_part([["a"], ["b"]], {}, start)
+        check(got == want and started == want_started,
+              "exits %s: the part returned %s after starting %s, want %s after %s"
+              % (codes, got, started, want, want_started))
 
 
 def row(path, bucket, key="-", detail="-", **extra):
@@ -252,6 +280,7 @@ def check_gate_cache():
 def main():
     check_plans()
     check_parts()
+    check_run_part()
     check_gate_cache()
     check_regressions()
     check_wrong_refusal()

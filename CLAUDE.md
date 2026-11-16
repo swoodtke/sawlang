@@ -182,8 +182,9 @@ Stage 0 snapshot's regeneration run it.
   `bin/blade`, the lane and what sawc is built from. And the **freestanding QEMU suite**
   (`tools/freestanding_runner.py`, `tests/freestanding/`: each case built by
   sawc `--freestanding --runtime`, linked at a fixed address and booted; a
-  `due` case cites the issue owning its gap) over `tests/freestanding/`, the
-  runner, the `src/` of `compiler/` `typecheck/`, `asserts/`, `mir/`, `mono/`
+  `due` case cites the issue owning its gap; the runner's own unit test,
+  `tools/test_freestanding_runner.py`, runs first) over `tests/freestanding/`, the
+  runner and its unit test, the `src/` of `compiler/` `typecheck/`, `asserts/`, `mir/`, `mono/`
   and `coro/`, `compiler/` `llvm/`, `driver/` and `target/`, `build.py`,
   `runtime/` and `std/`; it has a row per architecture (riscv32, arm64 and the
   ESP32-S3, `xtensa-esp-unknown-elf`, which boots a flash image under
