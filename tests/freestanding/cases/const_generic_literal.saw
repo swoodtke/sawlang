@@ -1,0 +1,60 @@
+// An unsuffixed literal written as a whole const generic argument takes its
+// parameter's type on a 32-bit target: a `UInt32` mask past `Int32.max`, a
+// `UInt64` past `Int64.max`, a negative `Int64` at its minimum, a default, a
+// struct's parameter, a method's, and one instance with the suffixed spelling.
+
+import fscore.*
+
+struct Mask<const M: UInt32> {
+    x: Int
+}
+
+extension Mask<M> {
+    func bits(&self) -> UInt32 {
+        M
+    }
+
+    static func make() -> Mask<M> {
+        Mask<M>(x: 1)
+    }
+}
+
+func value32<const N: UInt32>() -> UInt32 {
+    N
+}
+
+func value64<const N: UInt64>() -> UInt64 {
+    N
+}
+
+func low64<const N: Int64>() -> Int64 {
+    N
+}
+
+func top<const N: UInt32 = 0xFFFF_FFFF>() -> UInt32 {
+    N
+}
+
+struct Reg {
+    x: Int
+}
+
+extension Reg {
+    func read<const N: UInt32>(&self) -> UInt32 {
+        N
+    }
+}
+
+@export("fs_main")
+func fs_main() {
+    report_unsigned_wide("head", value32<0x8000_0000>() as UInt64)
+    let m: Mask<0x8000_0000> = Mask<0x8000_0000u32>(x: 1)
+    report_unsigned_wide("mask", m.bits() as UInt64)
+    report_unsigned_wide("static_method", Mask<0xFFFF_FFFF>.make().bits() as UInt64)
+    report_unsigned_wide("default", top() as UInt64)
+    report_unsigned_wide("method", Reg(x: 1).read<0x8000_0001>() as UInt64)
+    report_unsigned_wide("u64_max", value64<18446744073709551615>())
+    let low = low64<-9223372036854775808>()
+    report_unsigned_wide("i64_min_is_min", if low == Int64.min { 1 } else { 0 })
+    finish("const_generic_literal")
+}

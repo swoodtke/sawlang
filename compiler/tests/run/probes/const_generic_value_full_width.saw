@@ -9,6 +9,8 @@
 // prints: 3074457345618258602 808
 // prints: 1 7
 // prints: 8 8 8
+// prints: 5 255
+// prints: 18446744073709551615 9223372036854775808
 
 func value<const N: UInt64>() -> UInt64 {
     N
@@ -62,6 +64,18 @@ func result<const K: UInt64>() -> [UInt8; (K << 40) >> 60] {
     [1; (K << 40) >> 60]
 }
 
+struct Buf<const N: Int> {
+    data: [UInt8; N]
+}
+
+// A length written at `UInt8` and a type argument computed at `UInt8` meet
+// as one array type, the field's `[UInt8; N]` at `N = K + 1`.
+func adopted<const K: UInt8>() -> Int {
+    let a: [UInt8; K + 1] = [0u8; K + 1]
+    let b = Buf<K + 1>(data: a)
+    b.data.len()
+}
+
 func main() {
     print("{} {}", value<0x8000_0000_0000_0000u64>(), value<0xFFFF_FFFF_FFFF_FFFFu64>())
     print("{} {}", successor<0x8000_0000_0000_0000u64>(), above_zero<0xFFFF_FFFF_FFFF_FFFFu64>())
@@ -71,4 +85,6 @@ func main() {
     print("{} {}", high_bit<0x8000_0000_0000_0000u64>(), complement<0x8000_0000_0000_0000u64>())
     let h = Holder<8388608>(data: [0; 8])
     print("{} {} {}", h.data.len(), result<8388608>().len(), count<8388608>())
+    print("{} {}", adopted<4>(), adopted<254>())
+    print("{} {}", value<18446744073709551615>(), value<9223372036854775808>())
 }

@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:7
+// message: integer literal -9223372036854775809 does not fit in `Int`
+// A literal no integer type holds is refused at the literal, as anywhere.
+
+func v<const N: Int64>() -> Int64 {
+    N
+}
+
+func use() -> Int64 {
+    v<-9223372036854775809>()
+}

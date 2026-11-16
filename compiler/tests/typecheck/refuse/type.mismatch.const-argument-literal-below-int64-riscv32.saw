@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:7
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: integer literal -9223372036854775809 does not fit in `Int` (range -2147483648..=2147483647)
+// A literal no integer type holds is an `Int` as anywhere, so it is refused at
+// the literal on a 32-bit target too.
+
+func v<const N: Int64>() -> Int64 {
+    N
+}
+
+func use() -> Int64 {
+    v<-9223372036854775809>()
+}

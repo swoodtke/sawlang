@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:7
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: the constant argument `0x1_0000_0000` is 4294967296, which does not fit `UInt32`, the type of `N`
+// An unsuffixed literal argument takes its parameter's type, so one past the
+// target's `Int` is judged by the parameter and refused naming it.
+
+func v<const N: UInt32>() -> UInt32 {
+    N
+}
+
+func use() -> UInt32 {
+    v<0x1_0000_0000>()
+}

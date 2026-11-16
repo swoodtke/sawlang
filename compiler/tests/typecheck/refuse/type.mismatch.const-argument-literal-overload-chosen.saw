@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 15:7
+// message: the constant argument 300 does not fit `UInt8`, the type of `N`
+// A written constant takes no part in choosing among overloads: `1u8` picks
+// the `UInt8` candidate, whose parameter then refuses the literal.
+
+func f<const N: UInt8>(x: UInt8) -> Int {
+    1
+}
+
+func f<const N: Int>(x: Int) -> Int {
+    2
+}
+
+func use() -> Int {
+    f<300>(x: 1u8)
+}

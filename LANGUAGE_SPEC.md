@@ -1206,7 +1206,8 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   argument, a default parameter value, a `return` (and if/match arm results that
   merge to a fixed-width type), an enum payload, a compound-assign RHS
   (`x += 1` for `x: Int8`), and the element/key/value positions of array, tuple,
-  `Vector`, `Map`, and `Set` literals. An ASSIGNMENT TARGET names an expected
+  `Vector`, `Map`, and `Set` literals, and a whole const generic argument,
+  which its parameter judges (see Const generics). An ASSIGNMENT TARGET names an expected
   type the same way an annotation does, at every target kind: a local (`v = 4`),
   a struct field (`w.b = 2`), a tuple element under either spelling (`t.0 = 5`,
   `pair.x = 5`), an array or `Vector` element (`arr[0] = 5`), a `borrows` place
@@ -14091,8 +14092,12 @@ Scope, deliberately narrow in this version:
   takes every value of that type, whatever the target's `Int`: a
   `const M: UInt32` takes `0x8000_0000u32` on riscv32 and a `const N: UInt64`
   takes `UInt64.max`. An argument is folded at its own type and then checked
-  against the parameter, so a value past `Int` is written with a suffix
-  (`Mask<0x8000_0000u32>`): a literal with no suffix is an `Int`. A
+  against the parameter. A literal with no suffix that is the whole argument,
+  `Mask<0x8000_0000>` or `F<-5>`, takes the parameter's type as a literal in
+  a typed slot does: it is the same instance as `Mask<0x8000_0000u32>`, and
+  one the parameter's type cannot hold is refused there, naming the
+  parameter. Inside an expression a literal is an `Int` as anywhere else, so
+  `Mask<0x8000_0000 + 1>` needs a suffix on riscv32. A
   parameter of any other type, such as `Bool`, `String` or a struct, is
   refused at the declaration, and so is a distinct alias of an integer
   (`Byte`), which is a type of its own rather than a width: write the type it

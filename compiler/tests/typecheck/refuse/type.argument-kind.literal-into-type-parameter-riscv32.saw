@@ -1,0 +1,14 @@
+// refuses: type.argument-kind at 12:18
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: this argument's parameter takes a type, and a value is written
+// A literal past the target's `Int` reaches its parameter, so a type
+// parameter's kind check speaks for it.
+
+struct Pair<T> {
+    x: Int
+}
+
+func use() -> Int {
+    let p = Pair<0x8000_0000>(x: 1)
+    p.x
+}

@@ -7121,13 +7121,15 @@ extension TcProgram {
     // constant-position funnel at `pos`: the value its fold stands for
     // (`fold_length`), the error type once refused, or -1 when the fold
     // leaves it unfolded without a refusal. The expression keeps its own
-    // integer type, as a repeat count does, and no body is open around it.
+    // integer type, as a repeat count does, but for an argument that is one
+    // literal (`argument_literal_slot`), and no body is open around it.
     public func type_constant_ahead(&var self, node: Int, pos: TcConstPosition) -> Int {
         self.ensure_body_tables()
         let saved = self.save_context()
         self.enter_module(self.node_module(node))
         self.reset_body(node)
-        let _ = self.expr(node, TC_WANT_NONE)
+        let want = if pos == TcConstPosition.Argument { self.argument_literal_slot(node) } else { TC_WANT_NONE }
+        let _ = self.expr(node, want)
         self.consume(node)
         let v = self.check_constant_position(node, pos, -1, -1)
         var length = -1
@@ -7140,6 +7142,34 @@ extension TcProgram {
         self.restore_context(saved)
         self.current_root = -1
         length
+    }
+
+    // THE ARGUMENT-LITERAL SLOT: the type an unsuffixed integer literal that
+    // is a whole constant argument, bare or negated (`Mask<0x8000_0000>`,
+    // `F<-5>`; `parse_const_expr` builds a negation as `Const_Negate`), is
+    // typed at before its parameter is known, which a call's head learns
+    // only once a candidate is chosen. One `Int` holds stays an
+    // `Int`; one past `Int` is held at `UInt64`, or at `Int64` when
+    // negated, so its value is its own. Either way the parameter it fills
+    // judges that value (`check_argument_kind`, `build_generic`), which is a
+    // typed slot's rule for a literal, and the constant is the value, so
+    // `Mask<0x8000_0000>` and `Mask<0x8000_0000u32>` are one type. Anything
+    // else, an expression or a literal no integer type holds, has no slot.
+    // ENTRY POINTS:
+    //     type_constant_ahead
+    func argument_literal_slot(&var self, node: Int) -> Int {
+        let negated = self.has_alt(node, Alt.Const_Negate)
+        let literal = if negated { self.res.first_node_child(node) } else { node }
+        if literal < 0 || not self.has_alt(literal, Alt.Expr_Int) || self.is_suffixed_literal(literal) {
+            return TC_WANT_NONE
+        }
+        let none = Vector<Int>()
+        let wide = self.mk_nominal(if negated { self.known.int64 } else { self.known.uint64 }, &none)
+        let v = self.fold_literal(literal, wide, negated)
+        if not v.ok || tc_arith_fits(v.bits, 64, negated, self.int_width(self.int_type()), true) {
+            return TC_WANT_NONE
+        }
+        wide
     }
 
     // Whether repeat literal `e`'s element type `t`, read from `value`, is

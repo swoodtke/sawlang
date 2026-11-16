@@ -2468,8 +2468,9 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `Int8`…`UInt64`; SL-548 c2), and `Bool`/`String`/a struct is refused at the
   declaration (`type.const-parameter`), as is a distinct alias like `Byte`
   (write `UInt8`). A const parameter takes every value of its type on every
-  target (`UInt64.max`, a `UInt32` mask on riscv32); write a suffix past `Int`
-  (`Mask<0x8000_0000u32>`). Usable as a `[T; N]`
+  target (`UInt64.max`, a `UInt32` mask on riscv32), and an unsuffixed literal
+  argument takes the parameter's type (`Mask<0x8000_0000>`); a literal inside
+  an expression argument is still an `Int`, so suffix it there. Usable as a `[T; N]`
   length (filled by a repeat literal `[0; N]`, never a list literal, which
   is a `type.mismatch` there), a `static_assert` operand (checked at EACH instance, so
   `static_assert(N > 0, …)` refuses `f<0>()`; sawc passed every one unread

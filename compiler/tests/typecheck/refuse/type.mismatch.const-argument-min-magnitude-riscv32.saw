@@ -1,6 +1,6 @@
 // refuses: type.mismatch at 11:20
 // flags: --std-root std --target riscv32-unknown-none-elf
-// message: integer literal -9223372036854775808 does not fit in `Int` (range -2147483648..=2147483647)
+// message: the constant argument -9223372036854775808 does not fit `Int`, the type of `N`
 // A const argument at the 64-bit minimum is refused at a 32-bit target, not
 // panicked on (SL-1139).
 

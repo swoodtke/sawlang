@@ -1033,6 +1033,21 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # An unsuffixed literal argument takes its parameter's type on a
+        # 32-bit target, and is one instance with its suffixed spelling.
+        "name": "const_generic_literal",
+        "arches": ["riscv32", "xtensa", "xtensa-windowed"],
+        "expect_out": ["fs value head=2147483648",
+                       "fs value mask=2147483648",
+                       "fs value static_method=4294967295",
+                       "fs value default=4294967295",
+                       "fs value method=2147483649",
+                       "fs value u64_max=18446744073709551615",
+                       "fs value i64_min_is_min=1",
+                       "fs done const_generic_literal ok"],
+        "expect_clean_exit": True,
+    },
+    {
         # A `SpinLock` stays refused on the part without atomics.
         "name": "spinlock_without_atomics",
         # The refusal's wording names the target and the feature that restores
