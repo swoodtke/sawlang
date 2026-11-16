@@ -1,0 +1,8 @@
+// refuses: name.undefined at 6:17
+// message: `max` cannot be named through a path here
+// a limit named where a type is wanted is the resolver's refusal, not a later stage's
+
+func main() {
+    let x: Int8.max = 1
+    print(1)
+}

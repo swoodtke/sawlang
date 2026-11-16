@@ -89,6 +89,11 @@ public func tc_const_use_phrase(use: TcConstPosition) -> String {
     }
 }
 
+// Why a case of an enum with no raw backing is no constant.
+public func tc_unbacked_case_reason() -> String {
+    "it is a case of an enum with no raw backing, which has no constant value"
+}
+
 static TC_SIG_UNBUILT: Int = 0
 static TC_SIG_GENERICS: Int = 1
 static TC_SIG_GENERICS_BUILT: Int = 2
@@ -1558,9 +1563,10 @@ extension TcProgram {
     // THE GENERIC-ARGUMENT CLASSIFIER: written generic argument `node` as the
     // type or the constant it is, for a parameter that takes `slot`, which a
     // call's head does not know until a candidate is chosen. A value's
-    // spelling is a constant; a bare name in a type's spelling is decided by
-    // what it binds, so a static or a const parameter is a constant (GRAMMAR
-    // syntax.rule.generic-arg-value); anything else is a type. A known slot
+    // spelling is a constant; a path in a type's spelling is decided by what
+    // it binds, so a static, a const parameter, an enum's case or an integer
+    // limit is a constant (GRAMMAR syntax.rule.generic-arg-value); anything
+    // else is a type. A known slot
     // the argument does not fill is the wrong kind of argument; an unknown
     // one is checked where the argument meets its parameter
     // (`check_argument_kind`). A type-spelled argument records its type
@@ -1579,12 +1585,11 @@ extension TcProgram {
         }
         if self.names_constant(node) {
             let path = self.child(node, 0)
-            let leaf = self.child(path, self.child_count(path) - 1)
             var ty = self.error_type
             if slot == TcArgSlot.Type {
                 self.kind_mismatch(node, "a type")
             } else {
-                ty = self.constant_named(leaf, TcConstPosition.Argument)
+                ty = self.argument_value(path)
             }
             self.node_types[node] = ty
             self.type_builds[node] += 1
@@ -1602,10 +1607,15 @@ extension TcProgram {
     // The constant a value-spelled generic argument `node` stands for: what
     // the pre-signature pass left at it (`evaluate_argument`), its folded
     // value, a const parameter or the error type once refused. A path alone,
-    // which only a const parameter's default is, names a constant as a bare
-    // argument does.
+    // a const parameter's default or a type-spelled argument that names a
+    // constant, names one as a bare argument does; a case or an integer limit
+    // is evaluated as a length is, at the path.
     func argument_value(&var self, node: Int) -> Int {
-        if self.has_alt(node, Alt.Type_Path) {
+        if self.names_unbacked_case(node) {
+            self.refuse_unbacked_case(node)
+            return self.error_type
+        }
+        if self.has_alt(node, Alt.Type_Path) && not self.names_case_or_limit(node) {
             return self.constant_named(self.res.last_leaf_of(node), TcConstPosition.Argument)
         }
         var ahead = self.node_types[node]
@@ -1622,13 +1632,78 @@ extension TcProgram {
         self.unevaluated_constant(node, TcConstPosition.Argument)
     }
 
-    // Whether type-spelled argument `node` is a bare path, written with no
-    // arguments, whose last segment binds a static or a const parameter.
+    // Whether path node `p` names an enum's case or an integer type's `max`
+    // or `min`, the paths beyond a static or a const parameter that a whole
+    // generic argument may fill a value parameter with.
+    public func names_case_or_limit(&self, p: Int) -> Bool {
+        if p < 0 || not self.has_alt(p, Alt.Type_Path) {
+            return false
+        }
+        let leaf = self.res.last_leaf_of(p)
+        if leaf < 0 {
+            return false
+        }
+        let b = self.binding_at(leaf)
+        if (b.kind == ResBindKind.Case || b.kind == ResBindKind.Decl) && b.decl >= 0 {
+            return self.res.decls[b.decl].kind == ResDeclKind.Case
+        }
+        self.names_limit(leaf)
+    }
+
+    // A raw-backed case's value node, or -1. A documented case's doc comment
+    // is a child of its node too, and is no value.
+    public func raw_value_node(&self, c: Int) -> Int {
+        let info = self.res.decls[c]
+        if info.node < 0 {
+            return -1
+        }
+        let n = self.child_count(info.node)
+        var k = 0
+        while k < n {
+            let child = self.child(info.node, k)
+            if not self.is_leaf(child) && not self.has_alt(child, Alt.Decl_PayloadField) && not self.res.is_doc(child) {
+                return child
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // Whether path node `p` names a case that states no raw value, which is
+    // no constant wherever one is wanted.
+    public func names_unbacked_case(&self, p: Int) -> Bool {
+        if p < 0 || not self.has_alt(p, Alt.Type_Path) {
+            return false
+        }
+        let leaf = self.res.last_leaf_of(p)
+        if leaf < 0 {
+            return false
+        }
+        let b = self.binding_at(leaf)
+        if (b.kind == ResBindKind.Case || b.kind == ResBindKind.Decl) && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case {
+            return self.raw_value_node(b.decl) < 0
+        }
+        false
+    }
+
+    // Whether `leaf` is an integer type's `max` or `min`, which resolve
+    // records only where a whole generic argument names one.
+    public func names_limit(&self, leaf: Int) -> Bool {
+        let b = self.binding_at(leaf)
+        b.kind == ResBindKind.Limit && b.decl >= 0
+    }
+
+    // Whether type-spelled argument `node` is a path, written with no
+    // arguments, whose last segment binds a static, a const parameter, an
+    // enum's case or an integer limit.
     func names_constant(&var self, node: Int) -> Bool {
         if not self.has_alt(node, Alt.Type_Named) || self.child_count(node) != 1 {
             return false
         }
         let path = self.child(node, 0)
+        if self.names_case_or_limit(path) {
+            return true
+        }
         let leaf = self.child(path, self.child_count(path) - 1)
         let b = self.binding_at(leaf)
         if b.kind == ResBindKind.Decl && b.decl >= 0 {
@@ -1712,6 +1787,19 @@ extension TcProgram {
             self.phase_violation(msg.build())
         }
         self.error_type
+    }
+
+    // The refusal of case path `node`, which states no raw value, written
+    // where a constant argument is wanted: the words a length gives.
+    func refuse_unbacked_case(&var self, node: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(self.current, node))
+        try! msg.append("` is not a constant, and ")
+        try! msg.append(tc_const_use_phrase(TcConstPosition.Argument))
+        try! msg.append(" is a constant expression: ")
+        try! msg.append(tc_unbacked_case_reason())
+        self.refuse(node, "static.not-constant", msg.build())
     }
 
     // The refusal of a name that is no constant where a type fixes one.
@@ -2302,7 +2390,7 @@ extension TcProgram {
         self.refuse(leaf, "type.arity", msg.build())
     }
 
-    func kind_mismatch(&var self, node: Int, wanted: String) {
+    public func kind_mismatch(&var self, node: Int, wanted: String) {
         var msg = StringBuilder()
         try! msg.append("this argument's parameter takes ")
         try! msg.append(wanted)

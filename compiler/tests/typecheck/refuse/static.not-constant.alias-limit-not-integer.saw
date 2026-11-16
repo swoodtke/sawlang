@@ -1,0 +1,13 @@
+// refuses: static.not-constant at 12:15
+// message: `Real.max` is not a constant: `Real` is an alias of `Float`, which has no integer limit
+// an alias's limit is a constant only when the alias stands for an integer type
+
+type Real = Float
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print(cap<Real.max>())
+}

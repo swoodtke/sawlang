@@ -192,6 +192,13 @@ extension ResProgram {
                 }
                 try! out.append(")")
             },
+            case Limit -> {
+                try! out.append("(limit ")
+                try! out.append(self.name_text(b.name))
+                try! out.append(" ")
+                try! out.append(self.decl_identity(b.decl))
+                try! out.append(")")
+            },
             case Member -> {
                 try! out.append("(member")
                 if b.decl >= 0 {

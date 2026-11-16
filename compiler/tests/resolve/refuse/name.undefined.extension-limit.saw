@@ -1,0 +1,13 @@
+// refuses: name.undefined at 5:16
+// message: `max` cannot be named through a path here
+// an integer limit is named through a path only as a generic argument, so an extension's head is not one
+
+extension Int8.max {
+    func one(&self) -> Int {
+        1
+    }
+}
+
+func main() {
+    print(1)
+}

@@ -101,6 +101,14 @@ PARSE_MESSAGE_CASES = {
         "// message: write `unsafe static var X: T = \n"
         "// message: ; the parser refuses `\n"
         "static var a: Int = 1\n\nfunc main() {\n}\n"),
+    # An alias construction is no generic argument: the list has no call, and
+    # the refusal is the parser's, with no hint toward a `static` (SL-1108).
+    "alias-construction-argument": (
+        "// refuses: resolve.parse-refused at 8:23\n"
+        "// message: expected `,` or `>` in the generic list (parse-error); the parser refuses `\n"
+        "// message: `, so its declarations are not available\n"
+        "type Count = Int\n\nstruct Buf<const N: Int> { bytes: [UInt8; N] }\n\n"
+        "func take(b: Buf<Count(8)>) { }\n\nfunc main() {\n}\n"),
 }
 
 

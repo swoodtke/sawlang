@@ -456,6 +456,16 @@ extension ResProgram {
                     self.problem(&var problems, m, leaf, "a module is out of range")
                 }
             },
+            case Limit -> {
+                if b.decl < 0 || b.decl >= self.decls.len() || (self.decls[b.decl].kind != ResDeclKind.Primitive && self.decls[b.decl].kind != ResDeclKind.Alias) {
+                    self.problem(&var problems, m, leaf, "a limit names a declaration that is neither an integer type nor an alias")
+                } else {
+                    let limit = self.name_text(b.name)
+                    if not limit.equals("max") && not limit.equals("min") {
+                        self.problem(&var problems, m, leaf, "a limit is neither `max` nor `min`")
+                    }
+                }
+            },
             case _ -> {}
         }
     }

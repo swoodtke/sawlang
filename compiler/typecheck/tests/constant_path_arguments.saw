@@ -1,0 +1,48 @@
+// A path that names a constant, written as a whole generic argument, fills a
+// const generic parameter through a function and through a type, and holds
+// the value an array length of the same path holds (SL-1108).
+
+enum Slot: UInt8 {
+    case Header = 3,
+    case Footer = 5
+}
+
+type Count = Int16
+
+struct Buf<const N: Int> {
+    bytes: [UInt8; N]
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func cap_u8<const N: UInt8>() -> Int {
+    N as Int
+}
+
+func width<const N: Int>(b: &Buf<N>) -> Int {
+    N
+}
+
+func main() {
+    assert(cap<Slot.Header>() == 3, "a case is its raw value, {}", cap<Slot.Header>())
+    assert(cap<Slot.Footer>() == 5, "a case is its raw value, {}", cap<Slot.Footer>())
+    assert(cap_u8<Slot.Header>() == 3, "a case fills a UInt8 parameter, {}", cap_u8<Slot.Header>())
+    assert(cap<Int8.max>() == 127, "an integer limit, {}", cap<Int8.max>())
+    assert(cap<Int8.min>() == -128, "an integer limit, {}", cap<Int8.min>())
+    assert(cap_u8<UInt8.max>() == 255, "an integer limit at its own width, {}", cap_u8<UInt8.max>())
+    assert(cap<Count.max>() == 32767, "an alias's limit is the aliased type's, {}", cap<Count.max>())
+    assert(cap<Count.min>() == -32768, "an alias's limit is the aliased type's, {}", cap<Count.min>())
+    assert(cap_u8<Byte.max>() == 255, "the prelude's Byte, {}", cap_u8<Byte.max>())
+    assert(cap<Int8.max - 1>() == 126, "a limit inside an expression argument, {}", cap<Int8.max - 1>())
+    assert(cap<Count.max - 1>() == 32766, "an alias's limit inside an expression, {}", cap<Count.max - 1>())
+    let header = Buf<Slot.Header>(bytes: [0; 3])
+    assert(header.bytes.len() == 3, "a type applied to a case, {}", header.bytes.len())
+    assert(width(&header) == 3, "N is the case's value, {}", width(&header))
+    let widest = Buf<Int8.max>(bytes: [0; 127])
+    assert(widest.bytes.len() == 127, "a type applied to a limit, {}", widest.bytes.len())
+    let sized: [UInt8; Slot.Header] = [0; 3]
+    assert(sized.len() == cap<Slot.Header>(), "the length and the argument agree, {}", sized.len())
+    print("{} {}", cap<Slot.Header>(), cap<Int8.max>())
+}

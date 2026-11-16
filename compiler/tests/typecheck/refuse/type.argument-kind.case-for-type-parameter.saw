@@ -1,0 +1,19 @@
+// refuses: type.argument-kind at 14:21
+// message: this argument's parameter takes a type, and a value is written
+// a path naming a raw-backed case where a type parameter takes a type
+
+enum Slot: UInt8 {
+    case Header = 4,
+    case Footer = 8
+}
+
+struct Holder<T> {
+    v: T
+}
+
+func take(h: Holder<Slot.Header>) {
+}
+
+func main() {
+    print(1)
+}

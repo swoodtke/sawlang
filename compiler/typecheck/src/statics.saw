@@ -204,9 +204,19 @@ extension TcProgram {
             let c = self.child(e, k)
             k = k + 1
             // A named type's own path is no argument; a path alone as one is a
-            // type, which the classifier reads.
+            // type, which the classifier reads, unless it names a case or an
+            // integer limit, which is evaluated here as a length is.
             if c != base && not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) && not self.has_alt(c, Alt.Type_Path) {
                 try! out.push(c)
+            } else if self.is_leaf(c) {
+                continue
+            } else if self.has_alt(e, Alt.Generic_Param_Const) && self.names_case_or_limit(c) && not self.names_unbacked_case(c) {
+                try! out.push(c)
+            } else if c != base && self.has_alt(c, Alt.Type_Named) && self.child_count(c) == 1 {
+                let path = self.child(c, 0)
+                if self.names_case_or_limit(path) && not self.names_unbacked_case(path) {
+                    try! out.push(path)
+                }
             }
         }
         move out
@@ -655,7 +665,7 @@ extension TcProgram {
         if leaf < 0 {
             return false
         }
-        if self.static_bound(leaf) >= 0 {
+        if self.static_bound(leaf) >= 0 || self.names_limit(leaf) {
             return true
         }
         let b = self.binding_at(leaf)

@@ -1,0 +1,67 @@
+// A path that names a constant fills a const generic parameter as a bare
+// name does (SL-1108): a case of a raw-backed enum and an integer type's
+// `max` or `min`, in a call head, a type applied, a signature, a field and a
+// default. The value comes from the fold a length uses.
+
+enum Slot: UInt8 {
+    case Header = 4,
+    case Footer = 8
+}
+
+static SIZE: Int = 16
+
+type Count = Int16
+
+struct Buf<const N: Int> {
+    bytes: [UInt8; N]
+}
+
+struct Tiny<const N: UInt8> {
+    tag: Int
+}
+
+struct Defaulted<const N: Int = Slot.Footer> {
+    bytes: [UInt8; N]
+}
+
+struct Fields {
+    header: Buf<Slot.Header>
+    widest: Buf<Int8.max>
+    tiny: Tiny<UInt8.max>
+    counted: Buf<Count.max>
+    expression: Buf<Int8.max - 1>
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func cap_u8<const N: UInt8>() -> Int {
+    N as Int
+}
+
+func take(b: Buf<Slot.Footer>) -> Int {
+    b.bytes.len()
+}
+
+func make() -> Buf<Int8.max> {
+    Buf<Int8.max>(bytes: [0; 127])
+}
+
+func main() {
+    print(cap<Slot.Header>())
+    print(cap<Int8.max>())
+    print(cap<Int8.min>())
+    print(cap<Int.max>())
+    print(cap<SIZE>())
+    print(cap_u8<Slot.Footer>())
+    print(cap_u8<UInt8.max>())
+    print(cap<Count.max>())
+    print(cap<Count.min>())
+    print(cap_u8<Byte.max>())
+    print(cap<Int8.max - 1>())
+    print(cap<Count.max - 1>())
+    let b: Buf<Slot.Header> = Buf<Slot.Header>(bytes: [0; 4])
+    print(b.bytes.len())
+    print(make().bytes.len())
+}

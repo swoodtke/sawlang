@@ -1,0 +1,16 @@
+// refuses: static.not-constant at 15:15
+// message: `Plain.X` is not a constant, and a constant argument is a constant expression: it is a case of an enum with no raw backing, which has no constant value
+// a case of an enum with no raw backing is no constant argument
+
+enum Plain {
+    case X,
+    case Y
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print(cap<Plain.X>())
+}

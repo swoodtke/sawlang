@@ -3522,13 +3522,22 @@ one slot that differs: a bare literal DOES adopt there, so
 `static MINUS_SIGN: Byte = 45` is legal while `let m: Byte = 45` is not.
 `static MINUS_SIGN: Byte = Byte(45)` is legal too: an alias's construction over
 a constant expression is itself a constant expression, the identity at the
-underlying type, so it is accepted wherever a constant is (see *The constant
-grammar*), and `Byte(300)` is refused because 300 does not fit a `UInt8`.
-**Status:** `sawc` takes it in a `static` initializer, a `static_assert`, a
-raw case's value, an array length and a repeat count. A const generic
-argument's grammar has no call, so there the construction goes through a
-`static` (`static EIGHT: Byte = Byte(8)`, then `Buf<EIGHT>`) until the form is
-decided.
+underlying type, so it is accepted in the positions whose grammar is the
+constant grammar (see *The constant grammar*): a `static` initializer, a
+`static_assert`, a raw case's value, an array length and a repeat count.
+`Byte(300)` is refused because 300 does not fit a `UInt8`. A generic argument
+list is a smaller grammar and has no call, so `Buf<Byte(8)>` is a parse error
+there. The construction goes through a `static`, as a shift does
+(`static EIGHT: Byte = Byte(8)`, then `Buf<EIGHT>`).
+
+```saw-body
+struct Buf<const N: Int> { bytes: [UInt8; N] }
+
+static EIGHT: Byte = Byte(8)
+
+let b = Buf<EIGHT>(bytes: [0; 8])
+print(b.bytes.len())    // prints: 8
+```
 
 ```saw-body
 type Handle = UInt
@@ -14127,6 +14136,29 @@ Scope, deliberately narrow in this version:
 - **A module `static`** may be the argument on the same terms, so
   `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
   layout and one symbol. See Module-level statics for which statics fold.
+- **A path that names a constant** fills a value parameter the same way: a
+  module `static` through its module (`config.REGION_SIZE`), a case of an enum
+  with a raw backing, or an integer type's `max` or `min`. An alias of an
+  integer type has the same limits (`type Count = Int16` gives `Count.max`,
+  and the prelude's `Byte.max` is 255); an alias of anything else has none, and
+  `cap<Real.max>()` over `type Real = Float` is a clean error. A limit is a
+  constant inside an expression argument too, as `Int8.max - 1`. The parameter
+  it fills decides how the path is read, as it does a bare name, so a path to a
+  constant where a type is wanted (`Vector<Slot.Header>`) is a clean error, and
+  so is a case with no raw backing, which has no constant value.
+
+  ```saw-body
+  enum Slot: UInt8 {
+      case Header = 4,
+      case Footer = 8
+  }
+
+  func capacity<const N: Int>() -> Int { N }
+
+  print(capacity<Slot.Header>())    // prints: 4
+  print(capacity<Int8.max>())       // prints: 127
+  ```
+
 - **Declarations**: structs, enums, and free functions all take const
   parameters, and an extension on a const-generic type is written like any
   generic extension (`extension FixedBuf<N>` — the constness comes from the

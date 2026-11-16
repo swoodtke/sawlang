@@ -1,0 +1,11 @@
+// refuses: name.undefined at 10:21
+// message: `max` cannot be named through a path here
+// only an integer type's `max` and `min` are constants: `Float` has no integer limit, and the refusal is the resolver's
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print(cap<Float.max>())
+}

@@ -1,0 +1,11 @@
+// refuses: name.undefined at 10:20
+// message: `max` cannot be named through a path here
+// a limit is the last segment of its path, so a segment after it leaves the limit refused, naming `max`
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print(cap<Int8.max.x>())
+}

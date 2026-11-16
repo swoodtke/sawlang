@@ -1,0 +1,12 @@
+// refuses: type.argument-kind at 11:18
+// message: this argument's parameter takes a type, and a value is written
+// `sizeof` takes a type, and a path naming a raw-backed case is a value
+
+enum Slot: UInt8 {
+    case Header = 4,
+    case Footer = 8
+}
+
+func main() {
+    print(sizeof<Slot.Header>())
+}

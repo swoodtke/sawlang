@@ -1,0 +1,17 @@
+// refuses: type.not-a-type at 12:13
+// message: `Header` does not name a type
+// a case is a value, so a field's type may not name one: only a whole generic
+// argument reads a path as a constant
+
+enum Slot: UInt8 {
+    case Header = 4,
+    case Footer = 8
+}
+
+struct Field {
+    x: Slot.Header
+}
+
+func main() {
+    print(1)
+}

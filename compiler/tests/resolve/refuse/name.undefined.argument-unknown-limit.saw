@@ -1,0 +1,11 @@
+// refuses: name.undefined at 10:20
+// message: `biggest` cannot be named through a path here
+// an integer type has `max` and `min` and no other member a generic argument may name
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print(cap<Int8.biggest>())
+}

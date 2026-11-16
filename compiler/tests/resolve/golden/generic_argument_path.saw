@@ -1,0 +1,38 @@
+// A path written as a whole generic argument: an enum's case, an integer
+// type's `max` and `min` (a `limit` binding, recorded nowhere else), and a
+// module static, in a type argument, a call head and a const parameter's
+// default.
+
+enum Slot: UInt8 {
+    case Header = 4,
+    case Footer = 8
+}
+
+type Count = Int16
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+struct Wide<const N: Int = Int8.max> {
+    d: [UInt8; N]
+}
+
+struct Fields {
+    header: Buf<Slot.Header>
+    widest: Buf<Int8.max>
+}
+
+func cap<const N: Int>() -> Int {
+    N
+}
+
+func main() {
+    print(cap<Slot.Footer>())
+    print(cap<UInt8.max>())
+    print(cap<Int.min>())
+    print(cap<Count.max>())
+    print(cap<Byte.min>())
+    print(cap<Int8.max - 1>())
+    print(cap<Count.max - 1>())
+}

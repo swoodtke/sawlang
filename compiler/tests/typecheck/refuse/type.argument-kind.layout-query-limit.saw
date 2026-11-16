@@ -1,0 +1,7 @@
+// refuses: type.argument-kind at 6:19
+// message: this argument's parameter takes a type, and a value is written
+// `alignof` takes a type, and an integer type's `max` is a value
+
+func main() {
+    print(alignof<Int8.max>())
+}

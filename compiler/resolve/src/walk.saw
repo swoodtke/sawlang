@@ -912,7 +912,10 @@ extension ResProgram {
                 self.walk_last_expr(e)
                 self.unbound()
             },
-            case Type_Path -> self.walk_path(e, ResSpace.Value),
+            // The parser makes a `Type_Path` in expression position only for a
+            // path atom of a constant generic argument or a const parameter's
+            // default, so this is an argument position too (SL-1108).
+            case Type_Path -> self.walk_path_as(e, ResSpace.Value, true),
             case Const_LayoutQuery_Size -> {
                 self.walk_layout_query(e)
                 self.unbound()
@@ -1417,17 +1420,47 @@ extension ResProgram {
         }
     }
 
-    // A generic argument: a type, or a constant expression.
+    // Whether member binding `b`, of a type, is `max` or `min` of an integer
+    // type or of an alias: the limits a generic argument may name through a
+    // path. Only typecheck sees through an alias, so it decides whether the
+    // alias stands for an integer.
+    func names_integer_limit(&self, b: ResBinding) -> Bool {
+        if b.decl < 0 {
+            return false
+        }
+        let member = self.name_text(b.name)
+        if not member.equals("max") && not member.equals("min") {
+            return false
+        }
+        if self.decls[b.decl].kind == ResDeclKind.Alias {
+            return true
+        }
+        if self.decls[b.decl].kind != ResDeclKind.Primitive {
+            return false
+        }
+        let type_name = self.name_text(self.decls[b.decl].name)
+        let signed = type_name.equals("Int") || type_name.equals("Int8") || type_name.equals("Int16") || type_name.equals("Int32") || type_name.equals("Int64")
+        let unsigned = type_name.equals("UInt") || type_name.equals("UInt8") || type_name.equals("UInt16") || type_name.equals("UInt32") || type_name.equals("UInt64")
+        signed || unsigned
+    }
+
+    // A generic argument: a type, or a constant expression. A path written
+    // alone is walked as an argument, which is one of the two places a path
+    // may name an integer limit (the other is `walk_expr`'s `Type_Path`).
     public func walk_type_or_const(&var self, c: Int) {
         if res_is_type_alt(self.alt_of(c)) {
-            self.walk_type(c)
+            if self.is_alt(c, Alt.Type_Named) && self.child_count(c) == 1 && self.is_alt(self.child(c, 0), Alt.Type_Path) {
+                let _ = self.walk_path_as(self.child(c, 0), ResSpace.Type, true)
+            } else {
+                self.walk_type(c)
+            }
             return
         }
         guard let alt = self.alt_of(c) else {
             return
         }
         if alt == Alt.Type_Path {
-            let _ = self.walk_path(c, ResSpace.Value)
+            let _ = self.walk_path_as(c, ResSpace.Value, true)
         } else if alt == Alt.Const_LayoutQuery_Size || alt == Alt.Const_LayoutQuery_Align {
             self.walk_layout_query(c)
         } else {
@@ -1455,6 +1488,18 @@ extension ResProgram {
     // binding is the path's. A path headed by a type parameter, or by a
     // trait's `Self`, names an associated type, decided by `settle_pending`.
     public func walk_path(&var self, path: Int, space: ResSpace) -> ResBinding {
+        self.walk_path_as(path, space, false)
+    }
+
+    // THE PATH WALK: `walk_path`, and with `argument` the path is a whole
+    // generic argument, where an integer type's `max` or `min` is recorded as
+    // a `Limit`, the constant typecheck folds, instead of refused. No other
+    // position names one through a path (SL-1108).
+    // ENTRY POINTS:
+    //     walk_path
+    //     walk_type_or_const
+    //     walk_expr
+    func walk_path_as(&var self, path: Int, space: ResSpace, argument: Bool) -> ResBinding {
         if path < 0 {
             return self.unbound()
         }
@@ -1473,7 +1518,10 @@ extension ResProgram {
                 return self.error_binding()
             } else {
                 b = self.member_of(b, leaf)
-                if b.kind == ResBindKind.Member {
+                if b.kind == ResBindKind.Member && argument && k == n - 1 && self.names_integer_limit(b) {
+                    b = ResBinding(kind: ResBindKind.Limit, module: -1, decl: b.decl, name: b.name, node: -1)
+                    self.record(leaf, b)
+                } else if b.kind == ResBindKind.Member {
                     let m = self.current
                     let text = self.text_of(m, leaf)
                     var msg = StringBuilder()

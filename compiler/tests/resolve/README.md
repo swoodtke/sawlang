@@ -102,6 +102,7 @@ positions do.
 | `(module MODULE)` | a module, through a qualifier or an import's path |
 | `(self-type [IDENTITY])` | `Self`: the enclosing type, or a trait's own |
 | `(projection NAME L:C IDENTITY)` | `T.Item`'s last segment: the associated type IDENTITY that type parameter NAME, declared at L:C, has through its bounds |
+| `(limit NAME IDENTITY)` | `Int8.max`'s last segment, where the path is a whole generic argument: the limit NAME (`max` or `min`) of the integer type IDENTITY |
 | `(error)` | refused; an `ERROR` line says why |
 
 A call's binding may also be `(member [IDENTITY])`: a static method of a named

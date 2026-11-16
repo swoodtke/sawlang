@@ -488,7 +488,31 @@ extension TcProgram {
         if c >= 0 {
             return self.fold_case(c, e, &var chain)
         }
-        self.fold_binding(e, self.res.last_leaf_of(e), &var chain)
+        let leaf = self.res.last_leaf_of(e)
+        if self.names_limit(leaf) {
+            return self.fold_limit(e, leaf)
+        }
+        self.fold_binding(e, leaf, &var chain)
+    }
+
+    // The `max` or `min` of the integer type that expression `e`, typed as
+    // it, names at `leaf`: the one fold an `Int8.max` has, named through a
+    // member or through a path.
+    func fold_limit(&var self, e: Int, leaf: Int) -> TcFold {
+        let t = self.expr_types[e]
+        if t >= 0 && self.is_integer(t) && leaf >= 0 {
+            let m = self.node_module_of(e)
+            let name = self.text(m, leaf)
+            let w = self.int_width(t)
+            let signed = not self.is_unsigned(t)
+            if name.equals("max") {
+                return TcFold(bits: tc_arith_max(w, signed), ty: t)
+            }
+            if name.equals("min") {
+                return TcFold(bits: tc_arith_min(w, signed), ty: t)
+            }
+        }
+        TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
     }
 
     // The value of the name at `leaf`, which `e` spells.
@@ -579,16 +603,7 @@ extension TcProgram {
         let base = self.res.first_node_child(e)
         let t = self.expr_types[e]
         if base >= 0 && self.expr_types[base] < 0 && t >= 0 && self.is_integer(t) && leaf >= 0 {
-            let m = self.node_module_of(e)
-            let name = self.text(m, leaf)
-            let w = self.int_width(t)
-            let signed = not self.is_unsigned(t)
-            if name.equals("max") {
-                return TcFold(bits: tc_arith_max(w, signed), ty: t)
-            }
-            if name.equals("min") {
-                return TcFold(bits: tc_arith_min(w, signed), ty: t)
-            }
+            return self.fold_limit(e, leaf)
         }
         TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
     }
@@ -630,25 +645,6 @@ extension TcProgram {
             let c = self.child(info.node, k)
             if not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) {
                 return c
-            }
-            k = k + 1
-        }
-        return -1
-    }
-
-    // A raw-backed case's value node, or -1. A documented case's doc comment
-    // is a child of its node too, and is no value.
-    public func raw_value_node(&self, c: Int) -> Int {
-        let info = self.res.decls[c]
-        if info.node < 0 {
-            return -1
-        }
-        let n = self.child_count(info.node)
-        var k = 0
-        while k < n {
-            let child = self.child(info.node, k)
-            if not self.is_leaf(child) && not self.has_alt(child, Alt.Decl_PayloadField) && not self.res.is_doc(child) {
-                return child
             }
             k = k + 1
         }

@@ -5382,7 +5382,12 @@ construct in the owner and lend `&driver` down.
   may be an array length, a repeat count, a const generic argument and a
   `static_assert` operand — with const arithmetic composing over it. Write the
   size once and derive the rest; the named-array-type-plus-`sizeof` workaround
-  is retired.
+  is retired. A const generic argument may also be a PATH naming a constant:
+  `Buf<Slot.Header>` (a raw-backed case), `cap<Int8.max>()`, `cap<mod.SIZE>()`.
+  An integer alias's limit (`Count.max`) and a limit in an expression
+  (`Int8.max - 1`) are constants too.
+  An alias construction (`Buf<Count(8)>`) is a parse error there: name it with
+  a `static` and pass that.
   ```saw
   static PAGE_SHIFT: Int = 12
   static REGION_SIZE: Int = 1 << (PAGE_SHIFT + 4)      // derives, design 186

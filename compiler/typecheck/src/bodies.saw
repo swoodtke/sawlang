@@ -43,7 +43,7 @@ import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_
 import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.signatures.{TcArgSlot, TcConstFold, TcContext, tc_const_use_phrase}
+import sawtypecheck.signatures.{TcArgSlot, TcConstFold, TcContext, tc_const_use_phrase, tc_unbacked_case_reason}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.strings.{TcStringPosition}
 // For the extension writing `satisfies`.
@@ -2404,6 +2404,9 @@ extension TcProgram {
             return e
         }
         let b = self.binding_at(leaf)
+        if self.names_limit(leaf) {
+            return -1
+        }
         if b.kind == ResBindKind.TypeParam && pos != TcConstPosition.RawValue && pos != TcConstPosition.Align {
             return -1
         }
@@ -2576,7 +2579,7 @@ extension TcProgram {
             return "it names an `unsafe static var`, whose value belongs to the running program"
         }
         if named && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case {
-            return "it is a case of an enum with no raw backing, which has no constant value"
+            return tc_unbacked_case_reason()
         }
         let measured = self.measured_type(e)
         if measured >= 0 {
@@ -3847,8 +3850,38 @@ extension TcProgram {
         if b.kind == ResBindKind.TypeParam {
             return self.const_parameter_expr(e, leaf, b)
         }
+        if self.names_limit(leaf) {
+            return self.limit_value_expr(e, b.decl)
+        }
         if b.kind != ResBindKind.Error && b.kind != ResBindKind.Unbound {
             self.refuse_not_a_value(e, leaf)
+        }
+        let poisoned = self.error_type
+        self.set_type(e, poisoned, false)
+    }
+
+    // The `max` or `min` path `e` names, of integer type or of decl `d`, an
+    // alias that resolve cannot see through: typed as the integer, or refused
+    // when `d` stands for anything else.
+    func limit_value_expr(&var self, e: Int, d: Int) -> Int {
+        if self.res.decls[d].kind != ResDeclKind.Alias {
+            let t = self.prim_or_self(d)
+            return self.set_type(e, t, false)
+        }
+        let t = self.alias_type(d, -1)
+        if self.is_integer(t) {
+            return self.set_type(e, t, false)
+        }
+        if not self.has_error(t) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.text(self.current, e))
+            try! msg.append("` is not a constant: `")
+            try! msg.append(self.res.name_text(self.res.decls[d].name))
+            try! msg.append("` is an alias of `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("`, which has no integer limit")
+            self.refuse(e, "static.not-constant", msg.build())
         }
         let poisoned = self.error_type
         self.set_type(e, poisoned, false)
@@ -13651,6 +13684,18 @@ extension TcProgram {
             let explicit = self.explicit_type_args(callee)
             if explicit.len() != 1 {
                 self.refuse(e, "type.arity", "`sizeof` and `alignof` take one type argument, as `sizeof<T>()`")
+            }
+            // The head's arguments were built before the callee was known;
+            // the parameter that meets a constant here takes a type.
+            let written = self.explicit_arg_nodes(callee)
+            var j = 0
+            while j < explicit.len() && j < written.len() {
+                let info = self.types.ty(explicit[j])
+                let param = info.kind == TcKind.Param && self.target_param_is_const(info.decl, info.a)
+                if info.kind == TcKind.ConstInt || info.kind == TcKind.ConstExpr || param {
+                    self.kind_mismatch(written[j], "a type")
+                }
+                j = j + 1
             }
             if args.values.len() > 0 {
                 self.refuse(e, "call.arity", "`sizeof` and `alignof` take no arguments")

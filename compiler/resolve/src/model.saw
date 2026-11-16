@@ -138,7 +138,11 @@ public enum ResBindKind: UInt8 {
     // type's member tables by typecheck, which needs the type.
     case Member = 11,
     // Refused; a diagnostic says why.
-    case Error = 12
+    case Error = 12,
+    // An integer type's `max` or `min` written as a path that is a whole
+    // generic argument: `decl` is the integer's declaration, `name` the limit.
+    // No other position records one (SL-1108).
+    case Limit = 13
 }
 
 public struct ResBinding {
