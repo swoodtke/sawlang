@@ -505,7 +505,10 @@ public func tc_arith_negative_literal(m: Int, w: Int, signed: Bool) -> TcValue {
         return TcValue(value: low)
     }
     if not signed || m < 0 || 0 - m < low {
-        return TcValue(ok: false, bits: 0 - m, fault: TcFault.NotFit)
+        // A magnitude of 2^63 arrives as `Int.min`, whose negation overflows
+        // the compiler's own `Int`; its two's-complement negation is itself.
+        let negated = if m == TC_ARITH_MIN { m } else { 0 - m }
+        return TcValue(ok: false, bits: negated, fault: TcFault.NotFit)
     }
     TcValue(value: 0 - m)
 }

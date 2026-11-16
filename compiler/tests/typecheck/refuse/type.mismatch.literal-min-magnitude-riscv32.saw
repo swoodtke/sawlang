@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 8:13
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: integer literal -9223372036854775808 does not fit in `Int` (range -2147483648..=2147483647)
+// The magnitude of this literal arrives as the compiler's own `Int.min`; the
+// refusal reports it without negating it, as it reports -2147483649 (SL-1139).
+
+func main() {
+    let x = -9223372036854775808
+    print("{}", x)
+}

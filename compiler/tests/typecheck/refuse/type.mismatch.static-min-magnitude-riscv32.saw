@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 6:17
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: integer literal -9223372036854775808 does not fit in `Int` (range -2147483648..=2147483647)
+// A static initialiser at the 64-bit minimum is refused at a 32-bit target (SL-1139).
+
+static S: Int = -9223372036854775808
+
+func main() {
+    print("{}", S)
+}
