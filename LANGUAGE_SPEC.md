@@ -753,6 +753,12 @@ compiler replaces a suspending `main` with an entry executor that drives its
 frame — and, if the program also spawns, drives every task alongside it — and
 the value comes back out of that executor unchanged.
 
+Under the freestanding profile the same `main`, with the same four return types
+and the same status, is run by `__saw_main`, a function the compiler defines in
+the object for the environment's start-up to call. It returns the status
+rather than exiting, and the environment decides what the status does
+(runtime/ABI.md, "The program entry").
+
 ### Built-in Functions
 
 A handful of functions are compiler-known (no import needed):
@@ -11862,9 +11868,10 @@ cancelled — `join()` waits for it and takes its result, `detach()` hands it to
 the process, `cancel()` asks it to stop
 ```
 
-`Task.spawn` needs a `main` to close its group at, so the freestanding profile
-refuses it and names the spelling that works there: a `TaskGroup` the author
-declares, whose scope says where the tasks end.
+`Task.spawn` needs the process-wide background group, which a freestanding
+runtime does not provide yet, so the freestanding profile refuses it and names
+the spelling that works there: a `TaskGroup` the author declares, whose scope
+says where the tasks end.
 
 #### A group is a scope, and cannot be moved
 
@@ -15957,8 +15964,13 @@ routines in place of std's, is built for the soft-float ABI (clang's
 `-mgeneral-regs-only -mabi=aapcs-soft`).
 
 A freestanding object's roots are its `@export`ed functions. It has no C entry
-point and no program-argument accessors, and a `main` it declares is an
-ordinary function, held to no entry-point rule. Each function and global sits
+point and no program-argument accessors. A `main` in its entry module is its
+entry, held to the entry-point rule: the object defines `__saw_main`, which
+runs `main` under the exit-status contract and returns the status, and the
+environment's start-up calls it once and ends the program its own way. `main`
+takes no parameters; the environment hands it what it needs through state of
+its own that `main` reads. A freestanding object with no `main` has no entry,
+and its roots are its `@export`ed functions. Each function and global sits
 in a section of its own, so a kernel's `--gc-sections` link drops what nothing
 reaches, and the code is not position-independent. The object is ELF, since
 Mach-O cannot spell those section names, so a Mach-O triple is refused.
@@ -16007,8 +16019,10 @@ the bodies a single-threaded environment writes. `TaskGroup(threads:)` and
 `Thread.spawn` need the thread seams (`__saw_rt_thread_spawn`, `_join`) and
 the gate seams beside them (`__saw_rt_pthread_*`): an environment with no
 threads defines none of them, and a program that reaches one fails at its
-link, naming the seam. `Task.spawn` and a `blocking` extern stay refused under
-the profile (`spawn.freestanding`, `extern.freestanding-blocking`).
+link, naming the seam. A suspending `main` is driven by the entry executor
+inside `__saw_main` and reaches the same executor seams. `Task.spawn` (spawn
+into a `TaskGroup` instead) and a `blocking` extern stay refused under the
+profile (`spawn.freestanding`, `extern.freestanding-blocking`).
 
 **On aarch64 the freestanding profile turns Advanced SIMD OFF**
 (`-neon,-fp-armv8`, design 172). An AArch64 core traps every SIMD instruction at

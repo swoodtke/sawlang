@@ -1,0 +1,8 @@
+// refuses: entry.result at 6:6
+// flags: --std-root std --freestanding
+// message: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `String`
+// a freestanding `main` whose return type no exit status carries
+
+func main() -> String {
+    "done"
+}

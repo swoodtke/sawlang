@@ -1138,7 +1138,8 @@ extension TcProgram {
     // agrees on its whole signature and on `blocking`, since the program calls
     // one C function by that name; each is judged against one reference, a
     // std module's when there is one, so a redeclaration of a std seam is
-    // refused where the program writes it. Every layer's externs are read
+    // refused where the program writes it; the program entry's symbol is judged
+    // against the entry's own signature (`check_entry_symbol`). Every layer's externs are read
     // for the references, and `layer`'s judged.
     // ENTRY POINTS:
     //     check_blocking_declarations
@@ -1171,12 +1172,41 @@ extension TcProgram {
                 let name = self.res.decls[d].name
                 let symbol = self.name_text(name)
                 let reference = references[tc_symbol_index(&symbols, symbol)]
-                if self.check_extern_profile(d) && self.check_offload_signature(d) && self.check_extern_c_abi(d) && reference != d {
+                if (self.check_extern_profile(d) && self.check_offload_signature(d) && self.check_extern_c_abi(d)
+                    && self.check_entry_symbol(d, symbol) && reference != d) {
                     self.check_extern_agreement(d, reference)
                 }
             }
             d = d + 1
         }
+    }
+
+    // Whether the program's own extern `d`, named `symbol`, may stand beside
+    // the program entry the compiler defines for `main` (`__saw_main`, runtime/
+    // ABI.md, "The program entry"): the entry counts as the definition `func
+    // __saw_main() -> Int32`, so a declaration of its symbol must be that
+    // signature, and a hosted program, whose entry is internal and called once
+    // by the C `main`, declares none. A runtime source has no entry.
+    func check_entry_symbol(&var self, d: Int, symbol: String) -> Bool {
+        if not symbol.equals("__saw_main") || self.is_std_decl(d) || not self.profile.main_entry() {
+            return true
+        }
+        if self.profile.c_entry() {
+            var msg = StringBuilder()
+            try! msg.append("`__saw_main` is the program entry the compiler defines for `main`, and under the hosted profile it is internal: the C `main` is its one caller, and calling it again would run `main` a second time; a hosted program's entry is `main`")
+            self.refuse_blocking_decl(d, "extern.entry-hosted", msg.build())
+            return false
+        }
+        let s = self.sigs[d]
+        if (s.param_count == 0 && (s.flags & TC_FLAG_VARIADIC) == 0 && self.nominal_decl(s.result) == self.known.int32) {
+            return true
+        }
+        var msg = StringBuilder()
+        try! msg.append("`__saw_main` is declared here as `")
+        try! msg.append(self.extern_signature_text(d))
+        try! msg.append("`, but the program entry the compiler defines for `main` is `() -> Int32`: the program calls one C function by that name, so every declaration of one symbol must agree on its parameters and its result; declare it `func __saw_main() -> Int32`")
+        self.refuse_blocking_decl(d, "extern.signature-disagree", msg.build())
+        false
     }
 
     // Whether declaration `d` is an extern of an available module.

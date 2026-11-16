@@ -1,0 +1,8 @@
+// flags: --std-root std --freestanding
+// A freestanding object with no `main` checks clean: it has no entry, and its
+// roots are its exports (SL-1143).
+
+@export("probe_scale")
+func scale(n: Int) -> Int {
+    n * 5
+}

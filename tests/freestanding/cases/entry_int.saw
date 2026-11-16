@@ -1,0 +1,10 @@
+// A freestanding `main` returning `Int`: the entry returns its value as the
+// status, and `fsentry` stops the machine with it.
+
+import fscore.*
+import fsentry
+
+func main() -> Int {
+    report("main_entered", 1)
+    7
+}

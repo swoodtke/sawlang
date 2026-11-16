@@ -974,12 +974,19 @@ naming `__saw_rt_thread_spawn`, with nothing written.
 aarch64-unknown-none-elf` at -O0 and -O2: an ELF64 AArch64 relocatable object
 whose export `nm` reads defined and external in a `.text.` section of its
 own, with an empty `.text`, the panic seam undefined, no C `main` and no
-argument accessor, and the file's `main`, which takes a parameter and returns
-an `Int`, local (or inlined away at -O2). Its `.ll` names the aarch64 default
+argument accessor, `__saw_main`, the program entry, defined and external in a
+`.text.__saw_main` section of its own beside the export, and the file's
+`main`, which takes no parameters and returns an `Int`, local (or inlined away
+at -O2). Its `.ll` names the aarch64 default
 `-neon,-fp-armv8` in the attribute group, and an explicit `--target-features`
 replaces it; for `arm64-apple-darwin` the build is refused by a
 `driver.freestanding-mach-o` record naming `aarch64-unknown-none-elf`, writing
 nothing.
+`freestanding_entry.saw` is built with `--freestanding -O0 --target
+aarch64-unknown-none-elf`, whole and with `--codegen-units=module`: `__saw_main`
+and the export that calls it through an `extern "C"` declaration are defined
+and external, the panic seam is undefined, and there is no C `main` and no
+argument accessor.
 `bare_metal_object.saw` is built with `-c --target aarch64-unknown-none-elf`
 at -O0 and -O2, with the target's clang record the stage build wrote, whose
 absence fails the probe: the object must be an ELF64 AArch64 relocatable file whose export

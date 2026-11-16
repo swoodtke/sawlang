@@ -4063,12 +4063,18 @@ define ptr @__saw_rt_get_argv() #0 {
   ret ptr %v
 }
 
+define internal i32 @__saw_main() #0 {
+entry:
+  call void @"saw hello.main()"()
+  ret i32 0
+}
+
 define i32 @main(i32 %argc, ptr %argv) #0 {
 entry:
   store i32 %argc, ptr @__saw_argc
   store ptr %argv, ptr @__saw_argv
-  call void @"saw hello.main()"()
-  ret i32 0
+  %status = call i32 @__saw_main()
+  ret i32 %status
 }
 
 define internal i64 @__saw_render_uint(ptr %out, i64 %v) #0 {

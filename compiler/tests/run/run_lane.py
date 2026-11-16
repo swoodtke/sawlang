@@ -3989,9 +3989,11 @@ def check_bare_metal_object(failures, counts):
 
 # What `sawc build --freestanding` writes for `probes/freestanding_object.saw`
 # on the bare-metal target: the export defined in a section of its own, the
-# panic seam undefined, no C entry or argument accessors, and the file's
-# `main` an ordinary internal function (the user's Q7 ruling).
+# panic seam undefined, no C `main` or argument accessors, the program entry
+# `__saw_main` external in a section of its own, and the file's `main` an
+# internal function the entry calls (SL-1143).
 FREESTANDING_PROBE = "freestanding_object.saw"
+FREESTANDING_ENTRY = "__saw_main"
 FREESTANDING_EXPORT = "probe_freestanding_entry"
 FREESTANDING_DEFAULT_FEATURES = '"target-features"="-neon,-fp-armv8"'
 FREESTANDING_EXPLICIT_FEATURES = "+neon,+fp-armv8"
@@ -4023,8 +4025,9 @@ def elf_sections(path):
 def check_freestanding_object(failures, counts):
     """`sawc build --freestanding --target aarch64-unknown-none-elf` at -O0
     and -O2: an ELF64 AArch64 relocatable object, sawc printing nothing,
-    with no C `main` and no argument accessors, the export `T` in its own
-    `.text.` section and an empty `.text`, `__saw_rt_panic` undefined, and
+    with no C `main` and no argument accessors, the export and `__saw_main`
+    `T`, each in its own `.text.` section, an empty `.text`,
+    `__saw_rt_panic` undefined, and
     the file's `main` local (or inlined away at -O2). Then the attribute
     group's aarch64 default and an explicit list replacing it, and a Mach-O
     triple refused by an `ERROR` record, writing nothing."""
@@ -4057,6 +4060,9 @@ def check_freestanding_object(failures, counts):
         if symbols.get(FREESTANDING_EXPORT) != "T":
             problems.append("`%s` is %s, not defined and external (T)"
                             % (FREESTANDING_EXPORT, symbols.get(FREESTANDING_EXPORT, "absent")))
+        if symbols.get(FREESTANDING_ENTRY) != "T":
+            problems.append("`%s` is %s, not defined and external (T)"
+                            % (FREESTANDING_ENTRY, symbols.get(FREESTANDING_ENTRY, "absent")))
         if symbols.get(OBJECT_UNDEFINED) != "U":
             problems.append("`%s` is %s, not undefined (U)"
                             % (OBJECT_UNDEFINED, symbols.get(OBJECT_UNDEFINED, "absent")))
@@ -4066,12 +4072,14 @@ def check_freestanding_object(failures, counts):
         mains = {name: kind for name, kind in symbols.items() if "main(" in name}
         for name, kind in mains.items():
             if not kind.islower():
-                problems.append("`%s` is external (%s); a freestanding `main` is an ordinary function" % (name, kind))
+                problems.append("`%s` is external (%s); the entry calls `main`, which stays internal" % (name, kind))
         if speed == "-O0" and not mains:
             problems.append("no symbol for the file's `main` at -O0, where nothing inlines it")
         sections = elf_sections(obj)
         if ".text." + FREESTANDING_EXPORT not in sections:
             problems.append("no section `.text.%s`: the export is not in a section of its own" % FREESTANDING_EXPORT)
+        if ".text." + FREESTANDING_ENTRY not in sections:
+            problems.append("no section `.text.%s`: the entry is not in a section of its own" % FREESTANDING_ENTRY)
         if sections.get(".text", 0) != 0:
             problems.append("`.text` holds %d bytes; every function belongs in its own `.text.` section"
                             % sections[".text"])
@@ -4117,6 +4125,52 @@ def check_freestanding_object(failures, counts):
                            (r.stdout + r.stderr).strip()[:300]))
     else:
         counts["run freestanding Mach-O refusals"] = 1
+
+
+ENTRY_PROBE = "freestanding_entry.saw"
+ENTRY_EXPORT = "probe_entry_start"
+
+
+def check_freestanding_entry(failures, counts):
+    """`probes/freestanding_entry.saw` built `--freestanding` for the
+    bare-metal target, whole and with `--codegen-units=module`: `__saw_main`
+    and the export are `T`, `__saw_rt_panic` is undefined, and neither a C
+    `main` nor an argument accessor is in the object."""
+    probe = os.path.join(PROBES, ENTRY_PROBE)
+    problem = bare_metal_record_problem(rel(probe))
+    if problem:
+        failures.append(problem)
+        return
+    for flags in ([], ["--codegen-units=module"]):
+        where = "run %s %s" % (rel(probe), " ".join(flags) or "(whole)")
+        obj = os.path.join(OUT, "freestanding_entry" + ("_module" if flags else "") + ".o")
+        if os.path.exists(obj):
+            os.remove(obj)
+        r = subprocess.run([build.SAWC, "build", "--freestanding", "-O0", "--std-root", "std", "--target",
+                            BARE_METAL_TARGET] + flags + [rel(probe), "-o", obj], cwd=REPO, capture_output=True,
+                           text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said or not os.path.exists(obj):
+            failures.append("%s: sawc build --freestanding exits %d: %s" % (where, r.returncode, said[:300]))
+            continue
+        symbols, why = object_symbols(obj, False)
+        if symbols is None:
+            failures.append("%s: nm cannot read the object: %s" % (where, why))
+            continue
+        problems = []
+        for name in (FREESTANDING_ENTRY, ENTRY_EXPORT):
+            if symbols.get(name) != "T":
+                problems.append("`%s` is %s, not defined and external (T)" % (name, symbols.get(name, "absent")))
+        if symbols.get(OBJECT_UNDEFINED) != "U":
+            problems.append("`%s` is %s, not undefined (U)"
+                            % (OBJECT_UNDEFINED, symbols.get(OBJECT_UNDEFINED, "absent")))
+        for name in OBJECT_ABSENT:
+            if name in symbols:
+                problems.append("`%s` is in a freestanding object (%s)" % (name, symbols[name]))
+        for problem in problems:
+            failures.append("%s: %s" % (where, problem))
+        if not problems:
+            counts["run freestanding entries"] = counts.get("run freestanding entries", 0) + 1
 
 
 # The runtime provider probes: the seams `probes/runtime_provider.saw` defines
@@ -4877,6 +4931,7 @@ CUSTOM_PROBES = {
     XTENSA_PROBE: check_xtensa_object,
     XTENSA_WINDOWED_PROBE: check_xtensa_windowed,
     FREESTANDING_PROBE: check_freestanding_object,
+    ENTRY_PROBE: check_freestanding_entry,
     PROVIDER_PROBE: check_runtime_provider,
     PROVIDER_MISSING_PROBE: check_provider_missing_seam,
     COOPERATIVE_PROBE: check_cooperative_provider,

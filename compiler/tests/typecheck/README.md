@@ -34,8 +34,8 @@ v0.18.0's `--runtime-provider`) checks each program as a runtime provider,
 whose exports may be the frozen seams (the `export.*` rules), the permission
 `sawc runtime` gives a runtime's own sources too; `--freestanding` checks it
 under the freestanding profile (`spawn.freestanding`,
-`extern.freestanding-blocking`, `import.hosted-only`), where a `main` is an
-ordinary function. The flags make the program's profile record,
+`extern.freestanding-blocking`, `import.hosted-only`), where a `main` is held
+to the entry-point rule. The flags make the program's profile record,
 `TcProgram.profile` (`tc_profile`, one of five kinds), which every rule that
 knows a profile reads. `--no-hidden-alloc` refuses the allocations no source
 construct names (`alloc.hidden`), under any profile. `--target TRIPLE` (default an
@@ -1905,7 +1905,8 @@ must not start with one of those words.
 | `alloc.hidden` | THE HIDDEN-ALLOCATION FUNNEL (`refuse_hidden_allocation`): under `--no-hidden-alloc`, an allocation the compiler inserts that no source construct names, in a module of the program: an interpolation with an expression segment, wherever it is written, `panic` and `assert` messages included; a capturing closure that escapes, a `Thread.spawn` brace excepted; and one-argument `print` of a value that renders through `to_string()`. The format-argument spellings, a closure passed straight to its call, and a capture-free escaping closure are legal (`golden/no_hidden_alloc_legal`) (SL-865) |
 | `extern.freestanding-blocking` | THE EXTERN FUNNEL (`check_extern_declarations`): a program's own `blocking` extern under `--freestanding`, which has no offload thread pool; std's hosted modules are read whatever a program imports and are not judged (SL-580) |
 | `extern.offload-c-abi` | the extern funnel: a `blocking` extern's parameter (`extern.offload-c-abi`) or result (`.result`) outside the C-ABI set an `@export` admits, at the declaration, called or not (SL-580) |
-| `extern.signature-disagree` | the extern funnel: a declaration of a C symbol whose parameter types (`.parameter`, an `Int` where std's takes a pointer), arity (`.arity`), variadic-ness or result (`extern.signature-disagree`) differ from the symbol's reference declaration, std's when std declares it and else the first; refused where the other is written. Two pointer types agree whatever they point at (the run probe `extern_agreement_accepts_the_same_declaration` redeclares std.file's `access` with an `UnsafePointer<UInt8>`) (SL-580) |
+| `extern.signature-disagree` | the extern funnel: a declaration of a C symbol whose parameter types (`.parameter`, an `Int` where std's takes a pointer), arity (`.arity`), variadic-ness or result (`extern.signature-disagree`) differ from the symbol's reference declaration, std's when std declares it and else the first; refused where the other is written. A declaration of `__saw_main` under a profile with an entry (`.entry-parameter`, `.entry-result`) is judged against the entry's own signature, `() -> Int32` (SL-1143). Two pointer types agree whatever they point at (the run probe `extern_agreement_accepts_the_same_declaration` redeclares std.file's `access` with an `UnsafePointer<UInt8>`) (SL-580) |
+| `extern.entry-hosted` | the extern funnel: a hosted program's own declaration of `__saw_main`, the program entry, which is internal there and called once by the C `main`; calling it again would run `main` a second time (SL-1143) |
 | `extern.blocking-disagree` | the extern funnel: a declaration of a C symbol that adds `blocking` to a std seam (`extern.blocking-disagree`) or leaves it off one (`.unannotated`), or disagrees with another of the program's own modules (`.modules`); the run probe `extern_agreement_accepts_the_same_declaration` pins the agreeing side (SL-580) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice; a method with a receiver named as a value, which is not a first-class value (`.method-value`) |
 

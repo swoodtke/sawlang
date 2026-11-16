@@ -1214,8 +1214,7 @@ extension TcProgram {
     // `main`, which takes nothing and returns one of the four types an exit
     // status carries, an `Err`'s error type renderable (spec, The entry
     // point). A test-only `main` and a dependency's `main` are ordinary
-    // functions, and so is every `main` under a profile whose exports are
-    // the roots (`TcProfile.main_entry`). A module with no `main` at all
+    // functions, and so is a runtime source's `main` (`TcProfile.main_entry`). A module with no `main` at all
     // checks clean here, since a checked file need not be a program; the
     // build refuses it (`entry.missing`).
     // ENTRY POINTS:
@@ -1248,7 +1247,9 @@ extension TcProgram {
         let site = self.decl_site(first)
         if s.param_count > 0 || s.generic_count > 0 {
             var msg = StringBuilder()
-            if s.param_count > 0 {
+            if s.param_count > 0 && not self.profile.c_entry() {
+                try! msg.append("`main` takes no parameters: a freestanding program's environment hands it its context through the environment's own state, which `main` reads")
+            } else if s.param_count > 0 {
                 try! msg.append("`main` takes no parameters: a program reads its arguments with `Env.args()` (std.env)")
             } else {
                 try! msg.append("`main` takes no type parameters: the entry point is one function, called with none")

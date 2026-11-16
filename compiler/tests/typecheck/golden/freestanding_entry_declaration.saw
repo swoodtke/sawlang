@@ -1,0 +1,16 @@
+// flags: --std-root std --freestanding
+// A freestanding start-up declares the program entry as ABI.md gives it,
+// `() -> Int32`, and calls it from an export beside `main` (SL-1143).
+
+extern "C" {
+    func __saw_main() -> Int32
+}
+
+@export("probe_start")
+func start() -> Int32 {
+    __saw_main() + 100
+}
+
+func main() -> Int {
+    7
+}

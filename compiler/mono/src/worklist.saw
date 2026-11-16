@@ -179,8 +179,8 @@ extension MonoProgram {
 
     // The roots, in order: the entry module's `main`, never a test-only one
     // (`top_decl`), when the profile makes it the entry (a runtime's source
-    // and a freestanding program root their exports alone, and a `main`
-    // there is an ordinary function); each exported function, in
+    // roots its exports alone, and a `main` there is an ordinary function);
+    // each exported function, in
     // declaration order; each non-generic top-level function an `@section`
     // places, in declaration order; then the lang functions the backend's own lowering
     // calls: the panic sink, which every

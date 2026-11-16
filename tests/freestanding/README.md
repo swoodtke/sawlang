@@ -12,6 +12,13 @@ sawc's diagnostic. `link_two_objects` links a second sawc object beside its
 own and requires the link to fail on the duplicate `__saw_bt_table`, since an
 image holds at most one object built by sawc.
 
+The `entry_*` cases declare a `main` and import a fourth module, `fsentry`
+(`entry`), the miniature of a kernel runtime's `_start`: its `fs_main` calls
+`__saw_main`, the entry sawc defines for `main`, prints `fs entry status=N` and
+stops the machine with `N`. The status therefore reaches the runner twice, as
+that line and as the exit device's status, which the runner reads as it does for
+any case that sets `expect_status`.
+
 ```
 tools/freestanding_runner.py                # every architecture that is on
 tools/freestanding_runner.py hello          # named cases

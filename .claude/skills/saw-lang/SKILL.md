@@ -2807,7 +2807,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   spawned call and a borrow capture inside it are both clean errors, because
   there is no scope to end the borrow at. Spawn into a `TaskGroup`, or hand the
   task an owned value, an `Arc` or a `Channel`. Freestanding refuses
-  `Task.spawn` outright: there is no `main` to close the group at.
+  `Task.spawn` outright: a freestanding runtime does not provide the
+  process-wide group yet, so spawn into a `TaskGroup`.
 - **A SPAWNED BRACE CAPTURES NOTHING IMPLICITLY (design 242 ruling 10).** The
   capture list IS the body's parameter list: each entry transfers at the spawn,
   by value, at its own copy tier, and `[move x]` is how a move-only value goes.
@@ -4316,6 +4317,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   fail at LINK on a threadless environment, naming `__saw_rt_thread_spawn`;
   `Task.spawn` stays refused. SUSPECT an older build, where every group reached
   `pthread_mutex_lock` and the thread seams.
+- **A freestanding `main` is the program's entry (SL-1143)**: the object defines `__saw_main() -> Int32`, which runs `main` under the exit-status contract and returns the status; the runtime's own `_start` calls it (from Saw, through an `extern "C"` declaration) and exits its own way. A suspending `main` reaches the executor set; `main` takes no parameters.
 - **A freestanding object defines `memcpy`/`memset`/`memmove` (and riscv32's 64-bit integer helpers) itself, weakly** (SL-948): the environment owes none of them, its own definition wins, a program's own `@export("memcpy")` replaces std's, and `+forced-atomics` is refused.
 - **On a target with no FP unit the object defines the 19 soft-float routines too** (`__adddf3` … `__floatundidf`, weakly, SL-948): no compiler-rt to link; a NaN result's bits are unspecified, and C passing a `Float` on aarch64 still builds with `-mgeneral-regs-only -mabi=aapcs-soft`.
 - **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**

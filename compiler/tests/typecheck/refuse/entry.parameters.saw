@@ -1,5 +1,5 @@
 // refuses: entry.parameters at 5:6
-// message: `main` takes no parameters
+// message: `main` takes no parameters: a program reads its arguments with `Env.args()` (std.env)
 // a `main` with a parameter, which would read the C entry's `argc`
 
 func main(n: Int) {

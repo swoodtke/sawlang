@@ -1,0 +1,17 @@
+// refuses: extern.signature-disagree at 7:10
+// flags: --std-root std --freestanding
+// message: `__saw_main` is declared here as `(Int) -> Int32`, but the program entry the compiler defines for `main` is `() -> Int32`
+// a freestanding start-up declaring the program entry with a parameter it does not take
+
+extern "C" {
+    func __saw_main(boot: Int) -> Int32
+}
+
+@export("probe_boot")
+func boot() -> Int32 {
+    __saw_main(41) + 100
+}
+
+func main() -> Int {
+    7
+}

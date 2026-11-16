@@ -1,6 +1,6 @@
 // The whole program as one `.ll`: a header naming the target and the link
 // it needs, then the constants, the declarations, every item's function in
-// item order, the C entry point and the compiler's own helpers. Nothing is
+// item order, the program entry and the compiler's own helpers. Nothing is
 // iterated in hash order, so the text is a function of the program alone.
 
 import sawborrowck.program.{BorrowckProgram}
@@ -63,28 +63,35 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     e.word_bits = target.word * 8
     // The helpers copy with it whether or not any function does.
     e.declare_memcpy()
-    // A program's entry point defines the argument accessors (runtime/ABI.md,
-    // "Program arguments"), which std's `extern` declarations name, and,
-    // when it hands `main`'s frame to the entry executor, the descriptor call
-    // the executor resumes a frame through (runtime/ABI.md, "The compiler →
-    // executor boundary"). When std's task dump is reached, the backtrace
-    // table's accessor is defined beside the table (`bt_table_global`). A
-    // profile whose exports are the roots has no entry point (a runtime's
-    // source and a freestanding object: those belong to whatever they are
-    // linked into), and neither has a `-c` object of a program with no
-    // `main`, which leaves the accessors to whatever it is linked with.
+    // A hosted program's C entry point defines the argument accessors
+    // (runtime/ABI.md, "Program arguments"), which std's `extern` declarations
+    // name; any program with a `main` defines `__saw_main`, and, when it hands
+    // `main`'s frame to the entry executor, the descriptor call the executor
+    // resumes a frame through (runtime/ABI.md, "The compiler → executor
+    // boundary"). When std's task dump is reached, the backtrace table's
+    // accessor is defined beside the table (`bt_table_global`). A runtime's
+    // source has no entry (its exports are the roots, and it belongs to
+    // whatever it is linked into), a freestanding object with no `main` has
+    // none, and a `-c` object of a program with no `main` has no C entry,
+    // which leaves the accessors to whatever it is linked with.
     let profile = mono.dp.bc.mir.tc.profile
     let bt_accessor = profile.backtrace_table() && ll_reaches_extern(&mono, ll_bt_table_address())
-    let entry_point = profile.main_entry() && (not object || mono.main_item >= 0)
+    let c_entry = profile.c_entry() && (not object || mono.main_item >= 0)
+    let saw_entry = profile.main_entry() && mono.main_item >= 0
     if bt_accessor {
         e.defines(ll_bt_table_address())
     }
-    if entry_point {
-        e.defines("__saw_rt_get_argc")
-        e.defines("__saw_rt_get_argv")
+    if saw_entry {
+        // A freestanding start-up written in Saw declares the entry in an
+        // `extern "C"` block and calls it.
+        e.defines(ll_saw_entry())
         if mono.exec_item >= 0 {
             e.defines("__saw_frame_resume")
         }
+    }
+    if c_entry {
+        e.defines("__saw_rt_get_argc")
+        e.defines("__saw_rt_get_argv")
         // A checked file need not be a program, so only a build owes a
         // `main`; typecheck's entry-point funnel holds one that is declared
         // to its rules (`check_main_signature`).
@@ -187,8 +194,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     }
     mono.current = -1
     var entry = ""
-    if entry_point {
-        let defined = e.entry_point(&var mono, &var target)
+    if saw_entry {
+        let defined = e.entry_point(&var mono, &var target, c_entry)
         entry = e.debug_artificial(&mono, defined)
     }
     // Once every function is written, the error types its failing `try!`s
@@ -257,41 +264,74 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     out.build()
 }
 
+// The program entry's symbol: the synchronous C-ABI function that runs `main`
+// under the exit-status contract and returns the status (runtime/ABI.md, "The
+// program entry").
+public func ll_saw_entry() -> String {
+    "__saw_main"
+}
+
 extension LlEmitter {
-    // The C entry point: `main(argc, argv)` keeps both for the argument
-    // accessors the compiler emits into every program (runtime/ABI.md, "Program
-    // arguments"), runs the program's `main`, and exits with 0 for a `Void`
-    // main, or the status `status_entry` computes from an `Int` or a `Result`.
-    // A plain `main` is called, then the background group
-    // closed when the program spawns, since a task may still be running; one
-    // with a lowered frame gets that frame on this function's stack, at state
-    // 0, and is handed to the entry executor with its descriptor, its result
-    // read from the frame once the executor returns, which has closed the
-    // group itself.
-    func entry_point(&var self, mono: &var MonoProgram, target: &var Target) -> String {
+    // THE PROGRAM ENTRY: `__saw_main`, which runs the program's `main` and
+    // returns 0 for a `Void` main, or the status `status_entry` computes from
+    // an `Int` or a `Result`. A plain `main` is called, then the background
+    // group closed when the program spawns, since a task may still be
+    // running; one with a lowered frame gets that frame on this function's
+    // stack, at state 0, and is handed to the entry executor with its
+    // descriptor, its result read from the frame once the executor returns,
+    // which has closed the group itself. With `c_entry`, the hosted C entry
+    // `main(argc, argv)` keeps both for the argument accessors (runtime/ABI.md,
+    // "Program arguments") and returns what `__saw_main` returns, which is
+    // then internal; otherwise `__saw_main` is the object's, for its
+    // environment's start-up to call.
+    func entry_point(&var self, mono: &var MonoProgram, target: &var Target, c_entry: Bool) -> String {
         let main = mono.items[mono.main_item]
         let f = mono.dp.bc.mir.funcs[main.body]
         let result = mono.dp.bc.mir.locals[f.local_first].ty
         let l = self.lay(&var mono, &var target, result)
         let attributes = ll_function_attributes("")
         var out = StringBuilder()
-        try! out.append("@__saw_argc = internal global i32 0\n")
-        try! out.append("@__saw_argv = internal global ptr null\n\n")
-        try! out.append("define i32 @__saw_rt_get_argc()")
-        try! out.append(attributes)
-        try! out.append(" \{\n  %v = load i32, ptr @__saw_argc\n  ret i32 %v\n\}\n\n")
-        try! out.append("define ptr @__saw_rt_get_argv()")
-        try! out.append(attributes)
-        try! out.append(" \{\n  %v = load ptr, ptr @__saw_argv\n  ret ptr %v\n\}\n\n")
+        if c_entry {
+            try! out.append("@__saw_argc = internal global i32 0\n")
+            try! out.append("@__saw_argv = internal global ptr null\n\n")
+            try! out.append("define i32 @__saw_rt_get_argc()")
+            try! out.append(attributes)
+            try! out.append(" \{\n  %v = load i32, ptr @__saw_argc\n  ret i32 %v\n\}\n\n")
+            try! out.append("define ptr @__saw_rt_get_argv()")
+            try! out.append(attributes)
+            try! out.append(" \{\n  %v = load ptr, ptr @__saw_argv\n  ret ptr %v\n\}\n\n")
+        }
         let main_item = mono.main_item
         let r = self.resume_of(main_item)
         if r >= 0 {
             try! out.append(self.descriptor(&var mono, &var target, main_item))
             try! out.append(ll_frame_resume_helper(target.closure_env_offset(), self.word))
         }
-        try! out.append("define i32 @main(i32 %argc, ptr %argv)")
+        try! out.append(if c_entry { "define internal i32 @" } else { "define i32 @" })
+        try! out.append(ll_saw_entry())
+        try! out.append("()")
         try! out.append(attributes)
         try! out.append(" \{\nentry:\n")
+        let body = self.entry_body(&var mono, &var target, result, &l, r)
+        try! out.append(body)
+        try! out.append("\}\n\n")
+        if c_entry {
+            try! out.append("define i32 @main(i32 %argc, ptr %argv)")
+            try! out.append(attributes)
+            try! out.append(" \{\nentry:\n  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
+            try! out.append("  %status = call i32 @")
+            try! out.append(ll_saw_entry())
+            try! out.append("()\n  ret i32 %status\n\}\n\n")
+        }
+        out.build()
+    }
+
+    // The program entry's body past its `entry:` label, for `main` returning
+    // `result`, laid out as `l`, with `r` its resume, else -1.
+    func entry_body(&var self, mono: &var MonoProgram, target: &var Target, result: Int, l: &TargetLayout,
+                    r: Int) -> String {
+        let main_item = mono.main_item
+        var out = StringBuilder()
         if r >= 0 {
             let resume = self.lowering.resumes[r]
             try! out.append("  %frame = alloca [")
@@ -305,12 +345,9 @@ extension LlEmitter {
         if returns_result || returns_int {
             let body = self.status_entry(&var mono, &var target, result, &l, r)
             try! out.append(self.allocas.build())
-            try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
             try! out.append(body)
-            try! out.append("\}\n\n")
             return out.build()
         }
-        try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
         if l.kind != TargetKind.Zero {
             // Typecheck admits a `main` returning `Void`, `Int` or a `Result`
             // of either and nothing else (`check_main_signature`).
@@ -341,11 +378,10 @@ extension LlEmitter {
             }
         }
         try! out.append("  ret i32 0\n")
-        try! out.append("\}\n\n")
         out.build()
     }
 
-    // The C entry's body past its argument stores, for a `main` returning an
+    // The program entry's body, for a `main` returning an
     // `Int` or a `Result` of type `t`, laid out as `l`: the call, or the
     // frame handed to the executor (`r` its resume, else -1), then the
     // status `exit_status` checks the `Int` into or `main_status` reads from

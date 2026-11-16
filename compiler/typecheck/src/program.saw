@@ -157,9 +157,19 @@ public struct TcProfile {
 }
 
 extension TcProfile {
-    // Whether the entry module's `main` is the program's entry. When it is
-    // not, the exports are the roots and a `main` is an ordinary function.
+    // Whether a `main` the entry module declares is the program's entry, held
+    // to the entry-point rule and run by a synthesized entry. Only a runtime's
+    // source has none: its exports are its roots and a `main` there is an
+    // ordinary function.
     public func main_entry(&self) -> Bool {
+        not self.runtime_source()
+    }
+
+    // Whether the program owes a `main`, and gets the C entry `main(argc,
+    // argv)` and the argument accessors. A freestanding object's entry,
+    // when it declares a `main`, is `__saw_main`, which its environment's
+    // start-up calls (runtime/ABI.md, "The program entry").
+    public func c_entry(&self) -> Bool {
         self.kind == TcProfileKind.HostedProgram || self.kind == TcProfileKind.HostedProvider
     }
 

@@ -1,0 +1,12 @@
+// refuses: extern.entry-hosted at 7:10
+// flags: --std-root std
+// message: `__saw_main` is the program entry the compiler defines for `main`, and under the hosted profile it is internal
+// a hosted program declaring the program entry, which only the C `main` calls
+
+extern "C" {
+    func __saw_main() -> Int32
+}
+
+func main() -> Int {
+    __saw_main() as Int
+}

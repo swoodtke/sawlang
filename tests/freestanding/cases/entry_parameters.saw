@@ -1,0 +1,6 @@
+// A freestanding `main` taking a parameter is refused: the entry-point rule
+// holds under the profile.
+
+func main(boot: Int) -> Int {
+    boot
+}

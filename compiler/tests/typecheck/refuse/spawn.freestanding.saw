@@ -1,7 +1,7 @@
 // refuses: spawn.freestanding at 12:5
 // flags: --std-root std --freestanding
 // `Task.spawn` under the freestanding profile: the background task group it
-// spawns into closes at `main`'s return, and a freestanding image has none
+// spawns into is one a freestanding runtime does not provide yet
 
 func work(n: Int) -> Int {
     n * 2

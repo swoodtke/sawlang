@@ -1,0 +1,30 @@
+// A freestanding `main` returning `Result<Int, Fault>` that fails: the entry
+// writes `error: ` and the rendered error on the error stream, then returns 1.
+
+import fscore.*
+import fsentry
+
+enum Fault { case Broken, case Worn }
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Broken -> { try! into.append("the part is broken") },
+            case Worn -> { try! into.append("the part is worn") }
+        }
+    }
+}
+
+extension Fault: Error {}
+
+func inspect(n: Int) -> Result<Int, Fault> {
+    if n > 2 { return Fault.Broken }
+    return n + 40
+}
+
+func main() -> Result<Int, Fault> {
+    let a = try inspect(1)
+    report("first", a)
+    let b = try inspect(5)
+    return a + b
+}

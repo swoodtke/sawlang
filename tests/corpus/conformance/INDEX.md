@@ -6,7 +6,10 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**825 rows**, when SL-1126 added V175, a `move` as the base of a field read or
+**839 rows**, counted from the table when SL-1143 added G19, a freestanding
+`main` as the program's entry, covered outside this directory by the
+freestanding suite (the count before it, 838, had gone stale in the lines
+below); previously **825 rows**, when SL-1126 added V175, a `move` as the base of a field read or
 a receiver ending its binding at that statement, which carries two files here;
 previously **824 rows**, when SL-1134 added V174, a capturing closure called
 where it is written, whose environment and captures are released at the end of
@@ -700,10 +703,11 @@ Claim source: spec 8 *Programs and Entry Points*; design 221 (DF-220b, DF-220c)
 | G12 | `main() -> String` is refused, naming the four legal types | `G12_main_returning_string_refused.saw` |  |
 | G13 | `main() -> Bool` is refused | `G13_main_returning_bool_refused.saw` |  |
 | G14 | `main() -> Int?` is refused | `G14_main_returning_optional_refused.saw` |  |
-| G15 | an exit status never collides with success: a status outside 0...255, from `-> Int` or from `Result<Int, E>`'s `Ok`, sync or suspending, is a panic at `main`'s declaration | `G15_main_int_exit_status_out_of_range_panics.saw`; the `main_exit_status_*` probes in `compiler/tests/run/probes/` | SL-892 — RULED: the platform keeps eight bits, so a status it narrowed could read as another, 256 as success |
+| G15 | an exit status never collides with success: a status outside 0...255, from `-> Int` or from `Result<Int, E>`'s `Ok`, sync or suspending, is a panic at `main`'s declaration | `G15_main_int_exit_status_out_of_range_panics.saw`; the `main_exit_status_*` probes in `compiler/tests/run/probes/`; freestanding, `tests/freestanding/cases/entry_status_range.saw` | SL-892 — RULED: the platform keeps eight bits, so a status it narrowed could read as another, 256 as success |
 | G16 | a bare `try` in `main` propagates to the exit status (the third exit position) | `G16_try_propagates_out_of_main.saw` |  |
 | G17 | a written `return` inside `main` sets the exit status (the second) | `G17_early_return_from_main.saw` |  |
 | G18 | a `main() -> Result<Void, E>` that succeeds exits 0 | `G18_main_result_void_ok_exit_zero.saw` |  |
+| G19 | a freestanding `main` is the program's entry: `__saw_main` runs it under the same exit-status contract and returns the status | the `entry_*` cases in `tests/freestanding/cases/` | SL-1143 — the owner approved the synthesized entry; it supersedes SL-865's "a freestanding `main` is an ordinary function" |
 
 ## A `Result` must not be silently discarded
 

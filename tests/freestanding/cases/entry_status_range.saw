@@ -1,0 +1,10 @@
+// A freestanding `main` whose `Int` is outside 0...255: the entry panics at
+// `main`'s declaration through the panic seam, and returns nothing.
+
+import fscore.*
+import fsentry
+
+func main() -> Int {
+    report("main_entered", 1)
+    300
+}

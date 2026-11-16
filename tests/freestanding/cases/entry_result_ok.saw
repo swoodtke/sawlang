@@ -1,0 +1,26 @@
+// A freestanding `main` returning `Result<Int, Fault>` that succeeds: the `Ok`
+// payload is the status.
+
+import fscore.*
+import fsentry
+
+enum Fault { case Broken }
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("the part is broken")
+    }
+}
+
+extension Fault: Error {}
+
+func inspect(n: Int) -> Result<Int, Fault> {
+    if n > 2 { return Fault.Broken }
+    return n + 3
+}
+
+func main() -> Result<Int, Fault> {
+    let a = try inspect(2)
+    report("payload", a)
+    return a
+}

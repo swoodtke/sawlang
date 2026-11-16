@@ -57,6 +57,7 @@ MODULES = {
     "fsrt": os.path.join(FS_DIR, "rt", "src"),
     "fscore": os.path.join(FS_DIR, "core", "src"),
     "fsdata": os.path.join(FS_DIR, "data", "src"),
+    "fsentry": os.path.join(FS_DIR, "entry", "src"),
 }
 
 QEMU_TIMEOUT_S = 20
@@ -290,7 +291,7 @@ def atomic_routines(case, arch):
 # would still compile and only be wrong on the profile nobody happened to be
 # building, so the check is mechanical. Comments count.
 
-ARCH_FREE_DIRS = [MODULES["fsrt"], MODULES["fscore"], MODULES["fsdata"]]
+ARCH_FREE_DIRS = [MODULES["fsrt"], MODULES["fscore"], MODULES["fsdata"], MODULES["fsentry"]]
 
 ARCH_WORDS = [
     "riscv", "rv32", "rv64", "aarch64", "arm64", "armv8",
@@ -816,6 +817,72 @@ TEST_CASES = [
                        "fs check sender_sent=1",
                        "fs done cooperative_drive ok"],
         "expect_clean_exit": True,
+    },
+    # --- the program entry ----------------------------------------------------
+    # Each case declares `main` and imports `fsentry`, whose `fs_main` calls
+    # the entry sawc defines, `__saw_main`, prints its status and stops the
+    # machine with it: the exit device carries the status (runtime/ABI.md,
+    # "The program entry").
+    {
+        "name": "entry_int",
+        "expect_out": ["fs value main_entered=1", "fs entry status=7"],
+        "expect_clean_exit": False,
+        "expect_status": 7,
+    },
+    {
+        "name": "entry_void",
+        "expect_out": ["fs value main_entered=1", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "entry_result_ok",
+        "expect_out": ["fs value payload=5", "fs entry status=5"],
+        "expect_clean_exit": False,
+        "expect_status": 5,
+    },
+    {
+        "name": "entry_result_err",
+        "expect_out": ["fs value first=41", "error: the part is broken\n", "fs entry status=1"],
+        "expect_clean_exit": False,
+        "expect_status": 1,
+    },
+    {
+        # The same failure rendered through a growable builder, which the
+        # arena backs, where every other entry case renders into stack scratch.
+        "name": "entry_result_err_growable",
+        "source": "entry_result_err",
+        "no_hidden_alloc": False,
+        "expect_out": ["fs value first=41", "error: the part is broken\n", "fs entry status=1"],
+        "expect_clean_exit": False,
+        "expect_status": 1,
+    },
+    {
+        "name": "entry_result_void_ok",
+        "expect_out": ["fs value checked=1", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "entry_result_void_err",
+        "expect_out": ["fs value checked=1", "error: the part is broken\n", "fs entry status=1"],
+        "expect_clean_exit": False,
+        "expect_status": 1,
+    },
+    {
+        "name": "entry_status_range",
+        "expect_out": ["fs value main_entered=1",
+                       "panic at entry_status_range.saw:7: main returned exit status 300, which is outside 0...255"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
+    },
+    {
+        "name": "entry_suspend",
+        "expect_out": ["fs value joined=12", "fs entry status=7"],
+        "expect_clean_exit": False,
+        "expect_status": 7,
+    },
+    {
+        "name": "entry_parameters",
+        "expect_compile_error": ["entry.parameters", "entry_parameters.saw:4:", "`main` takes no parameters"],
     },
     # --- the linker script ----------------------------------------------------
     {

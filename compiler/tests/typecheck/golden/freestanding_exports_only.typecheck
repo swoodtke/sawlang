@@ -1,0 +1,12 @@
+(Module freestanding_exports_only
+  (declarations
+    (func scale 6:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (scale 6:6
+      (7:5-7:10 Binary Int value temp (op *))
+      (7:5-7:6 Name Int place copy)
+      (7:9-7:10 IntLit Int value temp))))

@@ -1,0 +1,8 @@
+// refuses: entry.parameters at 6:6
+// flags: --std-root std --freestanding
+// message: `main` takes no parameters: a freestanding program's environment hands it its context through the environment's own state, which `main` reads
+// a freestanding `main` with a parameter: the entry-point rule holds under the profile
+
+func main(boot: Int) -> Int {
+    boot
+}

@@ -190,7 +190,9 @@ just before the exit status 1, and a failed write there has no one left to
 report to. Everything a
 panic prints goes through it, the message and the task dump the executor
 writes after it. A freestanding runtime must supply it when a program links
-the executor (`std.taskgroup`), whose panic sink calls it.
+the executor (`std.taskgroup`), whose panic sink calls it, and when its `main`
+returns a `Result`, whose `Err` line the program entry writes through it (see
+"The program entry").
 
 ### `__saw_rt_panic(ptr: i8*, len: word) -> ! (noreturn)`
 The panic sink. Takes the output lock, writes the message at `ptr` to standard
@@ -1334,12 +1336,58 @@ slots a running worker still reads.
 The reference blocking primitive: a thread-blocking sleep that returns its
 argument, which the offload tests call through a `blocking func` extern.
 
+## The program entry (SL-1143)
+
+Not a runtime seam: the compiler defines it, and a runtime CALLS it. Every
+program object whose entry module declares a production `main`, hosted or
+freestanding, defines the entry; a freestanding object with no `main` defines
+none, and its exports are its roots.
+
+### `__saw_main() -> i32`
+
+Runs the program's `main` and returns its exit status, 0...255, as a C `int`.
+It is synchronous and takes no arguments: a suspending `main` is driven to its
+end inside the call by the entry executor (`__saw_exec_run_main`, in "The
+compiler → executor boundary"), and `main`'s coroutine frame lives in the
+entry's own stack frame, so the caller's stack holds it. Before it returns,
+every task the thread's background group still holds has been cancelled and
+joined. It never exits the program; what the status means and how the program
+ends are the caller's.
+
+The status follows the language's exit-status contract (LANGUAGE_SPEC.md, The
+entry point). A `Void` `main` is `0`; an `Int`, or `Ok` payload, is that value,
+and one outside 0...255 is a panic through `__saw_rt_panic`, so the call does
+not return; `Ok(())` is `0`; an `Err` writes `error: `, the rendered error and
+a line break through `__saw_rt_write_error` under `__saw_rt_output_lock`, and is
+`1`. Under `--no-hidden-alloc` the rendering is made in 512 bytes of the
+entry's own stack and allocates nothing; otherwise it is built through
+`__saw_rt_alloc` and released before the call returns.
+
+- **Hosted:** the C entry `main(argc, argv)` stores its arguments (below),
+  calls `__saw_main` and returns its status, which libc's return from `main`
+  makes the process's. The entry is internal there, so the hosted executable
+  exports no new symbol. A hosted program cannot declare `__saw_main`
+  (`extern.entry-hosted`): the C `main` is its one caller, and a second call
+  would run `main` again.
+- **Freestanding:** the entry is the object's external definition, for the
+  environment's start-up to call once, after it has set up the stack, the
+  memory the allocation seams hand out, and whatever state its own accessors
+  give `main` (the boot context: `main` takes no parameters). A start-up
+  written in Saw and compiled into the same object declares it in an
+  `extern "C"` block, `func __saw_main() -> Int32`; any other signature for
+  that symbol is refused (`extern.signature-disagree`). The environment calls it
+  once, on the thread that runs the program's cooperative tasks.
+
+A `main` that suspends reaches the freestanding executor set (above) through
+the entry executor; a `main` that does not reaches none of it.
+
 ## Program arguments (design 81)
 
-The C entry `main(argc, argv)` stashes its two arguments in two module-private
-globals at startup, and `Env.argc`/`Env.arg` read them through these accessors
-on every target. The compiler emits both accessors, and the globals, into
-every program; the hosted runtime does not export them.
+The hosted C entry `main(argc, argv)` stashes its two arguments in two
+module-private globals at startup, and `Env.argc`/`Env.arg` read them through
+these accessors. The compiler emits both accessors, and the globals, into every
+hosted program; the hosted runtime does not export them. A freestanding object
+has neither, and `std.env` is hosted-only.
 
 ### `__saw_rt_get_argc() -> i32`
 The `argc` main received.
@@ -1434,6 +1482,7 @@ a flag bit.
 | SL-896 | `__saw_rt_proc_take_stdout`: one new symbol, handing the capture pipe's read end from the job to the caller, so std drains it on the reactor and a cancel ends the drain. No existing signature moved; `read_stdout` stays |
 | SL-898 | `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract with the same signatures: a program that cannot be executed is the spawn's answer `-(256 + tag)`, carrying exec's errno, where it was a child exiting 127; the child is found on PATH by `execvp`'s rules and executed with `execve`, with no `/bin/sh` fallback; and the child closes every descriptor it inherited but its standard three. SysError tag 24 (`NotExecutable`, `ENOEXEC`). A runtime that keeps the old answer is still correct, as the spawn section says. No symbol, no signature, no renumbering |
 | SL-910 | every descriptor the hosted runtime makes is close-on-exec (files, sockets, accepted connections, pipes, the reactor's own). No symbol, no signature |
+| SL-1143 | `__saw_main`, the program entry: not a seam, a definition the compiler makes in every object with a `main`, freestanding included, which a freestanding runtime's start-up calls. A freestanding `main` now reaches `__saw_rt_write_error` and the output lock pair when it returns a `Result`, and the executor set when it suspends. No seam's signature moved |
 | SL-933 | `__saw_rt_pthread_mutex_{lock,unlock,try_lock,destroy}` and `__saw_rt_pthread_cond_{wait,broadcast,destroy}`: seven new symbols, the operations on the gates std made through the two init seams, which std called as `pthread_*` directly. No existing signature moved |
 
 ## The compiler → executor boundary (design 118)

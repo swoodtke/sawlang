@@ -1,0 +1,8 @@
+// A freestanding `main` returning nothing: the entry returns 0.
+
+import fscore.*
+import fsentry
+
+func main() {
+    report("main_entered", 1)
+}

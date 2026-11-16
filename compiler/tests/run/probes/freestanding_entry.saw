@@ -1,0 +1,19 @@
+// probe: custom
+// about: a `--freestanding` object with a `main` defines the entry `__saw_main`, which an export of the same object calls through an `extern "C"` declaration (SL-1143)
+// Built with `--freestanding --target aarch64-unknown-none-elf` whole and with
+// `--codegen-units=module`: `__saw_main` and the export are external
+// definitions, there is no C `main` and no argument accessor, and the start-up
+// export calls the entry without a second declaration beside the definition.
+
+extern "C" {
+    func __saw_main() -> Int32
+}
+
+@export("probe_entry_start")
+func start() -> Int32 {
+    __saw_main() + 100
+}
+
+func main() -> Int {
+    7
+}

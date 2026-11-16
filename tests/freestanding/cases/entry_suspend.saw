@@ -1,0 +1,21 @@
+// A freestanding suspending `main`: the entry drives its frame with the entry
+// executor, a group task and a timed park beside it, and returns its `Int`.
+
+import fscore.*
+import fsentry
+import std.task.*
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 3
+}
+
+func main() -> Int {
+    var group = TaskGroup()
+    let h = group.spawn(work(4))
+    sleep(Duration.ms(1))
+    yield_now()
+    let got = h.join()
+    report("joined", got)
+    got - 5
+}

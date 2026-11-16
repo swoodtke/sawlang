@@ -1044,7 +1044,7 @@ errors/array_immutable.saw	pass	-	mutability.immutable: this assignment writes `
 errors/array_mixed_types.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 errors/array_non_int_index.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 errors/array_wrong_type.saw	pass	-	type.mismatch: expected `Int`, the type of the assignment's target, and found `String`
-errors/background_spawn_needs_a_hosted_entry.saw	pass	-	spawn.freestanding: freestanding profile: `Task.spawn` needs the process-wide background task group, which is closed at `main`'s return — a freestanding image has no such entry point; declare a `TaskG
+errors/background_spawn_needs_a_hosted_entry.saw	pass	-	spawn.freestanding: freestanding profile: `Task.spawn` needs the process-wide background task group, which a freestanding runtime does not provide yet; declare a `TaskGroup` and spawn into it with `gr
 errors/blocking_extern_decl_conflict.saw	pass	-	extern.blocking-disagree: `__saw_rt_last_raw_code` is declared `blocking` here, but another declaration of the same symbol, in `std.systemerror`, says the opposite: `blocking` is part of an extern's c
 errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync`, and it calls `slow`, which may suspend
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`

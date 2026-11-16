@@ -1,0 +1,25 @@
+//! `fsentry` — the start-up an entry case links.
+//!
+//! A case whose program declares `main` imports this module, and nothing else
+//! does. The boot stub calls `fs_main`; this `fs_main` runs the program
+//! through its entry, `__saw_main`, which sawc defines in the program object
+//! (runtime/ABI.md, "The program entry"), prints the status the entry
+//! returned and stops the machine with it. It is the miniature of a kernel
+//! runtime's `_start`, which owns the boot and the exit while the entry owns
+//! `main`'s contract.
+
+import fsrt
+
+// The entry sawc synthesizes for the program's `main`: it runs `main` under
+// the exit-status contract and returns the status, 0...255.
+extern "C" {
+    func __saw_main() -> Int32
+}
+
+/// Run the program and stop the machine with the status its `main` returned.
+@export("fs_main")
+func start() {
+    let status = __saw_main()
+    print("fs entry status={}", status)
+    fsrt.stop(status as UInt32)
+}
