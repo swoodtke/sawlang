@@ -304,6 +304,40 @@ def flash_problems():
 
 
 DATA_ONLY_C = "const int fs_table[4] = {1, 2, 3, 4};\n"
+# A call0 object whose literal pool holds words with low byte 0x36, which
+# disassemble as `entry`.
+LITERAL_POOL_C = """extern int elsewhere(int, int);
+int call0_function(int n) { return elsewhere(n + 0x12345636, 0x00003636); }
+int another(int n) { return elsewhere(0x36363636, n); }
+"""
+# A call0 function whose own section, `.text.literal_value`, is code a name test
+# on `.literal` as a substring would drop.
+LITERAL_NAMED_C = "int literal_value(int n) { return n * 3 + 1; }\n"
+# A call0 function named `literal`, whose section `.text.literal` is code that
+# the pool suffix test must not take for the pool of a section `.text`.
+LITERAL_PLAIN_C = "int literal(int n) { return n * 3 + 1; }\n"
+# A call0 function in a section `.iram1.7` whose pool is `.iram1.7.literal`.
+IRAM_POOL_C = """extern int elsewhere(int, int);
+__attribute__((section(".iram1.7"))) int in_iram(int n) { return elsewhere(n, 0x12345636); }
+"""
+# A listing whose pool and code sections carry sawc's section names, which hold spaces.
+SPACED_LISTING = ("Disassembly of section .literal.saw std.builtins.float.added(a: UInt64, b: UInt64):\n"
+                  "\n00000000 <.literal.saw std.builtins.float.added(a: UInt64, b: UInt64)>:\n"
+                  "       0:\tentry\ta1, 32\n"
+                  "Disassembly of section .text.saw std.builtins.float.added(a: UInt64, b: UInt64):\n"
+                  "       0:\tnop\n")
+
+
+def code_lines_problems():
+    """Why `code_lines` does not drop a pool whose section name holds spaces
+    and keep the code section beside it, or []."""
+    kept = freestanding_runner.code_lines(SPACED_LISTING)
+    problems = []
+    if any("entry" in line for line in kept):
+        problems.append("code_lines: a pool section named with spaces is read as code")
+    if not any("nop" in line for line in kept):
+        problems.append("code_lines: a code section named with spaces is dropped")
+    return problems
 
 
 def abi_problems():
@@ -324,8 +358,26 @@ def abi_problems():
     with open(data_c, "w") as fh:
         fh.write(DATA_ONLY_C)
     floor = ["-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections", "-nostdlib", "-O2", "-c"]
+    pool_c = os.path.join(out, "pool.c")
+    with open(pool_c, "w") as fh:
+        fh.write(LITERAL_POOL_C)
+    value_c = os.path.join(out, "literal_value.c")
+    with open(value_c, "w") as fh:
+        fh.write(LITERAL_NAMED_C)
+    plain_c = os.path.join(out, "literal.c")
+    with open(plain_c, "w") as fh:
+        fh.write(LITERAL_PLAIN_C)
+    iram_c = os.path.join(out, "iram_pool.c")
+    with open(iram_c, "w") as fh:
+        fh.write(IRAM_POOL_C)
+    flat = [flag for flag in floor if flag != "-ffunction-sections"]
     sources = {"support": [freestanding_runner.SUPPORT_C] + floor,
                "data": [data_c] + floor,
+               "pool": [pool_c] + floor,
+               "pool_flat": [pool_c] + flat,
+               "literal_value": [value_c] + floor,
+               "literal": [plain_c] + floor,
+               "iram_pool": [iram_c] + floor,
                "boot_call0": [freestanding_runner.hal_file(call0_row, "boot.S"), "-nostdlib", "-c"],
                "boot_windowed": [freestanding_runner.hal_file(windowed_row, "boot.S"), "-nostdlib", "-c"]}
     built = {}
@@ -352,6 +404,12 @@ def abi_problems():
     check(windowed_row, [built["boot_windowed", "windowed"], built["support", "windowed"],
                          built["support", "call0"]], True, "a call0 support.o beside windowed ones")
     check(windowed_row, [built["boot_call0", "call0"]], True, "a call0 boot stub")
+    check(windowed_row, [built["pool", "call0"]], True, "a call0 object whose literal pool decodes as `entry`")
+    check(windowed_row, [built["pool_flat", "call0"]], True,
+          "a call0 object whose pool is the plain `.literal` section")
+    check(windowed_row, [built["literal_value", "call0"]], True, "a call0 function named `literal_value`")
+    check(windowed_row, [built["literal", "call0"]], True, "a call0 function named `literal`")
+    check(windowed_row, [built["iram_pool", "call0"]], True, "a call0 function in section `.iram1.7`")
     check(windowed_row, [built["support", "windowed"]], False, "a windowed support.o")
     check(windowed_row, [built["boot_windowed", "windowed"]], False, "the windowed boot stub")
     check(windowed_row, [built["data", "call0"]], False, "a call0 data-only object")
@@ -501,6 +559,7 @@ def main():
     failures += checksum_problems()
     failures += flash_problems()
     failures += abi_problems()
+    failures += code_lines_problems()
     for failure in failures:
         print(failure)
     print("freestanding runner: %s: %d tool-decision cases, the soft-float list and symbol check, the integer helpers' "

@@ -1291,6 +1291,25 @@ ENTRY_LINE = re.compile(r"^\s*[0-9a-f]+:\s+entry\b")
 CODE_LINE = re.compile(r"^\s*[0-9a-f]+:\s+\S")
 
 
+def code_lines(listing):
+    """The lines of an `llvm-objdump -d` listing outside a literal pool, which
+    disassembles as instructions: a pool word with low byte 0x36 reads as
+    `entry`. A pool is told by its section's name, the three clang gives:
+    `.literal` (of `.text`), `.literal.F` (of `.text.F`) and `S.literal` (of
+    `S`). A code section whose own name ends `.literal` and is not under
+    `.text.` reads as a pool; no name test can tell the two apart."""
+    kept = []
+    in_code = True
+    for line in listing.splitlines():
+        if line.startswith("Disassembly of section"):
+            name = line[len("Disassembly of section "):].rstrip().rstrip(":")
+            in_code = not (name == ".literal" or name.startswith(".literal.")
+                           or (name.endswith(".literal") and not name.startswith(".text.")))
+        elif in_code:
+            kept.append(line)
+    return kept
+
+
 def abi_problem(arch, objects, clang):
     """Why an image of a windowed row may not link these objects, or None.
     The linker draws no diagnostic for a call0 object in a windowed image, and
@@ -1306,7 +1325,7 @@ def abi_problem(arch, objects, clang):
         code, out = run([objdump_tool(clang), "-d", "--no-show-raw-insn", obj], BUILD_TIMEOUT_S)
         if code != 0:
             return "llvm-objdump cannot read %s: %s" % (obj, out.strip()[:300])
-        lines = out.splitlines()
+        lines = code_lines(out)
         if any(CODE_LINE.match(line) for line in lines) and not any(ENTRY_LINE.match(line) for line in lines):
             return ("%s holds code with no `entry` instruction, so it was built for the call0 ABI, and the %s row's "
                     "image is windowed: every object of an image must use one ABI (`+windowed` for sawc and the C "

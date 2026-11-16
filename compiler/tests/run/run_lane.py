@@ -4516,14 +4516,18 @@ NO_REGISTER_WRITE = re.compile(r"^(s\d+i|s32i\.n|s32ri|s32e|b|j|call|ret|entry|m
 def xtensa_instructions(dis, symbol):
     """The (mnemonic, operands) pairs of `symbol`'s code in `dis`, a
     `llvm-objdump -d --no-show-raw-insn` listing, in order; with no symbol,
-    those of every code section. A `.literal` section's pool disassembles as
-    junk and is skipped."""
+    those of every code section. A literal pool disassembles as junk and is
+    skipped; it is told by its section's name (`.literal`, `.literal.F`, or
+    `S.literal` with `S` not under `.text.`), so a function named `literal_x`
+    is kept."""
     out = []
     section_is_code = False
     in_symbol = False
     for line in dis.splitlines():
         if line.startswith("Disassembly of section"):
-            section_is_code = ".literal" not in line
+            name = line[len("Disassembly of section "):].rstrip().rstrip(":")
+            section_is_code = not (name == ".literal" or name.startswith(".literal.")
+                                   or (name.endswith(".literal") and not name.startswith(".text.")))
             in_symbol = False
         elif line.endswith(">:"):
             in_symbol = symbol is None or line.endswith("<%s>:" % symbol)
@@ -4545,6 +4549,28 @@ def a7_first_use(instructions):
         if writes:
             return "write"
     return "none"
+
+
+# Section names `xtensa_instructions` must tell apart: the three pool names
+# clang gives (one with the spaces of a sawc symbol) and the code sections whose
+# names hold `literal`.
+XTENSA_POOL_HEADERS = (".literal", ".literal.call0_function",
+                       ".literal.saw std.builtins.float.added(a: UInt64, b: UInt64)", ".iram1.7.literal")
+XTENSA_CODE_HEADERS = (".text", ".text.literal_hook", ".text.literal", ".text.saw app.literal(a: Int)",
+                       ".text.saw std.builtins.float.added(a: UInt64, b: UInt64)", ".iram1.7")
+
+
+def check_xtensa_pool_headers(failures, counts):
+    """`xtensa_instructions` skips the instruction under each literal pool
+    header and keeps the one under each code section header, however the
+    section's name spells `literal` and whatever spaces it holds."""
+    for names, kept in ((XTENSA_POOL_HEADERS, False), (XTENSA_CODE_HEADERS, True)):
+        for name in names:
+            listing = "Disassembly of section %s:\n\n00000000 <f>:\n       0:\tmovsp\ta1, a2\n" % name
+            if bool(xtensa_instructions(listing, None)) != kept:
+                failures.append("run xtensa_instructions: the section `%s` is %s"
+                                % (name, "skipped" if kept else "read as code"))
+    counts["run xtensa section headers read"] = len(XTENSA_POOL_HEADERS) + len(XTENSA_CODE_HEADERS)
 
 
 def check_xtensa_windowed(failures, counts):
@@ -5005,6 +5031,7 @@ def run(names=None, write=False):
         check_placed_symbols(failures, counts)
         check_exported_placed_link(failures, counts)
         check_sha256(failures, counts)
+        check_xtensa_pool_headers(failures, counts)
         run_check(check_object_cache, failures, counts)
         run_check(check_front_cache, failures, counts)
         check_front_cache_differential(failures, counts)

@@ -86,10 +86,10 @@ _entry:
     .align 4
     .global _start
 _start:
-    movi    a9, 1
-    wsr     a9, windowstart
-    movi    a9, 0
-    wsr     a9, windowbase
+    movi    a2, 1                   /* a0-a3 are never window-checked, so PS.WOE can stay set */
+    wsr     a2, windowstart
+    movi    a2, 0
+    wsr     a2, windowbase
     rsync
     l32r    a9, .Lps_boot
     wsr     a9, ps
