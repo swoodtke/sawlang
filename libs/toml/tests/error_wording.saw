@@ -156,21 +156,49 @@ func main() {
     failed += says("header-dotted-implied", "[x.y.z]\n[x]\ny.w = 1\n[x.y]\n", TomlErrorKind.Redefinition, 4, 4,
                    "table [x.y] was already made by the dotted key `y.w` at line 3, column 1")
 
-    // Unsupported
-    failed += says("unsupported-basic", "a = \"\"\"x\"\"\"\n", TomlErrorKind.Unsupported, 1, 5,
-                   "multi-line basic strings are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
-    failed += says("unsupported-literal", "a = '''x'''\n", TomlErrorKind.Unsupported, 1, 5,
-                   "multi-line literal strings are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
-    failed += says("unsupported-float", "a = 1.5\n", TomlErrorKind.Unsupported, 1, 5,
-                   "floats are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
-    failed += says("unsupported-offset", "a = 1979-05-27T07:32:00Z\n", TomlErrorKind.Unsupported, 1, 5,
-                   "offset date-times are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
-    failed += says("unsupported-local-date-time", "a = 1979-05-27T07:32:00\n", TomlErrorKind.Unsupported, 1, 5,
-                   "local date-times are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
-    failed += says("unsupported-date", "a = 1979-05-27\n", TomlErrorKind.Unsupported, 1, 5,
-                   "local dates are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
-    failed += says("unsupported-time", "a = 07:32:00\n", TomlErrorKind.Unsupported, 1, 5,
-                   "local times are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+    // Floats, date-times and multi-line strings
+    failed += says("float-invalid", "a = 7.\n", TomlErrorKind.InvalidNumber, 1, 5, "`7.` is not a valid float")
+    failed += says("float-leading-dot", "a = .7\n", TomlErrorKind.InvalidNumber, 1, 5, "`.7` is not a valid float")
+    failed += says("float-underscore", "a = 1_.5\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`1_.5`: `_` must stand between two digits")
+    failed += says("float-zero", "a = 01.5\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`01.5`: leading zeros are not allowed in a float")
+    failed += says("float-range", "a = 1e400\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`1e400` does not fit in a 64-bit float")
+    failed += says("date-time-day", "a = 1979-02-30\n", TomlErrorKind.InvalidDateTime, 1, 5,
+                   "`1979-02-30` is not a valid date-time")
+    failed += says("date-time-no-seconds", "a = 07:32\n", TomlErrorKind.InvalidDateTime, 1, 5,
+                   "`07:32` is not a valid date-time")
+    failed += says("string-multi-basic-open", "a = \"\"\"x\n", TomlErrorKind.InvalidString, 1, 5,
+                   "the string is not closed before the end of the document")
+    failed += says("string-multi-literal-open", "a = '''x\n", TomlErrorKind.InvalidString, 1, 5,
+                   "the string is not closed before the end of the document")
+    failed += says("string-multi-escape", "a = \"\"\"x\\q\"\"\"\n", TomlErrorKind.InvalidString, 1, 9,
+                   "unknown escape `\\q` in a string")
+    failed += says("string-multi-control", "a = \"\"\"x\u{7}\"\"\"\n", TomlErrorKind.InvalidString, 1, 9,
+                   "control character U+0007 must be written as an escape in a string")
+    failed += says("float-underscore-fraction", "a = 1._5\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`1._5`: `_` must stand between two digits")
+    failed += says("float-underscore-exponent", "a = 1e5_\n", TomlErrorKind.InvalidNumber, 1, 5,
+                   "`1e5_`: `_` must stand between two digits")
+    failed += says("string-multi-backslash-end", "a = \"\"\"abc\\  ", TomlErrorKind.InvalidString, 1, 5,
+                   "the string is not closed before the end of the document")
+    failed += says("string-multi-escape-cr", "a = \"\"\"x\\\rb\"\"\"\n", TomlErrorKind.InvalidString, 1, 9,
+                   "unknown escape: control character U+000D follows the backslash")
+    failed += says("string-escape-bell", "a = \"x\\\u{7}\"\n", TomlErrorKind.InvalidString, 1, 7,
+                   "unknown escape: control character U+0007 follows the backslash")
+    failed += says("string-escape-tab", "a = \"x\\\t\"\n", TomlErrorKind.InvalidString, 1, 7,
+                   "unknown escape: control character U+0009 follows the backslash")
+    failed += says("string-escape-unit-separator", "a = \"x\\\u{1f}\"\n", TomlErrorKind.InvalidString, 1, 7,
+                   "unknown escape: control character U+001F follows the backslash")
+    failed += says("string-escape-delete", "a = \"x\\\u{7f}\"\n", TomlErrorKind.InvalidString, 1, 7,
+                   "unknown escape: control character U+007F follows the backslash")
+    failed += says("string-escape-space", "a = \"x\\ \"\n", TomlErrorKind.InvalidString, 1, 7,
+                   "unknown escape `\\ ` in a string")
+    failed += says("string-multi-line-position", "a = \"\"\"\nx\n\"\"\" y\n", TomlErrorKind.Syntax, 3, 5,
+                   "expected the end of the line after the value, found `y`")
+    failed += says("string-multi-after", "a = \"\"\"x\"\"\" y\n", TomlErrorKind.Syntax, 1, 13,
+                   "expected the end of the line after the value, found `y`")
 
     // TooDeep
     failed += says_deep("deep-array", "a = [[[1]]]\n", 2, 1, 7, "the document nests more than 2 deep")

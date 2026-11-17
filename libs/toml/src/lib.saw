@@ -11,9 +11,11 @@
 //! Reading is strict. A text that is not TOML 1.0 is refused with a
 //! `TomlError` that names the line, the column and the reason; the first
 //! error wins. A repeated key, a table defined twice and a name used as two
-//! kinds are errors that name both places. Multi-line strings, floats and
-//! date-times are valid TOML that this version does not read: each is refused
-//! as `Unsupported`, never misread.
+//! kinds are errors that name both places. Every construct of TOML 1.0 is
+//! read, multi-line strings, floats and the four date-time kinds included. A
+//! float that rounds to infinity is an error, `inf` and `nan` are the
+//! spellings of the two, and a date-time is a `TomlDateTime` with its calendar
+//! fields and no time-zone arithmetic.
 //!
 //! The one extension beyond TOML 1.0: a hexadecimal, octal or binary integer
 //! may be as large as `UInt64.max`. The reader makes `TomlValue.Integer` for
@@ -307,7 +309,8 @@ public enum TomlErrorKind {
     case Syntax,
     /// An unknown escape, a control character, or a string not closed.
     case InvalidString,
-    /// An integer TOML 1.0 does not allow, or one past 64 bits.
+    /// An integer or float TOML 1.0 does not allow, an integer past 64 bits,
+    /// or a float literal that rounds to infinity.
     case InvalidNumber,
     /// A date-time TOML 1.0 does not allow, or an impossible date.
     case InvalidDateTime,
@@ -315,9 +318,6 @@ public enum TomlErrorKind {
     case DuplicateKey,
     /// A table defined twice, or a name used as two kinds.
     case Redefinition,
-    /// Valid TOML 1.0 this version does not read, or text shaped like it
-    /// (`1true` is named a float until those are read).
-    case Unsupported,
     /// Tables and arrays nested past `max_depth`.
     case TooDeep,
     /// A typed read found another kind. Raised by reads, never by `parse`.
@@ -1544,9 +1544,13 @@ struct Reader {
     max_depth: Int
 }
 
-func unsupported(at: TomlPosition, construct: String) -> TomlError {
-    toml_error(TomlErrorKind.Unsupported, at,
-               "{construct} are not supported yet: libs/toml reads TOML 1.0 except multi-line strings, floats and date-times")
+// The message of a string that reaches its line's end, or a multi-line
+// string the document's end, before its closing quotes.
+func not_closed(multiline: Bool) -> String {
+    if multiline {
+        return "the string is not closed before the end of the document"
+    }
+    "the string is not closed before the end of the line"
 }
 
 // The digit value of `b` in any radix up to 16, or -1.
@@ -1563,28 +1567,257 @@ func digit_value(b: Int) -> Int {
     -1
 }
 
-// The kind of date-time a token starting `dddd-` or `dd:` is, as the plural
-// name `Unsupported` gives.
-func date_construct(token: String) -> String {
-    let n = token.len()
-    if n >= 3 && (token.byte_at(2) as Int) == BYTE_COLON {
-        return "local times"
+// Whether `token` has a byte `want` at `i`.
+func byte_is(token: String, i: Int, want: Int) -> Bool {
+    i >= 0 && i < token.len() && (token.byte_at(i) as Int) == want
+}
+
+// The two-digit number at `i`, or -1.
+func two_digits(token: String, i: Int) -> Int {
+    if i < 0 || i + 1 >= token.len() {
+        return -1
     }
-    if n > 10 {
-        let separator = token.byte_at(10) as Int
-        if separator == BYTE_UPPER_T || separator == BYTE_LOWER_T {
-            var i = 11
-            while i < n {
-                let c = token.byte_at(i) as Int
-                if c == BYTE_UPPER_Z || c == BYTE_LOWER_Z || c == BYTE_PLUS || c == BYTE_MINUS {
-                    return "offset date-times"
-                }
-                i = i + 1
+    let a = token.byte_at(i) as Int
+    let b = token.byte_at(i + 1) as Int
+    if is_digit(a) && is_digit(b) {
+        return (a - BYTE_ZERO) * 10 + (b - BYTE_ZERO)
+    }
+    -1
+}
+
+func is_leap_year(year: Int) -> Bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+func days_in_month(year: Int, month: Int) -> Int {
+    if month == 2 {
+        if is_leap_year(year) {
+            return 29
+        }
+        return 28
+    }
+    if month == 4 || month == 6 || month == 9 || month == 11 {
+        return 30
+    }
+    31
+}
+
+func bad_date_time(token: String, at: TomlPosition) -> TomlError {
+    toml_error(TomlErrorKind.InvalidDateTime, at, "`{token}` is not a valid date-time")
+}
+
+// The date-time a token starting `dddd-` or `dd:` spells: a date, a time, or a
+// date and a time (joined by `T`, `t` or one space) with an offset or none.
+// The seconds run to 60, and a fraction past nine digits is cut.
+func read_date_time(token: String, at: TomlPosition) -> Result<TomlValue, TomlError> {
+    let n = token.len()
+    var year = 0
+    var month = 0
+    var day = 0
+    var i = 0
+    var has_date = false
+    if not byte_is(token, 2, BYTE_COLON) {
+        let century = two_digits(token, 0)
+        let decade = two_digits(token, 2)
+        month = two_digits(token, 5)
+        day = two_digits(token, 8)
+        if century < 0 || decade < 0 || not byte_is(token, 4, BYTE_MINUS) || not byte_is(token, 7, BYTE_MINUS) {
+            return bad_date_time(token, at)
+        }
+        year = century * 100 + decade
+        if month < 1 || month > 12 || day < 1 || day > days_in_month(year, month) {
+            return bad_date_time(token, at)
+        }
+        has_date = true
+        if n == 10 {
+            return TomlValue.DateTime(value: TomlDateTime(kind: TomlDateTimeKind.LocalDate, year: year, month: month,
+                                                          day: day, hour: 0, minute: 0, second: 0, nanosecond: 0,
+                                                          offset_minutes: 0))
+        }
+        if not (byte_is(token, 10, BYTE_UPPER_T) || byte_is(token, 10, BYTE_LOWER_T) || byte_is(token, 10, BYTE_SPACE)) {
+            return bad_date_time(token, at)
+        }
+        i = 11
+    }
+    let hour = two_digits(token, i)
+    let minute = two_digits(token, i + 3)
+    let second = two_digits(token, i + 6)
+    if hour < 0 || minute < 0 || second < 0 || not byte_is(token, i + 2, BYTE_COLON) || not byte_is(token, i + 5, BYTE_COLON) {
+        return bad_date_time(token, at)
+    }
+    if hour > 23 || minute > 59 || second > 60 {
+        return bad_date_time(token, at)
+    }
+    i = i + 8
+    var nanosecond = 0
+    if byte_is(token, i, BYTE_DOT) {
+        i = i + 1
+        var digits = 0
+        var scale = 100_000_000
+        while i < n && is_digit(token.byte_at(i) as Int) {
+            if digits < 9 {
+                nanosecond = nanosecond + ((token.byte_at(i) as Int) - BYTE_ZERO) * scale
+                scale = scale / 10
             }
-            return "local date-times"
+            digits = digits + 1
+            i = i + 1
+        }
+        if digits == 0 {
+            return bad_date_time(token, at)
         }
     }
-    "local dates"
+    if not has_date {
+        if i != n {
+            return bad_date_time(token, at)
+        }
+        return TomlValue.DateTime(value: TomlDateTime(kind: TomlDateTimeKind.LocalTime, year: 0, month: 0, day: 0,
+                                                      hour: hour, minute: minute, second: second,
+                                                      nanosecond: nanosecond, offset_minutes: 0))
+    }
+    if i == n {
+        return TomlValue.DateTime(value: TomlDateTime(kind: TomlDateTimeKind.LocalDateTime, year: year, month: month,
+                                                      day: day, hour: hour, minute: minute, second: second,
+                                                      nanosecond: nanosecond, offset_minutes: 0))
+    }
+    var offset = 0
+    if (byte_is(token, i, BYTE_UPPER_Z) || byte_is(token, i, BYTE_LOWER_Z)) && i + 1 == n {
+        offset = 0
+    } else if byte_is(token, i, BYTE_PLUS) || byte_is(token, i, BYTE_MINUS) {
+        let offset_hour = two_digits(token, i + 1)
+        let offset_minute = two_digits(token, i + 4)
+        if offset_hour < 0 || offset_minute < 0 || not byte_is(token, i + 3, BYTE_COLON) || i + 6 != n {
+            return bad_date_time(token, at)
+        }
+        if offset_hour > 23 || offset_minute > 59 {
+            return bad_date_time(token, at)
+        }
+        offset = offset_hour * 60 + offset_minute
+        if byte_is(token, i, BYTE_MINUS) {
+            offset = 0 - offset
+        }
+    } else {
+        return bad_date_time(token, at)
+    }
+    TomlValue.DateTime(value: TomlDateTime(kind: TomlDateTimeKind.OffsetDateTime, year: year, month: month, day: day,
+                                           hour: hour, minute: minute, second: second, nanosecond: nanosecond,
+                                           offset_minutes: offset))
+}
+
+// Whether a run of digits and underscores has an underscore that is not
+// between two digits.
+func misplaced_underscore(run: String) -> Bool {
+    let n = run.len()
+    var i = 0
+    while i < n {
+        if (run.byte_at(i) as Int) == BYTE_UNDERSCORE {
+            if i == 0 || i + 1 == n || (run.byte_at(i - 1) as Int) == BYTE_UNDERSCORE {
+                return true
+            }
+        }
+        i = i + 1
+    }
+    false
+}
+
+// The end of the run of digits and underscores at `i`.
+func digit_run_end(token: String, i: Int) -> Int {
+    var j = i
+    while j < token.len() {
+        let b = token.byte_at(j) as Int
+        if not (is_digit(b) || b == BYTE_UNDERSCORE) {
+            break
+        }
+        j = j + 1
+    }
+    j
+}
+
+func bad_float(token: String, at: TomlPosition) -> TomlError {
+    toml_error(TomlErrorKind.InvalidNumber, at, "`{token}` is not a valid float")
+}
+
+// The float a token spells: `sign? int frac? exp?` with a fraction or an
+// exponent (`value` reads `inf` and `nan` itself). `_` stands between two
+// digits, the integer part has no leading zero, and a literal that rounds to
+// infinity is refused rather than read as one.
+func read_float(token: String, at: TomlPosition) -> Result<TomlValue, TomlError> {
+    let n = token.len()
+    var i = 0
+    let first = token.byte_at(0) as Int
+    if first == BYTE_PLUS || first == BYTE_MINUS {
+        i = 1
+    }
+    let int_end = digit_run_end(token, i)
+    let int_part = token.substring(i, int_end)
+    if int_part.is_empty() {
+        return bad_float(token, at)
+    }
+    var has_frac = false
+    var has_exp = false
+    var j = int_end
+    if byte_is(token, j, BYTE_DOT) {
+        let frac_end = digit_run_end(token, j + 1)
+        let frac = token.substring(j + 1, frac_end)
+        if frac.is_empty() {
+            return bad_float(token, at)
+        }
+        if misplaced_underscore(frac) {
+            return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}`: `_` must stand between two digits")
+        }
+        has_frac = true
+        j = frac_end
+    }
+    if byte_is(token, j, BYTE_LOWER_E) || byte_is(token, j, BYTE_UPPER_E) {
+        var k = j + 1
+        if byte_is(token, k, BYTE_PLUS) || byte_is(token, k, BYTE_MINUS) {
+            k = k + 1
+        }
+        let exp_end = digit_run_end(token, k)
+        let exp = token.substring(k, exp_end)
+        if exp.is_empty() {
+            return bad_float(token, at)
+        }
+        if misplaced_underscore(exp) {
+            return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}`: `_` must stand between two digits")
+        }
+        has_exp = true
+        j = exp_end
+    }
+    if j != n || not (has_frac || has_exp) {
+        return bad_float(token, at)
+    }
+    if misplaced_underscore(int_part) {
+        return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}`: `_` must stand between two digits")
+    }
+    var int_digits = 0
+    var m = 0
+    while m < int_part.len() {
+        if (int_part.byte_at(m) as Int) != BYTE_UNDERSCORE {
+            int_digits = int_digits + 1
+        }
+        m = m + 1
+    }
+    if int_digits > 1 && (int_part.byte_at(0) as Int) == BYTE_ZERO {
+        return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}`: leading zeros are not allowed in a float")
+    }
+    var clean = StringBuilder()
+    m = 0
+    while m < n {
+        let b = token.byte_at(m) as Int
+        if b != BYTE_UNDERSCORE {
+            try! clean.append(byte_of(b))
+        }
+        m = m + 1
+    }
+    match clean.build().to_float() {
+        case Some(f) -> {
+            if f.is_infinite() {
+                return toml_error(TomlErrorKind.InvalidNumber, at, "`{token}` does not fit in a 64-bit float")
+            }
+            return TomlValue.Float(value: f)
+        },
+        case None -> { return bad_float(token, at) }
+    }
 }
 
 // Whether `token` starts like a date or a time: `dddd-` or `dd:`.
@@ -2022,66 +2255,222 @@ extension Reader {
                 self.pos = self.pos + 1
                 continue
             }
-            let escape_at = self.here()
-            let e = self.peek_at(1)
-            if e < 0 || e == BYTE_LF || e == BYTE_CR {
-                return toml_error(TomlErrorKind.InvalidString, opener,
-                                  "the string is not closed before the end of the line")
-            }
-            var plain = -1
-            if e == BYTE_QUOTE || e == BYTE_BACKSLASH {
-                plain = e
-            } else if e == BYTE_LOWER_B {
-                plain = BYTE_BACKSPACE
-            } else if e == BYTE_LOWER_T {
-                plain = BYTE_TAB
-            } else if e == BYTE_LOWER_N {
-                plain = BYTE_LF
-            } else if e == BYTE_LOWER_F {
-                plain = BYTE_FORM_FEED
-            } else if e == BYTE_LOWER_R {
-                plain = BYTE_CR
-            }
-            if plain >= 0 {
-                try self.pushed(out.append(byte_of(plain)))
-                self.pos = self.pos + 2
-                continue
-            }
-            var digits = 0
-            if e == BYTE_LOWER_U {
-                digits = 4
-            } else if e == BYTE_UPPER_U {
-                digits = 8
-            }
-            if digits == 0 {
+            try self.escape(&var out, opener, false)
+        }
+    }
+
+    // The escape at the backslash under the cursor, decoded into `out`. In a
+    // multi-line string a backslash at the end of a line is handled by the
+    // caller, and one at the end of the text leaves the string unclosed.
+    func escape(&var self, out: &var StringBuilder, opener: TomlPosition, multiline: Bool) -> Result<Void, TomlError> {
+        let escape_at = self.here()
+        let e = self.peek_at(1)
+        if e < 0 || (not multiline && (e == BYTE_LF || e == BYTE_CR)) {
+            return toml_error(TomlErrorKind.InvalidString, opener, not_closed(multiline))
+        }
+        var plain = -1
+        if e == BYTE_QUOTE || e == BYTE_BACKSLASH {
+            plain = e
+        } else if e == BYTE_LOWER_B {
+            plain = BYTE_BACKSPACE
+        } else if e == BYTE_LOWER_T {
+            plain = BYTE_TAB
+        } else if e == BYTE_LOWER_N {
+            plain = BYTE_LF
+        } else if e == BYTE_LOWER_F {
+            plain = BYTE_FORM_FEED
+        } else if e == BYTE_LOWER_R {
+            plain = BYTE_CR
+        }
+        if plain >= 0 {
+            try self.pushed(out.append(byte_of(plain)))
+            self.pos = self.pos + 2
+            return
+        }
+        var digits = 0
+        if e == BYTE_LOWER_U {
+            digits = 4
+        } else if e == BYTE_UPPER_U {
+            digits = 8
+        }
+        if digits == 0 {
+            if e < FIRST_PRINTABLE || e == BYTE_DELETE {
                 return toml_error(TomlErrorKind.InvalidString, escape_at,
-                                  "unknown escape `\\{self.scalar_at(self.pos + 1)}` in a string")
+                                  "unknown escape: control character U+{hex_upper(e, 4)} follows the backslash")
             }
-            let letter = self.scalar_at(self.pos + 1)
-            var value = 0
-            var k = 0
-            while k < digits {
-                let d = digit_value(self.peek_at(2 + k))
-                if d < 0 || d > 15 {
-                    return toml_error(TomlErrorKind.InvalidString, escape_at,
-                                      "expected {digits} hexadecimal digits after `\\{letter}`")
-                }
-                value = value * 16 + d
-                k = k + 1
+            return toml_error(TomlErrorKind.InvalidString, escape_at,
+                              "unknown escape `\\{self.scalar_at(self.pos + 1)}` in a string")
+        }
+        let letter = self.scalar_at(self.pos + 1)
+        var value = 0
+        var k = 0
+        while k < digits {
+            let d = digit_value(self.peek_at(2 + k))
+            if d < 0 || d > 15 {
+                return toml_error(TomlErrorKind.InvalidString, escape_at,
+                                  "expected {digits} hexadecimal digits after `\\{letter}`")
             }
-            let written = self.text.substring(self.pos + 2, self.pos + 2 + digits)
-            if value > SCALAR_MAX || (value >= SURROGATE_FIRST && value <= SURROGATE_LAST) {
+            value = value * 16 + d
+            k = k + 1
+        }
+        let written = self.text.substring(self.pos + 2, self.pos + 2 + digits)
+        if value > SCALAR_MAX || (value >= SURROGATE_FIRST && value <= SURROGATE_LAST) {
+            return toml_error(TomlErrorKind.InvalidString, escape_at,
+                              "`\\{letter}{written}` is not a Unicode scalar value")
+        }
+        match Scalar(value: value) {
+            case Ok(s) -> { try self.pushed(out.append(s)) },
+            case Err(_) -> {
                 return toml_error(TomlErrorKind.InvalidString, escape_at,
                                   "`\\{letter}{written}` is not a Unicode scalar value")
             }
-            match Scalar(value: value) {
-                case Ok(s) -> { try self.pushed(out.append(s)) },
-                case Err(_) -> {
-                    return toml_error(TomlErrorKind.InvalidString, escape_at,
-                                      "`\\{letter}{written}` is not a Unicode scalar value")
+        }
+        self.pos = self.pos + 2 + digits
+        return
+    }
+
+    // A line feed or a carriage return and line feed at the cursor, consumed
+    // as one line feed written into `out`.
+    func string_newline(&var self, out: &var StringBuilder) -> Result<Bool, TomlError> {
+        let b = self.peek()
+        var width = 0
+        if b == BYTE_LF {
+            width = 1
+        } else if b == BYTE_CR && self.peek_at(1) == BYTE_LF {
+            width = 2
+        }
+        if width == 0 {
+            return false
+        }
+        try self.pushed(out.append(byte_of(BYTE_LF)))
+        self.pos = self.pos + width
+        self.line = self.line + 1
+        self.line_start = self.pos
+        return true
+    }
+
+    // The run of quotes at the cursor in a multi-line string. One or two are
+    // content; three close the string, and up to two more before them are
+    // content. `Ok(true)` when the string is closed.
+    func quote_run(&var self, quote: Int, out: &var StringBuilder) -> Result<Bool, TomlError> {
+        var run = 0
+        while self.peek_at(run) == quote {
+            run = run + 1
+        }
+        var content = run
+        var closed = false
+        if run >= 3 {
+            closed = true
+            content = run - 3
+            if content > 2 {
+                content = 2
+            }
+        }
+        var k = 0
+        while k < content {
+            try self.pushed(out.append(byte_of(quote)))
+            k = k + 1
+        }
+        self.pos = self.pos + content
+        if closed {
+            self.pos = self.pos + 3
+        }
+        return closed
+    }
+
+    // A multi-line basic string, its opening `"""` next, decoded. A line
+    // ending right after the opener is dropped, every line ending is a line
+    // feed, and a backslash before a line ending drops it and all the blanks
+    // and line endings after it.
+    func multi_basic_text(&var self) -> Result<String, TomlError> {
+        let opener = self.here()
+        self.pos = self.pos + 3
+        var out = StringBuilder()
+        var first = StringBuilder()
+        try self.string_newline(&var first)
+        while {
+            if self.pos >= self.len {
+                return toml_error(TomlErrorKind.InvalidString, opener, not_closed(true))
+            }
+            let b = self.at(self.pos)
+            if b == BYTE_QUOTE {
+                let closed = try self.quote_run(BYTE_QUOTE, &var out)
+                if closed {
+                    return out.build()
+                }
+                continue
+            }
+            if b == BYTE_LF || b == BYTE_CR {
+                let moved = try self.string_newline(&var out)
+                if moved {
+                    continue
                 }
             }
-            self.pos = self.pos + 2 + digits
+            if is_control(b) && b != BYTE_LF {
+                return self.fail(TomlErrorKind.InvalidString,
+                                 "control character U+{hex_upper(b, 4)} must be written as an escape in a string")
+            }
+            if b != BYTE_BACKSLASH {
+                try self.pushed(out.append(byte_of(b)))
+                self.pos = self.pos + 1
+                continue
+            }
+            var after = 1
+            while self.peek_at(after) == BYTE_SPACE || self.peek_at(after) == BYTE_TAB {
+                after = after + 1
+            }
+            let ending = self.peek_at(after)
+            if ending < 0 {
+                return toml_error(TomlErrorKind.InvalidString, opener, not_closed(true))
+            }
+            if ending == BYTE_LF || (ending == BYTE_CR && self.peek_at(after + 1) == BYTE_LF) {
+                self.pos = self.pos + after
+                var skipped = StringBuilder()
+                while {
+                    self.skip_blank()
+                    let moved = try self.string_newline(&var skipped)
+                    if not moved {
+                        break
+                    }
+                }
+                continue
+            }
+            try self.escape(&var out, opener, true)
+        }
+    }
+
+    // A multi-line literal string, its opening `'''` next. A line ending right
+    // after the opener is dropped, and every line ending is a line feed.
+    func multi_literal_text(&var self) -> Result<String, TomlError> {
+        let opener = self.here()
+        self.pos = self.pos + 3
+        var out = StringBuilder()
+        var first = StringBuilder()
+        try self.string_newline(&var first)
+        while {
+            if self.pos >= self.len {
+                return toml_error(TomlErrorKind.InvalidString, opener, not_closed(true))
+            }
+            let b = self.at(self.pos)
+            if b == BYTE_APOSTROPHE {
+                let closed = try self.quote_run(BYTE_APOSTROPHE, &var out)
+                if closed {
+                    return out.build()
+                }
+                continue
+            }
+            if b == BYTE_LF || b == BYTE_CR {
+                let moved = try self.string_newline(&var out)
+                if moved {
+                    continue
+                }
+            }
+            if is_control(b) {
+                return self.fail(TomlErrorKind.InvalidString,
+                                 "control character U+{hex_upper(b, 4)} is not allowed in a string")
+            }
+            try self.pushed(out.append(byte_of(b)))
+            self.pos = self.pos + 1
         }
     }
 
@@ -2122,14 +2511,16 @@ extension Reader {
         let b = self.peek()
         if b == BYTE_QUOTE {
             if self.starts_with("\"\"\"") {
-                return unsupported(at, "multi-line basic strings")
+                let text = try self.multi_basic_text()
+                return TomlItem(value: TomlValue.Text(value: text), at: at)
             }
             let text = try self.basic_string_text()
             return TomlItem(value: TomlValue.Text(value: text), at: at)
         }
         if b == BYTE_APOSTROPHE {
             if self.starts_with("'''") {
-                return unsupported(at, "multi-line literal strings")
+                let text = try self.multi_literal_text()
+                return TomlItem(value: TomlValue.Text(value: text), at: at)
             }
             let text = try self.literal_string_text()
             return TomlItem(value: TomlValue.Text(value: text), at: at)
@@ -2150,6 +2541,17 @@ extension Reader {
             }
             return self.fail(TomlErrorKind.Syntax, "expected a value in the array, found {self.what()}")
         }
+        // A date and a time may be written with one space between them.
+        if end - self.pos == 10 && self.at(self.pos + 4) == BYTE_MINUS && starts_date(self.text.substring(self.pos, end)) {
+            let after = end - self.pos
+            if self.peek_at(after) == BYTE_SPACE && is_digit(self.peek_at(after + 1)) &&
+                is_digit(self.peek_at(after + 2)) && self.peek_at(after + 3) == BYTE_COLON {
+                end = end + 1
+                while end < self.len && is_token(self.at(end)) {
+                    end = end + 1
+                }
+            }
+        }
         let token = self.text.substring(self.pos, end)
         if token.equals("true") {
             self.pos = end
@@ -2166,7 +2568,11 @@ extension Reader {
         }
         let body = token.substring(sign, token.len())
         if body.equals("inf") || body.equals("nan") {
-            return unsupported(at, "floats")
+            self.pos = end
+            match token.to_float() {
+                case Some(f) -> { return TomlItem(value: TomlValue.Float(value: f), at: at) },
+                case None -> { return bad_float(token, at) }
+            }
         }
         var lead = -1
         var after_lead = -1
@@ -2179,7 +2585,9 @@ extension Reader {
         let dot_digit = lead == BYTE_DOT && is_digit(after_lead)
         if is_digit(lead) || dot_digit {
             if sign == 0 && starts_date(token) {
-                return unsupported(at, date_construct(token))
+                let moment = try read_date_time(token, at)
+                self.pos = end
+                return TomlItem(value: move moment, at: at)
             }
             var prefixed = false
             if lead == BYTE_ZERO {
@@ -2197,7 +2605,9 @@ extension Reader {
                 }
             }
             if floating {
-                return unsupported(at, "floats")
+                let number = try read_float(token, at)
+                self.pos = end
+                return TomlItem(value: move number, at: at)
             }
             let number = try read_integer(token, at)
             self.pos = end

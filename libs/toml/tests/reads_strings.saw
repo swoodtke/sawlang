@@ -1,4 +1,4 @@
-// Basic and literal strings; the multi-line forms are refused by name.
+// Basic and literal strings, one line and several.
 import toml.*
 
 func accept(id: String, src: String, want: String) -> Int {
@@ -48,17 +48,62 @@ func main() {
     failed += accept("S9", "[t]\ns = \"\"\n", "\{t = \{s = \"\"\}\}")
     failed += accept("S10", "[t]\ns = \"x = y\"\n", "\{t = \{s = \"x = y\"\}\}")
     failed += refuse("S11", "[t]\ns = \"a\" junk\n", TomlErrorKind.Syntax, 2, 9)
-    failed += refuse("S12", "[t]\ns = \"\"\"\nRoses are red\nViolets are blue\"\"\"\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("S13", "[t]\ns = \"\"\"\nThe quick \\\n  brown fox\"\"\"\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("S14", "[t]\ns = \"\"\"one line\"\"\"\n", TomlErrorKind.Unsupported, 2, 5)
+    failed += accept("S12", "[t]\ns = \"\"\"\nRoses are red\nViolets are blue\"\"\"\n",
+                     "\{t = \{s = \"Roses are red\\nViolets are blue\"\}\}")
+    failed += accept("S13", "[t]\ns = \"\"\"\nThe quick \\\n  brown fox\"\"\"\n", "\{t = \{s = \"The quick brown fox\"\}\}")
+    failed += accept("S14", "[t]\ns = \"\"\"one line\"\"\"\n", "\{t = \{s = \"one line\"\}\}")
     failed += accept("S15", "[t]\nwinpath = 'C:\\Users\\nodejs\\templates'\n",
                      "\{t = \{winpath = \"C:\\\\Users\\\\nodejs\\\\templates\"\}\}")
     failed += accept("S16", "[t]\nquoted = 'Tom \"Dubs\" Preston-Werner'\n",
                      "\{t = \{quoted = \"Tom \\\"Dubs\\\" Preston-Werner\"\}\}")
-    failed += refuse("S17", "[t]\nlines = '''\nThe first newline is\ntrimmed in raw strings.\n'''\n",
-                     TomlErrorKind.Unsupported, 2, 9)
-    failed += refuse("S18", "[t]\nregex2 = '''I [dw]on't need \\d{2} apples'''\n", TomlErrorKind.Unsupported, 2, 10)
+    failed += accept("S17", "[t]\nlines = '''\nThe first newline is\ntrimmed in raw strings.\n'''\n",
+                     "\{t = \{lines = \"The first newline is\\ntrimmed in raw strings.\\n\"\}\}")
+    failed += accept("S18", "[t]\nregex2 = '''I [dw]on't need \\d{2} apples'''\n",
+                     "\{t = \{regex2 = \"I [dw]on't need \\\\d2 apples\"\}\}")
     failed += accept("S19", "[t]\ns = \"caf\u{E9} \u{1F600}\"\n", "\{t = \{s = \"caf\u{E9} \u{1F600}\"\}\}")
+    // The multi-line forms: content, quotes, escapes, line endings, the errors.
+    failed += accept("M1", "[t]\ns = \"\"\"\"\"\"\n", "\{t = \{s = \"\"\}\}")
+    failed += accept("M2", "[t]\ns = '''\n'''\n", "\{t = \{s = \"\"\}\}")
+    failed += accept("M3", "[t]\ns = \"\"\"a\"b\"\"c\"\"\"\n", "\{t = \{s = \"a\\\"b\\\"\\\"c\"\}\}")
+    failed += accept("M4", "[t]\ns = \"\"\"a\"\"\"\"\n", "\{t = \{s = \"a\\\"\"\}\}")
+    failed += accept("M5", "[t]\ns = \"\"\"a\"\"\"\"\"\n", "\{t = \{s = \"a\\\"\\\"\"\}\}")
+    failed += refuse("M6", "[t]\ns = \"\"\"a\"\"\"\"\"\"\n", TomlErrorKind.Syntax, 2, 14)
+    failed += accept("M7", "[t]\ns = '''a''''\n", "\{t = \{s = \"a'\"\}\}")
+    failed += accept("M8", "[t]\ns = \"\"\"a\\tb\\u00E9\\\"c\"\"\"\n", "\{t = \{s = \"a\\tb\u{E9}\\\"c\"\}\}")
+    failed += accept("M9", "[t]\ns = '''a\\tb'''\n", "\{t = \{s = \"a\\\\tb\"\}\}")
+    failed += accept("M10", "[t]\ns = \"\"\"\n\nx\"\"\"\n", "\{t = \{s = \"\\nx\"\}\}")
+    failed += accept("M11", "[t]\ns = \"\"\"a \\   \n\n   \n  b\"\"\"\n", "\{t = \{s = \"a b\"\}\}")
+    failed += accept("M12", "[t]\ns = \"\"\"a\\\n\"\"\"\n", "\{t = \{s = \"a\"\}\}")
+    failed += accept("M13", "[t]\ns = '''a\r\nb'''\n", "\{t = \{s = \"a\\nb\"\}\}")
+    failed += accept("M14", "[t]\ns = \"\"\"a\tb\"\"\" # c\nn = 1\n", "\{t = \{s = \"a\\tb\", n = 1\}\}")
+    failed += accept("M15", "[t]\ns = \"\"\"\nx\n\"\"\"\nn = 1\n", "\{t = \{s = \"x\\n\", n = 1\}\}")
+    // Not closed: reported at the opening quotes.
+    failed += refuse("M16", "[t]\ns = \"\"\"abc\n", TomlErrorKind.InvalidString, 2, 5)
+    failed += refuse("M17", "[t]\ns = '''abc\n", TomlErrorKind.InvalidString, 2, 5)
+    failed += refuse("M18", "[t]\ns = \"\"\"abc\"\"\n", TomlErrorKind.InvalidString, 2, 5)
+    // A bad escape and a control character, at their own byte.
+    failed += refuse("M19", "[t]\ns = \"\"\"a\\x\"\"\"\n", TomlErrorKind.InvalidString, 2, 9)
+    failed += refuse("M20", "[t]\ns = \"\"\"a\u{7}\"\"\"\n", TomlErrorKind.InvalidString, 2, 9)
+    failed += refuse("M21", "[t]\ns = '''a\u{7}'''\n", TomlErrorKind.InvalidString, 2, 9)
+    failed += refuse("M22", "[t]\ns = \"\"\"a\\ b\"\"\"\n", TomlErrorKind.InvalidString, 2, 9)
+    failed += refuse("M23", "[t]\ns = \"\"\"a\"\"\" x\n", TomlErrorKind.Syntax, 2, 13)
+    failed += refuse("M24", "[t]\n\"\"\"k\"\"\" = 1\n", TomlErrorKind.Syntax, 2, 1)
+    // A backslash at the end of the text, one line and several.
+    failed += refuse("M25", "[t]\ns = \"abc\\", TomlErrorKind.InvalidString, 2, 5)
+    failed += refuse("M26", "[t]\ns = \"abc\\\nn = 1\n", TomlErrorKind.InvalidString, 2, 5)
+    failed += refuse("M27", "[t]\ns = \"\"\"abc\\", TomlErrorKind.InvalidString, 2, 5)
+    failed += refuse("M28", "[t]\ns = \"\"\"abc\\  ", TomlErrorKind.InvalidString, 2, 5)
+    failed += refuse("M29", "[t]\ns = \"\"\"abc\\\t \n  ", TomlErrorKind.InvalidString, 2, 5)
+    // A carriage return alone inside a multi-line string is neither a line end nor content.
+    failed += refuse("M30", "[t]\ns = \"\"\"a\\\rb\"\"\"\n", TomlErrorKind.InvalidString, 2, 9)
+    failed += refuse("M31", "[t]\ns = \"\"\"a\rb\"\"\"\n", TomlErrorKind.InvalidString, 2, 9)
+    failed += refuse("M32", "[t]\ns = '''a\rb'''\n", TomlErrorKind.InvalidString, 2, 9)
+    // A line-ending backslash before a tab and before CRLF.
+    failed += accept("M33", "[t]\ns = \"\"\"a\\\t\nb\"\"\"\n", "\{t = \{s = \"ab\"\}\}")
+    failed += accept("M34", "[t]\ns = \"\"\"a\\\r\nb\"\"\"\n", "\{t = \{s = \"ab\"\}\}")
+    // The line and the line's start are counted across a multi-line string.
+    failed += refuse("M35", "[t]\ns = \"\"\"\nx\n\"\"\" y\n", TomlErrorKind.Syntax, 4, 5)
+    failed += refuse("M36", "[t]\ns = '''\nx\r\ny\n''' z\n", TomlErrorKind.Syntax, 5, 5)
     assert(failed == 0, "{failed} rows failed")
     print("reads_strings: ok")
 }

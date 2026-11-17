@@ -1,5 +1,6 @@
-// Every accessor: a required read and its optional twin on a present key, an
-// absent key and a key of another kind; `expect` and `require`; the places
+// Every accessor, float and date-time included: a required read and its
+// optional twin on a present key, an absent key and a key of another kind;
+// `expect` and `require`; the places
 // `table`, `array` and `value`; positions, paths and key order; arrays by
 // index; `string_literal` and `key_literal`.
 import toml.*
@@ -115,8 +116,7 @@ func table_reads(root: &TomlTable) -> Int {
     failed += is_true("optional_boolean absent", (try! root.optional_boolean("absent")) == None)
     failed += fails("optional_boolean wrong", root.optional_boolean("n"), TomlErrorKind.WrongType, 2, 5,
                     "`n` in the top-level table is an integer, not a boolean")
-    // float and date_time: no float or date-time is read yet, so the reads
-    // answer Missing for an absent key and WrongType for any other
+    // float and date_time on a key of another kind
     failed += fails("float absent", root.float("absent"), TomlErrorKind.Missing, 1, 1,
                     "`absent` is missing from the top-level table")
     failed += fails("float wrong", root.float("n"), TomlErrorKind.WrongType, 2, 5,
@@ -131,6 +131,71 @@ func table_reads(root: &TomlTable) -> Int {
     failed += is_true("optional_date_time absent", (try! root.optional_date_time("absent")) == None)
     failed += fails("optional_date_time wrong", root.optional_date_time("name"), TomlErrorKind.WrongType, 1, 8,
                     "`name` in the top-level table is a string, not a date-time")
+    return failed
+}
+
+func scalars_source() -> String {
+    "pi = 3.5\nneg = -0.25\nbig = 1e3\nn = 7\nstamp = 1979-05-27T07:32:00.5-07:00\nday = 1979-05-27\nclock = 07:32:00\nlocal = 1979-05-27T07:32:00\nlist = [1.5, 1979-05-27, 07:32:00]\n"
+}
+
+func is_float(id: String, got: Float, want: Float) -> Int {
+    if got == want {
+        return 0
+    }
+    print("FAIL {id}: {got}, want {want}")
+    return 1
+}
+
+func same_when(id: String, got: TomlDateTime, kind: TomlDateTimeKind, year: Int, month: Int, day: Int, hour: Int,
+               minute: Int, second: Int, nanosecond: Int, offset: Int) -> Int {
+    if got.kind == kind && got.year == year && got.month == month && got.day == day && got.hour == hour &&
+        got.minute == minute && got.second == second && got.nanosecond == nanosecond && got.offset_minutes == offset {
+        return 0
+    }
+    print("FAIL {id}: {got}")
+    return 1
+}
+
+func scalar_reads(root: &TomlTable) -> Int {
+    var failed = 0
+    // float
+    failed += is_float("float", try! root.float("pi"), 3.5)
+    failed += is_float("float negative", try! root.float("neg"), -0.25)
+    failed += is_float("float exponent", try! root.float("big"), 1000.0)
+    failed += is_true("kind float", root.kind("pi") == TomlKind.Float)
+    failed += fails("float of an integer", root.float("n"), TomlErrorKind.WrongType, 4, 5,
+                    "`n` in the top-level table is an integer, not a float")
+    failed += fails("integer of a float", root.integer("pi"), TomlErrorKind.WrongType, 1, 6,
+                    "`pi` in the top-level table is a float, not an integer")
+    failed += fails("float absent", root.float("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    failed += is_float("optional_float", try! root.optional_float("pi") ?? 0.0, 3.5)
+    failed += is_true("optional_float absent", (try! root.optional_float("absent")) == None)
+    failed += fails("optional_float wrong", root.optional_float("stamp"), TomlErrorKind.WrongType, 5, 9,
+                    "`stamp` in the top-level table is a date-time, not a float")
+    // date_time
+    failed += same_when("offset", try! root.date_time("stamp"), TomlDateTimeKind.OffsetDateTime, 1979, 5, 27, 7, 32, 0,
+                        500000000, -420)
+    failed += same_when("date", try! root.date_time("day"), TomlDateTimeKind.LocalDate, 1979, 5, 27, 0, 0, 0, 0, 0)
+    failed += same_when("time", try! root.date_time("clock"), TomlDateTimeKind.LocalTime, 0, 0, 0, 7, 32, 0, 0, 0)
+    failed += same_when("local", try! root.date_time("local"), TomlDateTimeKind.LocalDateTime, 1979, 5, 27, 7, 32, 0, 0, 0)
+    failed += is_true("kind date-time", root.kind("day") == TomlKind.DateTime)
+    failed += fails("date_time of a float", root.date_time("pi"), TomlErrorKind.WrongType, 1, 6,
+                    "`pi` in the top-level table is a float, not a date-time")
+    failed += fails("date_time absent", root.date_time("absent"), TomlErrorKind.Missing, 1, 1,
+                    "`absent` is missing from the top-level table")
+    let maybe = try! root.optional_date_time("day")
+    failed += same_when("optional_date_time", maybe!, TomlDateTimeKind.LocalDate, 1979, 5, 27, 0, 0, 0, 0, 0)
+    failed += is_true("optional_date_time absent", (try! root.optional_date_time("absent")) == None)
+    // by index
+    failed += is_float("array float", try! root.array("list")!.float(0), 1.5)
+    failed += same_when("array date", try! root.array("list")!.date_time(1), TomlDateTimeKind.LocalDate, 1979, 5, 27, 0, 0, 0,
+                        0, 0)
+    failed += same_when("array time", try! root.array("list")!.date_time(2), TomlDateTimeKind.LocalTime, 0, 0, 0, 7, 32, 0, 0, 0)
+    failed += fails("array float wrong", root.array("list")!.float(1), TomlErrorKind.WrongType, 9, 14,
+                    "element 1 of `list` is a date-time, not a float")
+    failed += fails("array date_time wrong", root.array("list")!.date_time(0), TomlErrorKind.WrongType, 9, 9,
+                    "element 0 of `list` is a float, not a date-time")
     return failed
 }
 
@@ -384,6 +449,17 @@ func main() {
         },
         case Err(e) -> {
             print("FAIL: the document is refused: {e}")
+            failed += 1
+        }
+    }
+    match TomlDoc.parse(scalars_source()) {
+        case Ok(doc) -> {
+            borrow let root = doc.root() {
+                failed += scalar_reads(&root)
+            }
+        },
+        case Err(e) -> {
+            print("FAIL: the scalars document is refused: {e}")
             failed += 1
         }
     }

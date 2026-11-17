@@ -44,7 +44,7 @@ func main() {
     failed += refuse("W5", "[t]\na = \"b\"\rc = \"d\"\n", TomlErrorKind.Syntax, 2, 8)
     failed += accept("W6", "", "\{\}")
     failed += accept("W7", "# one\n\n   \n# two\n", "\{\}")
-    failed += refuse("W8", "[t]\ns = \"\"\"\r\nline\r\n\"\"\"\r\n", TomlErrorKind.Unsupported, 2, 5)
+    failed += accept("W8", "[t]\ns = \"\"\"\r\nline\r\n\"\"\"\r\n", "\{t = \{s = \"line\\n\"\}\}")
     failed += accept("X1", "\u{FEFF}[t]\na = \"b\"\n", "\{t = \{a = \"b\"\}\}")
     failed += refuse("X12", "[t]\na =\n1\n", TomlErrorKind.Syntax, 2, 4)
     assert(failed == 0, "{failed} rows failed")

@@ -1,5 +1,4 @@
-// Floats, booleans and date-times. Floats and date-times are valid TOML 1.0
-// that this version refuses by name; booleans are read.
+// Floats, booleans and date-times.
 import toml.*
 
 func accept(id: String, src: String, want: String) -> Int {
@@ -37,18 +36,36 @@ func refuse(id: String, src: String, kind: TomlErrorKind, line: Int, column: Int
 
 func main() {
     var failed = 0
-    failed += refuse("F1", "[t]\na = +1.0\nb = 3.1415\nc = -0.01\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F2", "[t]\na = 5e+22\nb = 1e06\nc = -2E-22\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F3", "[t]\na = 6.626e-34\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F4", "[t]\na = 224_617.445_991_228\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F5", "[t]\na = inf\nb = +inf\nc = -inf\nd = nan\ne = +nan\nf = -nan\n",
-                     TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F6", "[t]\na = .7\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F7", "[t]\na = 7.\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("F8", "[t]\na = 3.e+20\n", TomlErrorKind.Unsupported, 2, 5)
-    // Each float form is refused where it is written, not only the first.
-    failed += refuse("F5b", "[t]\na = 1\nb = nan\n", TomlErrorKind.Unsupported, 3, 5)
-
+    failed += accept("F1", "[t]\na = +1.0\nb = 3.1415\nc = -0.01\n", "\{t = \{a = 1.0, b = 3.1415, c = -0.01\}\}")
+    failed += accept("F2", "[t]\na = 5e+22\nb = 1e06\nc = -2E-22\n", "\{t = \{a = 5e+22, b = 1000000.0, c = -2e-22\}\}")
+    failed += accept("F3", "[t]\na = 6.626e-34\n", "\{t = \{a = 6.626e-34\}\}")
+    failed += accept("F4", "[t]\na = 224_617.445_991_228\n", "\{t = \{a = 224617.445991228\}\}")
+    failed += accept("F5", "[t]\na = inf\nb = +inf\nc = -inf\nd = nan\ne = +nan\nf = -nan\n",
+                     "\{t = \{a = inf, b = inf, c = -inf, d = nan, e = nan, f = nan\}\}")
+    failed += refuse("F6", "[t]\na = .7\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F7", "[t]\na = 7.\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F8", "[t]\na = 3.e+20\n", TomlErrorKind.InvalidNumber, 2, 5)
+    // Each float form is read where it is written, not only the first.
+    failed += accept("F5b", "[t]\na = 1\nb = nan\n", "\{t = \{a = 1, b = nan\}\}")
+    // The rest of the float grammar and of the number's reading.
+    failed += accept("F9", "[t]\na = 0.0\nb = -0.0\nc = 0e0\nd = 1E+2\ne = 1_0.2_5e1_0\n",
+                     "\{t = \{a = 0.0, b = -0.0, c = 0.0, d = 100.0, e = 102500000000.0\}\}")
+    failed += accept("F10", "[t]\na = [1.5, 2e3]\nb = \{ x = -1.25 \}\n", "\{t = \{a = [1.5, 2000.0], b = \{x = -1.25\}\}\}")
+    failed += refuse("F11", "[t]\na = 1.5.2\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F12", "[t]\na = 1e\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F13", "[t]\na = 1e+\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F14", "[t]\na = 1._5\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F15", "[t]\na = 1_.5\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F16", "[t]\na = 1.5_\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F17", "[t]\na = 01.5\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F18", "[t]\na = 1e400\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F19", "[t]\na = -1e400\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F20", "[t]\na = +.5\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F21", "[t]\na = 1.e5\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F22", "[t]\na = 1e5_\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F23", "[t]\na = INF\n", TomlErrorKind.Syntax, 2, 5)
+    failed += refuse("F24", "[t]\na = 0x1.5\n", TomlErrorKind.InvalidNumber, 2, 5)
+    failed += refuse("F25", "[t]\na = 1true\n", TomlErrorKind.InvalidNumber, 2, 5)
     failed += accept("B1", "[t]\na = true\nb = false\n", "\{t = \{a = true, b = false\}\}")
     failed += refuse("B2", "[t]\na = True\n", TomlErrorKind.Syntax, 2, 5)
     failed += accept("B3", "[package]\nruntime = \"true\"\n", "\{package = \{runtime = \"true\"\}\}")
@@ -73,13 +90,67 @@ func main() {
         }
     }
 
-    failed += refuse("D1", "[t]\na = 1979-05-27T07:32:00Z\nb = 1979-05-27T00:32:00-07:00\nc = 1979-05-27T00:32:00.999999-07:00\n",
-                     TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("D2", "[t]\na = 1979-05-27 07:32:00Z\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("D3", "[t]\na = 1979-05-27T07:32:00\nb = 1979-05-27T00:32:00.999999\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("D4", "[t]\na = 1979-05-27\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("D5", "[t]\na = 07:32:00\nb = 00:32:00.999999\n", TomlErrorKind.Unsupported, 2, 5)
-    failed += refuse("D6", "[t]\na = 1979-02-30\n", TomlErrorKind.Unsupported, 2, 5)
+    failed += accept("D1", "[t]\na = 1979-05-27T07:32:00Z\nb = 1979-05-27T00:32:00-07:00\nc = 1979-05-27T00:32:00.999999-07:00\n",
+                     "\{t = \{a = 1979-05-27T07:32:00Z, b = 1979-05-27T00:32:00-07:00, c = 1979-05-27T00:32:00.999999-07:00\}\}")
+    failed += accept("D2", "[t]\na = 1979-05-27 07:32:00Z\n", "\{t = \{a = 1979-05-27T07:32:00Z\}\}")
+    failed += accept("D3", "[t]\na = 1979-05-27T07:32:00\nb = 1979-05-27T00:32:00.999999\n",
+                     "\{t = \{a = 1979-05-27T07:32:00, b = 1979-05-27T00:32:00.999999\}\}")
+    failed += accept("D4", "[t]\na = 1979-05-27\n", "\{t = \{a = 1979-05-27\}\}")
+    failed += accept("D5", "[t]\na = 07:32:00\nb = 00:32:00.999999\n", "\{t = \{a = 07:32:00, b = 00:32:00.999999\}\}")
+    failed += refuse("D6", "[t]\na = 1979-02-30\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    // The shapes' separators, offsets and calendar.
+    failed += accept("D7", "[t]\na = 1979-05-27t07:32:00z\nb = 1979-05-27 07:32:00\nc = 1979-05-27 07:32:00+05:30\n",
+                     "\{t = \{a = 1979-05-27T07:32:00Z, b = 1979-05-27T07:32:00, c = 1979-05-27T07:32:00+05:30\}\}")
+    failed += accept("D8", "[t]\na = 1979-05-27T07:32:00+00:00\n", "\{t = \{a = 1979-05-27T07:32:00Z\}\}")
+    failed += accept("D9", "[t]\na = 00:00:00.5\nb = 00:00:00.123456789123\nc = 00:00:00.000000001\n",
+                     "\{t = \{a = 00:00:00.5, b = 00:00:00.123456789, c = 00:00:00.000000001\}\}")
+    failed += accept("D10", "[t]\na = 23:59:60\nb = 2000-02-29\nc = 2024-12-31\nd = 0001-01-01\n",
+                     "\{t = \{a = 23:59:60, b = 2000-02-29, c = 2024-12-31, d = 0001-01-01\}\}")
+    failed += accept("D11", "[t]\nd = 1979-05-27 # a date, then a comment\nx = [1979-05-27, 07:32:00, 1979-05-27 07:32:00Z]\n",
+                     "\{t = \{d = 1979-05-27, x = [1979-05-27, 07:32:00, 1979-05-27T07:32:00Z]\}\}")
+    failed += refuse("D12", "[t]\na = 1900-02-29\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D13", "[t]\na = 1979-13-01\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D14", "[t]\na = 1979-00-01\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D15", "[t]\na = 1979-04-31\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D16", "[t]\na = 24:00:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D17", "[t]\na = 07:60:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D18", "[t]\na = 07:00:61\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D19", "[t]\na = 07:32\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D20", "[t]\na = 1979-05-27T07:32:00+24:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D21", "[t]\na = 1979-05-27T07:32:00+05:60\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D22", "[t]\na = 1979-05-27T07:32:00+0530\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D23", "[t]\na = 1979-05-27T\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D24", "[t]\na = 1979-5-27\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D25", "[t]\na = 07:32:00.\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D26", "[t]\na = 1979-05-27T07:32:00 Z\n", TomlErrorKind.Syntax, 2, 25)
+    failed += refuse("D28", "[t]\na = 1979-05-27 07:32\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D29", "[t]\na = 1979-05-27x\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    // The calendar: every month's length, the leap rule's three parts, day 0.
+    failed += refuse("D30", "[t]\na = 1979-06-31\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D31", "[t]\na = 1979-09-31\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D32", "[t]\na = 1979-11-31\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D33", "[t]\na = 2023-02-29\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += accept("D34", "[t]\na = 2024-02-29\n", "\{t = \{a = 2024-02-29\}\}")
+    failed += refuse("D35", "[t]\na = 1979-05-00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    // A byte that is not a digit or not the separator, in each place of a shape.
+    failed += refuse("D36", "[t]\na = 1979-05-27T0x:32:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D37", "[t]\na = 07:3x:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D38", "[t]\na = 07:32:0x\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D39", "[t]\na = 1979-05-27T07x32:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D40", "[t]\na = 07:32x00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D41", "[t]\na = 1979-05x27\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D42", "[t]\na = 07:32:00Z\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D43", "[t]\na = 1979-05-27_07:32:00\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    // The offset: a byte after Z, a byte for the colon, a byte after it, a bad hour.
+    failed += refuse("D44", "[t]\na = 1979-05-27T07:32:00Zx\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D45", "[t]\na = 1979-05-27T07:32:00+05x30\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D46", "[t]\na = 1979-05-27T07:32:00+05:30x\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    failed += refuse("D47", "[t]\na = 1979-05-27T07:32:00+x5:30\n", TomlErrorKind.InvalidDateTime, 2, 5)
+    // A date and a time joined by a space: when the join is made decides what a refusal says and where.
+    failed += refuse("D48", "[t]\na = [1979-05-27 12]\n", TomlErrorKind.Syntax, 2, 17)
+    failed += refuse("D49", "[t]\na = 1979-05-27T07:32:00 07:32:00\n", TomlErrorKind.Syntax, 2, 25)
+    // A doubled underscore in a fraction.
+    failed += refuse("F27", "[t]\na = 1.0__1\n", TomlErrorKind.InvalidNumber, 2, 5)
     assert(failed == 0, "{failed} rows failed")
     print("reads_other_scalars: ok")
 }

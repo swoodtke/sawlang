@@ -40,9 +40,9 @@ func main() {
     failed += accept("A2", "[t]\ncolors = [ \"red\", \"yellow\", \"green\" ]\n",
                      "\{t = \{colors = [\"red\", \"yellow\", \"green\"]\}\}")
     failed += accept("A3", "[t]\nnested = [ [ 1, 2 ], [3, 4, 5] ]\n", "\{t = \{nested = [[1, 2], [3, 4, 5]]\}\}")
-    failed += refuse("A4", "[t]\nnumbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]\n", TomlErrorKind.Unsupported, 2, 13)
-    failed += refuse("A5", "[t]\nstrings = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''' ]\n",
-                     TomlErrorKind.Unsupported, 2, 31)
+    failed += accept("A4", "[t]\nnumbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]\n", "\{t = \{numbers = [0.1, 0.2, 0.5, 1, 2, 5]\}\}")
+    failed += accept("A5", "[t]\nstrings = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''' ]\n",
+                     "\{t = \{strings = [\"all\", \"strings\", \"are the same\", \"type\"]\}\}")
     failed += accept("A6", "[t]\nmodules = []\n", "\{t = \{modules = []\}\}")
     failed += accept("A7", "[t]\nintegers2 = [\n  1, 2, 3\n]\n", "\{t = \{integers2 = [1, 2, 3]\}\}")
     failed += accept("A8", "[t]\nintegers3 = [\n  1,\n  2, # this is ok\n]\n", "\{t = \{integers3 = [1, 2]\}\}")
