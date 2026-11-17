@@ -1,0 +1,29 @@
+// refuses: lend.root at 14:5
+// a `lend` of a static from a free function, called from a group task that
+// suspends between two lends (SL-1155)
+import std.task.*
+
+struct Res {
+    n: Int
+}
+
+unsafe static var HELD: Res = Res(n: 3)
+
+func held() unsafe borrows -> &Res {
+    print("pro")
+    lend HELD
+}
+
+func work() -> Int {
+    var total = 0
+    total += held().n
+    yield_now()
+    total += held().n
+    total
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work())
+    print("work {}", a.join())
+}

@@ -1,0 +1,26 @@
+// refuses: lend.root at 17:5
+// a conditional `lend` of a static from a free function, whose absent path
+// stays legal; the call in an `if let` head lowers to the check (SL-1155)
+
+struct Res {
+    n: Int
+}
+
+unsafe static var HELD: Res = Res(n: 3)
+unsafe static var ON: Bool = true
+
+func maybe() unsafe borrows -> &Res? {
+    let on = ON
+    if not on {
+        return None
+    }
+    lend HELD
+}
+
+func main() unsafe {
+    if let r = maybe() {
+        print("present {}", r.n)
+    } else {
+        print("absent")
+    }
+}

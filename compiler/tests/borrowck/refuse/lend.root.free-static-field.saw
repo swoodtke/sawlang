@@ -1,0 +1,22 @@
+// refuses: lend.root at 17:5
+// a `lend` of a field of a static from a free function, written through
+// `&var` and used as an assignment target (SL-1155)
+
+struct Inner {
+    n: Int
+}
+
+struct Res {
+    inner: Inner
+    k: Int
+}
+
+unsafe static var HELD: Res = Res(inner: Inner(n: 3), k: 4)
+
+func inner() unsafe borrows -> &var Inner {
+    lend HELD.inner
+}
+
+func main() {
+    inner().n = 5
+}

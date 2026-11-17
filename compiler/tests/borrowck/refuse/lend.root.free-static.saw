@@ -1,0 +1,21 @@
+// refuses: lend.root at 12:5
+// a `lend` of a static from a free function, which has no receiver to root
+// it in; the call lowers far enough to reach the check (SL-1155)
+
+struct Res {
+    n: Int
+}
+
+unsafe static var HELD: Res = Res(n: 3)
+
+func held() unsafe borrows -> &Res {
+    lend HELD
+}
+
+func read() -> Int {
+    held().n
+}
+
+func main() {
+    print("{}", read())
+}

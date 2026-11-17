@@ -1,0 +1,14 @@
+// refuses: lend.root at 6:5
+// a `lend` of a place a parameter refers to, from a free function with no
+// receiver (SL-1155)
+
+func first(v: &var Vector<Int>) borrows -> &var Int {
+    lend v[0]
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(9)
+    first(&var v) = 10
+    print("{}", v[0])
+}

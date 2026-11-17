@@ -1,0 +1,19 @@
+// refuses: lend.root at 13:9
+// a `lend` of a static from a `static func`, called through its type name,
+// which has no receiver either (SL-1155)
+
+struct Res {
+    n: Int
+}
+
+unsafe static var HELD: Res = Res(n: 3)
+
+extension Res {
+    static func held() unsafe borrows -> &Res {
+        lend HELD
+    }
+}
+
+func main() {
+    print("{}", Res.held().n)
+}

@@ -1,0 +1,21 @@
+// probe: stated
+// about: a receiver-less `borrows` function whose only path diverges, called from a branch that is never taken, lowers and runs (SL-1155)
+// stage 0: refuses a `borrows` function with no receiver
+// speeds: -O0 -O2
+// leaks: none
+// A free `borrows` function has no receiver to root a lend in, so one that
+// lends is refused (`lend.root`); one that panics before any lend is legal,
+// and its call lowers without a receiver.
+// prints: done
+func nothing() borrows -> &Int {
+    panic("never lends")
+}
+
+func main() {
+    var n = 0
+    n += 1
+    if n > 5 {
+        print("{}", nothing())
+    }
+    print("done")
+}

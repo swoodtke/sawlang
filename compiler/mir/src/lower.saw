@@ -1290,7 +1290,7 @@ extension MirProgram {
         var receiver = head
         if lending {
             receiver = self.lend_receiver(head)
-            self.prepare_target(receiver, &var steps)
+            self.prepare_lend_base(head, receiver, &var steps)
             let c = self.tc.calls[self.tc.call_at[head]]
             args = self.call_arguments(head, &c, true)
         } else {
@@ -1306,7 +1306,7 @@ extension MirProgram {
         var window = -1
         if lending {
             let first = self.push_args(&args)
-            let exclusive = self.borrows_exclusively(receiver)
+            let exclusive = self.lend_exclusive(head, receiver)
             let opened = self.window_open(head, p, exclusive, first, args.len(), true)
             self.enter(opened.absent)
             self.goto(skip)
@@ -3300,21 +3300,48 @@ extension MirProgram {
         (s.effects & TC_EFFECT_BORROWS) != 0 && place_lent
     }
 
+    // Whether `base`, a lend's receiver node from `call_receiver`, names no
+    // receiver: a bare call, or a member of a type (a `static func`).
+    func lend_receiver_less(&self, base: Int) -> Bool {
+        base < 0 || self.type_named(base)
+    }
+
+    // THE LEND RECEIVER FUNNEL: the plan of lend `e`'s receiver `base`. A
+    // receiver-less callee has none, so its plan is a dead root the window
+    // ignores (`window_open`); nothing else reads an empty plan.
+    // ENTRY POINTS:
+    //     prepare_lend
+    //     lent_copy
+    //     open_lend
+    //     lower_chain_write
+    func prepare_lend_base(&var self, e: Int, base: Int, steps: &var Vector<MirStep>) {
+        if self.lend_receiver_less(base) {
+            let dead = self.dead_place(self.tc.expr_types[e])
+            self.push_root(&var steps, e, dead, false)
+            return
+        }
+        self.prepare_base(base, &var steps)
+    }
+
+    // Whether lend `e` with receiver `base` is borrowed exclusively: its
+    // receiver's use, or, with none, its own.
+    func lend_exclusive(&self, e: Int, base: Int) -> Bool {
+        if self.lend_receiver_less(base) {
+            return self.borrows_exclusively(e)
+        }
+        self.borrows_exclusively(base)
+    }
+
     // A `borrows` method call as a place: its receiver and arguments now,
     // its window when realized.
     func prepare_lend(&var self, e: Int, steps: &var Vector<MirStep>) {
         let c = self.tc.calls[self.tc.call_at[e]]
-        let callee = self.tc.res.first_node_child(e)
-        if not self.tc.member_callee(callee) {
-            self.not_yet(e, "a `borrows` function called with no receiver")
-            return
-        }
         let base = self.tc.call_receiver(e)
-        self.prepare_base(base, &var steps)
+        self.prepare_lend_base(e, base, &var steps)
         let args = self.call_arguments(e, &c, true)
         let first = self.push_args(&args)
         var exclusive = 0
-        if self.borrows_exclusively(base) {
+        if self.lend_exclusive(e, base) {
             exclusive = 1
         }
         try! steps.push(MirStep(kind: MIR_STEP_WINDOW, node: e, place: -1, decl: c.target, index: exclusive,
@@ -3520,12 +3547,20 @@ extension MirProgram {
             dest_type = if edges { r } else { self.tc.mk_optional(r) }
         }
         let d = self.new_temp(dest_type)
-        let rv = self.rv_ref(exclusive, receiver)
-        let rl = self.temp_of(rv)
+        // A receiver-less accessor's prologue takes none: `receiver` is the
+        // plan's dead root.
+        let has_receiver = s.receiver != TcReceiver.Absent
+        var rl = -1
+        if has_receiver {
+            let rv = self.rv_ref(exclusive, receiver)
+            rl = self.temp_of(rv)
+        }
         var args = Vector<Int>()
         self.record_argument(w, &c, &var args)
-        let rp = self.place_local(rl)
-        try! args.push(self.op_move(rp))
+        if has_receiver {
+            let rp = self.place_local(rl)
+            try! args.push(self.op_move(rp))
+        }
         var k = 0
         while k < count {
             try! args.push(self.lists[first + k])
@@ -4065,11 +4100,11 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         let base = self.tc.call_receiver(e)
         var steps = Vector<MirStep>()
-        self.prepare_base(base, &var steps)
+        self.prepare_lend_base(e, base, &var steps)
         let args = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let first = self.push_args(&args)
-        let exclusive = self.borrows_exclusively(base)
+        let exclusive = self.lend_exclusive(e, base)
         let opened = self.window_open(e, p, exclusive, first, args.len(), true)
         let result = self.new_temp(t)
         let dest = self.place_local(result)
@@ -6026,11 +6061,11 @@ extension MirProgram {
         let c = self.tc.calls[self.tc.call_at[e]]
         let base = self.lend_receiver(e)
         var steps = Vector<MirStep>()
-        self.prepare_base(base, &var steps)
+        self.prepare_lend_base(e, base, &var steps)
         let args = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let first = self.push_args(&args)
-        let exclusive = self.borrows_exclusively(base)
+        let exclusive = self.lend_exclusive(e, base)
         self.window_open(e, p, exclusive, first, args.len(), edges)
     }
 

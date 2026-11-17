@@ -1,0 +1,17 @@
+// refuses: lend.root at 11:5
+// a `lend` of a static from a generic free function (SL-1155)
+
+struct Res {
+    n: Int
+}
+
+unsafe static var HELD: Res = Res(n: 3)
+
+func held_for<T>(tag: T) unsafe borrows -> &Res {
+    lend HELD
+}
+
+func main() {
+    print("{}", held_for(tag: 1).n)
+    print("{}", held_for(tag: "s").n)
+}

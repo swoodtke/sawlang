@@ -1450,9 +1450,9 @@ extension BorrowckProgram {
     // An accessor's prologue (SL:borrowing §2.7): each return of a lend that
     // is not conditional lends; a conditional one's `return` is `return
     // None` (check_half_return, over every Return of the half); the place
-    // each `lend` hands out is rooted in `self`, a reference parameter, a
-    // static, or a window opened on one, since the prologue's frame ends at
-    // the `lend`; and a `borrows(sync)` window still open there makes the
+    // each `lend` hands out is rooted in `self`, an indirection read out of
+    // it, or a window opened on one (`lendable_root`), since the prologue's
+    // frame ends at the `lend`; and a `borrows(sync)` window still open there makes the
     // accessor `borrows(sync)` itself.
     func check_prologue(&var self, f: Int, inits: &MirInit, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
         let info = self.mir.funcs[f]

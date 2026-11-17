@@ -631,7 +631,7 @@ slice.not-yet at L:C`.
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
 | a `lend` in the body of a `match`, `if let` or `while let` that holds leftovers: the scrutinee is partly moved out across the `lend`, and the accessor's state record cannot carry a partial value yet (`record_flag_slots` in `compiler/mir/src/split.saw`) | leftover-lend |
-| a `for` head that lends a place; a `borrows` call lending a slice outside a `for` head, or a borrowing struct there, which typecheck's `borrowing.containment` refuses first; a `borrows` function called with no receiver; a setitem derived from a conditional lend | none: nothing in the slice reaches them |
+| a `for` head that lends a place; a `borrows` call lending a slice outside a `for` head, or a borrowing struct there, which typecheck's `borrowing.containment` refuses first; a setitem derived from a conditional lend | none: nothing in the slice reaches them |
 
 Two constructs typecheck refuses before lowering, as `transfer.partial-move`,
 are invariants here rather than refusals: a `consumes` body moving out of
