@@ -18,6 +18,9 @@ Steps, each printed, the first failure ending the run:
   5b. Each input a build reads or chooses (nested sources, a root main.saw, a
      dependency's manifest, native units, the tool and compiler choices, the
      compiler's version) changes the freshness check.
+  5c. A package with `no-hidden-alloc = true` has `blade build` and `blade test`
+     refuse an interpolation with sawc's diagnostic, builds without the key, and
+     rebuilds when the key changes; a dependency's key does not reach its dependents.
   6. `blade new` and `blade run` make and run a package in a directory under
      `.build/`.
 
@@ -733,6 +736,105 @@ def write_text(path, text):
         f.write(text)
 
 
+HIDDEN_ALLOC_DIAGNOSTIC = "alloc.hidden"
+INTERPOLATING_MAIN = 'func main() {\n    let n = 3\n    let s = "n is {n}"\n    print(s)\n}\n'
+PLAIN_MAIN = 'func main() {\n    print("plain")\n}\n'
+
+
+def hidden_alloc_manifest(key):
+    """A Saw.toml for a package `app`; `key` is the text of its no-hidden-alloc line, or None."""
+    return '[package]\nname = "app"\nversion = "0.1.0"\n%s' % ("no-hidden-alloc = %s\n" % key if key else "")
+
+
+def check_blade_no_hidden_alloc(binary=None):
+    """`[package] no-hidden-alloc = true` has Blade pass `--no-hidden-alloc` to every sawc
+    run of a build whose root package declares it: `blade build` refuses an interpolation
+    with sawc's diagnostic and `blade test` fails a test program that has one; the same package
+    without the key (or with `false`) builds and tests; flipping the key after an
+    up-to-date build rebuilds; a dependency's key does not reach its dependents."""
+    binary = binary or SELF_BUILT
+    work = os.path.join(WORK_DIR, "no_hidden_alloc")
+    shutil.rmtree(work, ignore_errors=True)
+    package = os.path.join(work, "app")
+    manifest = os.path.join(package, "Saw.toml")
+    write_text(os.path.join(package, "src", "main.saw"), INTERPOLATING_MAIN)
+    write_text(os.path.join(package, "tests", "interp.saw"), INTERPOLATING_MAIN)
+    write_text(manifest, hidden_alloc_manifest("true"))
+    print("blade: a package with no-hidden-alloc = true is refused for an interpolation", flush=True)
+    blade_refused(binary, ["build"], package, HIDDEN_ALLOC_DIAGNOSTIC)
+    print("blade: its test program that interpolates fails to compile under blade test", flush=True)
+    code, out = run_blade(binary, ["test"], package)
+    if code == 0 or "test interp ... FAILED" not in out:
+        raise Failure("blade test with no-hidden-alloc = true did not fail the interpolating test (exit %s)\n%s"
+                      % (code, out))
+    for key in (None, "false"):
+        write_text(manifest, hidden_alloc_manifest(key))
+        print("blade: the same package with %s builds and tests" % ("no key" if key is None else "no-hidden-alloc = false"),
+              flush=True)
+        blade_ok(binary, ["build"], package, "Finished .build/host/app")
+        blade_ok(binary, ["test"], package, "test result: ok")
+    plain = os.path.join(work, "plain")
+    write_text(os.path.join(plain, "src", "main.saw"), PLAIN_MAIN)
+    write_text(os.path.join(plain, "Saw.toml"), hidden_alloc_manifest(None))
+    rebuilds_after(binary, "no-hidden-alloc key, set", ["build"], plain,
+                   lambda: write_text(os.path.join(plain, "Saw.toml"), hidden_alloc_manifest("true")))
+    rebuilds_after(binary, "no-hidden-alloc key, cleared", ["build"], plain,
+                   lambda: write_text(os.path.join(plain, "Saw.toml"), hidden_alloc_manifest("false")))
+    wrong = os.path.join(work, "wrong")
+    write_text(os.path.join(wrong, "src", "main.saw"), PLAIN_MAIN)
+    write_text(os.path.join(wrong, "Saw.toml"), hidden_alloc_manifest('"true"'))
+    print("blade: no-hidden-alloc = \"true\" is refused as a string", flush=True)
+    blade_refused(binary, ["build"], wrong, "`no-hidden-alloc` in [package] is a string, not a boolean")
+    root = os.path.join(work, "root")
+    write_text(os.path.join(root, "Saw.toml"),
+               '[package]\nname = "root"\nversion = "0.1.0"\n\n[dependencies]\nlib = { path = "../strictlib" }\n')
+    write_text(os.path.join(root, "src", "main.saw"), 'import lib\n\nfunc main() {\n    print(lib.shout(2))\n}\n')
+    write_text(os.path.join(work, "strictlib", "Saw.toml"),
+               '[package]\nname = "lib"\nversion = "0.1.0"\nno-hidden-alloc = true\n')
+    write_text(os.path.join(work, "strictlib", "src", "lib.saw"),
+               'public func shout(n: Int) -> String {\n    "n is {n}"\n}\n')
+    print("blade: a dependency's no-hidden-alloc key does not reach the package that depends on it", flush=True)
+    blade_ok(binary, ["build"], root, "Finished .build/host/root")
+    write_text(os.path.join(root, "Saw.toml"),
+               '[package]\nname = "root"\nversion = "0.1.0"\nno-hidden-alloc = true\n\n[dependencies]\nlib = { path = "../strictlib" }\n')
+    print("blade: the root's key makes the dependency's interpolation an error", flush=True)
+    blade_refused(binary, ["build"], root, HIDDEN_ALLOC_DIAGNOSTIC)
+    check_blade_no_hidden_alloc_image(binary)
+
+
+def check_blade_no_hidden_alloc_image(binary):
+    """The `[sos]` image build passes the flag too: the lane's image package with an
+    interpolation in its `main` builds with no key and with `false`, and `true` is
+    refused with sawc's diagnostic."""
+    triple = "riscv32-unknown-none-elf"
+    if not has_sawc_record(triple):
+        print("blade: no sawc record for %s: the image build's no-hidden-alloc key is not checked" % triple, flush=True)
+        return
+    package, _root = image_package()
+    env = blade_environment()
+    for name in ("SOS_CLANG", "SOS_LD"):
+        env.pop(name, None)
+    main = os.path.join(package, "src", "main.saw")
+    with open(main, encoding="utf-8") as f:
+        source = f.read()
+    marker = '    print("fs: hello from a Blade-built image")\n'
+    if marker not in source:
+        raise Failure("%s no longer holds the line the no-hidden-alloc image row extends" % main)
+    write_text(main, source.replace(marker, marker + '    let n = 7\n    print("n is {n}")\n', 1))
+    manifest = os.path.join(package, "Saw.toml")
+    with open(manifest, encoding="utf-8") as f:
+        original = f.read()
+    args = ["build", "--target", triple]
+    for key in (None, "false"):
+        write_text(manifest, original if key is None else original.replace(
+            'version = "0.1.0"\n', 'version = "0.1.0"\nno-hidden-alloc = false\n', 1))
+        print("blade: an image with %s builds" % ("no key" if key is None else "no-hidden-alloc = false"), flush=True)
+        blade_ok(binary, args, package, "Finished", env)
+    write_text(manifest, original.replace('version = "0.1.0"\n', 'version = "0.1.0"\nno-hidden-alloc = true\n', 1))
+    print("blade: an image with no-hidden-alloc = true is refused for an interpolation", flush=True)
+    blade_refused(binary, args, package, HIDDEN_ALLOC_DIAGNOSTIC, env)
+
+
 def manifest_app(work, deps):
     """`work/app`, a package whose Saw.toml states `deps` under [dependencies]."""
     package = os.path.join(work, "app")
@@ -835,6 +937,7 @@ def lane():
         check_blade_image_module_path()
         check_blade_freshness_hosted()
         check_blade_freshness_images()
+        check_blade_no_hidden_alloc()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

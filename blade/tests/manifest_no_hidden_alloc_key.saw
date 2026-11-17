@@ -1,0 +1,42 @@
+// `[package] no-hidden-alloc = true` is read as a boolean: true and false as
+// written, false when absent, and a value of another type refused naming the
+// key and the position. Blade passes the flag to sawc from this reading.
+
+import blade.manifest.*
+import std.path.{Path}
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/no_hidden_alloc_true")) {
+        case Ok(m) -> {
+            assert(m.is_no_hidden_alloc(), "no-hidden-alloc = true should read as true")
+        },
+        case Err(e) -> panic("no_hidden_alloc_true/Saw.toml should load: {e}")
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/no_hidden_alloc_false")) {
+        case Ok(m) -> {
+            assert(not m.is_no_hidden_alloc(), "no-hidden-alloc = false should read as false")
+        },
+        case Err(e) -> panic("no_hidden_alloc_false/Saw.toml should load: {e}")
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/deps_ok")) {
+        case Ok(m) -> {
+            assert(not m.is_no_hidden_alloc(), "an absent no-hidden-alloc key should read as false")
+        },
+        case Err(e) -> panic("deps_ok/Saw.toml should load: {e}")
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/typed_no_hidden_alloc_string")) {
+        case Ok(_) -> panic("no-hidden-alloc = \"true\" should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("`no-hidden-alloc`") && said.contains("is a string, not a boolean"),
+                   "the refusal names the key and both types: {said}")
+            assert(said.contains("tests/fixtures/typed_no_hidden_alloc_string/Saw.toml: line 4, column 19"),
+                   "the refusal names the file and the position: {said}")
+        }
+    }
+
+    print("manifest_no_hidden_alloc_key: ok")
+}

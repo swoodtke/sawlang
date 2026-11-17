@@ -1,0 +1,4 @@
+[package]
+name = "lenient"
+version = "0.1.0"
+no-hidden-alloc = false

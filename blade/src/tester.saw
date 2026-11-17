@@ -69,9 +69,11 @@ extension Tester {
     // build` uses: the package's own, so a test imports it as
     // `<name>.module`, then one per dependency (design 64 B6). When resolution
     // fails only the package's own is passed, so a test that needs a missing
-    // dependency fails to compile and says so.
+    // dependency fails to compile and says so. A package that declares
+    // `no-hidden-alloc` has `--no-hidden-alloc` lead them, as in `blade build`.
     public func dep_flags(&self) -> String {
-        let own = " --module-path {self.manifest.own_module_path()}"
+        let lead = if self.manifest.is_no_hidden_alloc() { " --no-hidden-alloc" } else { "" }
+        let own = "{lead} --module-path {self.manifest.own_module_path()}"
         match resolve(self.manifest) {
             case Ok(res) -> {
                 var b = StringBuilder()

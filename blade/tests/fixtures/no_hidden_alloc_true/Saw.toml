@@ -1,0 +1,4 @@
+[package]
+name = "strict"
+version = "0.1.0"
+no-hidden-alloc = true

@@ -113,6 +113,11 @@ public struct Package {
     // Absent or any other value means false; a package is not a runtime by
     // accident.
     private runtime: Bool
+    // `no-hidden-alloc = true` makes every compile of a build this package is
+    // the root of refuse the allocations the compiler inserts on its own, as
+    // `sawc --no-hidden-alloc` does. A dependency's key is not read when it is
+    // built as a dependency. Absent means false. (design 135)
+    private no_hidden_alloc: Bool
 }
 
 public struct Manifest {
@@ -155,7 +160,8 @@ func read_package(doc: &TomlDoc, path: String) -> Result<Package, Box<any Error>
     let name = try in_manifest(path, doc.root().table("package")!.optional_string("name")) ?? "unknown"
     let version = try in_manifest(path, doc.root().table("package")!.optional_string("version")) ?? "0.0.0"
     let runtime = try in_manifest(path, doc.root().table("package")!.optional_boolean("runtime")) ?? false
-    Package(name: name, version: version, runtime: runtime)
+    let no_hidden_alloc = try in_manifest(path, doc.root().table("package")!.optional_boolean("no-hidden-alloc")) ?? false
+    Package(name: name, version: version, runtime: runtime, no_hidden_alloc: no_hidden_alloc)
 }
 
 // The `[dependencies]` entries, each a table with a `path` or a `git` source.
@@ -290,5 +296,10 @@ extension Manifest {
     // Whether this package provides the `__saw_rt_*` runtime seams (design 149).
     public func is_runtime(&self) -> Bool {
         self.package.runtime
+    }
+
+    // Whether every compile of this package's build passes `--no-hidden-alloc`.
+    public func is_no_hidden_alloc(&self) -> Bool {
+        self.package.no_hidden_alloc
     }
 }

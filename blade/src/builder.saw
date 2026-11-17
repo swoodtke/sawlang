@@ -630,6 +630,9 @@ extension Builder {
         if self.manifest.is_runtime() {
             try! saw.arg("--runtime")
         }
+        if self.manifest.is_no_hidden_alloc() {
+            try! saw.arg("--no-hidden-alloc")
+        }
         if not cfg.target_features.is_empty() {
             try! saw.arg("--target-features")
             try! saw.arg(cfg.target_features)
@@ -778,6 +781,9 @@ extension Builder {
         // signature against runtime/ABI.md, and links no runtime of its own beside it.
         if self.manifest.is_runtime() {
             try! cmd.arg("--runtime")
+        }
+        if self.manifest.is_no_hidden_alloc() {
+            try! cmd.arg("--no-hidden-alloc")
         }
         // The package's own name maps to its module root, so its sources may
         // import one another as `<name>.module`.

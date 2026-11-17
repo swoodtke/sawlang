@@ -1,0 +1,4 @@
+[package]
+name = "typed_no_hidden_alloc_string"
+version = "0.1.0"
+no-hidden-alloc = "true"
