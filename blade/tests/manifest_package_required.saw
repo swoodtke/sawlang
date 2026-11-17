@@ -1,0 +1,77 @@
+// A manifest without `[package] name` or `[package] version` is an error that
+// names the missing key and the file, for the root and for `load_from`; a
+// manifest with both loads.
+import blade.manifest.*
+import std.data.{Data}
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) unsafe -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full.c_string()!) == (0 as Int32)
+}
+
+func write_manifest(work: String, text: String) {
+    let _ = sh("rm -rf {work}")
+    assert(sh("mkdir -p {work}"), "mkdir {work}")
+    var f = try! File.create(Path(s: "{work}/Saw.toml"))
+    let _ = try! f.write(try! text.to_data())
+    let _ = try! f.close()
+}
+
+// The error text `Manifest.load_from` gives for `text`, or a panic if it loads.
+func refusal(work: String, text: String) -> String {
+    write_manifest(work, text)
+    match Manifest.load_from(Path(s: work)) {
+        case Ok(_) -> panic("a manifest holding {text} loaded"),
+        case Err(e) -> return "{e}"
+    }
+}
+
+func main() {
+    let work = ".build/scratch/manifest_package_required_work"
+    let file = "{work}/Saw.toml"
+
+    let no_name = refusal(work, "[package]\nversion = \"1.0.0\"\n")
+    assert(no_name.contains("name"), "names the key: {no_name}")
+    assert(no_name.contains(file), "names the file: {no_name}")
+    assert(no_name.contains("missing"), "says it is missing: {no_name}")
+
+    let no_version = refusal(work, "[package]\nname = \"host\"\n")
+    assert(no_version.contains("version"), "names the key: {no_version}")
+    assert(no_version.contains(file), "names the file: {no_version}")
+    assert(no_version.contains("missing"), "says it is missing: {no_version}")
+
+    let neither = refusal(work, "[package]\nruntime = true\n")
+    assert(neither.contains(file), "names the file: {neither}")
+
+    // The same through `load`, which reads the current directory.
+    let home = try! Directory.current()
+    write_manifest(work, "[package]\nversion = \"1.0.0\"\n")
+    try! Directory.set_current(Path(s: work))
+    match Manifest.load() {
+        case Ok(_) -> panic("load accepted a manifest with no name"),
+        case Err(e) -> {
+            let text = "{e}"
+            assert(text.contains("name") && text.contains("Saw.toml"), "load names key and file: {text}")
+        }
+    }
+    try! Directory.set_current(home)
+
+    write_manifest(work, "[package]\nname = \"host\"\nversion = \"1.0.0\"\n")
+    match Manifest.load_from(Path(s: work)) {
+        case Ok(m) -> {
+            assert(m.name().equals("host"), "the name reads back")
+            assert(m.version().equals("1.0.0"), "the version reads back")
+        },
+        case Err(e) -> panic("a complete manifest did not load: {e}")
+    }
+
+    let _ = sh("rm -rf {work}")
+    print("manifest_package_required: ok")
+}

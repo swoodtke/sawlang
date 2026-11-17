@@ -150,15 +150,15 @@ public func read_manifest(path: Path) -> Result<TomlDoc, Box<any Error>> {
     move doc
 }
 
-// The `[package]` table's fields. A missing `name` or `version` keeps its
-// placeholder; a key of the wrong type is an error. `path` is the manifest's.
+// The `[package]` table's fields. `name` and `version` are required, and a key
+// of the wrong type is an error. `path` is the manifest's.
 func read_package(doc: &TomlDoc, path: String) -> Result<Package, Box<any Error>> {
     let has = try in_manifest(path, doc.root().expect("package", TomlKind.Table))
     if not has {
         return ManifestError(msg: "Missing [package] section in Saw.toml")
     }
-    let name = try in_manifest(path, doc.root().table("package")!.optional_string("name")) ?? "unknown"
-    let version = try in_manifest(path, doc.root().table("package")!.optional_string("version")) ?? "0.0.0"
+    let name = try in_manifest(path, doc.root().table("package")!.string("name"))
+    let version = try in_manifest(path, doc.root().table("package")!.string("version"))
     let runtime = try in_manifest(path, doc.root().table("package")!.optional_boolean("runtime")) ?? false
     let no_hidden_alloc = try in_manifest(path, doc.root().table("package")!.optional_boolean("no-hidden-alloc")) ?? false
     Package(name: name, version: version, runtime: runtime, no_hidden_alloc: no_hidden_alloc)

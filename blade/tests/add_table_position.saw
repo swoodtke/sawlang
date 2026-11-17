@@ -1,0 +1,209 @@
+// `blade add` writes the dependency into `[dependencies]` wherever that table
+// is written: before a later table, last in the file, under any spelling of its
+// header, or absent (it is added at the end). Each result is compared whole and
+// read back through `Manifest`. A manifest `add` cannot extend, or would break,
+// is refused with the file untouched.
+import blade.builder.*
+import blade.manifest.*
+import std.data.{Data}
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) unsafe -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full.c_string()!) == (0 as Int32)
+}
+
+func load(work: String) -> Manifest {
+    match Manifest.load_from(Path(s: work)) {
+        case Ok(m) -> move m,
+        case Err(e) -> panic("the manifest in {work} does not load: {e}")
+    }
+}
+
+// What `add_dep` of a path dependency `lib` did to a fresh directory holding
+// `before` as its Saw.toml: the manifest text left behind, and the error it
+// answered with ("" for none). The resolve after a write fails for the made-up
+// source; the manifest is written by then, and that error is not the refusal.
+struct Added {
+    text: String
+    refusal: String
+}
+
+func add_in(work: String, home: Path, before: String) -> Added {
+    let _ = sh("rm -rf {work}")
+    assert(sh("mkdir -p {work}"), "mkdir {work}")
+    let manifest_path = Path(s: "{work}/Saw.toml")
+    var f = try! File.create(manifest_path)
+    let _ = try! f.write(try! before.to_data())
+    let _ = try! f.close()
+
+    let b = Builder(m: load(work))
+    try! Directory.set_current(Path(s: work))
+    var refusal = ""
+    match b.add_dep("lib", "path", "../lib", "") {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            if not e.message.starts_with("resolve after add failed") {
+                refusal = e.message
+            }
+        }
+    }
+    try! Directory.set_current(home)
+
+    var r = try! File.open(manifest_path)
+    let data = try! r.read()
+    return Added(text: try! data.to_string(), refusal: refusal)
+}
+
+// The names of the dependencies the manifest in `work` lists, joined by `,`.
+func dependency_names(work: String) -> String {
+    let m = load(work)
+    let deps = match m.dependencies() {
+        case Ok(list) -> move list,
+        case Err(e) -> panic("the dependencies in {work} do not parse: {e}")
+    }
+    var names = ""
+    var i = 0
+    while i < deps.len() {
+        if let d = deps.get(i) {
+            if not names.is_empty() {
+                names = "{names},"
+            }
+            names = "{names}{d.name}"
+        }
+        i = i + 1
+    }
+    return names
+}
+
+// `before` becomes `expected`, and `lib` reads back as a dependency after `old`.
+func added(work: String, home: Path, label: String, before: String, expected: String, names: String) {
+    let result = add_in(work, home, before)
+    assert(result.refusal.is_empty(), "{label}: refused: {result.refusal}")
+    assert(result.text.equals(expected), "{label}: {result.text}")
+    assert(dependency_names(work).equals(names), "{label} reads back: {dependency_names(work)}")
+}
+
+// `add` refuses with `reason` in its message and leaves `before` as it was.
+func refused(work: String, home: Path, label: String, before: String, reason: String) {
+    let result = add_in(work, home, before)
+    assert(result.refusal.contains(reason), "{label}: the refusal is `{result.refusal}`")
+    assert(result.refusal.contains("Saw.toml"), "{label}: the refusal names the file: {result.refusal}")
+    assert(result.text.equals(before), "{label}: the manifest changed: {result.text}")
+}
+
+func main() {
+    let home = try! Directory.current()
+    let work = ".build/scratch/add_table_position_work"
+    let package = "[package]\nname = \"host\"\nversion = \"1.0.0\"\n"
+    let line = "lib = \{ path = \"../lib\" \}\n"
+    let old = "old = \{ path = \"../old\" \}\n"
+    let board = "[sos.riscv32-unknown-none]\nlinker-script = \"a.ld\"\n"
+
+    // `[dependencies]` first, a machine table after it: the line stays in
+    // `[dependencies]`, after its last entry and before the blank line and the
+    // next header.
+    added(work, home, "dependencies first", "{package}\n[dependencies]\n{old}\n# the board\n{board}",
+          "{package}\n[dependencies]\n{old}{line}\n# the board\n{board}", "old,lib")
+
+    // An empty `[dependencies]` followed by a table.
+    added(work, home, "empty dependencies", "{package}\n[dependencies]\n{board}",
+          "{package}\n[dependencies]\n{line}{board}", "lib")
+
+    // `[dependencies]` last: the line goes at the end.
+    let last_before = "{package}\n{board}\n[dependencies]\n{old}"
+    added(work, home, "dependencies last", last_before, "{last_before}{line}", "old,lib")
+
+    // No `[dependencies]`: the table is added at the end.
+    let none_before = "{package}\n{board}"
+    added(work, home, "no dependencies", none_before, "{none_before}\n[dependencies]\n{line}", "lib")
+
+    // The header with a comment after it, with and without a space.
+    added(work, home, "commented header", "{package}\n[dependencies] # ours\n{old}[tool.x]\nk = 1\n",
+          "{package}\n[dependencies] # ours\n{old}{line}[tool.x]\nk = 1\n", "old,lib")
+    added(work, home, "comment without a space", "{package}\n[dependencies]# ours\n{old}\n{board}",
+          "{package}\n[dependencies]# ours\n{old}{line}\n{board}", "old,lib")
+
+    // The header indented, with a tab, spaced inside the brackets, and quoted:
+    // each spelling is the same table.
+    added(work, home, "indented header", "{package}\n  [dependencies]\n{old}[tool.x]\nk = 1\n",
+          "{package}\n  [dependencies]\n{old}{line}[tool.x]\nk = 1\n", "old,lib")
+    added(work, home, "literal-quoted header", "{package}\n['dependencies']\n{old}\n{board}",
+          "{package}\n['dependencies']\n{old}{line}\n{board}", "old,lib")
+
+    // A multi-line string in the table's own body that holds a line beginning
+    // with `[`: the scan takes it for the next header, the entry lands inside
+    // the string, and the read-back refuses.
+    refused(work, home, "a header-like line in a string in the body",
+            "{package}\n[dependencies]\nold = \{ path = \"../old\", note = \"\"\"\n[not.a.header]\n\"\"\" \}\n\n{board}",
+            "did not put it in [dependencies]")
+
+    added(work, home, "the next header indented", "{package}\n[dependencies]\n{old}\n  [tool.x]\nk = 1\n",
+          "{package}\n[dependencies]\n{old}{line}\n  [tool.x]\nk = 1\n", "old,lib")
+    added(work, home, "tab before the header", "{package}\n\t[dependencies]\n{old}\n{board}",
+          "{package}\n\t[dependencies]\n{old}{line}\n{board}", "old,lib")
+    added(work, home, "spaced header", "{package}\n[ dependencies ]\n{old}\n{board}",
+          "{package}\n[ dependencies ]\n{old}{line}\n{board}", "old,lib")
+    added(work, home, "quoted header", "{package}\n[\"dependencies\"]\n{old}\n{board}",
+          "{package}\n[\"dependencies\"]\n{old}{line}\n{board}", "old,lib")
+
+    // Tables of the same family: a sub-table after the header goes after the
+    // line, one before it does not hide the header, and a sub-table alone leaves
+    // the table to be added at the end.
+    added(work, home, "sub-table after the header", "{package}\n[dependencies]\n[dependencies.old]\npath = \"../old\"\n",
+          "{package}\n[dependencies]\n{line}[dependencies.old]\npath = \"../old\"\n", "lib,old")
+    added(work, home, "sub-table before the header", "{package}\n[dependencies.old]\npath = \"../old\"\n\n[dependencies]\n\n{board}",
+          "{package}\n[dependencies.old]\npath = \"../old\"\n\n[dependencies]\n{line}\n{board}", "old,lib")
+    let only_sub = "{package}\n[dependencies.old]\npath = \"../old\"\n"
+    added(work, home, "sub-table alone", only_sub, "{only_sub}\n[dependencies]\n{line}", "old,lib")
+    added(work, home, "array of tables after", "{package}\n[dependencies]\n{old}\n[[extra]]\nname = \"x\"\n",
+          "{package}\n[dependencies]\n{old}{line}\n[[extra]]\nname = \"x\"\n", "old,lib")
+
+    // A comment that names the header is not the header.
+    added(work, home, "comment names the header", "{package}\n# [dependencies] go here\n\n[dependencies]\n{old}\n{board}",
+          "{package}\n# [dependencies] go here\n\n[dependencies]\n{old}{line}\n{board}", "old,lib")
+
+    // A line `[dependencies]` inside a multi-line string is not the header,
+    // ahead of the table or after it.
+    let described = "[package]\nname = \"host\"\nversion = \"1.0.0\"\ndescription = \"\"\"\n[dependencies]\nare below\n\"\"\"\n\n"
+    let string_last = "{described}{board}\n[dependencies]\n{old}"
+    added(work, home, "string with the header, table last", string_last, "{string_last}{line}", "old,lib")
+    added(work, home, "string with the header, table first", "{described}[dependencies]\n{old}\n{board}",
+          "{described}[dependencies]\n{old}{line}\n{board}", "old,lib")
+    added(work, home, "string with a header inside the table",
+          "{package}\n[dependencies]\n{old}\n[tool.x]\nnote = \"\"\"\n[dependencies]\n\"\"\"\n",
+          "{package}\n[dependencies]\n{old}{line}\n[tool.x]\nnote = \"\"\"\n[dependencies]\n\"\"\"\n", "old,lib")
+
+    // No newline at the end of the file: after the table, before it, inside it.
+    let cut_before = "{package}\n[dependencies]\nold = \{ path = \"../old\" \}"
+    added(work, home, "no final newline", cut_before, "{cut_before}\n{line}", "old,lib")
+    added(work, home, "header last, no final newline", "{package}\n[dependencies]", "{package}\n[dependencies]\n{line}", "lib")
+    added(work, home, "no final newline, table after", "{package}\n[dependencies]\n{old}\n[tool.x]\nk = 1",
+          "{package}\n[dependencies]\n{old}{line}\n[tool.x]\nk = 1", "old,lib")
+
+    // CRLF line ends: the manifest still reads with `lib` in it.
+    let crlf = "{package}\n[dependencies]\n{old}\n{board}".replace("\n", "\r\n")
+    let crlf_result = add_in(work, home, crlf)
+    assert(crlf_result.refusal.is_empty(), "crlf: refused: {crlf_result.refusal}")
+    assert(dependency_names(work).equals("old,lib"), "crlf reads back: {dependency_names(work)}")
+
+    // The name is already a dependency.
+    refused(work, home, "already there", "{package}\n[dependencies]\n{line}", "`lib` is already a dependency")
+
+    // `dependencies` written so a line cannot be appended to it.
+    refused(work, home, "dotted keys", "dependencies.old = \{ path = \"../old\" \}\n{package}", "dotted keys")
+    refused(work, home, "inline table", "dependencies = \{ old = \{ path = \"../old\" \} \}\n{package}", "inline table")
+
+    // A layout the edit misreads yields a manifest that does not read: refused.
+    refused(work, home, "an array line that looks like a header",
+            "{package}\n[dependencies]\n{old}matrix = [\n[1, 2],\n]\n[tool.x]\nk = 1\n", "does not read")
+
+    let _ = sh("rm -rf {work}")
+    print("add_table_position: ok")
+}

@@ -1,0 +1,59 @@
+// A `[sos]` failure names Saw.toml once: a message Blade words itself gets the
+// `Saw.toml [sos]:` prefix, and a TOML error, which already names the file with
+// its line and column, does not get a second mention of it.
+import blade.builder.*
+import blade.manifest.*
+import std.data.{Data}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) unsafe -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full.c_string()!) == (0 as Int32)
+}
+
+// The message `Builder.build` fails with for a package whose manifest is `sos`
+// after a valid `[package]`.
+func build_failure(work: String, sos: String) -> String {
+    let _ = sh("rm -rf {work}")
+    assert(sh("mkdir -p {work}"), "mkdir {work}")
+    var f = try! File.create(Path(s: "{work}/Saw.toml"))
+    let text = "[package]\nname = \"host\"\nversion = \"1.0.0\"\n\n{sos}"
+    let _ = try! f.write(try! text.to_data())
+    let _ = try! f.close()
+    let m = match Manifest.load_from(Path(s: work)) {
+        case Ok(loaded) -> move loaded,
+        case Err(e) -> panic("the manifest in {work} does not load: {e}")
+    }
+    let b = Builder(m: m)
+    match b.build(false) {
+        case Ok(_) -> panic("the build of {sos} succeeded"),
+        case Err(e) -> return e.message
+    }
+}
+
+func occurrences(text: String, needle: String) -> Int {
+    (try! text.split(needle)).len() - 1
+}
+
+func main() {
+    let work = ".build/scratch/sos_error_names_file_work"
+    let file = "{work}/Saw.toml"
+
+    // Blade's own wording keeps the prefix.
+    let own = build_failure(work, "[sos]\nemit = \"bogus\"\n")
+    assert(own.starts_with("Saw.toml [sos]: [sos] emit"), "prefixed: {own}")
+
+    // A TOML error carries the path, and the prefix goes.
+    let toml = build_failure(work, "[sos]\nemit = \"sosimg\"\ntarget = \"riscv32-unknown-none\"\nlinker-script = 5\n")
+    assert(toml.starts_with(file), "starts with the path: {toml}")
+    assert(occurrences(toml, "Saw.toml") == 1, "names the file once: {toml}")
+    assert(toml.contains("linker-script"), "names the key: {toml}")
+
+    let _ = sh("rm -rf {work}")
+    print("sos_error_names_file: ok")
+}

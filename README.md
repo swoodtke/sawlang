@@ -831,8 +831,12 @@ A project declares dependencies in its `Saw.toml`:
 [dependencies]
 mathx = { path = "../mathx" }
 jsonx = { git = "https://github.com/u/jsonx", version = "^1.2.0" }
-tiny  = "0.3.1"          # bare = EXACT pin (ranges need ^, ~, or >=)
 ```
+
+Every dependency names a `path` or a `git` source; a bare version string such
+as `tiny = "0.3.1"` is refused, since there is no registry yet: Blade prints
+``dependency `tiny`: no registry yet; specify path or git``. A bare `version`
+in a git dependency is an exact pin, and ranges need `^`, `~` or `>=`.
 
 `Saw.lock` is deterministic and records version, source, and git rev. An
 application commits it; a library does not. `libs/semver` and `libs/imgformat`

@@ -17,7 +17,7 @@ import blade.manifest.*
 import blade.resolver.*
 import blade.lock.*
 import blade.sosimg.*
-import toml.{key_literal, string_literal}
+import toml.{TomlDoc, TomlPosition, key_literal, string_literal}
 import std.data.{Data}
 import std.directory.{Directory}
 import std.env.{Env}
@@ -150,6 +150,159 @@ func record_build_stamp(layout: &BuildLayout, hash: &String) {
             let _ = f.write(try! hash.to_data())
         },
         case Err(_) -> print("    (could not record the build hash)")
+    }
+}
+
+// =============================================================================
+// Editing Saw.toml
+// =============================================================================
+
+// The table `[ ... ]` a header line names, trimmed, or None for any other line.
+func header_inner(line: String) -> String? {
+    let t = line.trim()
+    if not t.starts_with("[") || t.starts_with("[[") {
+        return None
+    }
+    guard let close = t.index_of(93) else {
+        return None
+    }
+    return t.substring(1, close).trim()
+}
+
+// Where `[dependencies]` is written in a manifest that reads, from the library's
+// record of where the table was defined: the index of its header line, -1 when
+// no header of its own exists (the table is absent, or only `[dependencies.x]`
+// headers made it), or a `problem` when a line cannot be added to it.
+struct DependenciesAt {
+    line: Int
+    problem: String
+}
+
+func locate_dependencies(doc: &TomlDoc, name: String, lines: &Vector<String>) -> DependenciesAt {
+    if not doc.root().contains("dependencies") {
+        return DependenciesAt(line: -1, problem: "")
+    }
+    var already = false
+    var at = TomlPosition(line: 1, column: 1)
+    if let deps = doc.root().table("dependencies") {
+        already = deps.contains(name)
+        at = deps.defined_at()
+    } else {
+        return DependenciesAt(line: -1, problem: "`dependencies` is not a table")
+    }
+    if already {
+        return DependenciesAt(line: -1, problem: "`{name}` is already a dependency")
+    }
+    let text = (lines.get(at.line - 1) ?? "").trim()
+    if let inner = header_inner(text) {
+        if inner.equals("dependencies") || inner.equals("\"dependencies\"") || inner.equals("'dependencies'") {
+            return DependenciesAt(line: at.line - 1, problem: "")
+        }
+        return DependenciesAt(line: -1, problem: "")
+    }
+    let eq = text.index_of(61) ?? 0
+    if text.substring(0, eq).contains(".") {
+        return DependenciesAt(line: -1, problem: "`dependencies` is written as dotted keys (`dependencies.x = ...`), which a line cannot be added to; edit it by hand")
+    }
+    return DependenciesAt(line: -1, problem: "`dependencies` is written as an inline table (`dependencies = \{ ... \}`), which a line cannot be added to; edit it by hand")
+}
+
+// `manifest` with the line `entry` (ending in a newline) inside its
+// `[dependencies]` table, which `locate_dependencies` found at `header`: after
+// the table's last entry when another table follows it, at the end of the file
+// when it is last, and in a table added at the end when there is none. Comments
+// and blank lines are left where they are; a line is a header when its first
+// character is `[`, which a TOML key cannot start with. The scan does not read
+// strings, so a multi-line string or array in the table's own body that holds a
+// line beginning with `[` misplaces the entry, and `with_dependency`'s read-back
+// refuses the result: that refusal is the behaviour.
+func insert_dependency(manifest: String, lines: &Vector<String>, header: Int, entry: String) -> String {
+    var b = StringBuilder()
+    if header < 0 {
+        try! b.append(manifest)
+        try! b.append("\n[dependencies]\n")
+        try! b.append(entry)
+        return b.build()
+    }
+
+    // The next table's header, and the last line of the body that is neither
+    // blank nor a comment: a comment before the next header belongs to it.
+    var next = -1
+    var last_entry = header
+    var j = header + 1
+    while j < lines.len() && next < 0 {
+        let t = (lines.get(j) ?? "").trim()
+        if t.starts_with("[") {
+            next = j
+        } else if not t.is_empty() && not t.starts_with("#") {
+            last_entry = j
+        }
+        j = j + 1
+    }
+    if next < 0 {
+        try! b.append(manifest)
+        if not manifest.ends_with("\n") {
+            try! b.append("\n")
+        }
+        try! b.append(entry)
+        return b.build()
+    }
+    // The lines go back joined by the `\n` they were split on; `next` follows
+    // `last_entry`, so the entry always lands between two of them.
+    var k = 0
+    while k < lines.len() {
+        if k > 0 {
+            try! b.append("\n")
+        }
+        try! b.append(lines.get(k) ?? "")
+        if k == last_entry {
+            try! b.append("\n")
+            try! b.append(entry.replace("\n", ""))
+        }
+        k = k + 1
+    }
+    return b.build()
+}
+
+// `manifest` with the dependency `name` added by the line `entry`, or the
+// reason it cannot be. The new text is read back before it is returned: a text
+// that does not read, or that lacks `name` in `[dependencies]`, is refused, so
+// the caller never writes a manifest `add` has broken.
+func with_dependency(manifest: String, name: String, entry: String) -> Result<String, BuildError> {
+    let lines = try! manifest.split("\n")
+    let found = match TomlDoc.parse(manifest) {
+        case Ok(doc) -> locate_dependencies(&doc, name, &lines),
+        case Err(e) -> { return BuildError(msg: "Saw.toml: {e}") }
+    }
+    if not found.problem.is_empty() {
+        return BuildError(msg: "Saw.toml: {found.problem}")
+    }
+    let text = insert_dependency(manifest, &lines, found.line, entry)
+    var present = false
+    match TomlDoc.parse(text) {
+        case Ok(after) -> {
+            if let deps = after.root().table("dependencies") {
+                present = deps.contains(name)
+            }
+        },
+        case Err(e) -> {
+            return BuildError(msg: "Saw.toml: adding `{name}` would leave a manifest that does not read ({e}); Saw.toml is unchanged")
+        }
+    }
+    if not present {
+        return BuildError(msg: "Saw.toml: adding `{name}` did not put it in [dependencies]; Saw.toml is unchanged")
+    }
+    return text
+}
+
+// The message of a `[sos]` failure: Blade's own wording gets the `Saw.toml
+// [sos]:` prefix, and one that already names the manifest's file (a TOML
+// error, which is read through `in_manifest`) stands as it is.
+public func sos_failure_text(manifest_path: String, error: String) -> String {
+    if error.starts_with(manifest_path) {
+        error
+    } else {
+        "Saw.toml [sos]: {error}"
     }
 }
 
@@ -725,7 +878,10 @@ extension Builder {
         var sos_cfg: SosConfig? = None
         match load_sos_config(self.manifest.root_dir, self.requested_target) {
             case Ok(found) -> { sos_cfg = found },
-            case Err(e) -> { return BuildError(msg: "Saw.toml [sos]: {e}") }
+            case Err(e) -> {
+                let named = self.manifest.root_dir.join("Saw.toml").as_string()
+                return BuildError(msg: sos_failure_text(named, "{e}"))
+            }
         }
         if let cfg = sos_cfg {
             return self.build_sos_image(&cfg, force)
@@ -836,7 +992,9 @@ extension Builder {
     }
 
     // Print the resolved dependency graph (design 64 B7).
-    public func tree(&self) {
+    // The package line prints before resolving, so a failed resolution still
+    // shows which package it was; the error is the result.
+    public func tree(&self) -> Result<Int, BuildError> {
         print("{self.manifest.name()} v{self.manifest.version()}")
         match resolve(self.manifest) {
             case Ok(res) -> {
@@ -848,8 +1006,9 @@ extension Builder {
                     print("  {res.name(i)} v{res.version(i)} ({res.kind(i)}: {res.loc(i)})")
                     i = i + 1
                 }
+                0
             },
-            case Err(e) -> print("error: {e.text()}")
+            case Err(e) -> BuildError(msg: e.text())
         }
     }
 
@@ -860,26 +1019,21 @@ extension Builder {
             return BuildError(msg: "Saw.toml not found")
         }
 
-        var b = StringBuilder()
-        try! b.append(content)
-        if not content.contains("[dependencies]") {
-            try! b.append("\n[dependencies]\n")
-        }
         // The name and the values are written as TOML text, so one holding a
         // quote, a backslash or a space reads back exactly.
         let key = key_literal(name)
         let source = string_literal(loc)
-        if kind.equals("git") {
+        let entry = if kind.equals("git") {
             if version.is_empty() {
-                try! b.append("{key} = \{ git = {source} \}\n")
+                "{key} = \{ git = {source} \}\n"
             } else {
-                try! b.append("{key} = \{ git = {source}, version = {string_literal(version)} \}\n")
+                "{key} = \{ git = {source}, version = {string_literal(version)} \}\n"
             }
         } else {
-            try! b.append("{key} = \{ path = {source} \}\n")
+            "{key} = \{ path = {source} \}\n"
         }
 
-        let text = b.build()
+        let text = try with_dependency(content, name, entry)
         let f = match File.create(Path(s: "Saw.toml")) {
             case Ok(handle) -> move handle,
             case Err(e) -> { return BuildError(msg: "could not write Saw.toml: {e}") }

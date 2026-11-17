@@ -286,6 +286,22 @@ def check_blade_refuses_unknown_words(binary=None):
         raise Failure("`blade build --help` built something")
 
 
+def check_blade_tree_status(binary=None):
+    """`blade tree` exits 0 for a resolved graph and non-zero, printing the
+    error, for a dependency that cannot be read."""
+    binary = binary or SELF_BUILT
+    work = os.path.join(WORK_DIR, "tree")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    blade_ok(binary, ["new", "app"], work, "Created")
+    package = os.path.join(work, "app")
+    print("blade: blade tree on a package with no dependencies", flush=True)
+    blade_ok(binary, ["tree"], package, "(no dependencies)")
+    append_text(os.path.join(package, "Saw.toml"), '\n[dependencies]\nghost = { path = "../ghost" }\n')
+    print("blade: blade tree after a resolution error exits non-zero", flush=True)
+    blade_refused(binary, ["tree"], package, "error: cannot read manifest for `ghost`")
+
+
 def check_blade_module_path(binary=None):
     """`blade build --module-path NAME=DIR` reaches sawc: a package importing a
     module it has no dependency for is refused by sawc without the flag and builds
@@ -905,7 +921,7 @@ def check_blade_resolver_says_why(binary=None):
         expected = text % (place if library is False else os.path.join(place, "Saw.toml"))
         print("blade: %s is refused with its reason" % title, flush=True)
         blade_refused(binary, ["build"], package, "dependency resolution failed: " + expected)
-        blade_ok(binary, ["tree"], package, "error: " + expected)
+        blade_refused(binary, ["tree"], package, "error: " + expected)
 
 
 def lane():
@@ -929,6 +945,7 @@ def lane():
         check_xtensa_drift()
         check_blade_finds_tools()
         check_blade_refuses_unknown_words()
+        check_blade_tree_status()
         check_blade_module_path()
         check_blade_lock_quoting()
         check_blade_resolver_says_why()

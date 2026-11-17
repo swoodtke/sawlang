@@ -231,7 +231,10 @@ func main() {
                     match manifest.Manifest.load() {
                         case Ok(m) -> {
                             let b = builder.Builder(m: m)
-                            b.tree()
+                            match b.tree() {
+                                case Ok(_) -> {},
+                                case Err(e) -> fail(e.message, e.exit_code)
+                            }
                         },
                         case Err(e) -> fail("{e}", EXIT_FAILURE)
                     }
