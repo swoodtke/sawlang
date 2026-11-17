@@ -11,8 +11,9 @@
 // THE ORACLE IS THE NoCopy `Res` PRINTING ITS DESTRUCTION. A leaked
 // environment never runs a capture's `deinit`, so a missing `deinit N` line is
 // the defect; a doubled line would be a double drop. Each `deinit` line comes
-// after its statement's own output and before the next statement's, because
-// the temporary dies with the statement, not with the function. The cells are the literal as a
+// before the next statement's output, because the temporary dies with the
+// statement, not with the function; a `move` capture is a take, released at
+// the body's end (V176). The cells are the literal as a
 // callee with a result, with arguments, in parentheses, as an operand, as an
 // argument, nested in another in-place call, with a void body, and repeated in
 // a loop. A generic body is a position too, and whatever the literal's own
@@ -32,8 +33,8 @@
 // parenthesized 3
 // deinit 4
 // operand 14
-// 5
 // deinit 5
+// 5
 // deinit 6
 // deinit 7
 // nested 13
@@ -45,8 +46,8 @@
 // loop 303
 // deinit 20
 // parameter 20
-// deinit 31
 // deinit 21
+// deinit 31
 // parameter 21
 // deinit 22
 // reference 22

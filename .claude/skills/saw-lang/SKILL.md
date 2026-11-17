@@ -1914,7 +1914,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   exactly when a panic has to work — write `panic("out of {}", what)`);
   (2) an ESCAPING closure that CAPTURES something (bound to a `let`/`var`,
   returned, stored — its env is a refcounted heap block; a closure passed
-  straight to the call that runs it keeps a STACK env and is fine, and so is an
+  straight to the call that runs it, or called where it is written, keeps a STACK env and is fine, and so is an
   escaping closure with no captures); (3) single-argument `print(user_printable)`,
   which renders through a synthesized `to_string()` — `print("{}", p)` streams
   the same bytes into stack scratch. Everything the SOURCE names is untouched:
@@ -4940,6 +4940,7 @@ construct in the owner and lend `&driver` down.
   ```saw-fragment
   run({ [&var n] in n += 1; n })                 // change the CALLER's binding:
                                                  // non-escaping closures only
+                                                 // (an argument, or a literal called in place)
   run({ [move v] in var w = move v; try! w.push(1); w.len() })  // a value of
                                                  // the BODY's own (non-escaping)
   let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
@@ -4962,7 +4963,8 @@ construct in the owner and lend `&driver` down.
   tier (for a `Copy` capture, drop the `move`). The outs: take the value as a
   PARAMETER; pass the closure straight to a NON-escaping parameter, where
   `[move r]` transfers when the body runs (`run({ [move r] in sink(move r) })`
-  is fine); or, for a value consumed at most once across calls, capture an
+  is fine); or call the literal where it is written
+  (`{ [move r] in sink(move r) }()`); or, for a value consumed at most once across calls, capture an
   `Arc<Mutex<T?>>` and `take()` it under the lock. A `Thread.spawn` brace is
   exempt (its capture list is its parameter list, and it runs once).
 - **A closure body MAY NAME `self`** (design 216) — and a `&T`/`&var T` PARAMETER
@@ -4978,7 +4980,8 @@ construct in the owner and lend `&driver` down.
   ```
   ONE rule over three spellings, because a receiver IS a reference: **a capture
   that lowers to a pointer into the enclosing frame is legal only in a closure
-  passed directly to a non-escaping parameter** — `[&x]`/`[&var x]`, a reference
+  that does not escape: one passed directly to a non-escaping parameter, or a
+  literal called where it is written** — `[&x]`/`[&var x]`, a reference
   parameter, and `self` alike. Escaping is refused:
   ```saw-error
   // error-rule: capture.escaping-borrow
@@ -4997,7 +5000,12 @@ construct in the owner and lend `&driver` down.
   GOTCHA: `let f = { self.n }` counts as ESCAPING even when you call `f()` two
   lines later — the env is on the heap either way and the check reads the
   position, not the eventual use. Pass the closure straight to the call that runs
-  it. The two outs the diagnostic names: hoist what the body needs into locals
+  it, or call the literal where it is written: `let n = { self.n + 1 }()`
+  borrows fine. What such a closure RETURNS is still held to the rule: a
+  non-escaping function value it reaches (a parameter `f: () -> Int`, a capture of
+  one, `move f`) is refused as its result (`escaping.stored`), typed or inferred,
+  so `{ f }()` and `apply({ f })` are errors while `{ f() + f() }()` is fine.
+  The two outs the diagnostic names: hoist what the body needs into locals
   ahead of the closure, or take the receiver as an explicit closure parameter
   (`body: (&Counter, Int) sync -> R`, called `self.run({ c, v in c.n + v })`) —
   the second is what a std-side by-borrow callback wants. A CONSUMING `self`

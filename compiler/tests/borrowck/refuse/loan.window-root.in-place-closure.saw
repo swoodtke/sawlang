@@ -1,0 +1,11 @@
+// refuses: loan.window-root at 8:17
+// an in-place literal's `[&var v]` inside a named lend of `v[0]`: the window
+// charges `v` shared until it closes (SL-1137)
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    borrow let first = v[0] {
+        let n = { [&var v] in try! v.push(first); v.len() }()
+        print(n)
+    }
+}

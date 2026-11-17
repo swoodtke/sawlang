@@ -1,0 +1,61 @@
+// Conformance row V176 — a `move` capture of a closure literal called where
+// it is written transfers when the body runs
+//
+// THE GUARANTEE: a literal that is the callee of a call where it is written
+// does not escape, so its `[move x]` is a take: the environment holds a
+// pointer to the local, the body takes the value as it starts, and what the
+// body took is the body's, released at the body's end unless the body moves
+// it on. The body may therefore consume what it captured, as a closure
+// passed straight to a non-escaping parameter may.
+//
+// THE ORACLE IS A PRINTING `deinit` ON A NoCopy `Res`: each value prints its
+// `deinit` exactly once, a value the body hands to `sink` before `sink`'s
+// result is printed, a value the body only reads at the body's end, before
+// the enclosing call's own output, and one an inner closure takes through
+// the outer's capture once.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1
+// consumed 1
+// deinit 5
+// 5
+// deinit 2
+// inner 2
+// deinit 3
+// matched 3
+// end
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func sink(r: Res) -> Int { r.v }
+
+func run(f: () -> Int) -> Int { f() }
+
+enum Slot {
+    case Full(r: Res),
+    case Empty
+}
+extension Slot: NoCopy {}
+
+func main() {
+    let r = Res(v: 1)
+    let n = { [move r] in sink(move r) }()
+    print("consumed {n}")
+    let e = Res(v: 5)
+    print({ [move e] in e.v }())
+    let q = Res(v: 2)
+    let m = { [move q] in run({ [move q] in sink(move q) }) }()
+    print("inner {m}")
+    let s = Slot.Full(r: Res(v: 3))
+    let k = { [move s] in
+        match s {
+            case Full(x) -> x.v,
+            case Empty -> 0
+        }
+    }()
+    print("matched {k}")
+    print("end")
+}

@@ -1,0 +1,42 @@
+// probe: stated
+// about: a nested closure's capture list names a local its enclosing closure must hold, though neither body names it (SL-1137)
+// stage 0: a literal called where it is written borrowing a capture is SL-1137's, which Stage 0 predates
+// speeds: -O0 -O2
+// prints: 5
+// prints: 5
+// prints: 6
+// prints: 7
+// prints: 8
+// prints: 9
+// prints: 10
+// prints: 11
+// prints: 12
+// The enclosing closure captures what the inner capture list reads, as it
+// does what the inner body names: an in-place literal in another, closures
+// passed to non-escaping parameters in each other, every capture word, three
+// levels, an escaping outer closure, and `self`.
+struct Counter { n: Int }
+
+extension Counter {
+    func nested(&self) -> Int { { { [&self] in 11 }() }() }
+    func through_arguments(&self) -> Int { take_int({ take_int({ [&self] in 12 }) }) }
+}
+
+func take<R>(g: () -> R) -> R { g() }
+
+func take_int(g: () -> Int) -> Int { g() }
+
+func main() {
+    let a = "abc"
+    print({ { [&a] in 5 }() }())
+    print(take({ take({ [&a] in 5 }) }))
+    print({ take_int({ [a] in 6 }) }())
+    print(take_int({ { [copy a] in 7 }() }))
+    print({ { { [&a] in 8 }() }() }())
+    let later = { { [&a] in 9 }() }
+    print(later())
+    let counter = Counter(n: 3)
+    print({ { [a] in 10 }() }())
+    print(counter.nested())
+    print(counter.through_arguments())
+}

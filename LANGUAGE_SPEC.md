@@ -4817,8 +4817,9 @@ process(original)  // original is copied, unchanged
   rejected — write the existential (`&any Shape` / `&var any Shape`)
 - References cannot escape: cannot return, store in structs, or be captured by
   an escaping closure. A capture that lowers to a pointer into the enclosing
-  frame is legal only in a closure passed directly to a non-escaping parameter,
-  and three spellings reach that rule: the explicit `[&x]`/`[&var x]`
+  frame is legal only in a closure that does not escape: one passed directly
+  to a non-escaping parameter, or a literal called where it is written
+  (`{ [&x] in x.len() }()`). Three spellings reach that rule: the explicit `[&x]`/`[&var x]`
   borrow-capture, a plain capture of a `&T`/`&var T` **parameter**, and a
   closure body naming `self` (a receiver is a borrow). See
   [Capturing `self` and reference parameters](#capturing-self-and-reference-parameters)
@@ -5139,7 +5140,8 @@ extension Counter {
 
 A receiver is a reference, so this is the same rule as everywhere else in this
 section: **a capture that lowers to a pointer into the enclosing frame is legal
-only in a closure passed directly to a non-escaping parameter.** One predicate,
+only in a closure that does not escape: one passed directly to a non-escaping
+parameter, or a literal called where it is written.** One predicate,
 three spellings — the explicit `[&x]`/`[&var x]` borrow-capture, a reference
 parameter, and `self`. Outside that position the environment is heap-allocated
 and outlives the frame it points into, so the capture is refused:
@@ -5163,8 +5165,12 @@ func make(r: &Thing) -> () -> Int { return { r.x + 1 } }
 
 Binding the closure to a `let` counts as escaping even when it is called in the
 same frame: the environment is on the heap either way, and the checker judges
-the position rather than the eventual use. The diagnostic names the ways out —
-copy the values the body needs into locals ahead of the closure and capture
+the position rather than the eventual use. Calling the literal where it is
+written, `{ self.n + 1 }()`, is a position that does not escape: the call runs
+it inside its statement, and nothing can hold the closure afterwards. Its
+result cannot carry a borrow out either, since a reference, a closure that
+borrows and a non-escaping function value are each refused there. The diagnostic names the ways
+out: call the literal where it is written, copy the values the body needs into locals ahead of the closure and capture
 those, or take the receiver as an explicit closure parameter
 (`body: (&Counter, Int) sync -> R`, called as `self.run({ c, v in c.n + v })`).
 
@@ -9835,10 +9841,14 @@ the multi-task `TaskGroup` (designs 44/45/52/52b, below).
   (drops once). For `spawn`
   the task frame owns the closure's reference and the trampoline release is THE
   release — the env is torn down on the task thread exactly once. Non-escaping
-  closures (a direct call argument, e.g. `Vector.each`'s body) keep their env in
+  closures (a direct call argument, e.g. `Vector.each`'s body, or a literal
+  called where it is written) keep their env in
   the frame that builds them. That env owns only what its copy captures copied,
   and releases it when the statement that built the closure ends; a closure
-  passed straight to the call that runs it cannot outlive that statement.
+  passed straight to the call that runs it, or called where it is written,
+  cannot outlive that statement, and its result holds nothing that points
+  into the frame (a non-escaping function value it reaches is refused there,
+  below).
   A non-escaping closure's plain capture of a `Copy` value its function owns
   (a local, a by-value parameter, or a `consumes` method's `self`) copies
   nothing: the body reads the value where it sits, as a shared borrow of it
@@ -9876,6 +9886,14 @@ the multi-task `TaskGroup` (designs 44/45/52/52b, below).
   func call_twice(f: () -> Int) -> Int { run({ f() + f() }) }    // fine: never stored
   func store(f: () -> Int) -> Handler { Handler(run: f) }        // error: `f` is non-escaping
   ```
+
+  A closure's result is one of those other places, whether its type is
+  written or the body gives it: `{ f }()` and `apply({ f })` (with
+  `func apply<R>(g: () -> R) -> R`) are refused, at the tail, a `return` or an
+  arm alike, while `{ f() + f() }()` only calls it. So is a value with no
+  expected type that hands it on, such as the first arm of
+  `let h = if c { f } else { g }` or an element of `(f, 1)`, and `move f`
+  keeps the kind `f` has.
 - **A `move` capture into a non-escaping closure transfers when the body runs.**
   A non-escaping closure keeps its environment in the frame that builds it,
   and a `move` capture does not hand that environment the value at creation
@@ -9886,7 +9904,9 @@ the multi-task `TaskGroup` (designs 44/45/52/52b, below).
   not call) leaves the local alone, and it deinits at the end of its own scope.
   What the body took belongs to the body: a body that moves it on only some
   paths deinits it on the others, at the body's end. This is one rule for every
-  non-escaping closure. A place window is not a closure: a `move` into a call
+  non-escaping closure. A literal called where it is written is one, so
+  `print({ [move r] in r.id }())` releases `r` at the body's end, before
+  `print` runs. A place window is not a closure: a `move` into a call
   made through one is an ordinary move inside the lend's window, so it
   consumes `h` once, on the path that runs it:
 
@@ -9904,8 +9924,9 @@ the multi-task `TaskGroup` (designs 44/45/52/52b, below).
 - **Captures are `let`.** A plain, `move` or `copy` capture is an immutable
   binding inside the closure's body, in every closure, escaping or not. The
   only way a closure changes state outside its body is a borrow capture,
-  `[&var x]`, which only a closure passed directly to a non-escaping parameter
-  may take. Every write shape is refused on a by-value capture: `x = v`,
+  `[&var x]`, which only a closure that does not escape may take (one passed
+  directly to a non-escaping parameter, or a literal called where it is
+  written). Every write shape is refused on a by-value capture: `x = v`,
   `x += v`, `x.f = v`, `x.0 = v`, `v[i] = y`, a `&var self` method call such as
   `v.push(1)` or `o.take()`, and `&var x`.
 
@@ -9979,8 +10000,8 @@ the multi-task `TaskGroup` (designs 44/45/52/52b, below).
   ```
 
   The diagnostic names the spellings that work: pass the value to the closure
-  as a parameter; pass the closure straight to a non-escaping parameter, where a
-  `[move r]` capture transfers when the body runs; or, for a value an escaping
+  as a parameter; pass the closure straight to a non-escaping parameter, or call
+  it where it is written, where a `[move r]` capture transfers when the body runs; or, for a value an escaping
   closure consumes at most once across its calls, capture an
   `Arc<Mutex<T?>>` and `take()` the value under the lock. A `Thread.spawn`
   brace is exempt: its capture list is its parameter list and its body runs
@@ -17537,7 +17558,8 @@ affected: they lower to interned constants.
 
 An escaping closure is one bound to a `let`/`var`, returned, or stored in a
 field; its captures move to a refcounted heap block. A closure passed straight
-to the call that runs it keeps its environment on the stack and stays legal, and
+to the call that runs it, or a literal called where it is written, keeps its
+environment on the stack and stays legal, and
 so does an escaping closure with nothing captured — that one is a bare code
 pointer.
 

@@ -1,0 +1,213 @@
+// Conformance row R48 — a closure literal called where it is written may
+// capture by borrow
+//
+// THE GUARANTEE: a literal that is the callee of a call where it is written
+// runs inside that call and is a temporary its statement drops, so it cannot
+// outlive the statement, and it captures as a closure passed straight to a
+// non-escaping parameter does: `[&x]`, `[&var x]`, a reference parameter
+// and `self`. The body reads and writes through the borrow, and what the
+// call hands back is an ordinary value. Each cell prints what the body read
+// or wrote through its capture, so a borrow that read stale or copied
+// storage shows as a wrong number.
+//
+// The cells: the callee with no argument and with one, parenthesized, nested
+// in another in-place body, an `if` condition, `if let`, `guard let`, a
+// `match` scrutinee, an argument, an operand, `return`, `??`'s right side, a
+// `while` condition writing through `[&var]`, a loop body, an interpolation,
+// `try` and `try!`, a method on the result, a statement with a void body
+// that returns early, `[&var]` growing a vector, `self` and `[&self]` in
+// methods, a `&var` parameter named bare, a non-escaping function parameter
+// named in the body, a generic body, a task body, and a suspension in the
+// same statement after the call. The refusals beside this row are R49's.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// callee 4
+// args 14
+// paren 4
+// nested 5
+// condition
+// if-let 4
+// guard 4
+// match three
+// argument 12
+// operand 1007
+// return 104
+// coalesce 4
+// while 1
+// while 2
+// while 3
+// loop 18
+// interpolated 4
+// try 4
+// try! 4
+// method 4
+// hits 2
+// grown 2 2
+// bump 11
+// read 12
+// through 5
+// twice 8
+// count 2
+// local 2
+// task 8
+// suspend 11
+// end
+import std.task.{yield_now}
+
+enum Why { case Bad }
+
+extension Why: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+extension Why: Error {}
+
+struct Counter { n: Int }
+
+extension Counter {
+    func bump(&var self) -> Int {
+        { self.n = self.n + 10; self.n }()
+    }
+
+    func read(&self) -> Int {
+        { [&self] in self.n + 1 }()
+    }
+}
+
+func opt(n: Int) -> Int? {
+    if n > 0 { Optional.Some(n) } else { None }
+}
+
+func check(n: Int) -> Result<Int, Why> {
+    if n > 0 { Result.Ok(n) } else { Result.Err(Why.Bad) }
+}
+
+func takes(n: Int) -> Int { n * 2 }
+
+func returned(a: &String) -> Int {
+    return { [&a] in a.len() + 100 }()
+}
+
+func guarded(a: &String) -> Int {
+    guard let x = { [&a] in opt(a.len()) }() else { return 0 }
+    x
+}
+
+func tried(a: &String) -> Result<Int, Why> {
+    let n = try ({ [&a] in check(a.len()) })()
+    return Result.Ok(n)
+}
+
+func through(r: &var Int) {
+    { r += 5 }()
+}
+
+func twice(f: () -> Int) -> Int {
+    { f() + f() }()
+}
+
+func count<T>(v: &Vector<T>) -> Int {
+    { [&v] in v.len() }()
+}
+
+func local_count<T: Copy>(x: T) -> Int {
+    var w = Vector<T>()
+    try! w.push(x)
+    try! w.push(x)
+    { [&w] in w.len() }()
+}
+
+func work(n: Int) -> Int {
+    let v: Vector<Int> = [n, n, n]
+    { [&v] in v[0] + v.len() }()
+}
+
+func pause() -> Int {
+    yield_now()
+    1
+}
+
+func suspended(n: Int) -> Int {
+    let v: Vector<Int> = [n, n]
+    let r = { [&v] in v.len() }() + pause()
+    let s = pause() + { [&v] in v[0] }()
+    r + s
+}
+
+func main() {
+    let a = "abcd"
+    let v: Vector<Int> = [5, 6, 7]
+    let n0 = { [&a] in a.len() }()
+    print("callee {n0}")
+    let n1 = { [&a] k: Int in a.len() + k }(10)
+    print("args {n1}")
+    let n2 = ({ [&a] in a.len() })()
+    print("paren {n2}")
+    let n3 = { [&a] in { [&a] in a.len() }() + 1 }()
+    print("nested {n3}")
+    if { [&v] in v.len() == 3 }() {
+        print("condition")
+    }
+    if let x = { [&a] in opt(a.len()) }() {
+        print("if-let {x}")
+    }
+    print("guard {guarded(&a)}")
+    match { [&v] in v.len() }() {
+        case 3 -> print("match three"),
+        case _ -> print("match other")
+    }
+    print("argument {takes({ [&v] in v[1] }())}")
+    let n4 = 1000 + { [&v] in v[2] }()
+    print("operand {n4}")
+    print("return {returned(&a)}")
+    let none: Int? = None
+    let n5 = none ?? { [&a] in a.len() }()
+    print("coalesce {n5}")
+    var i = 0
+    while ({ [&var i] in i += 1; i < 4 }()) {
+        print("while {i}")
+    }
+    var total = 0
+    var j = 0
+    while j < 3 {
+        total = total + { [&v] in v[j] }()
+        j = j + 1
+    }
+    print("loop {total}")
+    print("interpolated {{ [&a] in a.len() }()}")
+    print("try {try! tried(&a)}")
+    let m = try! { [&a] in check(a.len()) }()
+    print("try! {m}")
+    let s = { [&a] in a.len() }().to_string()
+    print("method {s}")
+    var hits = 0
+    var k = 0
+    while k < 5 {
+        { [&var hits] in
+            if k % 2 == 0 { return }
+            hits += 1
+        }()
+        k = k + 1
+    }
+    print("hits {hits}")
+    var g: Vector<Int> = [1]
+    let len = { [&var g] in try! g.push(2); g.len() }()
+    print("grown {len} {g.len()}")
+    var c = Counter(n: 1)
+    print("bump {c.bump()}")
+    print("read {c.read()}")
+    var r = 0
+    through(&var r)
+    print("through {r}")
+    let four = 4
+    print("twice {twice({ four })}")
+    let names: Vector<String> = ["a", "b"]
+    print("count {count(&names)}")
+    print("local {local_count(7)}")
+    var group = TaskGroup()
+    let t = group.spawn(work(5))
+    print("task {t.join()}")
+    print("suspend {suspended(7)}")
+    print("end")
+}

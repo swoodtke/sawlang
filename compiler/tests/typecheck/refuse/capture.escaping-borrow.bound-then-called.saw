@@ -1,0 +1,10 @@
+// refuses: capture.escaping-borrow at 8:16
+// a borrow capture in a literal bound with `let` and called on the next
+// line: only the literal that is its call's callee is in place (SL-1137),
+// and a binding holds the closure past the statement that built it
+
+func main() {
+    let a = "abc"
+    let f = { [&a] in a.len() }
+    print(f())
+}

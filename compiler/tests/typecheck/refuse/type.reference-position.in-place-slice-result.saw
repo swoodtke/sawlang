@@ -1,0 +1,11 @@
+// refuses: type.reference-position at 9:23
+// errors: 2
+// an in-place literal whose body's value is a range view through its borrow
+// capture: the result would be a reference, refused as a closure's result
+// is anywhere (SL-1137)
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    let s = { [&v] in v[0..2] }()
+    print(s.len())
+}

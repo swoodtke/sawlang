@@ -5598,7 +5598,8 @@ extension MirProgram {
             self.assign_local(env, built)
             // The environment owns what its copy captures copied, until the
             // statement that built the closure ends: the closure is passed
-            // straight to the call that runs it, so nothing outlives that.
+            // straight to the call that runs it, or is that call's callee,
+            // so nothing outlives that.
             self.scope_owned(env)
             var exclusive = false
             var j = 0

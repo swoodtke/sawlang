@@ -1,0 +1,22 @@
+// Conformance row N12 — `--no-hidden-alloc` accepts a capturing closure
+// literal called where it is written
+//
+// THE GUARANTEE: a literal that is the callee of a call where it is written
+// does not escape, so its environment is a local of the function that
+// builds it, as a closure passed straight to a non-escaping parameter keeps
+// one. The compiler allocates nothing for it, and the flag that forbids
+// allocations the source does not name has nothing to refuse: a by-value
+// capture and a borrow capture alike.
+//
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5 2
+
+func main() {
+    let n = 4
+    let v: Vector<Int> = [1, 2]
+    let m = { [n] in n + 1 }()
+    let k = { [&v] in v.len() }()
+    print("{} {}", m, k)
+}

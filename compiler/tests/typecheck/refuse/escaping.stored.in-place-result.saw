@@ -1,0 +1,60 @@
+// refuses: escaping.stored at 13:7
+// errors: 11
+// a non-escaping function value an in-place literal reaches never leaves
+// through the literal's result, whatever position hands it on: the tail, a
+// `return`, a moved read, a local bound to it, an arm, a `try` block, a
+// nested in-place result, a tuple or array element, a capture under any word
+// and a closure parameter (SL-1137)
+
+func seven() -> Int { 7 }
+func flag() -> Bool { true }
+
+func tail(f: () -> Int) -> () -> Int {
+    { f }()
+}
+
+func returned(f: () -> Int) -> () -> Int {
+    { [f] in return f }()
+}
+
+func moved(f: () -> Int) -> () -> Int {
+    { [move f] in move f }()
+}
+
+func alias(f: () -> Int) -> () -> Int {
+    {
+        let h = f
+        h
+    }()
+}
+
+func arm(f: () -> Int) -> () -> Int {
+    { match flag() { case true -> f, case false -> seven } }()
+}
+
+func caught(f: () -> Int) -> () -> Int {
+    { try { f } catch { seven } }()
+}
+
+func nested(f: () -> Int) -> () -> Int {
+    { { f }() }()
+}
+
+func tupled(f: () -> Int) -> () -> Int {
+    { (f, 1) }().0
+}
+
+func listed(f: () -> Int) -> () -> Int {
+    { [f] }()[0]
+}
+
+func copied(f: () -> Int) -> () -> Int {
+    { [copy f] in if flag() { f } else { seven } }()
+}
+
+func parameter(f: () -> Int) -> () -> Int {
+    { h: () -> Int in h }(f)
+}
+
+func main() {
+}

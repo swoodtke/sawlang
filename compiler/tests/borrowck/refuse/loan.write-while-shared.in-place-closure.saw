@@ -1,0 +1,12 @@
+// refuses: loan.write-while-shared at 10:22
+// an in-place literal's `[&var v]` beside `&v` in the same call: the
+// capture charges `v` exclusively while the shared argument is live
+// (SL-1137)
+
+func both(a: &Vector<Int>, n: Int) -> Int { a.len() + n }
+
+func main() {
+    var v: Vector<Int> = [1]
+    let n = both(&v, { [&var v] in try! v.push(1); v.len() }())
+    print(n)
+}

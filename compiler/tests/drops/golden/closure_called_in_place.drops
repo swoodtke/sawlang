@@ -75,8 +75,10 @@ fn closure_called_in_place.in_place() -> Int {
     let _3: Int;  // r
     let _4: &String;
     let _5: String;
-    let _6: () sendable -> Int;
-    let _7: Int;
+    let _6: (String,);  // environment
+    let _7: &(String,);
+    let _8: () sendable -> Int;
+    let _9: Int;
 
     bb0: {
         _2 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -89,12 +91,15 @@ fn closure_called_in_place.in_place() -> Int {
     }
 
     bb2: {
-        _6 = closure#0 of closure_called_in_place.in_place() [move _5];
-        _7 = call value copy _6 [] -> [return: bb3];
+        _6 = (move _5,);
+        _7 = ref(shared, _6);
+        _8 = closure#0 of closure_called_in_place.in_place() [move _7];
+        _9 = call value copy _8 [] -> [return: bb3];
     }
 
     bb3: {
-        _3 = move _7;
+        _3 = move _9;
+        drop(_8);
         drop(_6);
         _0 = copy _3;
         drop(_1);
@@ -102,6 +107,7 @@ fn closure_called_in_place.in_place() -> Int {
     }
 
     glue () sendable -> Int: closure environment
+    glue (String,): structural
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
@@ -130,8 +136,10 @@ fn closure_called_in_place.in_place_with_argument() -> Int {
     let _2: String;
     let _3: &String;
     let _4: String;
-    let _5: (Int) sendable -> Int;
-    let _6: Int;
+    let _5: (String,);  // environment
+    let _6: &(String,);
+    let _7: (Int) sendable -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -144,18 +152,22 @@ fn closure_called_in_place.in_place_with_argument() -> Int {
     }
 
     bb2: {
-        _5 = closure#0 of closure_called_in_place.in_place_with_argument() [move _4];
-        _6 = call value copy _5 [const 4: Int] -> [return: bb3];
+        _5 = (move _4,);
+        _6 = ref(shared, _5);
+        _7 = closure#0 of closure_called_in_place.in_place_with_argument() [move _6];
+        _8 = call value copy _7 [const 4: Int] -> [return: bb3];
     }
 
     bb3: {
-        _0 = move _6;
+        _0 = move _8;
+        drop(_7);
         drop(_5);
         drop(_1);
         return;
     }
 
     glue (Int) sendable -> Int: closure environment
+    glue (String,): structural
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
@@ -189,9 +201,11 @@ fn closure_called_in_place.in_place_operand() -> Int {
     let _2: String;
     let _3: &String;
     let _4: String;
-    let _5: () sendable -> Int;
-    let _6: Int;
-    let _7: Int;
+    let _5: (String,);  // environment
+    let _6: &(String,);
+    let _7: () sendable -> Int;
+    let _8: Int;
+    let _9: Int;
 
     bb0: {
         _2 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -204,19 +218,23 @@ fn closure_called_in_place.in_place_operand() -> Int {
     }
 
     bb2: {
-        _5 = closure#0 of closure_called_in_place.in_place_operand() [move _4];
-        _6 = call value copy _5 [] -> [return: bb3];
+        _5 = (move _4,);
+        _6 = ref(shared, _5);
+        _7 = closure#0 of closure_called_in_place.in_place_operand() [move _6];
+        _8 = call value copy _7 [] -> [return: bb3];
     }
 
     bb3: {
-        _7 = Add(const 1: Int, move _6);
-        _0 = move _7;
+        _9 = Add(const 1: Int, move _8);
+        _0 = move _9;
+        drop(_7);
         drop(_5);
         drop(_1);
         return;
     }
 
     glue () sendable -> Int: closure environment
+    glue (String,): structural
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
@@ -245,9 +263,11 @@ fn closure_called_in_place.in_place_scrutinee() -> Int {
     let _2: String;
     let _3: &String;
     let _4: String;
-    let _5: () sendable -> Int?;
-    let _6: Int?;
-    let _7: Int;  // x
+    let _5: (String,);  // environment
+    let _6: &(String,);
+    let _7: () sendable -> Int?;
+    let _8: Int?;
+    let _9: Int;  // x
 
     bb0: {
         _2 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -266,28 +286,33 @@ fn closure_called_in_place.in_place_scrutinee() -> Int {
     }
 
     bb3: {
-        _5 = closure#0 of closure_called_in_place.in_place_scrutinee() [move _4];
-        _6 = call value copy _5 [] -> [return: bb4];
+        _5 = (move _4,);
+        _6 = ref(shared, _5);
+        _7 = closure#0 of closure_called_in_place.in_place_scrutinee() [move _6];
+        _8 = call value copy _7 [] -> [return: bb4];
     }
 
     bb4: {
-        switch discriminant(_6) -> [Some: bb5, None: bb6];
+        switch discriminant(_8) -> [Some: bb5, None: bb6];
     }
 
     bb5: {
-        _7 = copy (_6 as Some).0;
-        _0 = copy _7;
+        _9 = copy (_8 as Some).0;
+        _0 = copy _9;
+        drop(_7);
         drop(_5);
         drop(_1);
         return;
     }
 
     bb6: {
+        drop(_7);
         drop(_5);
         goto -> bb2;
     }
 
     glue () sendable -> Int?: closure environment
+    glue (String,): structural
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
@@ -321,7 +346,9 @@ fn closure_called_in_place.in_place_void() -> Void {
     let _2: String;
     let _3: &String;
     let _4: String;
-    let _5: () sendable -> Void;
+    let _5: (String,);  // environment
+    let _6: &(String,);
+    let _7: () sendable -> Void;
 
     bb0: {
         _2 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -334,17 +361,21 @@ fn closure_called_in_place.in_place_void() -> Void {
     }
 
     bb2: {
-        _5 = closure#0 of closure_called_in_place.in_place_void() [move _4];
-        call value copy _5 [] -> [return: bb3];
+        _5 = (move _4,);
+        _6 = ref(shared, _5);
+        _7 = closure#0 of closure_called_in_place.in_place_void() [move _6];
+        call value copy _7 [] -> [return: bb3];
     }
 
     bb3: {
+        drop(_7);
         drop(_5);
         drop(_1);
         return;
     }
 
     glue () sendable -> Void: closure environment
+    glue (String,): structural
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
@@ -485,8 +516,10 @@ fn closure_called_in_place.parameter_plain(x: Int) -> Int {
     let _4: Int;  // r
     let _5: &String;
     let _6: String;
-    let _7: (Int) sendable -> Int;
-    let _8: Int;
+    let _7: (String,);  // environment
+    let _8: &(String,);
+    let _9: (Int) sendable -> Int;
+    let _10: Int;
 
     bb0: {
         _3 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -499,12 +532,15 @@ fn closure_called_in_place.parameter_plain(x: Int) -> Int {
     }
 
     bb2: {
-        _7 = closure#0 of closure_called_in_place.parameter_plain(x: Int) [move _6];
-        _8 = call value copy _7 [copy _1] -> [return: bb3];
+        _7 = (move _6,);
+        _8 = ref(shared, _7);
+        _9 = closure#0 of closure_called_in_place.parameter_plain(x: Int) [move _8];
+        _10 = call value copy _9 [copy _1] -> [return: bb3];
     }
 
     bb3: {
-        _4 = move _8;
+        _4 = move _10;
+        drop(_9);
         drop(_7);
         _0 = copy _4;
         drop(_2);
@@ -512,6 +548,7 @@ fn closure_called_in_place.parameter_plain(x: Int) -> Int {
     }
 
     glue (Int) sendable -> Int: closure environment
+    glue (String,): structural
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
@@ -543,8 +580,10 @@ fn closure_called_in_place.parameter_generic(x: T) -> Int {
     let _4: Int;  // r
     let _5: &String;
     let _6: String;
-    let _7: (T) sendable -> Int;
-    let _8: Int;
+    let _7: (String,);  // environment
+    let _8: &(String,);
+    let _9: (T) sendable -> Int;
+    let _10: Int;
 
     bb0: {
         _3 = call closure_called_in_place.make() [] -> [return: bb1];
@@ -557,18 +596,22 @@ fn closure_called_in_place.parameter_generic(x: T) -> Int {
     }
 
     bb2: {
-        _7 = closure#0 of closure_called_in_place.parameter_generic(x: T) [move _6];
-        _8 = call value copy _7 [move _1] -> [return: bb3];
+        _7 = (move _6,);
+        _8 = ref(shared, _7);
+        _9 = closure#0 of closure_called_in_place.parameter_generic(x: T) [move _8];
+        _10 = call value copy _9 [move _1] -> [return: bb3];
     }
 
     bb3: {
-        _4 = move _8;
+        _4 = move _10;
+        drop(_9);
         drop(_7);
         _0 = copy _4;
         drop(_2);
         return;
     }
 
+    glue (String,): structural
     glue (T) sendable -> Int: per instantiation
     glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }

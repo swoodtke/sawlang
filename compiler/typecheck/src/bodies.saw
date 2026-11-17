@@ -613,24 +613,28 @@ extension TcProgram {
     }
 
     // A block's tail, through the funnel entry for where the block stands.
+    // With no type expected, the tail still hands its value on, to the
+    // closure's caller or to the value the arms merge into.
     func check_tail(&var self, e: Int, want: Int, tail: TcTail) -> Int {
-        if want < 0 {
-            let _ = self.expr(e, TC_WANT_NONE)
-            let t = self.read_value(e)
-            self.consume(e)
-            return t
+        if want >= 0 && tail == TcTail.Body {
+            return self.check_body_tail(e, want)
         }
-        match tail {
-            case Body -> self.check_body_tail(e, want),
-            case Branch -> self.check_branch(e, want),
-            case Closure -> self.check_closure_tail(e, want),
-            case Plain -> {
-                let _ = self.expr(e, TC_WANT_NONE)
-                let t = self.read_value(e)
-                self.consume(e)
-                t
-            }
+        if want >= 0 && tail == TcTail.Branch {
+            return self.check_branch(e, want)
         }
+        if want >= 0 && tail == TcTail.Closure {
+            return self.check_closure_tail(e, want)
+        }
+        let _ = self.expr(e, TC_WANT_NONE)
+        let t = self.read_value(e)
+        let pos = match tail {
+            case Body -> TcPosition.Tail,
+            case Closure -> TcPosition.ClosureTail,
+            case _ -> TcPosition.Branch
+        }
+        self.check_escape(e, -1, pos)
+        self.consume(e)
+        t
     }
 
     // One statement. Returns whether it diverges: control never reaches the
@@ -1559,6 +1563,7 @@ extension TcProgram {
         }
         if result < 0 {
             let _ = self.expr(e, TC_WANT_NONE)
+            self.check_escape(e, -1, TcPosition.Return)
             self.consume(e)
             return
         }
@@ -1573,6 +1578,7 @@ extension TcProgram {
         var t = self.void_type()
         if e >= 0 {
             t = self.expr(e, TC_WANT_NONE)
+            self.check_escape(e, -1, TcPosition.ClosureTail)
             self.consume(e)
             t = self.final_type(e)
             if self.referent(t) >= 0 && self.expr_place[e] {
@@ -3147,14 +3153,17 @@ extension TcProgram {
     }
 
     // Whether expression `e` reads a non-escaping function value: a binding
-    // `nonescaping_bindings` marks, read or moved.
+    // `nonescaping_bindings` marks, read or moved. A `move`'s operand is a
+    // name reference, not a name expression.
     func nonescaping_value(&self, e: Int) -> Bool {
         var at = self.unparen(e)
+        var named = at >= 0 && self.has_alt(at, Alt.Expr_Name)
         if at >= 0 && self.has_alt(at, Alt.Expr_Move_Place) {
             let operand = self.res.first_node_child(at)
             at = self.unparen(operand)
+            named = at >= 0 && (self.has_alt(at, Alt.Expr_Name) || self.has_alt(at, Alt.Expr_NameRef))
         }
-        if at < 0 || not self.has_alt(at, Alt.Expr_Name) {
+        if not named {
             return false
         }
         let leaf = self.res.first_leaf(at)
@@ -3164,8 +3173,21 @@ extension TcProgram {
 
     // A non-escaping function value may be called, passed to a non-escaping
     // parameter, captured by a non-escaping closure or bound to a local; any
-    // other position holds it past the call (SL:open-questions D35). `slot`
-    // is what position `pos` expects.
+    // other position holds it past the call. `slot` is what position `pos`
+    // expects, -1 where no type is expected: a value handed on there is held
+    // all the same, by the caller of a closure whose result it gives or by
+    // the value its arms or elements make (SL:open-questions D35).
+    // ENTRY POINTS:
+    //     expect
+    //     check_tail
+    //     arm_body
+    //     check_return
+    //     open_return
+    //     tuple_expr
+    //     array_expr
+    //     repeat_expr
+    //     map_expr
+    //     set_expr
     func check_escape(&var self, e: Int, slot: Int, pos: TcPosition) {
         if not self.nonescaping_value(e) {
             return
@@ -6510,6 +6532,7 @@ extension TcProgram {
             } else {
                 let _ = self.expr(v, TC_WANT_NONE)
                 let _ = self.read_value(v)
+                self.check_escape(v, -1, TcPosition.Element)
                 self.consume(v)
             }
             try! elements.push(self.final_type(v))
@@ -6589,6 +6612,7 @@ extension TcProgram {
                 if values.len() > 1 {
                     element = self.peer_slot(v, element, TcPosition.Element)
                 }
+                self.check_escape(v, -1, TcPosition.Element)
                 self.consume(v)
             }
             k = k + 1
@@ -6667,6 +6691,7 @@ extension TcProgram {
         } else {
             let _ = self.expr(value, TC_WANT_NONE)
             element = self.read_value(value)
+            self.check_escape(value, -1, TcPosition.Element)
             if self.check_repeat_element(e, value, element) {
                 let u = self.by_value_use(value)
                 self.set_use(value, u)
@@ -7227,9 +7252,11 @@ extension TcProgram {
             } else {
                 let _ = self.expr(kn, TC_WANT_NONE)
                 key = self.read_value(kn)
+                self.check_escape(kn, -1, TcPosition.Element)
                 self.consume(kn)
                 let _ = self.expr(vn, TC_WANT_NONE)
                 value = self.read_value(vn)
+                self.check_escape(vn, -1, TcPosition.Element)
                 self.consume(vn)
             }
         }
@@ -7267,6 +7294,7 @@ extension TcProgram {
             } else {
                 let _ = self.expr(c, TC_WANT_NONE)
                 element = self.read_value(c)
+                self.check_escape(c, -1, TcPosition.Element)
                 self.consume(c)
             }
         }
@@ -8194,6 +8222,7 @@ extension TcProgram {
         }
         let _ = self.expr(body, TC_WANT_NONE)
         let t = self.read_value(body)
+        self.check_escape(body, -1, TcPosition.Branch)
         self.consume(body)
         t
     }
@@ -15849,9 +15878,11 @@ extension TcProgram {
         }
     }
 
-    // The binding a mention found by `tc_closure_mentions` names.
+    // The binding a mention found by `tc_closure_mentions` names: a name, or
+    // a nested closure's capture-list entry, which `collect_captures` reads
+    // the same way.
     public func mention_binding(&self, site: Int) -> ResBinding {
-        if self.has_alt(site, Alt.Expr_Self) {
+        if self.has_alt(site, Alt.Expr_Self) || self.has_alt(site, Alt.Expr_Capture_Self) || self.has_alt(site, Alt.Expr_Capture_SelfExclusive) {
             return self.binding_at(site)
         }
         let leaf = self.res.first_leaf(site)
@@ -16111,7 +16142,8 @@ extension TcProgram {
     }
 
     // Whether closure `e` escapes: anything but a direct argument of a call
-    // whose parameter is a function type that does not say `escaping`. A new
+    // whose parameter is a function type that does not say `escaping`, or
+    // the callee of a call where it is written (`in_place_callee`). A new
     // storage position therefore escapes with no change here. Every reader
     // takes the answer from `closure_escaping`, mono's environment refusal
     // among them (SL-608).
@@ -16119,6 +16151,9 @@ extension TcProgram {
         let up = parents[e]
         if up < 0 {
             return true
+        }
+        if self.in_place_callee(e, &parents) {
+            return false
         }
         var call = -1
         var arg = e
@@ -16178,6 +16213,21 @@ extension TcProgram {
             return true
         }
         says
+    }
+
+    // Whether closure `e`, under any parentheses, is the callee of the call
+    // that holds it: the call runs it within its statement, and the value is
+    // a temporary that statement drops, so nothing can hold it past the call.
+    // A spawn root, whose call runs in the task, never has a closure for its
+    // callee: `spawn.argument` refuses one (SL-1137).
+    func in_place_callee(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
+        var at = e
+        var up = parents[e]
+        while up >= 0 && self.has_alt(up, Alt.Expr_Paren) {
+            at = up
+            up = parents[up]
+        }
+        up >= 0 && self.is_call_alt(up) && self.res.first_node_child(up) == at
     }
 
     // The name a capture's binding is written with.
@@ -16263,7 +16313,7 @@ extension TcProgram {
         } else {
             try! msg.append("` by borrow")
         }
-        try! msg.append(", and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or copy what its body needs into locals and capture those")
+        try! msg.append(", and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or call it where it is written (`\{ ... \}()`), or copy what its body needs into locals and capture those")
         self.refuse(site, "capture.escaping-borrow", msg.build())
     }
 }
@@ -16280,10 +16330,11 @@ public func tc_closure_mentions(p: &TcProgram, e: Int) -> Vector<Int> {
     while top > 0 {
         top = top - 1
         let id = stack[top]
-        if id != e && p.is_capture(id) {
-            continue
-        }
-        if p.has_alt(id, Alt.Expr_Name) || p.has_alt(id, Alt.Expr_NameRef) || p.has_alt(id, Alt.Expr_Self) {
+        // A nested closure's capture-list entry reads its binding in this
+        // body, which must hold the binding to hand it on, whether or not a
+        // body names it; `e`'s own entries are never pushed.
+        let mentions = p.has_alt(id, Alt.Expr_Name) || p.has_alt(id, Alt.Expr_NameRef) || p.has_alt(id, Alt.Expr_Self) || p.is_capture(id)
+        if mentions {
             let b = p.mention_binding(id)
             if b.kind == ResBindKind.Local && b.node >= 0 {
                 let declared = p.res.nodes[b.node]
@@ -16296,7 +16347,7 @@ public func tc_closure_mentions(p: &TcProgram, e: Int) -> Vector<Int> {
         var c = p.child_count(id) - 1
         while c >= 0 {
             let child = p.child(id, c)
-            if not p.is_leaf(child) {
+            if not p.is_leaf(child) && not (id == e && p.is_capture(child)) {
                 if top < stack.len() {
                     stack[top] = child
                 } else {

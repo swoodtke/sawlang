@@ -1,0 +1,37 @@
+// refuses: escaping.stored at 13:13
+// errors: 7
+// a non-escaping function value never leaves through the result of a
+// closure passed to a generic parameter that does not escape, whose type the
+// closure's body gives: the tail, a `return`, each arm, a moved read, a
+// nested closure's result and the closure's own parameter (SL-1151)
+
+func apply<R>(g: () -> R) -> R { g() }
+func with<R>(x: () -> Int, g: (() -> Int) -> R) -> R { g(x) }
+func flag() -> Bool { true }
+
+func tail(f: () -> Int) -> () -> Int {
+    apply({ f })
+}
+
+func returned(f: () -> Int) -> () -> Int {
+    apply({ return f })
+}
+
+func arm(f: () -> Int) -> () -> Int {
+    apply({ if flag() { f } else { f } })
+}
+
+func moved(f: () -> Int) -> () -> Int {
+    apply({ [move f] in move f })
+}
+
+func nested(f: () -> Int) -> () -> Int {
+    apply({ apply({ f }) })
+}
+
+func parameter(f: () -> Int) -> () -> Int {
+    with(f, { h in h })
+}
+
+func main() {
+}

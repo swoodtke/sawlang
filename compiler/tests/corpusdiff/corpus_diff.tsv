@@ -443,6 +443,7 @@ conformance/N08_align_local_is_honored.saw	pass	-	-
 conformance/N09_align_static_is_honored.saw	pass	-	-
 conformance/N10_align_rejects_non_power_of_two.saw	pass	-	constant.align: `@align` on the local `body` must be a power of two, but is `24`: an address is aligned to a power of two, and the nearest are `16` and `32`
 conformance/N11_align_refuses_frame_resident_local.saw	pass	-	coro.align-frame-resident: `@align` is not supported on `scratch`: it lives in this function's coroutine frame, not on the stack, and a frame field cannot carry an alignment yet — move the aligned buf
+conformance/N12_no_hidden_alloc_closure_called_in_place.saw	pass	judged by its own directives (no oracle)	-
 conformance/O06_chain_final_field_over_a_temporary_moves_out.saw	pass	judged by its own directives (no oracle)	-
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	pass	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	pass	-	-
@@ -462,7 +463,7 @@ conformance/R16_array_literal_of_refs.saw	pass	-	type.reference-position: `&` he
 conformance/R17_tuple_literal_holds_ref.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
 conformance/R18_map_value_ref.saw	pass	-	type.reference-position: a binding's annotation may not name a reference: `std.map.Map<Int, &Int, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and references are parameters only: a ref
 conformance/R21_alias_launders_ref_return.saw	pass	-	type.reference-position: a return type may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use
-conformance/R23_returned_closure_borrow_capture.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `x` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or copy
+conformance/R23_returned_closure_borrow_capture.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `x` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or call
 conformance/R26_optional_written_name_ref.saw	pass	-	type.reference-position: a parameter's type may not name a reference: `(&Int)?` holds `&Int` as an optional's payload, and references are parameters only: a reference borrows storage for the duration
 conformance/R27_nested_generic_ref.saw	pass	-	type.reference-position: a parameter's type may not name a reference: `std.box.Box<std.vector.Vector<&Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and
 conformance/R31_ref_as_binary_operand.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
@@ -472,6 +473,7 @@ conformance/R34_field_of_ref_returning_fn_type.saw	pass	-	type.reference-positio
 conformance/R39_explicit_self_borrow_capture.saw	pass	-	-
 conformance/R40_var_self_capture_needs_var_receiver.saw	pass	-	capture.exclusive-self: `[&var self]` needs a `&var self` receiver, and `Counter.read` takes `&self`: a shared borrow has no exclusive borrow to hand out; write `[&self]`
 conformance/R41_explicit_self_capture_escaping_error.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the caller owns, and a borrow may not outlive the frame it points into: pass the closure
+conformance/R48_closure_called_in_place_may_borrow.saw	pass	judged by its own directives (no oracle)	-
 conformance/S09_same_scope_redefinition_owning_across_suspend.saw	pass	-	-
 conformance/T10_vector_index_oob.saw	pass	-	-
 conformance/T11_vector_negative_index.saw	pass	-	-
@@ -519,6 +521,7 @@ conformance/V174_closure_called_in_place_is_dropped.saw	pass	judged by its own d
 conformance/V174b_closure_called_in_place_is_dropped_O2.saw	pass	judged by its own directives (no oracle)	-
 conformance/V175_move_base_ends_the_binding.saw	pass	judged by its own directives (no oracle)	-
 conformance/V175_move_base_later_use_is_refused.saw	pass	judged by its own directives (no oracle)	move.use-after: `x.n` is used after it may have been moved (moved at 27:14); a moved value is gone until it is assigned again
+conformance/V176_closure_called_in_place_move_capture_transfers.saw	pass	judged by its own directives (no oracle)	-
 conformance/V18_discard_nocopy_without_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.box.Box<Int, std.alloc.GlobalAllocator>`, which is NoCopy, by value: only a Copy type copies silently; write `move b` to take it, or borrow it
 conformance/V21_optional_explicitcopy_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 conformance/V25_implicitcopy_deinit_once.saw	pass	-	-
@@ -1077,7 +1080,7 @@ errors/byte_digits_spelling_is_as_int.saw	wrong	accepts a refusal test	ambiguous
 errors/byte_never_adopts_a_literal.saw	wrong	accepts a refusal test	argument `b` expects `Byte` but got `UInt8`
 errors/capture_assign_escaping.saw	pass	-	mutability.immutable: this assignment writes `n`, and `n` is captured by value, which makes it a `let` in the closure's body: an escaping closure keeps no state that changes across calls, since every
 errors/capture_assign_non_escaping.saw	pass	-	mutability.immutable: this assignment writes `sum`, and `sum` is captured by value, which makes it a `let` in the closure's body: to write the caller's binding, capture it with `[&var sum]`; to change
-errors/capture_borrow_escaping.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `sum` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or co
+errors/capture_borrow_escaping.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `sum` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or ca
 errors/capture_exclusivity_receiver.saw	pass	-	loan.closure-carrier: `b` is borrowed here while the closure capture at 22:12 holds `b` exclusively until the closure's last call; the closure carries the borrow from its creation to its last call
 errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: `self` is captured only by borrowing it (syntax.expr.refused-capture-self): write `[&self]` or `[&var self]`; the parser refuses `tests/corpus/errors/capture_self_move_requires_
 errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: `self` is captured only by borrowing it (syntax.expr.refused-capture-self): write `[&self]` or `[&var self]`; the parser refuses `tests/corpus/errors/capture_self_requires_borro

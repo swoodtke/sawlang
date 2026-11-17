@@ -1,0 +1,64 @@
+// refuses: escaping.stored at 13:25
+// errors: 10
+// a non-escaping function value handed on with no expected type, in any
+// body: the first arm of a value `if`, `match` or `try` block, a `borrow`
+// block's value, a tuple, array or map element; and `move f`, which keeps
+// the value's kind, into a returned local and a closure's typed result
+// (SL-1151)
+
+func seven() -> Int { 7 }
+func flag() -> Bool { true }
+
+func branch(f: () -> Int) -> () -> Int {
+    let h = if flag() { f } else { seven }
+    h
+}
+
+func arm(f: () -> Int) -> () -> Int {
+    let h = match flag() { case true -> f, case false -> seven }
+    h
+}
+
+func caught(f: () -> Int) -> () -> Int {
+    let h = try { f } catch { seven }
+    h
+}
+
+func lent(f: () -> Int) -> () -> Int {
+    let v: Vector<Int> = [1]
+    borrow let x = v[0] { f }
+}
+
+func tupled(f: () -> Int) -> () -> Int {
+    let t = (f, 1)
+    t.0
+}
+
+func listed(f: () -> Int) -> () -> Int {
+    let a = [f]
+    a[0]
+}
+
+func repeated(f: () -> Int) -> () -> Int {
+    let a = [f; 2]
+    a[1]
+}
+
+func mapped(f: () -> Int) -> () -> Int {
+    let m = {"f": f}
+    m["f"]
+}
+
+func moved(f: () -> Int) -> () -> Int {
+    let h = move f
+    h
+}
+
+func make(g: () -> (() -> Int)) -> () -> Int { g() }
+
+func typed(f: () -> Int) -> () -> Int {
+    make({ move f })
+}
+
+func main() {
+}

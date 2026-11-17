@@ -481,7 +481,9 @@ extension TcProgram {
     public func eval_copy_item(&var self, item: &TcItem, acc: &var TcAcc) {
         if item.kind == TC_ITEM_CAPTURE {
             let cap = self.captures[item.node]
-            let spelled = cap.site >= 0 && self.has_alt(cap.site, Alt.Expr_Capture_Copy)
+            // An implicit capture's site may be a nested closure's `[copy x]`,
+            // which spells that closure's copy, not this one's.
+            let spelled = cap.explicit && cap.site >= 0 && self.has_alt(cap.site, Alt.Expr_Capture_Copy)
             self.eval_copy(cap.ty, cap.site, spelled, &var acc)
             return
         }

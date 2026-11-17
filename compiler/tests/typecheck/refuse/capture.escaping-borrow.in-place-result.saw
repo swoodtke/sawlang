@@ -1,0 +1,10 @@
+// refuses: capture.escaping-borrow at 8:26
+// an in-place literal's body hands out a closure that borrows: the outer
+// literal is in place and may borrow `a`, but the inner one is its result,
+// which the call returns past the statement (SL-1137)
+
+func main() {
+    let a = "abc"
+    let f = { [&a] in { [&a] in a.len() } }()
+    print(f())
+}

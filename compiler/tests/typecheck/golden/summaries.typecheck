@@ -1,4 +1,4 @@
-ERROR	capture.escaping-borrow	compiler/tests/typecheck/golden/summaries.saw:91:29	an escaping closure cannot capture `w`, a reference (`&T`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or copy what its body needs into locals and capture those
+ERROR	capture.escaping-borrow	compiler/tests/typecheck/golden/summaries.saw:91:29	an escaping closure cannot capture `w`, a reference (`&T`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or call it where it is written (`{ ... }()`), or copy what its body needs into locals and capture those
 (Module summaries
   (declarations
     (trait Worker 6:7 private)

@@ -1,0 +1,15 @@
+// refuses: transfer.implicit-copy at 13:23
+// errors: 1
+// an in-place literal whose body's value is a NoCopy element read through
+// its borrow capture: a place read by value, refused as in a function or a
+// closure passed to a non-escaping parameter (SL-1137)
+
+struct Res { v: Int }
+extension Res: NoCopy {}
+
+func main() {
+    var v = Vector<Res>()
+    try! v.push(Res(v: 1))
+    let r = { [&v] in v[0] }()
+    print(r.v)
+}

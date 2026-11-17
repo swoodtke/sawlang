@@ -280,7 +280,7 @@ extension TcProgram {
             try! msg.append(name)
             try! msg.append("` copies it")
         } else {
-            try! msg.append("pass the value to the closure as a parameter; or pass the closure straight to a parameter that does not escape, where `[move ")
+            try! msg.append("pass the value to the closure as a parameter; or pass the closure straight to a parameter that does not escape, or call it where it is written, where `[move ")
             try! msg.append(name)
             try! msg.append("]` transfers the value when the body runs; or, for a value the closure consumes at most once across its calls, capture an `Arc<Mutex<T?>>` and `take()` the value under the lock")
         }
