@@ -1,0 +1,59 @@
+// `blade new` writes the package's name as TOML text: a name that holds a double
+// quote or a backslash reads back exactly, and a plain name is written as it
+// always was, in the manifest and in the greeting of `src/main.saw`. Blade has
+// no rule that refuses such a name, so it is written, not refused.
+import blade.manifest.*
+import std.data.{Data}
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) unsafe -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full.c_string()!) == (0 as Int32)
+}
+
+// Writes the manifest `blade new` makes for `name` into a fresh directory and
+// reads it the way `blade build` does.
+func written_name(work: String, name: String) -> String {
+    let _ = sh("rm -rf {work}")
+    assert(sh("mkdir -p {work}"), "mkdir {work}")
+    var f = try! File.create(Path(s: "{work}/Saw.toml"))
+    let _ = try! f.write(try! new_package_manifest(name).to_data())
+    let _ = try! f.close()
+    match Manifest.load_from(Path(s: work)) {
+        case Ok(m) -> m.name(),
+        case Err(e) -> panic("the manifest written for {name} does not load: {e}")
+    }
+}
+
+func main() {
+    let work = ".build/scratch/new_quoting_work"
+
+    assert(new_package_manifest("demo").equals("[package]\nname = \"demo\"\nversion = \"0.1.0\"\n"),
+           "a plain name is written as before")
+
+    let quote = "we\"ird"
+    assert(new_package_manifest(quote).contains("name = \"we\\\"ird\"\n"), "a quote is written escaped")
+    assert(written_name(work, quote).equals(quote), "a name with a quote reads back")
+
+    let slash = "back\\slash"
+    assert(new_package_manifest(slash).contains("name = \"back\\\\slash\"\n"), "a backslash is written escaped")
+    assert(written_name(work, slash).equals(slash), "a name with a backslash reads back")
+
+    assert(written_name(work, "demo").equals("demo"), "a plain name reads back")
+
+    // The greeting in `src/main.saw` holds the name in a Saw string literal.
+    assert(new_package_main("demo").equals("func main() \{\n    print(\"Hello, demo!\")\n\}\n"),
+           "a plain name is written into main.saw as before")
+    assert(new_package_main(quote).contains("print(\"Hello, we\\\"ird!\")"), "a quote is escaped in main.saw")
+    assert(new_package_main(slash).contains("print(\"Hello, back\\\\slash!\")"), "a backslash is escaped in main.saw")
+    assert(new_package_main("br\{ace\}").contains("print(\"Hello, br\\\{ace\\\}!\")"), "braces are escaped in main.saw")
+
+    let _ = sh("rm -rf {work}")
+    print("new_quoting: ok")
+}

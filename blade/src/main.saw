@@ -121,14 +121,14 @@ func create_new_project(name: String) -> Int {
     }
 
     // Create Saw.toml
-    let toml_content = "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"
+    let toml_content = manifest.new_package_manifest(name)
     let toml_path = project_path.join("Saw.toml")
     if not write_new_file(toml_path, toml_content) {
         return 1
     }
 
     // Create src/main.saw - escape literal braces with \{ and \}
-    let main_content = "func main() \{\n    print(\"Hello, {name}!\")\n\}\n"
+    let main_content = manifest.new_package_main(name)
     let main_path = src_path.join("main.saw")
     if not write_new_file(main_path, main_content) {
         return 1

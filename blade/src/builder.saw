@@ -17,6 +17,7 @@ import blade.manifest.*
 import blade.resolver.*
 import blade.lock.*
 import blade.sosimg.*
+import toml.{key_literal, string_literal}
 import std.data.{Data}
 import std.directory.{Directory}
 import std.env.{Env}
@@ -858,14 +859,18 @@ extension Builder {
         if not content.contains("[dependencies]") {
             try! b.append("\n[dependencies]\n")
         }
+        // The name and the values are written as TOML text, so one holding a
+        // quote, a backslash or a space reads back exactly.
+        let key = key_literal(name)
+        let source = string_literal(loc)
         if kind.equals("git") {
             if version.is_empty() {
-                try! b.append("{name} = \{ git = \"{loc}\" \}\n")
+                try! b.append("{key} = \{ git = {source} \}\n")
             } else {
-                try! b.append("{name} = \{ git = \"{loc}\", version = \"{version}\" \}\n")
+                try! b.append("{key} = \{ git = {source}, version = {string_literal(version)} \}\n")
             }
         } else {
-            try! b.append("{name} = \{ path = \"{loc}\" \}\n")
+            try! b.append("{key} = \{ path = {source} \}\n")
         }
 
         let text = b.build()

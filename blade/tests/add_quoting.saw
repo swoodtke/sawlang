@@ -1,0 +1,117 @@
+// `blade add` writes a dependency as TOML text: a name or a value that holds a
+// backslash, a double quote or a space is quoted and escaped, so the manifest
+// parses back with exactly what was given. A name and values that need no
+// escaping are written as they always were.
+import blade.builder.*
+import blade.manifest.*
+import std.data.{Data}
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) unsafe -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full.c_string()!) == (0 as Int32)
+}
+
+func header() -> String {
+    "[package]\nname = \"host\"\nversion = \"1.0.0\"\n\n[dependencies]\n"
+}
+
+func load(work: String) -> Manifest {
+    match Manifest.load_from(Path(s: work)) {
+        case Ok(m) -> move m,
+        case Err(e) -> panic("the manifest in {work} does not load: {e}")
+    }
+}
+
+// Runs `add_dep` in a fresh directory holding a manifest with no dependency and
+// returns the manifest text it left. The resolve that follows the write fails
+// for these made-up sources; the manifest is already written by then.
+func add_in(work: String, home: Path, name: String, kind: String, loc: String, version: String) -> String {
+    let _ = sh("rm -rf {work}")
+    assert(sh("mkdir -p {work}"), "mkdir {work}")
+    let manifest_path = Path(s: "{work}/Saw.toml")
+    var f = try! File.create(manifest_path)
+    let _ = try! f.write(try! header().to_data())
+    let _ = try! f.close()
+
+    let b = Builder(m: load(work))
+    try! Directory.set_current(Path(s: work))
+    let _ = b.add_dep(name, kind, loc, version)
+    try! Directory.set_current(home)
+
+    var r = try! File.open(manifest_path)
+    let data = try! r.read()
+    return try! data.to_string()
+}
+
+// The one dependency of the manifest in `work`, read the way Blade reads it.
+func only_dep(work: String) -> Dependency {
+    let m = load(work)
+    let deps = match m.dependencies() {
+        case Ok(list) -> move list,
+        case Err(e) -> panic("the dependencies in {work} do not parse: {e}")
+    }
+    assert(deps.len() == 1, "one dependency reads back")
+    guard let dep = deps.get(0) else {
+        panic("no dependency")
+    }
+    return dep
+}
+
+func main() {
+    let home = try! Directory.current()
+    let work = ".build/scratch/add_quoting_work"
+
+    // Plain text: the whole line is what it always was.
+    let plain_path = add_in(work, home, "plain", "path", "../plain", "")
+    assert(plain_path.equals("{header()}plain = \{ path = \"../plain\" \}\n"), "plain path line: {plain_path}")
+    let plain_git = add_in(work, home, "plain", "git", "/no/such/p.git", "1.2.0")
+    assert(plain_git.equals("{header()}plain = \{ git = \"/no/such/p.git\", version = \"1.2.0\" \}\n"),
+           "plain git line: {plain_git}")
+    let plain_bare = add_in(work, home, "plain", "git", "/no/such/p.git", "")
+    assert(plain_bare.equals("{header()}plain = \{ git = \"/no/such/p.git\" \}\n"), "plain git line, no version: {plain_bare}")
+
+    // A name that needs quotes and a location holding `"` and `\`, as a path.
+    let loc = "../we\"ird\\dir"
+    let quoted_path = add_in(work, home, "my lib", "path", loc, "")
+    assert(quoted_path.contains("\"my lib\" = \{ path = \"../we\\\"ird\\\\dir\" \}\n"), "quoted path line: {quoted_path}")
+    let p = only_dep(work)
+    assert(p.name.equals("my lib"), "the name reads back: {p.name}")
+    assert(p.is_path(), "a path dependency reads back as a path")
+    match p.source {
+        case PathDep(dir) -> assert(dir.equals(loc), "the path reads back: {dir}"),
+        case GitDep(_) -> panic("a path dependency read back as git")
+    }
+
+    // The same, as a git dependency with a version holding both characters.
+    let version = "1.0\"\\x"
+    let quoted_git = add_in(work, home, "my lib", "git", loc, version)
+    assert(quoted_git.contains("\"my lib\" = \{ git = \"../we\\\"ird\\\\dir\", version = \"1.0\\\"\\\\x\" \}\n"),
+           "quoted git line: {quoted_git}")
+    let g = only_dep(work)
+    assert(g.name.equals("my lib"), "the git name reads back: {g.name}")
+    assert(g.version.equals(version), "the version reads back: {g.version}")
+    match g.source {
+        case GitDep(url) -> assert(url.equals(loc), "the url reads back: {url}"),
+        case PathDep(_) -> panic("a git dependency read back as a path")
+    }
+
+    // The git line with no version.
+    let bare_git = add_in(work, home, "my lib", "git", loc, "")
+    assert(bare_git.contains("\"my lib\" = \{ git = \"../we\\\"ird\\\\dir\" \}\n"), "quoted git line, no version: {bare_git}")
+    let bare = only_dep(work)
+    assert(bare.name.equals("my lib"), "the bare git name reads back: {bare.name}")
+    match bare.source {
+        case GitDep(url) -> assert(url.equals(loc), "the bare url reads back: {url}"),
+        case PathDep(_) -> panic("a git dependency read back as a path")
+    }
+
+    let _ = sh("rm -rf {work}")
+    print("add_quoting: ok")
+}

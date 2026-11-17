@@ -1,7 +1,7 @@
 // Manifest - Saw.toml package manifest handling
 // Part of the Blade package manager
 
-import toml.{TomlDoc, TomlError, TomlKind, TomlTable}
+import toml.{TomlDoc, TomlError, TomlKind, TomlTable, string_literal}
 import std.data.{Data}
 import std.directory.{Directory}
 import std.file.{File}
@@ -190,6 +190,19 @@ func read_dependencies(deps: &TomlTable, manifest: String) -> Result<DepList, Bo
         }
     }
     move list
+}
+
+// The Saw.toml `blade new` writes for a package called `name`. The name is
+// written as TOML text, so one holding a quote or a backslash reads back exactly.
+public func new_package_manifest(name: String) -> String {
+    "[package]\nname = {string_literal(name)}\nversion = \"0.1.0\"\n"
+}
+
+// The `src/main.saw` `blade new` writes: the name sits in a Saw string literal,
+// so a backslash, a quote and a brace are escaped and the program compiles.
+public func new_package_main(name: String) -> String {
+    let text = name.replace("\\", "\\\\").replace("\"", "\\\"").replace("\{", "\\\{").replace("\}", "\\\}")
+    "func main() \{\n    print(\"Hello, {text}!\")\n\}\n"
 }
 
 extension Manifest {
