@@ -1235,7 +1235,7 @@ extension TcProgram {
         let want = self.nominal_decl(result)
         var k = 0
         while k < leaves.len() {
-            let leaf = leaves[k]
+            let leaf = self.through_alias_construction(leaves[k])
             k = k + 1
             let t = self.final_type(leaf)
             if t < 0 || self.has_error(t) || self.is_never(t) {
@@ -1258,6 +1258,17 @@ extension TcProgram {
             let m = self.node_in_module(leaf)
             self.refuse_in(m, leaf, "lends.path", msg.build())
         }
+    }
+
+    // A returning path `leaf` that is one alias construction, `Alias(x)`, as
+    // its argument `x`: the construction is representationally free, so the
+    // path is `x`'s. Any other node is itself.
+    func through_alias_construction(&self, leaf: Int) -> Int {
+        let inner = self.unparen(self.alias_argument(leaf))
+        if inner < 0 {
+            return leaf
+        }
+        inner
     }
 
     // The expressions value `e` can end in, through the arms of a value

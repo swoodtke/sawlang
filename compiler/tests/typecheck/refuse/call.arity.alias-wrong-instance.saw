@@ -1,0 +1,32 @@
+// refuses: call.arity at 27:13
+// an alias is constructed from one value of the type it names (SL-1147): the
+// target's own labels on the alias head built another instance than the alias
+// names, `PairOfStrings(x: 1)` a `Pair<Int>`
+// errors: 4
+// message: an alias is constructed from one unlabeled value of the type it names
+// message: construct a value of `Pair<String>` first and pass it as that one value
+
+struct Pair<T> {
+    x: T
+}
+
+struct Plain {
+    n: Int
+}
+
+struct Buf<const N: Int> {
+    bytes: [UInt8; N]
+}
+
+type PairOfStrings = Pair<String>
+type PairOfBytes = Pair<UInt8>
+type Owned = Plain
+type Buf8 = Buf<8>
+
+func main() {
+    let p = PairOfStrings(x: 1)
+    let q = PairOfBytes(x: 300)
+    let o = Owned(n: 3)
+    let a: [UInt8; 4] = [1, 2, 3, 4]
+    let b = Buf8(bytes: a)
+}

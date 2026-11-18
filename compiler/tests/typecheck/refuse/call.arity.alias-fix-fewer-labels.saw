@@ -1,0 +1,15 @@
+// refuses: call.arity at 14:13
+// fewer labels than the struct has fields: `P2(Two(n: 1))` would be
+// `call.arity` again, missing `m`, so nothing is spelled (SL-1012)
+// message: construct a value of `Two` first and pass it as that one value
+
+struct Two {
+    n: Int
+    m: Int
+}
+
+type P2 = Two
+
+func main() {
+    let p = P2(n: 1)
+}

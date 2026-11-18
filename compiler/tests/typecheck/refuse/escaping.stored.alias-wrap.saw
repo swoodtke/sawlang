@@ -1,0 +1,41 @@
+// refuses: escaping.stored at 31:43
+// errors: 5
+// an alias construction over any type but a function type holds its
+// argument as storage, as an optional or a field does, so building one from
+// a non-escaping function value is refused where it is built: over an
+// optional, a `Result`, a struct of an optional alias and an optional of a
+// function alias, and in a local kept only to call it, as
+// `let m: ((Int) -> Int)? = f` is (SL-1157)
+// message: the `MF` built from it holds it past the call
+
+type Fn = (Int) -> Int
+type MF = ((Int) -> Int)?
+type MFn = Fn?
+
+struct Bad {
+    code: Int
+}
+
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+type RF = Result<(Int) -> Int, Bad>
+
+struct W<T> {
+    v: T
+}
+
+type WMF = W<MF>
+
+func optional(f: (Int) -> Int) -> MF { MF(f) }
+func result(f: (Int) -> Int) -> RF { RF(f) }
+func wrapped(f: (Int) -> Int) -> WMF { WMF(W(v: MF(f))) }
+func of_alias(f: (Int) -> Int) -> MFn { MFn(Fn(f)) }
+
+func local(f: (Int) -> Int) -> Int {
+    let m = MF(f)
+    m!(2)
+}
+
+func main() {}

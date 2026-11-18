@@ -1,0 +1,118 @@
+// The alias position matrix at its "self" column (SL-1012 U1): an alias value into its own alias slot,
+// at each position `sawc` checks a transfer, recorded at today's
+// verdict: transparent aliases, so every cell is accepted. A distinct alias
+// would turn away the cells the spec does (LANGUAGE_SPEC.md, Type Definitions).
+
+type UserId = Int
+type OrderId = Int
+type Small = UInt8
+
+static N: Int = 3
+static SO: OrderId = OrderId(1)
+static SU: UserId = UserId(1)
+
+func cell_let(n: Int) {
+    let u = UserId(1)
+    let x: UserId = u
+    print(x as Int)
+}
+
+func cell_var(n: Int) {
+    let u = UserId(1)
+    var x: UserId = u
+    x = x
+    print(x as Int)
+}
+
+static CELL: UserId = SU
+func cell_static() { print(CELL as Int) }
+
+func cell_assign(n: Int, seed: UserId) {
+    let u = UserId(1)
+    var x = seed
+    x = u
+    print(x as Int)
+}
+
+func take_arg(x: UserId) { print(x as Int) }
+func cell_arg(n: Int) {
+    let u = UserId(1)
+    take_arg(u)
+}
+
+struct Holder { x: UserId }
+func cell_field(n: Int) {
+    let u = UserId(1)
+    let s = Holder(x: u)
+    print(s.x as Int)
+}
+
+func take_default(x: UserId = UserId(1)) { print(x as Int) }
+func cell_default() { take_default() }
+
+func cell_return(n: Int) -> UserId {
+    let u = UserId(1)
+    return u
+}
+
+func cell_tail(n: Int) -> UserId {
+    let u = UserId(1)
+    u
+}
+
+func cell_branch(n: Int, c: Bool) {
+    let u = UserId(1)
+    let x: UserId = if c { u } else { u }
+    print(x as Int)
+}
+
+func cell_arm(n: Int, k: Int) {
+    let u = UserId(1)
+    let x: UserId = match k { case 0 -> u, case _ -> u }
+    print(x as Int)
+}
+
+func cell_payload(n: Int) {
+    let u = UserId(1)
+    let x: UserId? = u
+    print(x! as Int)
+}
+
+func cell_element(n: Int) {
+    let u = UserId(1)
+    let x: [UserId; 1] = [u]
+    print(x[0] as Int)
+}
+
+func cell_vector(n: Int) {
+    let u = UserId(1)
+    let x: Vector<UserId> = [u]
+    print(x.len())
+}
+
+func cell_tuple(n: Int) {
+    let u = UserId(1)
+    let x: (UserId, Int) = (u, 1)
+    print(x.0 as Int)
+}
+
+func cell_closure(n: Int) {
+    let u = UserId(1)
+    let f: () -> UserId = { u }
+    print(f() as Int)
+}
+
+func cell_coalesce(n: Int, opt: UserId?) {
+    let u = UserId(1)
+    let x: UserId = opt ?? u
+    print(x as Int)
+}
+
+func cell_compound(n: Int, seed: UserId) {
+    let u = UserId(1)
+    var x = seed
+    x += u
+    print(x as Int)
+}
+
+func main() {}

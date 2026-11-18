@@ -227,13 +227,37 @@ extension TcProgram {
             }
             return TcFold(bits: if self.measures_size(e) { l.size } else { l.align }, ty: self.int_type())
         }
-        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
-        if at < 0 {
+        let arg = self.alias_argument(e)
+        if arg < 0 {
             return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
+        }
+        let v = self.fold_at(arg, &var chain)
+        if not v.ok {
+            return v
+        }
+        let t = self.expr_types[e]
+        self.fold_convert(v, t, e)
+    }
+
+    // THE ALIAS-CARRY FUNNEL: the one argument of expression `e` when `e` is
+    // a type alias's construction, `Count(N)`, or -1. The construction is
+    // representationally free, so the value it carries is its argument's,
+    // and every check that reads a value's shape (a constant, a lend's path,
+    // a non-escaping function value) reads the argument through it.
+    //
+    // ENTRY POINTS:
+    //     fold_alias_construct
+    //     symbolic_part (bodies)
+    //     nonescaping_value (bodies)
+    //     through_alias_construction (bodychecks)
+    public func alias_argument(&self, e: Int) -> Int {
+        let at = if e >= 0 && e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return -1
         }
         let c = self.calls[at]
         if c.role != TcRole.Conversion || c.spelling < 0 || not self.name_text(c.spelling).equals("alias") {
-            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
+            return -1
         }
         let callee = self.res.first_node_child(e)
         var arg = -1
@@ -245,20 +269,15 @@ extension TcProgram {
             if child == callee || self.is_leaf(child) {
                 continue
             }
-            if arg >= 0 {
-                return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
+            if arg >= 0 || self.has_alt(child, Alt.Expr_Argument_Labelled) {
+                return -1
             }
             arg = child
             if self.has_alt(child, Alt.Expr_Argument_Positional) {
                 arg = self.res.first_node_child(child)
             }
         }
-        let v = self.fold_at(arg, &var chain)
-        if not v.ok {
-            return v
-        }
-        let t = self.expr_types[e]
-        self.fold_convert(v, t, e)
+        arg
     }
 
     // Value `v` converted to type `t`, which must hold it.

@@ -1,0 +1,87 @@
+// `Alias(value)` over every kind of target (SL-1012 U2; SL-744, SL-1147): one
+// unlabeled argument, checked against the whole type the alias names, its
+// own type arguments included, so `PairOfStrings(Pair(x: "a"))` infers
+// `String` from the alias. The result is the alias's type.
+
+struct Pair<T> {
+    x: T
+}
+
+struct Plain {
+    n: Int
+}
+
+struct Named {
+    label: String
+    n: Int
+}
+
+struct Mask<const N: Int> {
+    x: Int
+}
+
+struct Buf<const N: Int> {
+    bytes: [UInt8; N]
+}
+
+struct Job {
+    n: Int
+}
+
+type Owned = Plain
+type Labeled = Named
+type PairOfStrings = Pair<String>
+type High = Mask<16>
+type Buf4 = Buf<4>
+type Name = String
+type JobBox = Box<Job>
+type Octet = Byte
+type Chain = Owned
+
+func plain() {
+    let o = Owned(Plain(n: 3))
+    print(o.n)
+}
+
+func with_a_string_field() {
+    let l = Labeled(Named(label: "a", n: 4))
+    print(l.label)
+}
+
+func generic_instance() {
+    let p = PairOfStrings(Pair(x: "a"))
+    print(p.x)
+}
+
+func const_generic() {
+    let h = High(Mask<16>(x: 5))
+    print(h.x)
+}
+
+func const_generic_array() {
+    let a: [UInt8; 4] = [1, 2, 3, 4]
+    let b = Buf4(Buf<4>(bytes: a))
+    print(b.bytes[3])
+}
+
+func string() {
+    let s = Name("hi")
+    print(s)
+}
+
+func box() {
+    let jb = JobBox(try! Box.make(Job(n: 8)))
+    print(jb.value().n)
+}
+
+func literal_through_a_chain() {
+    let c = Octet(1)
+    print(c as Int)
+}
+
+func alias_of_alias() {
+    let c = Chain(Owned(Plain(n: 6)))
+    print(c.n)
+}
+
+func main() {}

@@ -1,0 +1,21 @@
+// refuses: type.mismatch at 19:35
+// the one argument of an alias's construction is checked against the type the
+// alias names: a `Pair<Int>` is no `Pair<String>`, and a bare `3` is no
+// `Plain` (SL-744, SL-1147)
+// errors: 2
+
+struct Pair<T> {
+    x: T
+}
+
+struct Plain {
+    n: Int
+}
+
+type PairOfStrings = Pair<String>
+type Owned = Plain
+
+func main() {
+    let p = PairOfStrings(Pair(x: 1))
+    let o = Owned(3)
+}

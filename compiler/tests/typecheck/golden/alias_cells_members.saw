@@ -1,0 +1,111 @@
+// The alias matrix's members, limits, overloads and declaration cells at
+// today's verdicts (SL-1012 U1, design 4.3). An alias reads through to its
+// target for members and limits; an overload on an alias and on its
+// underlying are distinct candidates by their types alone, so the picks below
+// hold. The refusals the spec adds (an alias of an enum, a public signature
+// naming a private alias, a conformance body naming the underlying) are
+// accepted here.
+
+type UserId = Int
+type Small = UInt8
+type Count = Int16
+
+struct Wrapped {
+    n: Int
+}
+
+extension Wrapped {
+    func twice(&self) -> Int { self.n * 2 }
+}
+
+type Owned = Wrapped
+
+enum Level {
+    case High
+    case Low
+}
+
+type Rank = Level
+type Step = Rank
+type MaybeInt = Int?
+
+func field_through_alias() {
+    let o: Owned = Wrapped(n: 3)
+    print(o.n)
+}
+
+func method_through_alias() {
+    let o: Owned = Wrapped(n: 3)
+    print(o.twice())
+}
+
+func integer_methods() {
+    let u = UserId(3)
+    print(u.to_string())
+    print("{u}")
+}
+
+func limits() {
+    print(Small.max)
+    let m: Small = Small.max
+    print(m as UInt8)
+    print(Count.max)
+}
+
+func pick(p: Int) -> Int { 1 }
+func pick(p: Small) -> Int { 2 }
+
+func overload_picks() {
+    print(pick(p: 7))
+    print(pick(p: Small(7)))
+}
+
+func narrow(p: Int) -> Int { 1 }
+func narrow(p: UInt8) -> Int { 2 }
+
+func projection_beats_widening() {
+    print(narrow(p: Small(7)))
+}
+
+func append_byte_and_digits() {
+    var sb = StringBuilder()
+    try! sb.append(65)
+    try! sb.append(Byte(65))
+    print(sb.build())
+}
+
+func append_unsigned_byte(u: UInt8) {
+    var sb = StringBuilder()
+    try! sb.append(u)
+    print(sb.build())
+}
+
+func size() {
+    print(sizeof<Byte>())
+}
+
+func enum_aliases() {
+    let r: Rank = Level.High
+    let s: Step = r
+    let o: MaybeInt = 3
+    print(s == Level.High)
+    print(o!)
+}
+
+type Handle = Int
+
+trait Reader {
+    func read(&self) -> Handle
+}
+
+struct Source {}
+
+extension Source: Reader {
+    func read(&self) -> Int { 1 }
+}
+
+type Hidden = Int
+
+public func take(h: Hidden) -> Int { h as Int }
+
+func main() {}

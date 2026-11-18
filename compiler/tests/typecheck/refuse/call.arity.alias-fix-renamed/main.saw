@@ -1,0 +1,10 @@
+// refuses: call.arity at 9:13
+// both names imported under renames: the spelled construction uses the
+// names this module binds (SL-1012)
+// message: write `PT(T(n: 1))`
+
+import alias_fix_things.{PubThing as PT, Thing as T}
+
+func main() {
+    let t = PT(n: 1)
+}

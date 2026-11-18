@@ -2343,7 +2343,7 @@ extension TcProgram {
         self.refuse(leaf, "type.not-a-type", msg.build())
     }
 
-    func refuse_arguments_on(&var self, leaf: Int) {
+    public func refuse_arguments_on(&var self, leaf: Int) {
         let m = self.current
         var msg = StringBuilder()
         try! msg.append("`")

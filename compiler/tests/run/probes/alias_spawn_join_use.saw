@@ -1,0 +1,49 @@
+// probe: stated
+// about: a task handle through an alias construction is the plain handle to the borrow rules: its `join` releases the spawn's borrow of its root, so spawn, join, then use is legal through the alias, a chain of aliases and a shared borrow, and handles kept in a vector declared after the group are joined there (SL-1012)
+// stage 0: no oracle here: Stage 0 reads an alias as its target and has no alias construction for a handle to pass through
+// speeds: -O0 -O2
+// leaks: none
+// prints: 100
+// prints: 100
+// prints: 200
+// prints: 200
+// prints: 5 6
+// prints: 6
+// prints: 6
+
+type TI = Task<Int>
+type TI2 = TI
+
+func bump(v: &var Int) -> Int {
+    v = v + 100
+    v
+}
+
+func read(v: &Int) -> Int { v + 1 }
+
+func work(n: Int) -> Int { n * 2 }
+
+func main() {
+    var n = 0
+    var m = 5
+    var group = TaskGroup()
+    let h = TI(group.spawn(bump(&var n)))
+    print(h.join())
+    print(n)
+    let c = TI2(TI(group.spawn(bump(&var n))))
+    print(c.join())
+    print(n)
+    let r = TI(group.spawn(read(&m)))
+    print("{} {}", m, r.join())
+    m = 6
+    print(m)
+    var hs = Vector<Task<Int>>()
+    try! hs.push(TI(group.spawn(work(1))))
+    try! hs.push(TI(group.spawn(work(2))))
+    var total = 0
+    while hs.len() > 0 {
+        let t = hs.pop()!
+        total = total + t.join()
+    }
+    print(total)
+}

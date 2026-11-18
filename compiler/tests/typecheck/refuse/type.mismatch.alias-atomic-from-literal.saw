@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 10:21
+// an alias of `Atomic<Int>` is constructed from one `Atomic<Int>`, as every
+// alias is from one value of its target: a bare integer is no such value.
+// The release note names it as the one sound program the rule newly turns
+// away (SL-1012)
+
+type Counter = Atomic<Int>
+
+func main() {
+    let c = Counter(5)
+    print(c.load())
+}

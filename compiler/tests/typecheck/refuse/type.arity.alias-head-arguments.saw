@@ -1,0 +1,14 @@
+// refuses: type.arity at 13:13
+// type arguments written on an alias head are refused as they are in a type:
+// `High<99>(x: 1)` built a `Mask<99>` (SL-1147)
+// message: `High` takes no type arguments
+
+struct Mask<const N: Int> {
+    x: Int
+}
+
+type High = Mask<16>
+
+func main() {
+    let h = High<99>(x: 1)
+}

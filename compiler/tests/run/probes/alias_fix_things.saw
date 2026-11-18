@@ -1,0 +1,7 @@
+// probe: module
+// about: the struct and its alias `alias_fix_spellings` builds through each import form, as the `call.arity.alias-fix-*` refusals spell it (SL-1012)
+public struct Thing {
+    n: Int
+}
+
+public type PubThing = Thing

@@ -1,0 +1,88 @@
+// The alias matrix's generics and patterns (SL-1012 U1, design 4.3),
+// recorded at today's verdicts: `Vector<UserId>` and `Vector<Int>` are one
+// type, and so are `UserId?` and `Int?`. The spec keeps a generic's arguments
+// distinct, so each cross-flow below is refused once aliases are distinct.
+// The inference, bound and pattern cells stay accepted.
+
+type UserId = Int
+type Handle = UInt
+
+func vector_out_let() {
+    let v: Vector<UserId> = [UserId(1)]
+    let w: Vector<Int> = move v
+    print(w.len())
+}
+
+func vector_in_argument() {
+    let w: Vector<Int> = [1]
+    take_ids(move w)
+}
+
+func take_ids(v: Vector<UserId>) {
+    print(v.len())
+}
+
+func vector_out_argument() {
+    let w: Vector<UserId> = [UserId(1)]
+    take_ints(move w)
+}
+
+func take_ints(v: Vector<Int>) {
+    print(v.len())
+}
+
+func byte_vector_to_u8() {
+    let v: Vector<Byte> = [Byte(1)]
+    take_bytes(move v)
+}
+
+func take_bytes(v: Vector<UInt8>) {
+    print(v.len())
+}
+
+func optional_out() {
+    let o: UserId? = UserId(1)
+    let p: Int? = o
+    print(p!)
+}
+
+func identity<T>(x: T) -> T { x }
+
+func inferred() {
+    let u = UserId(1)
+    let v: UserId = identity(u)
+    print(v as Int)
+}
+
+func bigger<T: Comparable>(a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+func bounded() {
+    let u = bigger(UserId(1), UserId(2))
+    print(u as Int)
+}
+
+func sorted() {
+    var v: Vector<Handle> = [Handle(3), Handle(1)]
+    v.sort()
+    print(v[0] as UInt)
+}
+
+func literal_pattern() {
+    let u = UserId(1)
+    match u {
+        case 1 -> print("one")
+        case _ -> print("other")
+    }
+}
+
+func byte_pattern() {
+    let b = "\n".byte_at(0)
+    match b {
+        case 0x0A -> print("newline")
+        case _ -> print("other")
+    }
+}
+
+func main() {}

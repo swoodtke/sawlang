@@ -1,0 +1,22 @@
+// refuses: loan.handle-outlives-group at 20:5
+// handles pushed through a chain of alias constructions into a `Vector`
+// declared before the group, read after the group's scope ends.
+type TI = Task<Int>
+type TI2 = TI
+
+func work(n: Int) -> Int {
+    n
+}
+
+func pick() -> Bool {
+    true
+}
+
+func main() {
+    var kept = Vector<Task<Int>>()
+    if pick() {
+        var g = TaskGroup()
+        try! kept.push(TI2(TI(g.spawn(work(1)))))
+    }
+    print("{}", kept.len())
+}

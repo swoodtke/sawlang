@@ -1,0 +1,11 @@
+// refuses: call.arity at 10:13
+// labels of a fallible `init` (`Vector(capacity:)` answers a `Result`): no
+// construction is spelled, since the target's would not typecheck as the
+// alias's one value (SL-1012)
+// message: construct a value of `Vector<Int>` first and pass it as that one value
+
+type V = Vector<Int>
+
+func main() {
+    let v = V(capacity: 4)
+}

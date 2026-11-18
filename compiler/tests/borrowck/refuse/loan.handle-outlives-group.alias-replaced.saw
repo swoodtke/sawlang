@@ -1,0 +1,15 @@
+// refuses: loan.handle-outlives-group at 13:5
+// the group replaced while a handle spawned into it through an alias
+// construction is live: the old group's end comes before the handle's join.
+type TI = Task<Int>
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = TI(group.spawn(work(1)))
+    group = TaskGroup()
+    print("{}", h.join())
+}

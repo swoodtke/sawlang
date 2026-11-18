@@ -21,7 +21,7 @@ type Row = [UInt16; 3]
 
 static ROW: Row = Row([9, 8, 7])
 static FOURS: Row = Row([4; 3])
-static BLOCK: Block = Block(generation: 5, owner: -6, used: true)
+static BLOCK: Block = Block(Slot(generation: 5, owner: -6, used: true))
 static AGAIN: Row = ROW
 
 func main() {

@@ -1,0 +1,30 @@
+// refuses: coro.spawn-not-send at 23:12
+// message: and the closure is not `sendable`
+// A closure handed to a spawned root through an alias construction is judged
+// by the closure itself, as the bare closure is: the construction carries
+// its argument's value, so the refusal sits at the closure's capture, and a
+// closure that is `sendable` passes the same way (run probe
+// `alias_spawn_closure.saw`).
+import std.task.{yield_now}
+
+type Fn = () -> Int
+
+struct Cell {
+    c: UnsafeMutableInterior<Int>
+}
+
+func run(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func make(n: Int) unsafe -> Int {
+    let c = Cell(c: UnsafeMutableInterior(n))
+    run(Fn({ [c] in 1 }))
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(make(1))
+    print(h.join())
+}

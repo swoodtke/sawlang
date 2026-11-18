@@ -1,0 +1,19 @@
+// refuses: loan.write-while-shared at 17:11
+// `&var group` while a handle spawned into it through an alias construction
+// is live: the alias carries the handle's shared borrow of the group.
+type TI = Task<Int>
+
+func work(n: Int) -> Int {
+    n
+}
+
+func reset(group: &var TaskGroup) {
+    print("{}", group.count())
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = TI(group.spawn(work(1)))
+    reset(&var group)
+    print("{}", h.join())
+}

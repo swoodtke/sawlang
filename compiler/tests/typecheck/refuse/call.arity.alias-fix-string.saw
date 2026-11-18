@@ -1,0 +1,11 @@
+// refuses: call.arity at 10:13
+// over `String` no construction is spelled: `String(s: "x")` is no
+// construction a program writes, so the refusal says what to pass instead
+// (SL-1012)
+// message: construct a value of `String` first and pass it as that one value
+
+type Name = String
+
+func main() {
+    let s = Name(s: "x")
+}

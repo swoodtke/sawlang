@@ -1,0 +1,10 @@
+// refuses: call.arity at 9:13
+// only the alias imported: this module cannot name `Thing`, so nothing is
+// spelled (SL-1012)
+// message: construct a value of `Thing` first and pass it as that one value
+
+import alias_fix_things.{PubThing}
+
+func main() {
+    let t = PubThing(n: 1)
+}

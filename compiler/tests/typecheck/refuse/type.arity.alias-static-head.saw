@@ -1,0 +1,18 @@
+// refuses: type.arity at 17:13
+// type arguments written on an alias at the head of a static call are
+// refused as they are in a type, as at a construction's head (SL-1012)
+// message: `K` takes no type arguments
+
+struct Kit {
+    n: Int
+}
+
+extension Kit {
+    static func one() -> Kit { Kit(n: 1) }
+}
+
+type K = Kit
+
+func main() {
+    let k = K<Int>.one()
+}

@@ -1,0 +1,24 @@
+// refuses: call.arity at 20:9
+// errors: 1
+// the borrowing struct's own labels on an alias's head in a producer: the
+// construction's refusal is the one record, with no `lends.path` or
+// `lends.position` after it for the `lends self` it holds (SL-1012)
+
+struct Owner {
+    value: Int
+}
+
+borrows struct It {
+    source: &Owner
+    done: Bool
+}
+
+type Alias = It
+
+extension Owner {
+    func alter(&self) borrows -> Alias {
+        Alias(source: lends self, done: false)
+    }
+}
+
+func main() {}

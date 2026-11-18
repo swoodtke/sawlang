@@ -1278,7 +1278,7 @@ extension BorrowckProgram {
                 if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 && stmt.place >= 0 {
                     let dest = self.mir.places[stmt.place].local
                     let rv = self.mir.rvalues[stmt.rvalue]
-                    if dest >= 0 && borrowck_carrying_rvalue(rv.kind) {
+                    if dest >= 0 && (borrowck_carrying_rvalue(rv.kind) || borrowck_forwards_value(&self.mir, &rv)) {
                         var k = 0
                         while k < rv.count {
                             let o = self.mir.operands[self.mir.lists[rv.first + k]]
@@ -1645,7 +1645,7 @@ extension BorrowckProgram {
                 return false
             }
             let rv = self.mir.rvalues[stmt.rvalue]
-            if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            if (rv.kind != MirRvalueKind.Use && not borrowck_forwards_value(&self.mir, &rv)) || rv.count != 1 {
                 return false
             }
             let o = self.mir.operands[self.mir.lists[rv.first]]
@@ -2788,6 +2788,22 @@ public func borrowck_carrying_rvalue(kind: MirRvalueKind) -> Bool {
         case Slice -> true,
         case _ -> false
     }
+}
+
+// THE VALUE-FORWARD FUNNEL: whether rvalue `rv` of `mir` hands its one
+// operand's value on unchanged, as an alias construction does (a Conversion
+// spelled `alias`, representationally free): the loans, the task handle and
+// the closure the operand carries are its destination's, exactly as a `Use`
+// of it would make them. Typecheck reads the construction the same way
+// (`alias_argument`). A Conversion is always built into a fresh temporary,
+// so it never writes a static itself.
+//
+// ENTRY POINTS:
+//     loan_holders
+//     holds_handle
+//     coro_operand_closure (coro)
+public func borrowck_forwards_value(mir: &MirProgram, rv: &MirRvalue) -> Bool {
+    rv.kind == MirRvalueKind.Conversion && rv.count == 1 && rv.op >= 0 && mir.tc.name_text(rv.op).equals("alias")
 }
 
 // Whether `xs` holds `x`.

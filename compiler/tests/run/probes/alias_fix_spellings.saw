@@ -1,0 +1,54 @@
+// probe: stated
+// about: each construction a `call.arity` refusal of a labeled alias construction spells builds and runs as written: a struct, a chain's final target, a generic instance, quotes and escaped braces, a multi-line argument on one line, the fields beside another `init`, and across a module by its qualifier and by the names a selective import binds (SL-1012)
+// stage 0: no oracle here: Stage 0 reads an alias as its target and builds none of these through an alias construction
+// speeds: -O0 -O2
+// leaks: none
+// prints: 3 1 a
+// prints: q"x{y} 3 3 6
+// prints: 1 2 4
+import alias_fix_things
+import alias_fix_things.{PubThing as PT, Thing as T}
+
+struct Plain {
+    n: Int
+}
+
+struct Named {
+    label: String
+    n: Int
+}
+
+struct Pair<V> {
+    x: V
+}
+
+struct Plain2 {
+    n: Int
+}
+
+extension Plain2 {
+    init(m: Int) -> Plain2 { Plain2(n: m * 2) }
+}
+
+type O = Plain
+type A1 = Plain
+type B1 = A1
+type NamedA = Named
+type PS = Pair<String>
+type P2 = Plain2
+
+func main() {
+    let o = O(Plain(n: 3))
+    let b = B1(Plain(n: 1))
+    let p = PS(Pair(x: "a"))
+    print("{} {} {}", o.n, b.n, p.x)
+    let q = NamedA(Named(label: "q\"x\{y\}", n: 1))
+    let m = O(Plain(n: 1 + 2))
+    let r = P2(Plain2(n: 3))
+    let s = P2(Plain2(m: 3))
+    print("{} {} {} {}", q.label, m.n, r.n, s.n)
+    let t = alias_fix_things.PubThing(alias_fix_things.Thing(n: 1))
+    let u = PT(T(n: 2))
+    let v = PT(T(n: 4))
+    print("{} {} {}", t.n, u.n, v.n)
+}

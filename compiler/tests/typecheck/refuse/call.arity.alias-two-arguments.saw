@@ -1,0 +1,9 @@
+// refuses: call.arity at 7:13
+// an alias is constructed from exactly one argument
+
+type UserId = Int
+
+func main() {
+    let u = UserId(1, 2)
+    print(u as Int)
+}

@@ -1,0 +1,18 @@
+// refuses: call.arity at 17:13
+// labels of another `init`, not the fields: no construction is spelled
+// (SL-1012)
+// message: construct a value of `Plain2` first and pass it as that one value
+
+struct Plain2 {
+    n: Int
+}
+
+extension Plain2 {
+    init(m: Int) -> Plain2 { Plain2(n: m * 2) }
+}
+
+type P2 = Plain2
+
+func main() {
+    let p = P2(m: 3)
+}

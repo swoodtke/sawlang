@@ -44,7 +44,7 @@ func pick(p: Port = Port(value: 1, tag: 1)) -> Int {
 func ordinary() -> Int {
     let a = Port(value: 3, tag: 4)
     let b = Port(tag: 5, value: 6)
-    let c = Socket(value: 7, tag: 8)
+    let c = Socket(Port(value: 7, tag: 8))
     a.tag + b.tag + c.tag + pick()
 }
 

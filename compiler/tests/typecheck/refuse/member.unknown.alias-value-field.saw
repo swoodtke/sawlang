@@ -1,0 +1,10 @@
+// refuses: member.unknown at 9:13
+// an alias of an integer carries no `value` member: the spec projects with
+// `u as Int`
+
+type UserId = Int
+
+func main() {
+    let u = UserId(3)
+    print(u.value)
+}

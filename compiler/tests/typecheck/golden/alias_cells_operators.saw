@@ -1,0 +1,72 @@
+// The alias matrix's operators (SL-1012 U1, design 4.3), recorded at today's
+// verdicts: an operator reads an alias as its underlying and its result is
+// storable into an alias, and two siblings compare and add. The spec's rulings
+// (design 250: operator results are the underlying; siblings are an open
+// question) refuse the stores and, by default, the sibling operators.
+
+type UserId = Int
+type OrderId = Int
+
+func same_alias() {
+    let a = UserId(1)
+    let b = UserId(1)
+    print(a == b)
+}
+
+func alias_and_underlying(n: Int) {
+    let a = UserId(1)
+    print(a == n)
+}
+
+func alias_and_literal() {
+    let a = UserId(1)
+    print(a == 1)
+}
+
+func siblings_compare() {
+    let a = UserId(1)
+    let o = OrderId(1)
+    print(a == o)
+    print(a < o)
+}
+
+func siblings_add() {
+    let a = UserId(1)
+    let o = OrderId(1)
+    print(a + o)
+}
+
+func result_stored_in_alias() {
+    let a = UserId(1)
+    let b: UserId = a + 1
+    let c: UserId = a + a
+    print(b as Int)
+    print(c as Int)
+}
+
+func result_stored_in_underlying() {
+    let a = UserId(1)
+    let b: Int = a + 1
+    print(b)
+}
+
+func byte_result_stored_back() {
+    let s = "hi"
+    var b = s.byte_at(0)
+    b = b + 1
+    print(b as Int)
+}
+
+func byte_mask() {
+    let s = "hi"
+    let b = s.byte_at(0)
+    let m: UInt8 = b & 0x1F
+    print(m)
+    print(b < 0x80)
+}
+
+func byte_order() {
+    print(Byte(255) > Byte(127))
+}
+
+func main() {}

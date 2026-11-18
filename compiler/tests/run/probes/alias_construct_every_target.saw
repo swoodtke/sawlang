@@ -1,0 +1,66 @@
+// probe: stated
+// about: `Alias(value)` over a struct, a generic instance, a const-generic instance, a `String` and a `Box` builds the alias from its one value, and a static called through an alias runs the target's (SL-1012)
+// stage 0: reads an alias of a struct as the struct, so it is no oracle for the alias's construction
+// speeds: -O0 -O2
+// leaks: none
+// prints: 3 a 4
+// prints: a 5 4
+// prints: hi 8 9
+// prints: 1 1
+
+struct Plain {
+    n: Int
+}
+
+struct Named {
+    label: String
+    n: Int
+}
+
+struct Pair<T> {
+    x: T
+}
+
+struct Mask<const N: Int> {
+    x: Int
+}
+
+struct Buf<const N: Int> {
+    bytes: [UInt8; N]
+}
+
+struct Job {
+    n: Int
+}
+
+extension Job {
+    static func one() -> Job { Job(n: 1) }
+}
+
+type Owned = Plain
+type Labeled = Named
+type PairOfStrings = Pair<String>
+type High = Mask<16>
+type Buf4 = Buf<4>
+type Name = String
+type JobBox = Box<Job>
+type Octet = Byte
+type Task1 = Job
+
+func main() {
+    let o = Owned(Plain(n: 3))
+    let l = Labeled(Named(label: "a", n: 4))
+    print("{} {} {}", o.n, l.label, l.n)
+    let p = PairOfStrings(Pair(x: "a"))
+    let h = High(Mask<16>(x: 5))
+    let a: [UInt8; 4] = [1, 2, 3, 4]
+    let b = Buf4(Buf<4>(bytes: a))
+    print("{} {} {}", p.x, h.x, b.bytes[3])
+    let s = Name("hi")
+    let jb = JobBox(try! Box.make(Job(n: 8)))
+    let jb2 = try! JobBox.make(Job(n: 9))
+    print("{} {} {}", s, jb.value().n, jb2.value().n)
+    let c = Octet(1)
+    let j = Task1.one()
+    print("{} {}", c as Int, j.n)
+}

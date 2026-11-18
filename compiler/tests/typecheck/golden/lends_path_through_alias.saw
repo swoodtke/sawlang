@@ -1,0 +1,28 @@
+// A producer returning an alias of its borrowing struct (SL-1012): the alias
+// construction is representationally free, so `Alias(It(source: lends self,
+// ..))` is the construction of `It` that the lend-path rule reads bare, on a
+// whole body and on each arm of an `if`.
+
+struct Owner {
+    value: Int
+}
+
+borrows struct It {
+    source: &Owner
+    done: Bool
+}
+
+type Alias = It
+
+extension Owner {
+    func alter(&self) borrows -> Alias {
+        Alias(It(source: lends self, done: false))
+    }
+
+    func alter_arms(&self, flag: Bool) borrows -> Alias {
+        if flag { Alias(It(source: lends self, done: false)) }
+        else { Alias(It(source: lends self, done: true)) }
+    }
+}
+
+func main() {}

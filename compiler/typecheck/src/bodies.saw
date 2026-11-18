@@ -24,7 +24,7 @@ import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
 import sawresolve.layer.{FrontLayer}
 import sawresolve.prelude.{res_is_test_driver, res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
-                             ResModule, ResModuleKind}
+                             ResImportForm, ResModule, ResModuleKind}
 import sawtypecheck.adjust.{TC_FIT_AMBIGUOUS, TC_FIT_CONVERTED, TC_FIT_EXACT, TC_FIT_NONE,
                                 TC_PEEL_AMBIGUOUS, TC_PEEL_NONE}
 import sawtypecheck.candidates.{tc_contains}
@@ -3153,10 +3153,16 @@ extension TcProgram {
     }
 
     // Whether expression `e` reads a non-escaping function value: a binding
-    // `nonescaping_bindings` marks, read or moved. A `move`'s operand is a
-    // name reference, not a name expression.
+    // `nonescaping_bindings` marks, read or moved, or an alias construction
+    // over one whose type is a non-escaping function type, which carries its
+    // argument's value (`alias_argument`). A `move`'s operand is a name
+    // reference, not a name expression.
     func nonescaping_value(&self, e: Int) -> Bool {
         var at = self.unparen(e)
+        let carried = self.alias_argument(at)
+        if carried >= 0 {
+            return self.nonescaping_type(self.expr_types[at]) && self.nonescaping_value(carried)
+        }
         var named = at >= 0 && self.has_alt(at, Alt.Expr_Name)
         if at >= 0 && self.has_alt(at, Alt.Expr_Move_Place) {
             let operand = self.res.first_node_child(at)
@@ -5888,6 +5894,14 @@ extension TcProgram {
     func lends_expr(&var self, e: Int, want: Int) -> Int {
         let operand = self.res.first_node_child(e)
         let place = self.unparen(operand)
+        // A slot already in error, a refused call's argument, was reported
+        // there: the `lends` is not refused again for where it stands.
+        if want >= 0 && self.has_error(want) {
+            let _ = self.expr(operand, TC_WANT_NONE)
+            self.set_use(operand, TcUse.Borrow)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         if not self.has_alt(place, Alt.Expr_Self) {
             let _ = self.expr(operand, TC_WANT_NONE)
             self.set_use(operand, TcUse.Borrow)
@@ -6985,38 +6999,6 @@ extension TcProgram {
         let fold = TcFold(ok: false, bits: f.v.bits, ty: f.ty, fault: f.v.fault, at: e)
         self.refuse_constant_fault(&fold, e, f.into)
         TcSymbolic(t: self.error_type, ty: self.error_type)
-    }
-
-    // The one argument of expression `e` when it is a type alias's
-    // construction, `Count(N)`, or -1.
-    func alias_argument(&self, e: Int) -> Int {
-        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
-        if at < 0 {
-            return -1
-        }
-        let c = self.calls[at]
-        if c.role != TcRole.Conversion || c.spelling < 0 || not self.name_text(c.spelling).equals("alias") {
-            return -1
-        }
-        let callee = self.res.first_node_child(e)
-        var arg = -1
-        let n = self.child_count(e)
-        var k = 0
-        while k < n {
-            let child = self.child(e, k)
-            k = k + 1
-            if child == callee || self.is_leaf(child) {
-                continue
-            }
-            if arg >= 0 {
-                return -1
-            }
-            arg = child
-            if self.has_alt(child, Alt.Expr_Argument_Positional) {
-                arg = self.res.first_node_child(child)
-            }
-        }
-        arg
     }
 
     // Whether expression `e` names something resolve refused as unbound.
@@ -9817,7 +9799,18 @@ extension TcProgram {
         // A trait's `Self` owns the call as a bound type parameter would, so
         // the requirement dispatches to the conformer's implementation.
         var t = self.trait_self_head(self.binding_at(self.res.first_leaf(base)))
-        if t < 0 && b.decl >= 0 {
+        if t < 0 && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias {
+            // An alias names no members of its own: the call dispatches on
+            // the type it names, with the alias's arguments.
+            let written = self.explicit_type_args(base)
+            if written.len() > 0 {
+                self.refuse_arguments_on(self.res.first_leaf(base))
+                self.type_args_alone(&args)
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, false)
+            }
+            t = self.alias_type(b.decl, -1)
+        } else if t < 0 && b.decl >= 0 {
             let written = self.explicit_type_args(base)
             t = self.named_owner(b.decl, &written, leaf, base)
             if t == TC_OWNER_INFER {
@@ -11056,15 +11049,38 @@ extension TcProgram {
         self.set_type(e, t, false)
     }
 
-    // `A(x)` for a distinct alias `A` over `T`: `x` becomes an `A`, which
-    // reads as its `T` (design 250 names `Byte(...)` the way in).
-    func alias_construct(&var self, e: Int, alias: Int, args: &TcArgs) -> Int {
+    // `A(x)` for a distinct alias `A` over `T`, whatever `T` is: `x` becomes
+    // an `A`, which reads as its `T`. The one argument is checked against the
+    // whole of `T`, the alias's own type arguments included, and type
+    // arguments written on the head are refused as a type refuses them
+    // (design 250).
+    func alias_construct(&var self, e: Int, callee: Int, alias: Int, args: &TcArgs) -> Int {
         let t = self.alias_type(alias, -1)
-        if args.values.len() != 1 || args.labels[0] >= 0 {
-            self.refuse(e, "call.arity", "an alias is constructed from one unlabeled value of the type it names")
+        let written = self.explicit_type_args(callee)
+        if written.len() > 0 {
+            self.refuse_arguments_on(self.res.first_leaf(callee))
             self.type_args_alone(&args)
-        } else {
-            self.check_argument(args.values[0], t)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        if args.values.len() != 1 || args.labels[0] >= 0 {
+            self.type_args_alone(&args)
+            let text = self.alias_arity_text(alias, callee, t, &args)
+            self.refuse(e, "call.arity", text)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        self.check_argument(args.values[0], t)
+        // The construction carries its argument's value. Over a non-escaping
+        // function type that is the argument itself (`nonescaping_value`
+        // reads through it); any other target holds the function as storage,
+        // as an optional or a field does.
+        if self.nonescaping_value(args.values[0]) && not self.nonescaping_type(t) {
+            var holder = StringBuilder()
+            try! holder.append("the `")
+            try! holder.append(self.name_text(self.res.decls[alias].name))
+            try! holder.append("` built from it")
+            self.refuse_escape(args.values[0], holder.build())
         }
         let none = Vector<Int>()
         let _ = self.record_call(e, alias, TcRole.Conversion, t, &none)
@@ -11075,6 +11091,174 @@ extension TcProgram {
         self.set_type(e, t, false)
     }
 
+    // The refusal of a construction of `alias` whose callee is `callee`,
+    // with other than one unlabeled argument, the arguments `args` already
+    // typed. Labeled arguments are told the construction to write where it
+    // is known to typecheck (`alias_fix_spelling`), and otherwise to build a
+    // value of the type the alias names, as its declaration writes it.
+    func alias_arity_text(&var self, alias: Int, callee: Int, t: Int, args: &TcArgs) -> String {
+        var msg = StringBuilder()
+        var labeled = args.values.len() > 0
+        var k = 0
+        while k < args.values.len() {
+            if args.labels[k] < 0 {
+                labeled = false
+            }
+            k = k + 1
+        }
+        try! msg.append("an alias is constructed from one unlabeled value of the type it names")
+        if not labeled {
+            return msg.build()
+        }
+        let fix = self.alias_fix_spelling(callee, t, &args)
+        if fix.len() > 0 {
+            try! msg.append(": write `")
+            try! msg.append(fix)
+            try! msg.append("`")
+            return msg.build()
+        }
+        let info = self.res.decls[alias]
+        try! msg.append(": construct a value of `")
+        try! msg.append(tc_one_line(self.text(info.module, self.res.last_node_child(info.node))))
+        try! msg.append("` first and pass it as that one value")
+        msg.build()
+    }
+
+    // The construction a labeled alias construction meant, `Alias(T(a: x))`,
+    // spelled only when it typechecks: the alias's final target is a struct
+    // with no construction override, the labels are its fields, each visible
+    // here, each argument already of its field's type, and this module names
+    // the struct (`use_site_name`); empty otherwise. A generic target's
+    // arguments come from the alias, which the one argument is checked
+    // against.
+    func alias_fix_spelling(&var self, callee: Int, t: Int, args: &TcArgs) -> String {
+        let d = self.nominal_decl(t)
+        if d < 0 || not self.is_struct_decl(d) || self.is_primitive_decl(d) || d == self.known.string {
+            return ""
+        }
+        if self.construction_override(d) >= 0 || self.field_hidden_from(d, self.current) >= 0 {
+            return ""
+        }
+        let fields = self.struct_fields(d)
+        if fields.len() != args.values.len() {
+            return ""
+        }
+        var k = 0
+        while k < args.values.len() {
+            var found = -1
+            var j = 0
+            while j < fields.len() {
+                if self.res.decls[fields[j]].name == args.labels[k] {
+                    found = fields[j]
+                }
+                j = j + 1
+            }
+            if found < 0 {
+                return ""
+            }
+            let want = self.field_type(t, found)
+            let got = self.final_type(args.values[k])
+            if want < 0 || got != want || self.has_error(want) {
+                return ""
+            }
+            k = k + 1
+        }
+        let name = self.use_site_name(d)
+        if name.len() == 0 {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append(tc_one_line(self.text(self.current, callee)))
+        try! out.append("(")
+        try! out.append(name)
+        try! out.append("(")
+        k = 0
+        while k < args.values.len() {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            try! out.append(self.name_text(args.labels[k]))
+            try! out.append(": ")
+            try! out.append(tc_one_line(self.text(self.current, args.values[k])))
+            k = k + 1
+        }
+        try! out.append("))")
+        out.build()
+    }
+
+    // How code in the current module names nominal declaration `d` as the
+    // head of a construction, or empty where that is not certain: a prelude
+    // name, the module's own declaration, the name a selective import binds
+    // it to, or a whole-module import's qualifier before its name on that
+    // module's surface. A name a glob import also offers is not spelled,
+    // since the two may tie.
+    func use_site_name(&self, d: Int) -> String {
+        let m = self.current
+        let info = self.res.decls[d]
+        if self.head_named_decl(m, info.name) == d && not self.glob_offers(m, info.name, d) {
+            return self.name_text(info.name)
+        }
+        var k = 0
+        while k < self.res.symbols.len() {
+            let sym = self.res.symbols[k]
+            k = k + 1
+            if sym.module != m || sym.binding.kind != ResBindKind.Decl || sym.binding.decl != d {
+                continue
+            }
+            if self.head_named_decl(m, sym.bound) == d && not self.glob_offers(m, sym.bound, d) {
+                return self.name_text(sym.bound)
+            }
+        }
+        k = 0
+        while k < self.res.imports.len() {
+            let imp = self.res.imports[k]
+            k = k + 1
+            if imp.module != m || imp.form != ResImportForm.Qualifier || imp.target < 0 || imp.qualifier < 0 {
+                continue
+            }
+            let q = imp.qualifier
+            if self.head_named_decl(m, q) >= 0 || self.res.bare.first(m, q) >= 0 || self.glob_offers(m, q, -1) {
+                continue
+            }
+            var at = self.res.surface.first(imp.target, info.name)
+            while at >= 0 {
+                let entry = self.res.exports[self.res.surface.value(at)]
+                at = self.res.surface.following(at)
+                if entry.binding.kind == ResBindKind.Decl && entry.binding.decl == d &&
+                   self.res.visible_to(entry.vis, entry.owner, m) {
+                    var out = StringBuilder()
+                    try! out.append(self.name_text(q))
+                    try! out.append(".")
+                    try! out.append(self.name_text(info.name))
+                    return out.build()
+                }
+            }
+        }
+        ""
+    }
+
+    // Whether a glob import of module `m` offers `name` as anything other
+    // than declaration `d`.
+    func glob_offers(&self, m: Int, name: Int, d: Int) -> Bool {
+        var k = 0
+        while k < self.res.imports.len() {
+            let imp = self.res.imports[k]
+            k = k + 1
+            if imp.module != m || imp.form != ResImportForm.Glob || imp.target < 0 {
+                continue
+            }
+            var at = self.res.surface.first(imp.target, name)
+            while at >= 0 {
+                let entry = self.res.exports[self.res.surface.value(at)]
+                at = self.res.surface.following(at)
+                if entry.binding.kind != ResBindKind.Decl || entry.binding.decl != d {
+                    return true
+                }
+            }
+        }
+        false
+    }
+
     // THE TYPE-HEAD FUNNEL: nominal `d` named as the head of a construction,
     // a static call or a case, with the type arguments `written` there. Its
     // three answers are distinct: the type; the error type once a written
@@ -11082,7 +11266,9 @@ extension TcProgram {
     // whose call builds its candidates owner-less so that inference solves
     // the type's parameters from the arguments and the expected type, and
     // refuses `infer.failed` where nothing determines one (SL-657). A written
-    // argument's bounds go to the bound funnel, `oblige`.
+    // argument's bounds go to the bound funnel, `oblige`. An alias head never
+    // reaches it: a construction is the alias's (`alias_construct`), and a
+    // static dispatches on the type the alias names.
     //
     // ENTRY POINTS:
     //     written_enum_owner
@@ -11170,9 +11356,8 @@ extension TcProgram {
                 if info.kind == ResDeclKind.Alias || info.kind == ResDeclKind.TypeAssign {
                     let aliased = self.alias_type(b.decl, -1)
                     d = self.nominal_decl(aliased)
-                    let bare = d < 0 || self.is_primitive_decl(d)
-                    if info.kind == ResDeclKind.Alias && bare && not self.has_error(aliased) {
-                        return self.alias_construct(e, b.decl, &args)
+                    if info.kind == ResDeclKind.Alias && not self.has_error(aliased) {
+                        return self.alias_construct(e, callee, b.decl, &args)
                     }
                 }
             }
@@ -13684,6 +13869,39 @@ extension TcProgram {
             self.set_use(receiver, TcUse.Borrow)
         }
     }
+}
+
+// Source text `text` on one line: each run of white space holding a line
+// break becomes one space, so a diagnostic record, one line per record,
+// stays whole.
+public func tc_one_line(text: String) -> String {
+    var out = StringBuilder()
+    let n = text.len()
+    var k = 0
+    while k < n {
+        var j = k
+        var blank = false
+        var broken = false
+        while j < n && (text.byte_at(j) == 32 || text.byte_at(j) == 9 || text.byte_at(j) == 10 || text.byte_at(j) == 13) {
+            blank = true
+            if text.byte_at(j) == 10 || text.byte_at(j) == 13 {
+                broken = true
+            }
+            j = j + 1
+        }
+        if not blank {
+            while j < n && text.byte_at(j) != 32 && text.byte_at(j) != 9 && text.byte_at(j) != 10 && text.byte_at(j) != 13 {
+                j = j + 1
+            }
+        }
+        if broken {
+            try! out.append(" ")
+        } else {
+            try! out.append(text.substring(k, j))
+        }
+        k = j
+    }
+    out.build()
 }
 
 // Whether `name` is one of a view's builtin accessors.

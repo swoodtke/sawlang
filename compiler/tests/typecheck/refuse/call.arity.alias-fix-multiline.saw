@@ -1,0 +1,18 @@
+// refuses: call.arity at 14:13
+// errors: 1
+// an argument written over several lines is spelled on one, so the record
+// stays one line (SL-1012)
+// message: write `O(Plain(n: 1 + 2))`
+
+struct Plain {
+    n: Int
+}
+
+type O = Plain
+
+func main() {
+    let m = O(
+        n: 1 +
+            2
+    )
+}

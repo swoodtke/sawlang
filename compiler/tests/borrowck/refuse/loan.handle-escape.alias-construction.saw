@@ -1,0 +1,19 @@
+// refuses: loan.handle-escape at 13:8
+// a `group.spawn` handle returned through an alias construction: `TI(..)`
+// carries the handle, and with it the borrow of the local group, out of
+// the function exactly as the bare handle would.
+type TI = Task<Int>
+
+func work(n: Int) -> Int {
+    n
+}
+
+func leak() -> Task<Int> {
+    var group = TaskGroup()
+    TI(group.spawn(work(1)))
+}
+
+func main() {
+    let h = leak()
+    print("{}", h.join())
+}

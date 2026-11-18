@@ -1,0 +1,15 @@
+// refuses: call.arity at 14:13
+// the target's own labels on a struct alias's head: the refusal spells the
+// construction the alias wants, which typechecks (SL-1012; the run probe
+// `alias_fix_spellings.saw` builds it)
+// message: write `O(Plain(n: 3))`
+
+struct Plain {
+    n: Int
+}
+
+type O = Plain
+
+func main() {
+    let o = O(n: 3)
+}

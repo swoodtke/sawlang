@@ -1,0 +1,21 @@
+// probe: stated
+// about: a conversion that is not an alias construction builds a new value and carries no loan of its operand's: an integer a call computed from a task handle, which the borrow check keeps as the handle's for the call's result, leaves through `Int64.from(truncating:)` (SL-1012)
+// stage 0: no oracle here: what is pinned is that sawc's borrow check forwards loans through an alias construction alone, which Stage 0 has no such check for
+// speeds: -O0 -O2
+// leaks: none
+// prints: 2
+
+func work(n: Int) -> Int { n * 2 }
+
+func finish(h: Task<Int>) -> Int { h.join() }
+
+func converted() -> Int64 {
+    var group = TaskGroup()
+    let h = group.spawn(work(1))
+    let n = finish(move h)
+    Int64.from(truncating: n)
+}
+
+func main() {
+    print(converted())
+}

@@ -1660,7 +1660,7 @@ extension TcProgram {
 
     // The first field of struct `d` that code in module `viewer` cannot see,
     // or -1.
-    func field_hidden_from(&self, d: Int, viewer: Int) -> Int {
+    public func field_hidden_from(&self, d: Int, viewer: Int) -> Int {
         let owner = self.res.decls[d].module
         let members = self.members_of(d)
         var k = 0

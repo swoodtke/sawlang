@@ -1,0 +1,69 @@
+// refuses: escaping.stored at 30:36
+// errors: 19
+// an alias construction over a function type carries its argument's value,
+// so `Fn(f)` is the non-escaping `f` at every position that holds one:
+// directly, through a chain, nested, parenthesized, over `move f`, through
+// an alias of an `escaping` function type, and through a binding of it
+// (SL-1157)
+// message: the function's result holds it past the call
+
+type Fn = (Int) -> Int
+type Fn2 = Fn
+type EF = (Int) escaping -> Int
+
+struct Holder {
+    g: Fn
+}
+
+struct Slot {
+    g: Fn
+}
+
+enum Kept {
+    case Has(g: (Int) -> Int),
+    case Not
+}
+
+func hold(g: (Int) escaping -> Int) -> (Int) escaping -> Int { g }
+func ident<T>(x: T) -> T { x }
+
+func tail(f: (Int) -> Int) -> Fn { Fn(f) }
+func chain(f: (Int) -> Int) -> Fn2 { Fn2(f) }
+func nested(f: (Int) -> Int) -> Fn2 { Fn2(Fn(f)) }
+func paren(f: (Int) -> Int) -> Fn { (Fn((f))) }
+func moved(f: (Int) -> Int) -> Fn { Fn(move f) }
+func returned(f: (Int) -> Int) -> Fn { return Fn(f) }
+func field(f: (Int) -> Int) -> Holder { Holder(g: Fn(f)) }
+func payload(f: (Int) -> Int) -> Kept { Kept.Has(g: Fn(f)) }
+func tuple(f: (Int) -> Int) -> (Fn, Int) { (Fn(f), 1) }
+func array(f: (Int) -> Int) -> [Fn; 1] { [Fn(f)] }
+func optional(f: (Int) -> Int) -> Fn? { Fn(f) }
+func escaping(f: (Int) -> Int) -> (Int) escaping -> Int { hold(Fn(f)) }
+func generic(f: (Int) -> Int) -> Fn { ident(Fn(f)) }
+func escaping_alias(f: (Int) -> Int) -> EF { EF(f) }
+
+func fallback(f: (Int) -> Int) -> Fn {
+    let o: Fn? = None
+    o ?? Fn(f)
+}
+
+func bound(f: (Int) -> Int) -> Fn {
+    let g = Fn(f)
+    let h = Fn2(g)
+    h
+}
+
+func assigned(f: (Int) -> Int, out: &var Fn) {
+    out = Fn(f)
+}
+
+func chained(f: (Int) -> Int, s: &var Slot?) {
+    s?.g = Fn(f)
+}
+
+func captured(f: (Int) -> Int) -> () escaping -> Int {
+    let g = Fn(f)
+    return { g(2) }
+}
+
+func main() {}

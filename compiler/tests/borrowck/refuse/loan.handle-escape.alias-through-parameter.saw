@@ -1,0 +1,19 @@
+// refuses: loan.handle-escape at 12:22
+// a handle pushed through a `&var` parameter inside an alias construction:
+// the caller's vector cannot see the local group end.
+type TI = Task<Int>
+
+func work(n: Int) -> Int {
+    n
+}
+
+func fill(out: &var Vector<Task<Int>>) {
+    var group = TaskGroup()
+    try! out.push(TI(group.spawn(work(1))))
+}
+
+func main() {
+    var hs = Vector<Task<Int>>()
+    fill(&var hs)
+    print("{}", hs.len())
+}

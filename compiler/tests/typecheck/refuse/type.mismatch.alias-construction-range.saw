@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 8:19
+// an alias's construction takes the range check its underlying gives a bare
+// literal, in a body as in a static
+
+type Small = UInt8
+
+func main() {
+    let s = Small(300)
+    print(s as UInt8)
+}

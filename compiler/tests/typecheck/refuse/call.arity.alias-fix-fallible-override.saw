@@ -1,0 +1,30 @@
+// refuses: call.arity at 29:13
+// the struct's fields as labels, where a fallible `init` overrides the
+// construction: `PP(Port(number: 80))` would be a `Result`, so nothing is
+// spelled (SL-1012)
+// message: construct a value of `Port` first and pass it as that one value
+
+struct Port {
+    number: Int
+}
+
+struct Bad {
+    code: Int
+}
+
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+extension Port {
+    init(number: Int) -> Result<Port, Bad> {
+        if number < 1024 { return Bad(code: number) }
+        return Port(number: number)
+    }
+}
+
+type PP = Port
+
+func main() {
+    let p = PP(number: 80)
+}

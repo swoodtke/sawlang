@@ -126,6 +126,7 @@ INDEX.md, or when an owner is not one of the words below.
 | R50 | typecheck | `escaping.stored` (SL-1137): `compiler/tests/typecheck/refuse/escaping.stored.in-place-result.saw`; the accept side, R48's run program |
 | R51 | typecheck | `escaping.stored` (SL-1151): `compiler/tests/typecheck/refuse/escaping.stored.generic-argument-result.saw` |
 | R52 | typecheck | `escaping.stored` (SL-1151): `compiler/tests/typecheck/refuse/escaping.stored.untyped-position.saw` |
+| R53 | typecheck | `escaping.stored` (SL-1157): `compiler/tests/typecheck/refuse/escaping.stored.alias-construction.saw`, `compiler/tests/typecheck/refuse/escaping.stored.alias-wrap.saw` |
 
 ## The Law of Exclusivity
 

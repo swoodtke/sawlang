@@ -1,0 +1,63 @@
+// The alias matrix's casts (SL-1012 U1, design 4.3), recorded at today's
+// verdicts: aliases are transparent, so every cast is accepted. The spec
+// turns away a cast into an alias and between siblings, and allows one out of an
+// alias and a partial projection to an alias on its chain.
+
+type UserId = Int
+type OrderId = Int
+type Link = Int
+type Mid = Link
+type Top = Mid
+type Narrow = UInt8
+
+struct Wrapped {
+    n: Int
+}
+
+type Owned = Wrapped
+type Name = String
+
+func out_of_alias() {
+    let u = UserId(4)
+    print(u as Int)
+}
+
+func literal_into_alias() {
+    let u = 42 as UserId
+    print(u as Int)
+}
+
+func value_into_alias(n: Int) {
+    let u = n as UserId
+    print(u as Int)
+}
+
+func between_siblings() {
+    let u = UserId(4)
+    let o = u as OrderId
+    print(o as Int)
+}
+
+func partial_projection() {
+    let t = Top(Mid(Link(5)))
+    let m = t as Mid
+    print(m as Int)
+}
+
+func through_the_underlying() {
+    let u = UserId(300)
+    print(u as UInt8)
+}
+
+func struct_alias_out() {
+    let o: Owned = Wrapped(n: 3)
+    let w = o as Wrapped
+    print(w.n)
+}
+
+func string_alias_out() {
+    let s: Name = "hi"
+    print(s as String)
+}
+
+func main() {}

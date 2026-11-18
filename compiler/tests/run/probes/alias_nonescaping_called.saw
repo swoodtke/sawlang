@@ -1,0 +1,59 @@
+// probe: stated
+// about: a non-escaping function value through an alias construction is still callable and passable where it does not escape: called, passed to a non-escaping parameter, bound and passed on, captured by a closure passed straight to its call; and an alias built from a closure literal or an `escaping` parameter is returned whole (SL-1157)
+// stage 0: no oracle here: Stage 0 reads an alias as its target and has no alias construction to look through
+// speeds: -O0 -O2
+// leaks: none
+// prints: 7 7 7 7
+// prints: 7 7
+// prints: 7 7 7
+// prints: 7
+
+type Fn = (Int) -> Int
+type Fn2 = Fn
+type MF = ((Int) -> Int)?
+
+struct W<T> {
+    v: T
+}
+
+type WMF = W<MF>
+
+func apply(g: Fn, x: Int) -> Int { g(x) }
+func apply_plain(g: (Int) -> Int, x: Int) -> Int { g(x) }
+func call(b: () -> Int) -> Int { b() }
+
+func passed(f: (Int) -> Int) -> Int { apply(Fn(f), 2) }
+
+func bound(f: (Int) -> Int) -> Int {
+    let g = Fn(f)
+    let h = Fn2(g)
+    apply(h, 2)
+}
+
+func called(f: (Int) -> Int) -> Int { Fn(f)(2) }
+
+func nested(f: (Int) -> Int) -> Int { apply_plain(Fn2(Fn(f)), 2) }
+
+func captured(f: (Int) -> Int) -> Int {
+    let g = Fn(f)
+    call({ g(2) })
+}
+
+func replaced(f: (Int) -> Int) -> Int {
+    var g = Fn(f)
+    g = Fn(f)
+    g(2)
+}
+
+func literal(n: Int) -> Fn { Fn({ x in x + n }) }
+func literal_optional(n: Int) -> MF { MF({ x in x + n }) }
+func literal_wrapped(n: Int) -> WMF { WMF(W(v: MF({ x in x + n }))) }
+func kept(g: (Int) escaping -> Int) -> MF { MF(g) }
+
+func main() {
+    let n = 5
+    print("{} {} {} {}", passed({ x in x + n }), bound({ x in x + n }), called({ x in x + n }), nested({ x in x + n }))
+    print("{} {}", captured({ x in x + n }), replaced({ x in x + n }))
+    print("{} {} {}", literal(5)(2), literal_optional(5)!(2), literal_wrapped(5).v!(2))
+    print(kept({ x in x + n })!(2))
+}

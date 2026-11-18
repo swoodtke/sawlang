@@ -1,0 +1,5 @@
+public struct Thing {
+    n: Int
+}
+
+public type PubThing = Thing

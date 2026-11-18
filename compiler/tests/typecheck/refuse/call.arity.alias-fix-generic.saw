@@ -1,0 +1,14 @@
+// refuses: call.arity at 13:13
+// over a generic instance the spelled construction leaves the arguments to
+// the alias, whose target the one value is checked against (SL-1012)
+// message: write `PS(Pair(x: "a"))`
+
+struct Pair<T> {
+    x: T
+}
+
+type PS = Pair<String>
+
+func main() {
+    let p = PS(x: "a")
+}

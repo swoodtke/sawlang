@@ -1,0 +1,83 @@
+(Module alias_static_through_alias
+  (declarations
+    (struct Job 6:8 private)
+    (field Job.n 7:5 private Int)
+    (extension 10:1 (target alias_static_through_alias.Job))
+    (method Job.one 11:17 private (signature (params) -> alias_static_through_alias.Job static) (summary body (suspends no) (sync-callable yes)))
+    (struct Pair 14:8 private (generics (T)))
+    (field Pair.x 15:5 private T)
+    (extension 18:1 (target alias_static_through_alias.Pair<String>))
+    (method Pair.blank 19:17 private (signature (params) -> alias_static_through_alias.Pair<String> static) (summary body (suspends no) (sync-callable yes)))
+    (alias Task1 22:6 private alias_static_through_alias.Job)
+    (alias JobBox 23:6 private std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator>)
+    (alias Texts 24:6 private alias_static_through_alias.Pair<String>)
+    (alias Count 25:6 private Int16)
+    (static LIMIT 27:8 private Int16)
+    (func struct_static 29:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func annotated 34:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func box_static 39:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func generic_instance_static 44:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func limit 49:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 54:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (alias_static_through_alias.Job
+      (field n Int private declared)
+      (static one private (extension alias_static_through_alias)))
+    (alias_static_through_alias.Pair
+      (field x T private declared)
+      (static blank private (extension alias_static_through_alias))
+      (method deinit public (synthesized Deinit))))
+  (views
+    (alias_static_through_alias.Job n one)
+    (alias_static_through_alias.Pair x blank deinit))
+  (conformances)
+  (copy-tier
+    (alias_static_through_alias.Job Copy)
+    (alias_static_through_alias.Pair (join Copy T)))
+  (bodies
+    (Job.one 11:17
+      (11:32-11:41 Call.paren alias_static_through_alias.Job value temp (memberwise alias_static_through_alias.Job (owner alias_static_through_alias.Job)))
+      (11:39-11:40 IntLit Int value temp))
+    (Pair.blank 19:17
+      (19:43-19:54 Call.paren alias_static_through_alias.Pair<String> value temp (memberwise alias_static_through_alias.Pair (owner alias_static_through_alias.Pair<String>)))
+      (19:51-19:53 StringLit String value temp))
+    (LIMIT 27:8
+      (27:23-27:32 Member Int16 value temp))
+    (struct_static 29:6
+      (30:9-30:10 BindingName alias_static_through_alias.Job place temp)
+      (30:13-30:24 Call.paren alias_static_through_alias.Job value temp (call alias_static_through_alias.Job.one() (owner alias_static_through_alias.Job)))
+      (31:5-31:15 Call.paren Void value temp (builtin print))
+      (31:11-31:14 Member Int place borrow)
+      (31:11-31:12 Name alias_static_through_alias.Job place project))
+    (annotated 34:6
+      (35:9-35:10 BindingName alias_static_through_alias.Job place temp)
+      (35:20-35:31 Call.paren alias_static_through_alias.Job value temp (call alias_static_through_alias.Job.one() (owner alias_static_through_alias.Job)))
+      (36:5-36:15 Call.paren Void value temp (builtin print))
+      (36:11-36:14 Member Int place borrow)
+      (36:11-36:12 Name alias_static_through_alias.Job place project))
+    (box_static 39:6
+      (40:9-40:10 BindingName std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator> place temp)
+      (40:13-40:40 Try.force std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator> value temp)
+      (40:18-40:40 Call.paren Result<std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator>, std.alloc.AllocError> value temp (call std.box.Box.make(value: T) (owner std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator>)))
+      (40:30-40:39 Call.paren alias_static_through_alias.Job value temp (memberwise alias_static_through_alias.Job (owner alias_static_through_alias.Job)))
+      (40:37-40:38 IntLit Int value temp)
+      (41:5-41:23 Call.paren Void value temp (builtin print))
+      (41:11-41:22 Member Int place borrow)
+      (41:11-41:20 Call.paren alias_static_through_alias.Job place project (call std.box.Box.value() (owner std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator>)))
+      (41:11-41:12 Name std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator> (borrow &std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator>) place borrow))
+    (generic_instance_static 44:6
+      (45:9-45:10 BindingName alias_static_through_alias.Pair<String> place temp)
+      (45:13-45:26 Call.paren alias_static_through_alias.Pair<String> value temp (call alias_static_through_alias.Pair.blank() (owner alias_static_through_alias.Pair<String>)))
+      (46:5-46:15 Call.paren Void value temp (builtin print))
+      (46:11-46:14 Member String place copy)
+      (46:11-46:12 Name alias_static_through_alias.Pair<String> place project))
+    (limit 49:6
+      (50:5-50:21 Call.paren Void value temp (builtin print))
+      (50:11-50:20 Member Int16 value borrow)
+      (51:5-51:26 Call.paren Void value temp (builtin print))
+      (51:11-51:25 Cast Int16 value borrow)
+      (51:11-51:16 Name Int16 place copy))
+    (main 54:6))
+  (string-positions
+    (19:51 literal std.string.string_literal)
+    (46:11 argument std.string.string_bytes std.string.string_length)))

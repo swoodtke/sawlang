@@ -14,6 +14,7 @@
 // ENTRY POINTS of the Send-on-frames gate:
 //   coro_check_frame_send
 
+import sawborrowck.loans.{borrowck_forwards_value}
 import sawborrowck.program.{BorrowckProgram}
 import sawresolve.collect.{res_is_top_level}
 import sawcoro.frames.{coro_driven_child, coro_frame_of}
@@ -105,7 +106,8 @@ func coro_call_closures(coro: &CoroProgram, f: Int, c: Int, outer: &Vector<Int>)
 
 // The closure place `p` of MIR function `f` holds as a call's argument, or
 // -1: one of `f`'s parameters holds what `outer` says, and a temporary holds
-// the closure or the argument its one definition makes.
+// the closure or the argument its one definition makes, read through an
+// alias construction (`borrowck_forwards_value`).
 func coro_operand_closure(coro: &CoroProgram, f: Int, p: Int, outer: &Vector<Int>, depth: Int) -> Int {
     let info = coro.mono.dp.bc.mir.funcs[f]
     if p < 0 || depth > info.local_count {
@@ -147,7 +149,7 @@ func coro_operand_closure(coro: &CoroProgram, f: Int, p: Int, outer: &Vector<Int
                 if at >= 0 {
                     found = coro.mono.dp.bc.mir.tc.closure_index.value(at)
                 }
-            } else if rv.kind == MirRvalueKind.Use && rv.count == 1 {
+            } else if (rv.kind == MirRvalueKind.Use || borrowck_forwards_value(&coro.mono.dp.bc.mir, &rv)) && rv.count == 1 {
                 let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
                 found = coro_operand_closure(&coro, f, o.place, &outer, depth + 1)
             }

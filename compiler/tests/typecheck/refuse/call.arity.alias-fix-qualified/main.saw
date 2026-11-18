@@ -1,0 +1,10 @@
+// refuses: call.arity at 9:13
+// an alias reached through a whole-module import: the spelled construction
+// names the target through the same qualifier (SL-1012)
+// message: write `alias_fix_things.PubThing(alias_fix_things.Thing(n: 1))`
+
+import alias_fix_things
+
+func main() {
+    let t = alias_fix_things.PubThing(n: 1)
+}

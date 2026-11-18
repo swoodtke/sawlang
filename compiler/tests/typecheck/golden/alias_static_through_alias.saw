@@ -1,0 +1,54 @@
+// A static called through an alias dispatches on the type the alias names,
+// with the alias's arguments, and is typed as that type declares it (SL-1012
+// U2; SL-1050): a struct's static, `Box`'s `make`, and an integer's limit as a
+// constant of the alias's own type.
+
+struct Job {
+    n: Int
+}
+
+extension Job {
+    static func one() -> Job { Job(n: 1) }
+}
+
+struct Pair<T> {
+    x: T
+}
+
+extension Pair<String> {
+    static func blank() -> Pair<String> { Pair(x: "") }
+}
+
+type Task1 = Job
+type JobBox = Box<Job>
+type Texts = Pair<String>
+type Count = Int16
+
+static LIMIT: Count = Count.max
+
+func struct_static() {
+    let j = Task1.one()
+    print(j.n)
+}
+
+func annotated() {
+    let j: Task1 = Task1.one()
+    print(j.n)
+}
+
+func box_static() {
+    let b = try! JobBox.make(Job(n: 5))
+    print(b.value().n)
+}
+
+func generic_instance_static() {
+    let t = Texts.blank()
+    print(t.x)
+}
+
+func limit() {
+    print(Count.max)
+    print(LIMIT as Int16)
+}
+
+func main() {}

@@ -1,0 +1,12 @@
+// refuses: call.arity at 11:13
+// `Thing` imported by name while a glob import offers another `Thing`: the
+// spelled `PubThing(Thing(n: 1))` would be `name.ambiguous`, so nothing is
+// spelled (SL-1012)
+// message: construct a value of `Thing` first and pass it as that one value
+
+import alias_fix_things.{PubThing, Thing}
+import alias_fix_rival.*
+
+func main() {
+    let t = PubThing(n: 1)
+}

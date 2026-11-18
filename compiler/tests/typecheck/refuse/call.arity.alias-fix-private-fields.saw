@@ -1,0 +1,14 @@
+// refuses: call.arity at 13:13
+// over `Box<Job>`, whose fields are private to std, no construction is
+// spelled (SL-1012)
+// message: construct a value of `Box<Job>` first and pass it as that one value
+
+struct Job {
+    n: Int
+}
+
+type JB = Box<Job>
+
+func main() {
+    let j = JB(value: Job(n: 1))
+}

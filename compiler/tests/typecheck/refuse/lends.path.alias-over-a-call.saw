@@ -1,0 +1,27 @@
+// refuses: lends.path at 23:15
+// an alias construction is read through to its argument, so a producer's path
+// `Alias(self.iter())` is the call `self.iter()`, which is no construction
+// written in this body (SL-1012)
+
+struct Owner {
+    value: Int
+}
+
+borrows struct It {
+    source: &Owner
+    done: Bool
+}
+
+type Alias = It
+
+extension Owner {
+    func iter(&self) borrows -> It {
+        It(source: lends self, done: false)
+    }
+
+    func alter(&self) borrows -> Alias {
+        Alias(self.iter())
+    }
+}
+
+func main() {}

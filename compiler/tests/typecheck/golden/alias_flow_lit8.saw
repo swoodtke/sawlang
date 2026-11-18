@@ -1,0 +1,102 @@
+// The alias position matrix at its "lit8" column (SL-1012 U1): a bare literal into an alias of `UInt8`,
+// at each position `sawc` checks a transfer, recorded at today's
+// verdict: transparent aliases, so every cell is accepted. A distinct alias
+// would turn away the cells the spec does (LANGUAGE_SPEC.md, Type Definitions).
+
+type UserId = Int
+type OrderId = Int
+type Small = UInt8
+
+static N: Int = 3
+static SO: OrderId = OrderId(1)
+static SU: UserId = UserId(1)
+
+func cell_let(n: Int) {
+    let x: Small = 7
+    print(x as UInt8)
+}
+
+func cell_var(n: Int) {
+    var x: Small = 7
+    x = x
+    print(x as UInt8)
+}
+
+static CELL: Small = 7
+func cell_static() { print(CELL as UInt8) }
+
+func cell_assign(n: Int, seed: Small) {
+    var x = seed
+    x = 7
+    print(x as UInt8)
+}
+
+func take_arg(x: Small) { print(x as UInt8) }
+func cell_arg(n: Int) {
+    take_arg(7)
+}
+
+struct Holder { x: Small }
+func cell_field(n: Int) {
+    let s = Holder(x: 7)
+    print(s.x as UInt8)
+}
+
+func take_default(x: Small = 7) { print(x as UInt8) }
+func cell_default() { take_default() }
+
+func cell_return(n: Int) -> Small {
+    return 7
+}
+
+func cell_tail(n: Int) -> Small {
+    7
+}
+
+func cell_branch(n: Int, c: Bool) {
+    let x: Small = if c { 7 } else { 7 }
+    print(x as UInt8)
+}
+
+func cell_arm(n: Int, k: Int) {
+    let x: Small = match k { case 0 -> 7, case _ -> 7 }
+    print(x as UInt8)
+}
+
+func cell_payload(n: Int) {
+    let x: Small? = 7
+    print(x! as UInt8)
+}
+
+func cell_element(n: Int) {
+    let x: [Small; 1] = [7]
+    print(x[0] as UInt8)
+}
+
+func cell_vector(n: Int) {
+    let x: Vector<Small> = [7]
+    print(x.len())
+}
+
+func cell_tuple(n: Int) {
+    let x: (Small, Int) = (7, 1)
+    print(x.0 as UInt8)
+}
+
+func cell_closure(n: Int) {
+    let f: () -> Small = { 7 }
+    print(f() as UInt8)
+}
+
+func cell_coalesce(n: Int, opt: Small?) {
+    let x: Small = opt ?? 7
+    print(x as UInt8)
+}
+
+func cell_compound(n: Int, seed: Small) {
+    var x = seed
+    x += 7
+    print(x as UInt8)
+}
+
+func main() {}

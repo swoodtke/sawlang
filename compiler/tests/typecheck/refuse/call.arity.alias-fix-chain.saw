@@ -1,0 +1,15 @@
+// refuses: call.arity at 14:13
+// through a chain of aliases the spelled construction names the chain's
+// final target, not the alias between (SL-1012)
+// message: write `B1(Plain(n: 1))`
+
+struct Plain {
+    n: Int
+}
+
+type A1 = Plain
+type B1 = A1
+
+func main() {
+    let b = B1(n: 1)
+}

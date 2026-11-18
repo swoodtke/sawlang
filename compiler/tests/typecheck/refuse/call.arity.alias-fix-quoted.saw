@@ -1,0 +1,15 @@
+// refuses: call.arity at 14:13
+// an argument holding quotes and escaped braces is copied as written
+// (SL-1012)
+// message: write `NamedA(Named(label: "q\"x\{y\}", n: 1))`
+
+struct Named {
+    label: String
+    n: Int
+}
+
+type NamedA = Named
+
+func main() {
+    let q = NamedA(label: "q\"x\{y\}", n: 1)
+}

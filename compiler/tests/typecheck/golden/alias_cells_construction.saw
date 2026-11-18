@@ -1,0 +1,60 @@
+// The alias matrix's construction cells that today's `sawc` and the spec
+// agree on (SL-1012 U1, design 4.3): `Alias(value)` over a primitive, a
+// boolean, a chain, a function type and a constant, and the construction of an
+// alias over a primitive in a constant position. The cells they disagree on
+// are the refusal fixtures `type.mismatch.alias-*`, `call.no-match.alias-*`
+// and the golden `alias_construct_wrong_instance`.
+
+type UserId = Int
+type Small = UInt8
+type Flag = Bool
+type Octet = Byte
+type Callback = (Int) -> Bool
+
+static MASK: Small = Small(4)
+static ALSO: Small = 4
+static NINE: Octet = Octet(Byte(9))
+
+func integer() {
+    let u = UserId(42)
+    print(u as Int)
+}
+
+func boolean() {
+    let f = Flag(true)
+    print(f as Bool)
+}
+
+func through_a_chain() {
+    let o = Octet(Byte(1))
+    print(o as Int)
+}
+
+func literal_through_a_chain() {
+    let o = Octet(1)
+    print(o as Int)
+}
+
+func function_value() {
+    let f = Callback({ x in x > 0 })
+    print(f(1))
+}
+
+func function_value_out() {
+    let f: (Int) -> Bool = { x in x > 0 }
+    let c: Callback = f
+    print(c(1))
+}
+
+func constant_length() {
+    let a = [0; Small(4)]
+    print(a.len())
+}
+
+func statics() {
+    print(MASK as UInt8)
+    print(ALSO as UInt8)
+    print(NINE as Int)
+}
+
+func main() {}

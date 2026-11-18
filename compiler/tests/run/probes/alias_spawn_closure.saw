@@ -1,0 +1,31 @@
+// probe: stated
+// about: a spawned root's closure argument passed through an alias construction is judged by the closure, as the bare closure is: both spellings spawn, at the root and through an embedded callee (SL-1012)
+// stage 0: no oracle here: Stage 0 reads an alias as its target and has no alias construction for a closure to pass through
+// speeds: -O0 -O2
+// leaks: none
+// prints: 3 3
+// prints: 7 7
+
+import std.task.{yield_now}
+
+type Fn = (Int) -> Int
+type Thunk = () -> Int
+
+func run(g: (Int) -> Int) -> Int { g(2) }
+
+func later(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func relay(n: Int) -> Int { later(Thunk({ [n] in n + 2 })) }
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(run({ x in x + 1 }))
+    let b = group.spawn(run(Fn({ x in x + 1 })))
+    print("{} {}", a.join(), b.join())
+    let c = group.spawn(later({ 7 }))
+    let d = group.spawn(relay(5))
+    print("{} {}", c.join(), d.join())
+}

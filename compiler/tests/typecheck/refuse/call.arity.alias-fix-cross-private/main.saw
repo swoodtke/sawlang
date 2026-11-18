@@ -1,0 +1,10 @@
+// refuses: call.arity at 9:13
+// a target with a field private to its module: this module cannot build it
+// field by field, so nothing is spelled (SL-1012)
+// message: construct a value of `Sec` first and pass it as that one value
+
+import alias_fix_secrets
+
+func main() {
+    let s = alias_fix_secrets.PubSec(n: 1, k: 2)
+}
