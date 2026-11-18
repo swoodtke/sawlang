@@ -1,0 +1,65 @@
+// SL-1158: a by-address aggregate parameter carries its type's alignment.
+//
+// `refused` takes three aggregates by address (a `String`, a `Result` and an
+// error enum with a payload case) and prints each through `print`'s format
+// arguments, which render through a 512-byte stack buffer apiece, so its frame
+// (about 1.7 KB) lies in esp-clang's call0 crash window. With no alignment on
+// the parameters the call0 backend reads them a byte at a time, every
+// allocatable register is live at a store past `s32i`'s reach, and the compile
+// aborts with "Cannot scavenge register without an emergency spill slot" at
+// -O1 and above. With `align A` on each parameter (A from the type's layout)
+// the reads are word loads and the function compiles. The case runs at -Oz,
+// the size level the S3 images use, and checks the values read through the
+// parameters, so a wrong alignment shows as a wrong answer as well as a crash.
+
+import fscore.*
+
+enum Failure {
+    case BadOp,
+    case Busy,
+    case Transport(code: UInt32),
+}
+
+@synthesize
+extension Failure: Equatable {}
+
+extension Failure: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case BadOp -> { try! into.append("BadOp") },
+            case Busy -> { try! into.append("Busy") },
+            case Transport(code) -> {
+                try! into.append("Transport ")
+                try! into.append(code as Int)
+            },
+        }
+    }
+}
+
+/// 1 when `r` is the error `want`, 0 when it is another, 2 when it answered.
+func refused<V>(step: String, r: Result<V, Failure>, want: Failure) -> Int {
+    match r {
+        case Ok(_) -> {
+            print("{}: answered, wanted {}", step, want)
+            return 2
+        },
+        case Err(e) -> {
+            if e != want {
+                print("{}: {}, wanted {}", step, e, want)
+                return 0
+            }
+        },
+    }
+    1
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    let busy: Result<UInt8, Failure> = Result<UInt8, Failure>.Err(error: Failure.Busy)
+    let answered: Result<UInt8, Failure> = Result<UInt8, Failure>.Ok(value: 7)
+    let other: Result<UInt8, Failure> = Result<UInt8, Failure>.Err(error: Failure.Transport(code: 5))
+    check_value("refused_match", refused("busy", busy, Failure.Busy), 1)
+    check_value("refused_answered", refused("answered", answered, Failure.Busy), 2)
+    check_value("refused_other", refused("other", other, Failure.BadOp), 0)
+    finish("param_alignment_frame")
+}

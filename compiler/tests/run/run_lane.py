@@ -4,7 +4,7 @@ run, and its standard output and exit status compared with Stage 0's recorded
 run of it, built against its own std.
 
     python compiler/tests/run/run_lane.py            # check
-    python compiler/tests/run/run_lane.py --write    # rewrite hello.ll, noalias.defines, debug/debug_info.ll
+    python compiler/tests/run/run_lane.py --write    # rewrite hello.ll, noalias.defines, param_align.defines, debug/debug_info.ll
     python compiler/tests/run/run_lane.py NAME...    # just these programs and probes
     python compiler/tests/run/run_lane.py --stage0 [NAME...]   # record Stage 0's runs
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
@@ -46,6 +46,9 @@ run of it, built against its own std.
 - `noalias.saw`'s own `define` lines, written with `-g0`, equal `noalias.defines`, and a sawc
   built from a copy of the backend whose `noalias` funnel skips its
   cell-carrying test fails that comparison at the cell-carrying `&` parameter;
+- `param_align.saw`'s `take_` defines and the entry copy of each by-address
+  aggregate parameter equal `param_align.defines` for the host and riscv32: `ptr align A`,
+  `A` the type's layout alignment on that target;
 - every `define` in those two `.ll` files, and in `frame_pointers.saw`'s,
   carries `"frame-pointer"="non-leaf"`, so a function the backend writes
   outside its function attribute funnel is caught;
@@ -673,6 +676,65 @@ def check_noalias(failures, counts, write):
         counts["run noalias injections caught"] = counts.get("run noalias injections caught", 0) + 1
     finally:
         shutil.rmtree(copy, ignore_errors=True)
+
+
+PARAM_ALIGN_SOURCE = os.path.join(HERE, "probes", "param_align.saw")
+PARAM_ALIGN_PINNED = os.path.join(HERE, "param_align.defines")
+_PARAM_ALIGN_DEFINE = re.compile(r'^define [^@]*@"saw param_align\.take_')
+# The entry copy of a by-address parameter: `%p1` is the only parameter of a
+# `take_` function, and its memcpy names the parameter as its source.
+_PARAM_ALIGN_COPY = re.compile(r"^\s*call void @llvm\.memcpy\.[^(]*\(ptr align \d+ %l1, ptr align \d+ %p1,")
+# Each target the pin holds: its heading, and the arguments naming it.
+PARAM_ALIGN_TARGETS = (
+    (PINNED_TARGET, ["--target", PINNED_TARGET]),
+    ("riscv32-unknown-none-elf", ["--freestanding", "--target", "riscv32-unknown-none-elf"]),
+)
+
+
+def param_align_lines():
+    """param_align.saw's `take_` defines and their parameter copies, as sawc
+    writes them for each target of `PARAM_ALIGN_TARGETS`, under a heading per
+    target: (the lines, or None and why)."""
+    lines = []
+    for target, flags in PARAM_ALIGN_TARGETS:
+        r = subprocess.run([build.SAWC, "build", "-g0", "--emit-ll"] + flags + ["--std-root", "std",
+                            rel(PARAM_ALIGN_SOURCE)], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            return None, "%s: %s" % (target, (r.stdout + r.stderr).strip()[:300])
+        lines.append("; " + target)
+        inside = False
+        for line in r.stdout.split("\n"):
+            if line.startswith("define "):
+                inside = bool(_PARAM_ALIGN_DEFINE.match(line))
+                if inside:
+                    lines.append(line)
+            elif inside and _PARAM_ALIGN_COPY.match(line):
+                lines.append(line.strip())
+    return lines, ""
+
+
+def check_param_align(failures, counts, write):
+    """The `take_` defines of param_align.saw, and the memcpy that copies each
+    parameter in, against param_align.defines: `ptr align A` for the type's
+    alignment on the target, on the host and on riscv32."""
+    lines, why = param_align_lines()
+    if lines is None:
+        failures.append("run param_align: sawc wrote no .ll: %s" % why)
+        return
+    text = "\n".join(lines) + "\n"
+    if write:
+        with open(PARAM_ALIGN_PINNED, "w") as fh:
+            fh.write(text)
+        return
+    with open(PARAM_ALIGN_PINNED) as fh:
+        expected = fh.read()
+    if text != expected:
+        changed = [line for line in lines if line + "\n" not in expected]
+        failures.append("run param_align: the lines differ from %s: %s"
+                        % (rel(PARAM_ALIGN_PINNED), (changed or ["a line is missing"])[0][:200]))
+        return
+    counts["run pinned .ll files"] = counts.get("run pinned .ll files", 0) + 1
 
 
 DEBUG = os.path.join(HERE, "debug")
@@ -5066,6 +5128,7 @@ def run(names=None, write=False):
                 failures.append("run rule %s: no due program is refused by it" % rule)
         check_pinned_ir(failures, counts, write)
         check_noalias(failures, counts, write)
+        check_param_align(failures, counts, write)
         check_debug_shape(failures, counts, write)
         check_symbolization(failures, counts)
         check_foreign_targets(failures, counts)

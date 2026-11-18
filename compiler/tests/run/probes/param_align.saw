@@ -1,0 +1,57 @@
+// probe: stated
+// about: an aggregate passed by address carries its type's alignment on the parameter and its entry copy, on the host and riscv32, pinned by param_align.defines (SL-1158)
+// stage 0: has no record of it; Stage 0 is no oracle for a new probe
+// speeds: -O0 -O2
+// prints: 16
+// An aggregate parameter passed by address carries its type's alignment, and
+// the entry copy into its local slot is aligned to match: `ptr align A` on the
+// parameter and on the `llvm.memcpy`'s source, `A` the layout's alignment of
+// the type on the target. `Word` is `Int`-wide, so its alignment is the
+// target's word; `Half` is 2 and `Wide` is 8 on every target.
+// `param_align.defines` pins this module's `define` lines for the host and for
+// riscv32 (`run_lane.py`'s `check_param_align`).
+
+struct Wide {
+    a: Int64
+    b: Int64
+    c: Int64
+}
+
+struct Half {
+    a: Int16
+    b: Int16
+    c: Int16
+    d: Int16
+    e: Int16
+}
+
+struct Word {
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+}
+
+func take_wide(w: Wide) -> Int64 {
+    w.a &+ w.c
+}
+
+func take_half(h: Half) -> Int16 {
+    h.a &+ h.e
+}
+
+func take_word(w: Word) -> Int {
+    w.b &+ w.d
+}
+
+@export("probe_param_align")
+func probe_param_align(n: Int) -> Int {
+    let w = Wide(a: 1, b: 2, c: 3)
+    let h = Half(a: 1, b: 2, c: 3, d: 4, e: 5)
+    let words = Word(a: n, b: n, c: n, d: n)
+    (take_wide(w) as Int) &+ (take_half(h) as Int) &+ take_word(words)
+}
+
+func main() {
+    print("{}", probe_param_align(3))
+}

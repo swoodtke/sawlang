@@ -183,13 +183,21 @@ extension LlEmitter {
                     try! prelude.append(self.dbg_suffix)
                     try! prelude.append("\n")
                 } else {
-                    try! head.append("ptr")
+                    // Every caller hands over the address of storage laid out
+                    // for this type, so the pointer carries the type's own
+                    // alignment (the layout's, never a constant).
+                    try! head.append("ptr align ")
+                    try! head.append(l.align)
                     self.declare_memcpy()
                     try! prelude.append("  call void @llvm.memcpy.p0.p0.")
                     try! prelude.append(self.word)
-                    try! prelude.append("(ptr ")
+                    try! prelude.append("(ptr align ")
+                    try! prelude.append(self.slot_align(node, l.align))
+                    try! prelude.append(" ")
                     try! prelude.append(ll_local_slot(j))
-                    try! prelude.append(", ptr ")
+                    try! prelude.append(", ptr align ")
+                    try! prelude.append(l.align)
+                    try! prelude.append(" ")
                     try! prelude.append(name)
                     try! prelude.append(", ")
                     try! prelude.append(self.word)

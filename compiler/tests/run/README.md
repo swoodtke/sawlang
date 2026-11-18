@@ -14,6 +14,7 @@ run/
   stage0/TRIPLE/NAME.stage0  Stage 0's recorded run of NAME.saw on host TRIPLE
   hello.ll       the `.ll` sawc writes for hello.saw with `-g0`, pinned
   noalias.defines  the `define` lines sawc writes for noalias.saw's own functions with `-g0`, pinned
+  param_align.defines  the `take_` defines and parameter copies of param_align.saw for the host and riscv32, pinned
   debug/         the line-table programs and debug_info.ll, the `!dbg` shape of one
                  function, pinned ("Line tables")
   runtime_dirent.ll  the `.ll` `sawc runtime` writes for runtime/host_macos/dirent.saw, pinned

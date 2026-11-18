@@ -761,6 +761,21 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # A by-address aggregate parameter carries its type's alignment: the
+        # xtensa call0 backend crashes on a frame in its window when it
+        # reads an unaligned one a byte at a time (SL-1158).
+        "name": "param_alignment_frame",
+        "extra_flags": ["-Oz"],
+        "arches": ["xtensa"],
+        "expect_out": ["fs check refused_match=1",
+                       "answered: answered, wanted Busy",
+                       "fs check refused_answered=1",
+                       "other: Transport 5, wanted BadOp",
+                       "fs check refused_other=1",
+                       "fs done param_alignment_frame ok"],
+        "expect_clean_exit": True,
+    },
+    {
         # An entry-module `@export` (bare, renamed, and on a static) in a
         # program whose coroutine transform runs.
         "name": "export_with_coroutine",

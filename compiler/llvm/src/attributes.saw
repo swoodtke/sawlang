@@ -18,7 +18,9 @@ import sawtypecheck.types.{TcKind}
 // since a cell is the one place a shared borrow lets anything write (spec,
 // Reference passing). A raw pointer, an aggregate passed by address (an
 // erased `&any Trait` among them), the result's address, a slice and a
-// closure's environment carry nothing.
+// closure's environment carry nothing here. An aggregate by address carries
+// `align A` for its type's layout alignment, which `emit_function` writes:
+// every caller passes storage laid out for that type (SL-1158).
 //
 // ENTRY POINTS:
 //   LlEmitter.emit_function

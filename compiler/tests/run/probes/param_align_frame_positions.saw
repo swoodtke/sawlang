@@ -1,0 +1,80 @@
+// probe: stated
+// about: the same for a coroutine frame's parameters, locals and fields, a closure's environment, an Optional payload and a field through a reference (SL-1158)
+// stage 0: has no record of it; Stage 0 is no oracle for a new probe
+// speeds: -O0 -O2
+// prints: 90
+// SL-1158: every position that hands a by-address aggregate to a parameter
+// carrying `align A` passes storage aligned to A: a coroutine frame's parameters,
+// locals and fields, a closure's captured environment, an Optional payload and a
+// field read through a reference. The sum is the oracle, at each level the lane
+// builds.
+//
+
+import std.task.*
+
+struct Wide {
+    a: Int
+    b: Int
+    c: Int
+}
+
+struct Half {
+    a: Int16
+    b: Int16
+    c: Int16
+    d: Int16
+    e: Int16
+}
+
+struct Pair {
+    tag: UInt8
+    w: Wide
+    h: Half
+}
+
+func take_wide(w: Wide) -> Int {
+    w.a + w.b + w.c
+}
+
+func take_half(h: Half) -> Int {
+    h.a as Int + h.e as Int
+}
+
+// Frame-resident parameters and locals passed on across a suspension.
+func suspended(w: Wide, h: Half, p: Pair) -> Int {
+    yield_now()
+    let local = Wide(a: 7, b: 8, c: 9)
+    yield_now()
+    take_wide(w) + take_half(h) + take_wide(local) + take_wide(p.w) + take_half(p.h)
+}
+
+func spawned_wide(w: Wide) -> Int {
+    yield_now()
+    take_wide(w)
+}
+
+func with_option(o: Wide?) -> Int {
+    if let w = o {
+        return take_wide(w)
+    }
+    0
+}
+
+func borrowing(p: &Pair) -> Int {
+    take_wide(p.w) + take_half(p.h)
+}
+
+func main() {
+    let w = Wide(a: 1, b: 2, c: 3)
+    let h = Half(a: 1, b: 2, c: 3, d: 4, e: 5)
+    let p = Pair(tag: 1, w: w, h: h)
+    var total = 0
+    let f = { take_wide(w) + take_half(p.h) + take_wide(p.w) }
+    total = total + f()
+    total = total + with_option(w)
+    total = total + borrowing(&p)
+    let t = Task.spawn(suspended(w, h, p))
+    let u = Task.spawn(spawned_wide(w))
+    total = total + t.join() + u.join()
+    print("{}", total)
+}

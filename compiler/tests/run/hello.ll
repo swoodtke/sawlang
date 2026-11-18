@@ -729,7 +729,7 @@ forced.8:
   ret void
 }
 
-define internal void @"saw std.systemerror.SystemError.of(operation: String, tag: Int)"(ptr %ret, ptr %p1, i64 %p2) #0 {
+define internal void @"saw std.systemerror.SystemError.of(operation: String, tag: Int)"(ptr %ret, ptr align 8 %p1, i64 %p2) #0 {
 entry:
   %l0 = alloca [40 x i8], align 8
   %l1 = alloca [8 x i8], align 8
@@ -740,7 +740,7 @@ entry:
   %l6 = alloca [4 x i8], align 4
   %l7 = alloca i64, align 8
   %l8 = alloca [40 x i8], align 8
-  call void @llvm.memcpy.p0.p0.i64(ptr %l1, ptr %p1, i64 8, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %l1, ptr align 8 %p1, i64 8, i1 false)
   store i64 %p2, ptr %l2
   br label %bb0
 bb0:
@@ -772,7 +772,7 @@ bb3:
   ret void
 }
 
-define internal void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %ret, ptr noalias %p1, ptr %p2) #0 {
+define internal void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %ret, ptr noalias %p1, ptr align 8 %p2) #0 {
 entry:
   %l0 = alloca [24 x i8], align 8
   %l1 = alloca ptr, align 8
@@ -781,7 +781,7 @@ entry:
   %l4 = alloca ptr, align 8
   %l5 = alloca [24 x i8], align 8
   store ptr %p1, ptr %l1
-  call void @llvm.memcpy.p0.p0.i64(ptr %l2, ptr %p2, i64 8, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %l2, ptr align 8 %p2, i64 8, i1 false)
   br label %bb0
 bb0:
   store ptr %l2, ptr %l3
@@ -1907,7 +1907,7 @@ checked.10:
   br label %bb17
 }
 
-define internal void @"saw std.systemerror.append_subject(into: &var std.stringbuilder.StringBuilder, subject: String)"(ptr noalias %p1, ptr %p2) #0 {
+define internal void @"saw std.systemerror.append_subject(into: &var std.stringbuilder.StringBuilder, subject: String)"(ptr noalias %p1, ptr align 8 %p2) #0 {
 entry:
   %l0 = alloca [0 x i8], align 1
   %l1 = alloca ptr, align 8
@@ -1948,7 +1948,7 @@ entry:
   %l36 = alloca i64, align 8
   %t59 = alloca [8 x i8], align 8
   store ptr %p1, ptr %l1
-  call void @llvm.memcpy.p0.p0.i64(ptr %l2, ptr %p2, i64 8, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %l2, ptr align 8 %p2, i64 8, i1 false)
   br label %bb0
 bb0:
   store i8 1, ptr %l3

@@ -1,0 +1,104 @@
+// probe: stated
+// about: every position handing a by-address aggregate to an aligned parameter passes aligned storage: local, field, vector element, enum payload, closure, generic, any-Trait dispatch, borrowing method, spawned task (SL-1158)
+// stage 0: has no record of it; Stage 0 is no oracle for a new probe
+// speeds: -O0 -O2
+// prints: 77
+// SL-1158: every position that hands a by-address aggregate to a parameter
+// carrying `align A` passes storage aligned to A: a local, a struct field, a
+// vector element read, an enum payload, a closure call, a generic instance, an
+// `&any Trait` dispatch, a borrowing method and a spawned task. The sum is the
+// oracle, at each level the lane builds.
+//
+
+import std.task.*
+
+struct Wide {
+    a: Int
+    b: Int
+    c: Int
+}
+
+struct Half {
+    a: Int16
+    b: Int16
+    c: Int16
+    d: Int16
+    e: Int16
+}
+
+struct Holder {
+    pad: UInt8
+    inner: Wide
+    small: Half
+}
+
+enum Slot {
+    case Empty
+    case Full(inner: Wide)
+}
+
+trait Sum {
+    func total(&self, w: Wide) -> Int
+}
+
+extension Holder: Sum {
+    func total(&self, w: Wide) -> Int {
+        w.a + w.b + w.c + self.pad as Int
+    }
+}
+
+func take_wide(w: Wide) -> Int {
+    w.a + w.b + w.c
+}
+
+func take_half(h: Half) -> Int {
+    h.a as Int + h.e as Int
+}
+
+func generic<T: Copy>(t: T, f: (T) -> Int) -> Int {
+    f(t)
+}
+
+func exported(w: Wide) -> Int {
+    w.a * w.c
+}
+
+func via_any(g: &any Sum, w: Wide) -> Int {
+    g.total(w)
+}
+
+func suspended(w: Wide, h: Half) -> Int {
+    yield_now()
+    w.b + h.d as Int
+}
+
+extension Wide {
+    func borrowed(&self, other: Wide) -> Int {
+        self.a + other.c
+    }
+}
+
+func main() {
+    let w = Wide(a: 1, b: 2, c: 3)
+    let h = Half(a: 1, b: 2, c: 3, d: 4, e: 5)
+    let hold = Holder(pad: 9, inner: w, small: h)
+    var total = take_wide(w) + take_half(h)
+    total = total + take_wide(hold.inner) + take_half(hold.small)
+    var v = Vector<Wide>()
+    try! v.push(w)
+    total = total + take_wide(v[0])
+    let s = Slot.Full(w)
+    match s {
+        case Full(p) -> { total = total + take_wide(p) },
+        case Empty -> {},
+    }
+    let f = { x: Wide in x.a }
+    total = total + f(w)
+    total = total + generic(w, take_wide) + generic(h, take_half)
+    total = total + via_any(&hold, w)
+    total = total + exported(w)
+    total = total + w.borrowed(w)
+    let t = Task.spawn(suspended(w, h))
+    total = total + t.join()
+    print("{}", total)
+}

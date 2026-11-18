@@ -1,0 +1,14 @@
+; arm64-apple-darwin
+define internal i64 @"saw param_align.take_wide(w: param_align.Wide)"(ptr align 8 %p1) #0 {
+call void @llvm.memcpy.p0.p0.i64(ptr align 8 %l1, ptr align 8 %p1, i64 24, i1 false)
+define internal i16 @"saw param_align.take_half(h: param_align.Half)"(ptr align 2 %p1) #0 {
+call void @llvm.memcpy.p0.p0.i64(ptr align 2 %l1, ptr align 2 %p1, i64 10, i1 false)
+define internal i64 @"saw param_align.take_word(w: param_align.Word)"(ptr align 8 %p1) #0 {
+call void @llvm.memcpy.p0.p0.i64(ptr align 8 %l1, ptr align 8 %p1, i64 32, i1 false)
+; riscv32-unknown-none-elf
+define internal i64 @"saw param_align.take_wide(w: param_align.Wide)"(ptr align 8 %p1) #0 {
+call void @llvm.memcpy.p0.p0.i32(ptr align 8 %l1, ptr align 8 %p1, i32 24, i1 false)
+define internal i16 @"saw param_align.take_half(h: param_align.Half)"(ptr align 2 %p1) #0 {
+call void @llvm.memcpy.p0.p0.i32(ptr align 2 %l1, ptr align 2 %p1, i32 10, i1 false)
+define internal i32 @"saw param_align.take_word(w: param_align.Word)"(ptr align 4 %p1) #0 {
+call void @llvm.memcpy.p0.p0.i32(ptr align 4 %l1, ptr align 4 %p1, i32 16, i1 false)
