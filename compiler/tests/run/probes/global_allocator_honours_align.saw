@@ -1,0 +1,98 @@
+// probe: stated
+// about: the hosted `GlobalAllocator` returns a block aligned to the requested `align` up to `@align`'s 4096 cap, serves size 0 with a non-NULL block, and still refuses under `deny_after` above malloc's 16 (SL-1167)
+// stage 0: its runtime is v0.18.0's, which ignores `align`
+// speeds: -O0 -O2
+// leaks: none
+// prints: aligned 1
+// prints: aligned 8
+// prints: aligned 16
+// prints: aligned 32
+// prints: aligned 64
+// prints: aligned 256
+// prints: aligned 4096
+// prints: size 0 at 1 served
+// prints: size 0 at 64 served
+// prints: denied at 64: allocation of 128 bytes (align 64) failed
+// prints: denied at 8
+// prints: served again at 64
+// The seam's contract is "aligned to at least `align`": sawc's IR states the
+// alignment of what it loads from a block, so an under-aligned one is
+// undefined behaviour. Each block is written end to end before it is released.
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func check(align: Int) unsafe {
+    let size = align * 2 + 5
+    let p = GlobalAllocator().alloc(size, align)!
+    let address = p as Int
+    if address % align != 0 {
+        print("misaligned {} at {}", align, address % align)
+    } else {
+        print("aligned {}", align)
+    }
+    var i = 0
+    while i < size {
+        p[i] = 7
+        i = i + 1
+    }
+    GlobalAllocator().dealloc(p, size, align)
+}
+
+func empty(align: Int) unsafe {
+    guard let p = GlobalAllocator().alloc(0, align) else {
+        print("size 0 at {} refused", align)
+        return
+    }
+    if (p as Int) % align != 0 {
+        print("size 0 at {} misaligned", align)
+    } else {
+        print("size 0 at {} served", align)
+    }
+    GlobalAllocator().dealloc(p, 0, align)
+}
+
+func main() unsafe {
+    check(1)
+    check(8)
+    check(16)
+    check(32)
+    check(64)
+    check(256)
+    check(4096)
+    empty(1)
+    empty(64)
+
+    // Printing allocates, so the verdicts are kept until the hook is disarmed.
+    var wide_denied = false
+    var narrow_denied = false
+    __saw_rt_alloc_deny_after(0)
+    if let wide = GlobalAllocator().alloc(128, 64) {
+        GlobalAllocator().dealloc(wide, 128, 64)
+    } else {
+        wide_denied = true
+    }
+    if let narrow = GlobalAllocator().alloc(8, 8) {
+        GlobalAllocator().dealloc(narrow, 8, 8)
+    } else {
+        narrow_denied = true
+    }
+    __saw_rt_alloc_deny_after(-1)
+    if wide_denied {
+        let e = AllocError(size: 128, align: 64)
+        print("denied at 64: {e}")
+    } else {
+        print("not denied at 64")
+    }
+    if narrow_denied {
+        print("denied at 8")
+    } else {
+        print("not denied at 8")
+    }
+    if let again = GlobalAllocator().alloc(128, 64) {
+        GlobalAllocator().dealloc(again, 128, 64)
+        print("served again at 64")
+    } else {
+        print("refused after disarm")
+    }
+}

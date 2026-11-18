@@ -92,13 +92,23 @@ compiler would refuse to let anyone export.
 ## Allocation / output / panic
 
 ### `__saw_rt_alloc(size: word, align: word) -> i8*`
-Global allocator. Returns a block of at least `size` bytes, or NULL on failure.
-The hosted default is `malloc(size)`; `align` is currently ignored (malloc
-guarantees `alignof(max_align_t)` >= 16). A runtime that honors alignment may use
-`align`.
+Global allocator. Returns a block of at least `size` bytes aligned to at least
+`align`, or NULL on failure. `align` is a power of two, and a runtime MUST serve
+every one up to 4096 (`@align`'s cap): sawc's IR states the alignment of what it
+loads from a block, so an under-aligned block is undefined behaviour.
+
+`size` may be 0 (std requests it for a zero-sized element or payload, such as a
+`Vector` of an empty struct or a `Box` of one). The block returned is then
+non-NULL and aligned, and `__saw_rt_dealloc` accepts it, because a NULL return
+means failure to the caller. The hosted default asks for one byte in that case.
+
+The hosted default is `malloc` for an `align` of 16 or less (malloc guarantees
+`alignof(max_align_t)`, 16 on every hosted target) and `posix_memalign` above.
 
 ### `__saw_rt_dealloc(ptr: i8*, size: word, align: word) -> void`
-Free a block previously returned by `__saw_rt_alloc`. Hosted default: `free(ptr)`.
+Free a block previously returned by `__saw_rt_alloc`, passed the same `size` and
+`align` as the matching `alloc`. Hosted default: `free(ptr)`, which also frees a
+`posix_memalign` block.
 
 ### `__saw_rt_alloc_deny_after(allow: word) -> void`
 **Hosted test facility (design 123), optional for a runtime to provide.**

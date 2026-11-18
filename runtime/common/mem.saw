@@ -1,11 +1,17 @@
 // The global allocation seams (design 113b), authored in Saw.
 //
-// `__saw_rt_alloc`/`__saw_rt_dealloc` are the hosted default allocator: thin
-// wrappers over libc malloc/free. `align` is ignored because malloc already
-// aligns to alignof(max_align_t) (>= 16 on the hosted targets), which covers
-// every Saw allocation. The seams traffic in a raw `i8*` (NULL on failure);
-// std/alloc.saw's `extern` declaration adds the optional wrapping, because an
-// `@export` return cannot be optional.
+// `__saw_rt_alloc` returns a block aligned to at least `align`, because the IR
+// sawc emits states the alignment of what it loads from one and an
+// under-aligned block is undefined behaviour. A request of at most
+// MALLOC_ALIGN takes `malloc`, whose block is aligned to alignof(max_align_t),
+// 16 on every hosted target. A larger power of two takes `posix_memalign`.
+// Both kinds of block are released by `free`, so `__saw_rt_dealloc` is `free`
+// whatever `align` it is given.
+//
+// A request of size 0 is served as one byte: malloc(0) and posix_memalign(..., 0)
+// may return NULL, which the caller would read as failure. The seams traffic in
+// a raw `i8*` (NULL on failure); std/alloc.saw's `extern` declaration adds the
+// optional wrapping, because an `@export` return cannot be optional.
 //
 // `__saw_rt_alloc_deny_after(allow)` is the test hook for OOM paths: most of
 // std (`String`, `StringBuilder`, `Data`, `Arc`, `Channel`) allocates through the
@@ -21,7 +27,11 @@
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
+    func posix_memalign(out: UnsafePointer<UnsafePointer<Int8>>, align: Int, size: Int) -> Int32
 }
+
+// The strongest alignment malloc guarantees on every hosted target.
+static MALLOC_ALIGN: Int = 16
 
 // Separate flag rather than one signed sentinel: a static initializer takes a
 // plain literal, so "no limit in force" is its own zero-valued flag. When
@@ -51,7 +61,18 @@ func rt_alloc(size: Int, align: Int) unsafe -> UnsafePointer<Int8> {
             return 0 as UnsafePointer<Int8>
         }
     }
-    malloc(size)
+    var bytes = size
+    if bytes < 1 {
+        bytes = 1
+    }
+    if align <= MALLOC_ALIGN {
+        return malloc(bytes)
+    }
+    var block = 0 as UnsafePointer<Int8>
+    if posix_memalign((&var block) as UnsafePointer<UnsafePointer<Int8>>, align, bytes) != 0 {
+        return 0 as UnsafePointer<Int8>
+    }
+    block
 }
 
 @export("__saw_rt_dealloc")

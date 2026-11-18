@@ -12,6 +12,7 @@ extern "C" {
     func write(fd: Int32, bytes: UnsafePointer<Int8>, count: UInt) -> Int
     func malloc(size: UInt) -> UnsafePointer<Int8>
     func free(block: UnsafePointer<Int8>)
+    func posix_memalign(out: UnsafePointer<UnsafePointer<Int8>>, align: UInt, size: UInt) -> Int32
     func abort() -> Never
 }
 
@@ -29,7 +30,19 @@ unsafe static var WOKEN: Bool = false
 
 @export("__saw_rt_alloc")
 func provided_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
-    malloc(size)
+    // malloc aligns to 16; a wider request needs posix_memalign (runtime/ABI.md).
+    var bytes = size
+    if bytes < 1 {
+        bytes = 1
+    }
+    if align <= 16 {
+        return malloc(bytes)
+    }
+    var block = 0 as UnsafePointer<Int8>
+    if posix_memalign((&var block) as UnsafePointer<UnsafePointer<Int8>>, align, bytes) != 0 {
+        return 0 as UnsafePointer<Int8>
+    }
+    block
 }
 
 @export("__saw_rt_dealloc")
