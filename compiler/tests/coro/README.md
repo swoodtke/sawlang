@@ -19,6 +19,11 @@ coro/
                           bt_table_NAME.saw, bt_table_NAME.bttable, its
                           backtrace table, decoded
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
+  refuse_layout/          RULE.VARIANT.saw, a program whose frame does not fit
+                          the target's `Int`, refused by `--layouts` (where
+                          frames are laid out), and accepted.VARIANT.saw, a
+                          frame at the edge that fits, whose record holds the
+                          text its `// accepts:` line gives; neither is built
   inject/                 asan_inject.saw, the sanitizer lane's injector,
                           which lowers asan_overlap.saw, edits it and hands
                           it to the backend past the verifier; and

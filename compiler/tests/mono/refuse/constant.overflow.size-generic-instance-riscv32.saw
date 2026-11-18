@@ -1,0 +1,16 @@
+// refuses: constant.overflow at 14:6
+// flags: --target riscv32-unknown-none-elf
+// message: is larger than `Int` counts on this target
+// A generic whose size overflows only at one instance, found in mono.
+struct Pair<T> {
+    a: T
+    b: T
+}
+
+func measure<T>() -> Int {
+    sizeof<T>()
+}
+
+func main() {
+    print(measure<Pair<[UInt8; 1073741824]>>())
+}

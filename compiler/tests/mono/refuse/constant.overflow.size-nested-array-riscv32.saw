@@ -1,0 +1,7 @@
+// refuses: constant.overflow at 5:6
+// flags: --target riscv32-unknown-none-elf
+// message: is larger than `Int` counts on this target
+// Two arrays nested: each fits, the product is 2^32 bytes.
+func main() {
+    print(sizeof<[[UInt8; 65536]; 65536]>())
+}

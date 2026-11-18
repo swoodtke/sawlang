@@ -7,13 +7,14 @@
 
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layer}
-import sawtarget.layout.{Target, target_builtins_modules}
+import sawtarget.layout.{Target, target_builtins_modules, target_overflow_message}
 import sawtypecheck.api.{tc_empty_program, tc_run_layer}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_atomic_widths}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 
 // The program typechecked through the layout-assert funnel, std's layer and
@@ -93,6 +94,10 @@ func asserts_check_view_addresses(p: &var TcProgram, layer: &FrontLayer) {
         }
         let viewed = p.types.arg(t, 0)
         let l = target.layout(&var p, viewed)
+        if l.overflow {
+            p.refuse_in(p.node_module(at), at, "constant.overflow", target_overflow_message(p.type_text(viewed)))
+            continue
+        }
         if target.reason_of(&l).len() > 0 || l.align <= 1 {
             continue
         }
@@ -147,6 +152,11 @@ public func asserts_verdict(p: &var TcProgram, target: &var Target, cond: Int, m
     while j < measures.len() {
         let l = target.layout(&var p, types[j])
         let why = target.reason_of(&l)
+        if l.overflow {
+            p.measured_nodes = Vector<Int>()
+            p.measured_values = Vector<Int>()
+            return AssertsVerdict(rule: "constant.overflow", message: target_overflow_message(p.type_text(types[j])))
+        }
         if why.len() > 0 {
             var msg = StringBuilder()
             try! msg.append("a layout this `static_assert` measures is not in the bootstrap slice yet: ")

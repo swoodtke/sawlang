@@ -1,0 +1,10 @@
+// refuses: constant.overflow at 8:6
+// message: is larger than `Int` counts on this target
+// An array whose element count times its element size passes the 64-bit `Int`.
+struct Huge {
+    d: [UInt64; 2305843009213693952]
+}
+
+func main() {
+    print(sizeof<Huge>())
+}

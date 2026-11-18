@@ -34,6 +34,7 @@ SAMPLES = {
     "refuses": "// refuses: rule.name at 3:4",
     "shadowed": "// shadowed: rule.name at 3:4",
     "due": "// due: rule.name when the slice reaches it",
+    "accepts": "// accepts: some text",
     "flags": "// flags: --runtime",
     "errors": "// errors: 1",
     "message": "// message: some text",

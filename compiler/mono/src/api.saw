@@ -328,6 +328,13 @@ func mono_check_instance(mono: &var MonoProgram, target: &var Target, k: Int, a:
     mono.dp.bc.mir.tc.instance_types = Vector<Int>()
     if verdict.rule.equals("static_assert.failed") {
         mono.refuse(cond, "static_assert.failed", verdict.message)
+    } else if verdict.rule.equals("constant.overflow") {
+        var msg = StringBuilder()
+        try! msg.append(verdict.message)
+        try! msg.append(" (in the instantiation ")
+        try! msg.append(at)
+        try! msg.append(")")
+        mono.refuse(cond, verdict.rule, msg.build())
     } else if verdict.rule.len() > 0 {
         mono.refuse(cond, "mono.not-yet", verdict.message)
     } else if fault != TcFault.Clean && fault != TcFault.NotConstant && fault != TcFault.Cycle {

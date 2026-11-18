@@ -1,0 +1,6 @@
+// refuses: constant.overflow at 4:6
+// message: is larger than `Int` counts on this target
+// Elements that sum to 2^63 bytes.
+func main() {
+    print(sizeof<([UInt8; 4611686018427387904], [UInt8; 4611686018427387904])>())
+}

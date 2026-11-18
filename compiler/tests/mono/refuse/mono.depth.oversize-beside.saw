@@ -1,0 +1,26 @@
+// refuses: mono.depth at 20:5
+// errors: 1
+// A type larger than `Int` counts in one place and a polymorphic recursion in
+// another: the recursion grows types past `Int` on its way to the depth limit,
+// so its one refusal stands and no size refusal is reported beside it.
+
+struct Two<T> {
+    a: T
+    b: T
+}
+
+struct Huge {
+    d: [UInt64; 2305843009213693952]
+}
+
+func widen<T: Copy>(x: T, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    widen(Two<T>(a: x, b: x), n - 1)
+}
+
+func main() {
+    print(sizeof<Huge>())
+    print("{}", widen(1, 3))
+}

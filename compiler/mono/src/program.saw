@@ -257,6 +257,9 @@ public static MONO_KEY_INSTANCE_CHECKED: Int = 15
 // (stuck type, 16) -> 1 once a recorded position's refusal named it
 // (`check_instance_constant`).
 public static MONO_KEY_STUCK_REPORTED: Int = 16
+// (concrete type, 17) -> 1 once its size was judged against the target's
+// `Int` (`refuse_oversize`).
+public static MONO_KEY_SIZE_CHECKED: Int = 17
 
 // A stuck constant value met where no position writes it: `ty` the value's
 // type id, met in item `current` as the argument `index` of `owner`'s const

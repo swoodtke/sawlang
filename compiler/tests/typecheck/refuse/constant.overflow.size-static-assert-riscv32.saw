@@ -1,0 +1,14 @@
+// refuses: constant.overflow at 10:15
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: is larger than `Int` counts on this target
+// A 4 GiB array passes riscv32's 32-bit `Int`, which a 64-bit host counts.
+
+struct Huge {
+    d: [UInt32; 1073741824]
+}
+
+static_assert(sizeof<Huge>() > 0, "measured")
+
+func main() {
+    print(1)
+}

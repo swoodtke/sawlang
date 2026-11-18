@@ -1,0 +1,12 @@
+// refuses: constant.overflow at 10:6
+// flags: --target riscv32-unknown-none-elf
+// message: is larger than `Int` counts on this target
+// An enum's tag and payload sum to more than `Int.max`.
+enum Big {
+    case A(v: [UInt8; 2147483647])
+    case B
+}
+
+func main() {
+    print(sizeof<Big>())
+}

@@ -13,7 +13,7 @@
 import sawcoro.frames.{coro_frame_of}
 import sawcoro.lifetimes.{coro_lifetime_neighbours, coro_lifetime_spans}
 import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
-import sawtarget.layout.{Target, TargetKind}
+import sawtarget.layout.{Target, TargetKind, target_overflow_subject}
 
 // What one frame value needs of its bytes; `pinned` holds it at offset 0.
 public struct CoroNeed {
@@ -130,25 +130,55 @@ func coro_lay_out_frame(coro: &var CoroProgram, target: &var Target, k: Int) {
         return
     }
     let interference = coro_interference(&coro, k)
-    let offsets = coro_assign(&needs, &interference)
+    let placement = coro_assign(&needs, &interference, &target)
     var size = 0
     var align = 1
+    var fits = placement.fits
     j = 0
-    while j < frame.value_count {
+    while fits && j < frame.value_count {
         var v = coro.values[frame.value_first + j]
-        v.offset = offsets[j]
+        v.offset = placement.offsets[j]
         coro.values[frame.value_first + j] = v
-        if v.offset + v.size > size {
-            size = v.offset + v.size
+        let end = target.size_sum(v.offset, v.size) ?? -1
+        if end < 0 {
+            fits = false
+        } else if end > size {
+            size = end
         }
         if v.align > align {
             align = v.align
         }
         j = j + 1
     }
-    frame.size = coro_align_up(size, align)
+    var total = -1
+    if fits {
+        total = target.size_aligned(size, align) ?? -1
+    }
+    if total < 0 {
+        // The frame's one refusal, which names the function; later stages
+        // read a frame with no size as one with nothing to lower.
+        coro.frames[k] = frame
+        coro_refuse_frame_size(&var coro, frame.item)
+        return
+    }
+    frame.size = total
     frame.align = align
     coro.frames[k] = frame
+}
+
+// Refuses frame item `item` as one whose bytes do not fit the target's `Int`,
+// at the function that suspends.
+func coro_refuse_frame_size(coro: &var CoroProgram, item: Int) {
+    var node = coro.mono.items[item].origin_node
+    let d = coro.item_decl(item)
+    if d >= 0 {
+        node = coro.mono.dp.bc.mir.tc.decl_site(d)
+    }
+    var subject = StringBuilder()
+    try! subject.append("the frame of `")
+    try! subject.append(coro.mono.item_name(item))
+    try! subject.append("`")
+    coro.refuse(item, node, "constant.overflow", target_overflow_subject(subject.build()))
 }
 
 // Which of frame `k`'s values interfere: two whose storage lifetimes share
@@ -170,7 +200,8 @@ public func coro_interference(coro: &CoroProgram, k: Int) -> CoroInterference {
 // holds no byte, so it comes last, and it never stands on a byte another
 // value holds, so a place at the offset of a value with bytes never also
 // names a zero-size value's slot.
-public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterference) -> Vector<Int> {
+public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterference,
+                        target: &Target) -> CoroPlacement {
     var out = Vector<Int>()
     var placed = Vector<Bool>()
     var k = 0
@@ -186,15 +217,16 @@ public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterferen
     }
     // The order the packing takes the values in, by decreasing size and then
     // by their order here, sorted once rather than searched for each value.
+    // A key is a size's rank among the distinct sizes, largest first, times
+    // `n`, plus the order: no key multiplies a size, so none can overflow.
     let n = values.len()
-    var biggest = 0
+    var sizes = Vector<Int>()
     k = 0
     while k < n {
-        if values[k].size > biggest {
-            biggest = values[k].size
-        }
+        try! sizes.push(values[k].size)
         k = k + 1
     }
+    let distinct = coro_distinct_sorted(&sizes)
     var keys = Vector<Int>()
     var pinned = Vector<Int>()
     k = 0
@@ -202,7 +234,8 @@ public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterferen
         if placed[k] {
             try! pinned.push(k)
         } else {
-            try! keys.push((biggest - values[k].size) * n + k)
+            let rank = distinct.len() - 1 - coro_rank(&distinct, values[k].size)
+            try! keys.push(rank * n + k)
         }
         k = k + 1
     }
@@ -215,20 +248,70 @@ public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterferen
     while k < keys.len() {
         let next = keys[k] % n
         k = k + 1
-        var at = 0
+        var found: Int? = 0
         if values[next].size > 0 {
-            at = coro_first_fit(&values, &interference, &pinned, &out, &placed, next)
+            found = coro_first_fit(&values, &interference, &pinned, &out, &placed, next, &target)
         } else {
             if not held_made {
-                held = coro_held_bytes(&values, &out, &placed)
+                if not coro_held_bytes(&values, &out, &placed, &target, &var held) {
+                    return CoroPlacement(offsets: Vector<Int>(), fits: false)
+                }
                 held_made = true
             }
-            at = coro_first_clear(&held, values[next].align)
+            found = coro_first_clear(&held, values[next].align, &target)
+        }
+        let at = found ?? -1
+        if at < 0 {
+            return CoroPlacement(offsets: Vector<Int>(), fits: false)
         }
         out[next] = at
         placed[next] = true
     }
+    CoroPlacement(offsets: move out, fits: true)
+}
+
+// Where `coro_assign` put each value, in the order given; `fits` is false
+// when some value could not be placed within the target's `Int`.
+public struct CoroPlacement {
+    offsets: Vector<Int>
+    fits: Bool
+}
+
+extension CoroPlacement: NoCopy {}
+
+// `sizes`, sorted ascending with each distinct value once.
+func coro_distinct_sorted(sizes: &Vector<Int>) -> Vector<Int> {
+    var sorted = Vector<Int>()
+    var k = 0
+    while k < sizes.len() {
+        try! sorted.push(sizes[k])
+        k = k + 1
+    }
+    sorted.sort()
+    var out = Vector<Int>()
+    k = 0
+    while k < sorted.len() {
+        if out.len() == 0 || out[out.len() - 1] != sorted[k] {
+            try! out.push(sorted[k])
+        }
+        k = k + 1
+    }
     move out
+}
+
+// The index of `x` in `distinct`, which holds it, sorted ascending.
+func coro_rank(distinct: &Vector<Int>, x: Int) -> Int {
+    var a = 0
+    var z = distinct.len()
+    while a < z {
+        let m = (a + z) / 2
+        if distinct[m] < x {
+            a = m + 1
+        } else {
+            z = m
+        }
+    }
+    a
 }
 
 // The lowest offset aligned for value `i`, which has bytes, whose bytes no
@@ -239,7 +322,7 @@ public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterferen
 // pass walks those alone, in value order, as a walk of every value meets them
 // (SL-970).
 func coro_first_fit(values: &Vector<CoroNeed>, interference: &CoroInterference, pinned: &Vector<Int>,
-                    out: &Vector<Int>, placed: &Vector<Bool>, i: Int) -> Int {
+                    out: &Vector<Int>, placed: &Vector<Bool>, i: Int, target: &Target) -> Int? {
     let v = values[i]
     let width = v.size
     let end = interference.first[i + 1]
@@ -263,11 +346,27 @@ func coro_first_fit(values: &Vector<CoroNeed>, interference: &CoroInterference, 
             }
             let w = values[j]
             let blocks = placed[j] && j != i && w.size > 0
-            if blocks && out[j] < at + width && at < out[j] + w.size {
-                at = coro_align_up(out[j] + w.size, v.align)
-                moved = true
+            if blocks {
+                // A bound that passes the target's `Int` means no offset holds
+                // the value, so the frame does not fit.
+                let reach = target.size_sum(at, width) ?? -1
+                let past = target.size_sum(out[j], w.size) ?? -1
+                if reach < 0 || past < 0 {
+                    return None
+                }
+                if out[j] < reach && at < past {
+                    at = target.size_aligned(past, v.align) ?? -1
+                    if at < 0 {
+                        return None
+                    }
+                    moved = true
+                }
             }
         }
+    }
+    let last = target.size_sum(at, width) ?? -1
+    if last < 0 {
+        return None
     }
     at
 }
@@ -275,21 +374,34 @@ func coro_first_fit(values: &Vector<CoroNeed>, interference: &CoroInterference, 
 // The bytes the placed values with bytes hold, as spans in offset order,
 // merged where they meet or touch: each a first byte and the byte past its
 // last.
-func coro_held_bytes(values: &Vector<CoroNeed>, out: &Vector<Int>, placed: &Vector<Bool>) -> Vector<Int> {
+// Fills `held`, and answers false when a value's end passes the target's
+// `Int`, which a value `coro_first_fit` placed never does. Spans are ordered
+// by the rank of their start among the distinct starts, so no key multiplies
+// an offset.
+func coro_held_bytes(values: &Vector<CoroNeed>, out: &Vector<Int>, placed: &Vector<Bool>, target: &Target,
+                     held: &var Vector<Int>) -> Bool {
     var starts = Vector<Int>()
     var ends = Vector<Int>()
-    var by_start = Vector<Int>()
     var k = 0
     while k < values.len() {
         if placed[k] && values[k].size > 0 {
-            try! by_start.push(out[k] * values.len() + starts.len())
             try! starts.push(out[k])
-            try! ends.push(out[k] + values[k].size)
+            let end = target.size_sum(out[k], values[k].size) ?? -1
+            if end < 0 {
+                return false
+            }
+            try! ends.push(end)
         }
         k = k + 1
     }
+    let distinct = coro_distinct_sorted(&starts)
+    var by_start = Vector<Int>()
+    k = 0
+    while k < starts.len() {
+        try! by_start.push(coro_rank(&distinct, starts[k]) * values.len() + k)
+        k = k + 1
+    }
     by_start.sort()
-    var held = Vector<Int>()
     k = 0
     while k < by_start.len() {
         let j = by_start[k] % values.len()
@@ -304,13 +416,13 @@ func coro_held_bytes(values: &Vector<CoroNeed>, out: &Vector<Int>, placed: &Vect
             try! held.push(ends[j])
         }
     }
-    move held
+    true
 }
 
 // The lowest offset aligned to `align` that lies on no byte of `held`: what
 // a zero-size value takes. Every offset skipped lies inside a span that
 // moved past it, so the first one found clear is the lowest.
-func coro_first_clear(held: &Vector<Int>, align: Int) -> Int {
+func coro_first_clear(held: &Vector<Int>, align: Int, target: &Target) -> Int? {
     var at = 0
     var k = 0
     while k < held.len() {
@@ -318,7 +430,10 @@ func coro_first_clear(held: &Vector<Int>, align: Int) -> Int {
             return at
         }
         if at < held[k + 1] {
-            at = coro_align_up(held[k + 1], align)
+            at = target.size_aligned(held[k + 1], align) ?? -1
+            if at < 0 {
+                return None
+            }
         }
         k = k + 2
     }
@@ -363,12 +478,4 @@ public func coro_lower_bound(coro: &CoroProgram, k: Int) -> Int {
         p = p + 1
     }
     best
-}
-
-func coro_align_up(n: Int, align: Int) -> Int {
-    let over = n % align
-    if over == 0 {
-        return n
-    }
-    n + align - over
 }

@@ -61,6 +61,9 @@ public struct TargetLayout {
     length: Int
     // Why the type is unsupported, a run of `reasons`, or -1.
     reason: Int
+    // Whether the type is unsupported because its size does not fit the
+    // target's `Int` (`size_overflow`).
+    overflow: Bool
 }
 
 // One case of an enum: its declaration, the tag value a switch compares, and
@@ -434,26 +437,34 @@ extension Target {
     }
 }
 
-func target_align_up(n: Int, align: Int) -> Int {
-    if align <= 1 {
-        return n
-    }
-    let rem = n % align
-    if rem == 0 {
-        return n
-    }
-    n + align - rem
+// The message of the refusal a type whose size does not fit the target's
+// `Int` gets, from every consumer of a layout: `type_text` names the type.
+public func target_overflow_message(type_text: String) -> String {
+    var subject = StringBuilder()
+    try! subject.append("the type `")
+    try! subject.append(type_text)
+    try! subject.append("`")
+    target_overflow_subject(subject.build())
+}
+
+// The same refusal for `subject`, a thing that is not a type: a coroutine
+// frame.
+public func target_overflow_subject(subject: String) -> String {
+    var msg = StringBuilder()
+    try! msg.append(subject)
+    try! msg.append(" is larger than `Int` counts on this target: a size counts bytes in an `Int`")
+    msg.build()
 }
 
 extension TargetLayout {
     static func blank(kind: TargetKind) -> TargetLayout {
         TargetLayout(size: 0, align: 1, kind: kind, bits: 0, shape: TargetShape.Scalar, tag_bytes: 0, first: 0,
-                     count: 0, element: -1, length: 0, reason: -1)
+                     count: 0, element: -1, length: 0, reason: -1, overflow: false)
     }
 
     init(kind: TargetKind, bytes: Int) -> TargetLayout {
         TargetLayout(size: bytes, align: bytes, kind: kind, bits: bytes * 8, shape: TargetShape.Scalar,
-                     tag_bytes: 0, first: 0, count: 0, element: -1, length: 0, reason: -1)
+                     tag_bytes: 0, first: 0, count: 0, element: -1, length: 0, reason: -1, overflow: false)
     }
 }
 
@@ -504,11 +515,57 @@ extension Target {
         tc_arith_max(self.word * 8, true)
     }
 
-    // Whether `n` rounded up to `align`, and then grown by `size`, stays within
-    // `size_limit`.
-    func holds_bytes(&self, n: Int, align: Int, size: Int) -> Bool {
-        let limit = self.size_limit()
-        n <= limit - align && size <= limit - target_align_up(n, align)
+    // THE SIZE FUNNEL: every byte count the layout computes, checked against
+    // `size_limit` (the target's `Int`, never the compiler's own), so a size
+    // that fits is accepted exactly and one that does not is a `size_overflow`
+    // refusal. Operands are sizes and alignments, never negative.
+    // ENTRY POINTS:
+    //     compute (the array case)
+    //     record
+    //     tagged
+    //     flagged
+    //     laid_cases
+    //     coro_lay_out_frame (compiler/coro/src/layout.saw)
+    //     coro_assign
+    //     coro_first_fit
+    //     coro_held_bytes
+    //     coro_first_clear
+    // `a + b`, or None when it does not fit.
+    public func size_sum(&self, a: Int, b: Int) -> Int? {
+        if a > self.size_limit() - b {
+            return None
+        }
+        a + b
+    }
+
+    // `a * b`, or None when it does not fit.
+    public func size_product(&self, a: Int, b: Int) -> Int? {
+        if a == 0 || b == 0 {
+            return 0
+        }
+        if a > self.size_limit() / b {
+            return None
+        }
+        a * b
+    }
+
+    // `n` rounded up to a multiple of `align`, or None when that does not fit.
+    public func size_aligned(&self, n: Int, align: Int) -> Int? {
+        if align <= 1 {
+            return n
+        }
+        let rem = n % align
+        if rem == 0 {
+            return n
+        }
+        self.size_sum(n, align - rem)
+    }
+
+    // The refusal for a type whose size does not fit the target's `Int`.
+    func size_overflow(&var self) -> TargetLayout {
+        var l = self.unsupported("larger than `Int` counts on this target")
+        l.overflow = true
+        l
     }
 
     func unsupported(&var self, why: String) -> TargetLayout {
@@ -558,7 +615,7 @@ extension Target {
                 }
                 if lt.b != 0 {
                     // A constant of 2^63 or more, which no `Int` counts.
-                    return self.unsupported("an array of more elements than `Int` counts on this target")
+                    return self.size_overflow()
                 }
                 if lt.a < 0 {
                     var why = StringBuilder()
@@ -567,18 +624,17 @@ extension Target {
                     try! why.append("`)")
                     return self.unsupported(why.build())
                 }
-                if el.size > 0 && lt.a > self.size_limit() / el.size {
-                    var why = StringBuilder()
-                    try! why.append("an array of ")
-                    try! why.append(lt.a)
-                    try! why.append(" elements of ")
-                    try! why.append(el.size)
-                    try! why.append(" bytes, more bytes than `Int` counts on this target")
-                    return self.unsupported(why.build())
+                if lt.a > self.size_limit() {
+                    // More elements than `len()` counts, even of zero bytes.
+                    return self.size_overflow()
+                }
+                let bytes = self.size_product(el.size, lt.a) ?? -1
+                if bytes < 0 {
+                    return self.size_overflow()
                 }
                 var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Array
-                l.size = el.size * lt.a
+                l.size = bytes
                 l.align = el.align
                 l.element = element
                 l.length = lt.a
@@ -681,24 +737,26 @@ extension Target {
             if m.kind == TargetKind.Unsupported {
                 return m
             }
-            if not self.holds_bytes(at, m.align, m.size) {
-                return self.unsupported("a type of more bytes than `Int` counts on this target")
+            let placed = self.size_aligned(at, m.align) ?? -1
+            let end = if placed < 0 { -1 } else { self.size_sum(placed, m.size) ?? -1 }
+            if end < 0 {
+                return self.size_overflow()
             }
-            at = target_align_up(at, m.align)
-            try! offs.push(at)
-            at = at + m.size
+            try! offs.push(placed)
+            at = end
             if m.align > align {
                 align = m.align
             }
             k = k + 1
         }
-        if not self.holds_bytes(at, align, 0) {
-            return self.unsupported("a type of more bytes than `Int` counts on this target")
+        let total = self.size_aligned(at, align) ?? -1
+        if total < 0 {
+            return self.size_overflow()
         }
         var l = TargetLayout.blank(TargetKind.Memory)
         l.shape = TargetShape.Record
         l.align = align
-        l.size = target_align_up(at, align)
+        l.size = total
         l.first = self.offsets.len()
         l.count = offs.len()
         k = 0
@@ -734,7 +792,10 @@ extension Target {
             }
             k = k + 1
         }
-        let base = target_align_up(tag, payload_align)
+        let base = self.size_aligned(tag, payload_align) ?? -1
+        if base < 0 {
+            return self.size_overflow()
+        }
         self.laid_cases(&var tc, t, &cases, tag, base, payload_align)
     }
 
@@ -797,7 +858,10 @@ extension Target {
             return pl
         }
         let cases = target_enum_cases(&tc, d)
-        let base = target_align_up(1, pl.align)
+        let base = self.size_aligned(1, pl.align) ?? -1
+        if base < 0 {
+            return self.size_overflow()
+        }
         var l = self.laid_cases(&var tc, t, &cases, 1, base, pl.align)
         l.shape = TargetShape.Flagged
         l
@@ -818,12 +882,16 @@ extension Target {
                 let written = tc.params[s.param_first + j].ty
                 let pt = target_member_type(&var tc, t, written)
                 let pl = self.layout(&var tc, pt)
-                if not self.holds_bytes(at, pl.align, pl.size) {
-                    return self.unsupported("a type of more bytes than `Int` counts on this target")
+                if pl.kind == TargetKind.Unsupported {
+                    return pl
                 }
-                at = target_align_up(at, pl.align)
-                try! offs.push(at)
-                at = at + pl.size
+                let placed = self.size_aligned(at, pl.align) ?? -1
+                let reach = if placed < 0 { -1 } else { self.size_sum(placed, pl.size) ?? -1 }
+                if reach < 0 {
+                    return self.size_overflow()
+                }
+                try! offs.push(placed)
+                at = reach
                 j = j + 1
             }
             // Pushed only now: a payload's own layout may append runs of its own.
@@ -847,14 +915,15 @@ extension Target {
         if payload_align > align {
             align = payload_align
         }
-        if not self.holds_bytes(end, align, 0) {
-            return self.unsupported("a type of more bytes than `Int` counts on this target")
+        let total = self.size_aligned(end, align) ?? -1
+        if total < 0 {
+            return self.size_overflow()
         }
         var l = TargetLayout.blank(TargetKind.Memory)
         l.shape = TargetShape.Enum
         l.tag_bytes = tag
         l.align = align
-        l.size = target_align_up(end, align)
+        l.size = total
         l.first = self.cases.len()
         l.count = laid.len()
         k = 0

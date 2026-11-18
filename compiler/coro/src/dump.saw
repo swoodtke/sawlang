@@ -196,6 +196,8 @@ func coro_dump_frame(coro: &CoroProgram, out: &var StringBuilder, k: Int) {
         try! out.append("  (unsupported: ")
         coro_append_value_type(&coro, &var out, &v)
         try! out.append(")\n")
+    } else if frame.size < 0 {
+        try! out.append("  (size past `Int`)\n")
     } else {
         try! out.append("  (size ")
         try! out.append(frame.size)

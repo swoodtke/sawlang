@@ -159,7 +159,16 @@ public func coro_record(out: &var StringBuilder, front: FrontCut, path: String, 
     }
     if options.layouts && not coro.blocked {
         var target = coro.mono.target_for()
+        let seen = coro.diags.len()
         coro_lay_out_frames(&var coro, &var target)
+        // A frame that does not fit is refused as the layout meets it.
+        var d = seen
+        while d < coro.diags.len() {
+            let diag = coro.diags[d]
+            mir_append_diag(out: &var out, p: &coro.mono.dp.bc.mir, d: &diag)
+            status = 1
+            d = d + 1
+        }
         coro_dump_layouts(&coro, &var out)
     }
     if options.lowered && not coro.blocked {

@@ -1,0 +1,42 @@
+// Types whose size is at or just under the 32-bit `Int`'s largest value, each
+// asserted at its exact size: the layout funnel accepts a size that fits
+// (`compiler/target/tests/size_funnel.saw` runs this file on an ILP32 triple).
+// Nothing here is built or run; a value of one of these types cannot exist.
+
+struct Halves {
+    a: [UInt8; 1073741824]
+    b: [UInt8; 1073741823]
+}
+
+struct PadEdge {
+    b: [UInt32; 536870911]
+}
+
+struct PadTail {
+    b: [UInt32; 536870910]
+    c: UInt8
+}
+
+enum Wide {
+    case A(v: [UInt8; 2147483640])
+    case B
+}
+
+struct Buf<const N: Int> {
+    d: [UInt8; N]
+}
+
+static_assert(sizeof<[UInt8; 2147483647]>() == 2147483647, "an array of Int.max bytes")
+static_assert(sizeof<[[UInt8; 1]; 2147483647]>() == 2147483647, "a nested array of Int.max bytes")
+static_assert(sizeof<[Void; 2147483647]>() == 0, "a zero-size element at Int.max elements")
+static_assert(sizeof<Halves>() == 2147483647, "a struct of Int.max bytes")
+static_assert(sizeof<PadEdge>() == 2147483644, "a struct one word under Int.max")
+static_assert(sizeof<PadTail>() == 2147483644, "a tail byte rounded up to the alignment, under Int.max")
+static_assert(sizeof<Wide>() == 2147483644, "an enum: tag and payload rounded to the tag's alignment")
+static_assert(sizeof<[UInt8; 2147483646]?>() == 2147483647, "an Optional of Int.max bytes")
+static_assert(sizeof<([UInt8; 1073741824], [UInt8; 1073741823])>() == 2147483647, "a tuple of Int.max bytes")
+static_assert(sizeof<Buf<2147483647>>() == 2147483647, "a generic instance of Int.max bytes")
+
+func main() {
+    print(1)
+}

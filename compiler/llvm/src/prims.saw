@@ -11,7 +11,7 @@ import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
 import sawresolve.program.{ResProgram}
-import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawtarget.layout.{Target, TargetKind, TargetLayout, target_overflow_message}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 
@@ -85,7 +85,12 @@ extension LlEmitter {
     // The layout of `t`, refused at `node` when the target cannot lay it out.
     public func lay_at(&var self, mono: &var MonoProgram, target: &var Target, t: Int, node: Int) -> TargetLayout {
         let l = target.layout(&var mono.dp.bc.mir.tc, t)
-        if l.kind == TargetKind.Unsupported {
+        if l.overflow {
+            if not self.refused {
+                mono.refuse(node, "constant.overflow", target_overflow_message(mono.dp.bc.mir.tc.type_text(t)))
+            }
+            self.refused = true
+        } else if l.kind == TargetKind.Unsupported {
             var msg = StringBuilder()
             try! msg.append("the type `")
             try! msg.append(mono.dp.bc.mir.tc.type_text(t))

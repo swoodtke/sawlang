@@ -60,6 +60,7 @@ import typecheck_lane  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
+REFUSE_LAYOUT = os.path.join(HERE, "refuse_layout")
 MODULES = os.path.join(HERE, "modules")
 PARKS = os.path.join(HERE, "parks")
 PARKS_TAIL = os.path.join(PARKS, "task_tail.saw")
@@ -79,6 +80,8 @@ INJECTED_RULES = {"coro.not-yet": os.path.join(COMPILER, "coro", "tests", "refus
 _HEADER = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _STAGE0 = re.compile(r"^// stage0: (\S+)\.saw$")
 _MESSAGE = re.compile(r"^// message: (.+)$")
+_FLAGS = re.compile(r"^// flags: (.*)$")
+_ACCEPTS = re.compile(r"^// accepts: (.+)$")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 
 
@@ -339,6 +342,8 @@ def check_bt_ir(failures, counts):
 
 HEADER_RULE = fixture_headers.Rule(
     [fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1,)),
+     fixture_headers.Header("accepts", _ACCEPTS.pattern, "// accepts: TEXT", rows=(1,)),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS", rows=(2,)),
      fixture_headers.Header("message", _MESSAGE.pattern, "// message: TEXT", repeat=True),
      fixture_headers.Header("stage0", _STAGE0.pattern, "// stage0: PATH.saw", rows=(1,), detect="stage ?0")],
     misspelt={"messages": "message"})
@@ -347,7 +352,7 @@ HEADER_RULE = fixture_headers.Rule(
 def header_files():
     """[(path, rule)] for each golden and refusal fixture, whose leading
     comment the lane reads."""
-    paths = [os.path.join(d, name) for d in (GOLDEN, REFUSE) for name in sorted(os.listdir(d))
+    paths = [os.path.join(d, name) for d in (GOLDEN, REFUSE, REFUSE_LAYOUT) for name in sorted(os.listdir(d))
              if name.endswith(".saw")]
     return [(path, HEADER_RULE) for path in paths]
 
@@ -414,6 +419,49 @@ def check_refusals(failures, counts, rules):
         if rule not in covered:
             failures.append("coro rule %s: no refusal fixture names it" % rule)
     counts["coro rules"] = len(rules)
+
+
+def check_layout_refusals(failures, counts):
+    """Each fixture in `refuse_layout/`, a frame whose bytes do not fit the
+    target's `Int`, is refused first at its header's position by its header's
+    rule under `sawc coro --layouts`, which is where frames are laid out, with
+    the flags a second line `// flags: ...` passes. One fixture at a time,
+    and never built: the frame's size passes what a target counts."""
+    for path in sorted(glob.glob(os.path.join(REFUSE_LAYOUT, "*.saw"))):
+        lines = read_text(path).split("\n")
+        accepts = _ACCEPTS.match(lines[0])
+        header = _HEADER.match(lines[0])
+        if header is None and accepts is None:
+            failures.append("coro layout refusal %s: no `// refuses: RULE at L:C` or `// accepts: TEXT` header"
+                            % rel(path))
+            continue
+        flags = _FLAGS.match(lines[1]) if len(lines) > 1 else None
+        args = flags.group(1).split() if flags else []
+        messages = [m.group(1) for m in (_MESSAGE.match(line) for line in lines if line.startswith("// message:")) if m]
+        code, out = sawc(["--layouts", "--std-root", "std"] + args + [rel(path)])
+        record = borrowck_lane.records(out).get(rel(path), "")
+        found = errors(record)
+        if accepts is not None:
+            if found or accepts.group(1) not in record:
+                failures.append("coro layout refusal %s: expected a record holding %r and no refusal, got %s"
+                                % (rel(path), accepts.group(1), found[0][:2] if found else "no match"))
+            check_invariants(failures, "layout refusal", path, record)
+            counts["coro layout refusal fixtures"] = counts.get("coro layout refusal fixtures", 0) + 1
+            continue
+        want = (header.group(1), header.group(2))
+        if not found or found[0][:2] != want:
+            failures.append("coro layout refusal %s: expected %s at %s first, got %s"
+                            % (rel(path), want[0], want[1],
+                               "nothing" if not found else "%s at %s" % found[0][:2]))
+        else:
+            for text in messages:
+                if text not in found[0][2]:
+                    failures.append("coro layout refusal %s: the message does not hold %r: %s"
+                                    % (rel(path), text, found[0][2]))
+        for repeat in typecheck_lane.repeated_errors(record):
+            failures.append("coro layout refusal %s: %s" % (rel(path), repeat))
+        check_invariants(failures, "layout refusal", path, record)
+        counts["coro layout refusal fixtures"] = counts.get("coro layout refusal fixtures", 0) + 1
 
 
 def check_agreement(failures, counts):
@@ -493,6 +541,7 @@ def run(write=False):
     build.guarded(failures, "coro bt stage0", check_bt_stage0, failures, counts)
     build.guarded(failures, "coro bt ir", check_bt_ir, failures, counts)
     build.guarded(failures, "coro refusal", check_refusals, failures, counts, rules)
+    build.guarded(failures, "coro layout refusal", check_layout_refusals, failures, counts)
     build.guarded(failures, "coro agreement", check_agreement, failures, counts)
     build.guarded(failures, "coro park injections", check_park_injections, failures, counts)
     return failures, counts

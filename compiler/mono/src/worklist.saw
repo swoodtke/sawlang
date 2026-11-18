@@ -8,7 +8,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import saweval.program.{EvalKind, EvalValue}
-import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc, MirFuncKind,
+import sawmir.model.{MirAggregate, MirDiag, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc, MirFuncKind,
                          MirLocal, MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue,
                          MirRvalueKind, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirProgram}
@@ -16,11 +16,11 @@ import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
 import sawparse.grammar.{Alt}
 import sawmono.glue.{mono_copies_bitwise}
-import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
+import sawtarget.layout.{Target, target_enum_cases, target_member_type, target_overflow_message, target_struct_fields}
 import sawmono.program.{MONO_CHAIN_LIMIT, MONO_DEPTH_LIMIT, MONO_KEY_CONSTANT_CHECK, MONO_KEY_COPY, MONO_KEY_DEALLOC,
                             MONO_KEY_DISPATCHED, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
                             MONO_KEY_INSTANCE_CHECKED, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
-                            MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
+                            MONO_KEY_RENDER_SLOT, MONO_KEY_SIZE_CHECKED, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
                             MONO_KEY_VTABLE, MonoItem,
                             MONO_KEY_STUCK_REPORTED, MonoItemKind, MonoProgram, MonoStuckMeeting, MonoThreadSpawn, MonoVtable}
 import sawtypecheck.arith.{TcFault, tc_arith_normalize, tc_arith_text}
@@ -128,6 +128,7 @@ extension MonoProgram {
         self.current = -1
         self.report_stuck_meetings()
         self.report_depth()
+        self.drop_size_refusals()
     }
 
     // What the C entry's exit needs from a `main` returning a `Result`
@@ -256,6 +257,7 @@ extension MonoProgram {
         if not reported {
             self.report_depth()
         }
+        self.drop_size_refusals()
         self.exec_item
     }
 
@@ -282,6 +284,7 @@ extension MonoProgram {
         if not reported {
             self.report_depth()
         }
+        self.drop_size_refusals()
         self.print_failure_item
     }
 
@@ -466,8 +469,59 @@ extension MonoProgram {
         let out = self.substituted(k, t)
         self.refuse_narrow_atomics(k, out)
         self.refuse_memory_views(k, out)
+        self.refuse_oversize(k, out)
         self.check_nominal_instances(out)
         out
+    }
+
+    // The size rule at an instantiation: concrete type `t`, laid out on the
+    // program's target, whose size does not fit that target's `Int` is
+    // refused once as `constant.overflow`, where item `k` was reached. The
+    // layout funnel is the one judge; this asks it. A polymorphic recursion
+    // grows types past `Int` on its way to the depth limit, so
+    // `drop_size_refusals` takes these back when the depth limit refused (SL-1116).
+    func refuse_oversize(&var self, k: Int, t: Int) {
+        if t < 0 || self.dp.bc.mir.tc.mentions_param(t) || self.by_key.first(t, MONO_KEY_SIZE_CHECKED) >= 0 {
+            return
+        }
+        self.by_key.add(t, MONO_KEY_SIZE_CHECKED, 1)
+        var target = Target(triple: self.dp.bc.mir.tc.target.triple)
+        let l = target.layout(&var self.dp.bc.mir.tc, t)
+        if l.overflow {
+            // A root item has no reaching node: its function's name stands.
+            var site = self.items[k].origin_node
+            let source = self.items[k].source
+            if site < 0 && source >= 0 && self.dp.bc.mir.funcs[source].decl >= 0 {
+                site = self.dp.bc.mir.tc.decl_site(self.dp.bc.mir.funcs[source].decl)
+            }
+            self.refuse(site, "constant.overflow", target_overflow_message(self.dp.bc.mir.tc.type_text(t)))
+        }
+    }
+
+    // Takes back every size refusal when the depth limit refused: the
+    // recursion is the cause, and its one refusal stands alone.
+    func drop_size_refusals(&var self) {
+        var depth = false
+        var j = 0
+        while j < self.diags.len() {
+            if self.diags[j].id.equals("mono.depth") {
+                depth = true
+            }
+            j = j + 1
+        }
+        if not depth {
+            return
+        }
+        var kept = Vector<MirDiag>()
+        j = 0
+        while j < self.diags.len() {
+            let d = self.diags[j]
+            if not (d.id.equals("constant.overflow") && d.message.contains("is larger than `Int` counts on this target")) {
+                try! kept.push(d)
+            }
+            j = j + 1
+        }
+        self.diags = move kept
     }
 
     // `concrete_type` without its refusal, for a type that only answers a
@@ -1124,9 +1178,13 @@ extension MonoProgram {
         item
     }
 
-    // A body of item `k` reads static `d` at `node`: the code each
-    // `FuncPointer` in its value names is reached, once.
+    // A body of item `k` reads static `d` at `node`: the static's type is
+    // judged for its size, and the code each `FuncPointer` in its value names
+    // is reached, once.
     func reach_static(&var self, k: Int, d: Int, node: Int) {
+        if d >= 0 && d < self.dp.bc.mir.tc.sigs.len() {
+            self.refuse_oversize(k, self.dp.bc.mir.tc.sigs[d].result)
+        }
         if d < 0 || d >= self.static_values.len() || self.address_items.first(d, 2) >= 0 {
             return
         }

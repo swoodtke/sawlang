@@ -1,0 +1,17 @@
+// accepts: (size 4611686018427387920 align 8,
+// One local of 2^62 bytes, a quarter of a 64-bit `Int`'s range, live across a
+// suspension: the frame fits, and only the frame layout's own arithmetic is
+// asked to handle it (its placement key used to overflow the compiler's own
+// `Int`). Never built; `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 4_611_686_018_427_387_904]
+    yield_now()
+    a[0] = 1
+}
+
+func main() {
+    let t = Task.spawn(hold())
+    t.join()
+}

@@ -1,0 +1,23 @@
+// The layout funnel's size arithmetic accepts a size that fits the target's
+// `Int` exactly: every type of the two fixtures is asserted at its size, on one
+// LP64 triple and each ILP32 one, and the fixture typechecks clean. No type
+// here is built, emitted or run. Paths are the repository root's.
+import sawasserts.layout.{asserts_typecheck_program}
+import sawtarget.layout.{target_front_end}
+import sawtypecheck.program.{TcProgram}
+
+func check(triple: String, path: String) {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    let p = asserts_typecheck_program(path, "std", &names, &dirs, target_front_end(triple, ""))
+    assert(p.diags.len() == 0, "{}: {} is refused", triple, path)
+    assert(p.layout_asserts.len() >= 10, "{}: {} measures only {} types", triple, path, p.layout_asserts.len())
+}
+
+func main() {
+    check("arm64-apple-darwin", "compiler/tests/target/size_edge_lp64.saw")
+    check("aarch64-unknown-none-elf", "compiler/tests/target/size_edge_lp64.saw")
+    check("riscv32-unknown-none-elf", "compiler/tests/target/size_edge_ilp32.saw")
+    check("xtensa-esp-unknown-elf", "compiler/tests/target/size_edge_ilp32.saw")
+    print("size edges accepted on 4 triples")
+}
