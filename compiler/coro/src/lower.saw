@@ -944,15 +944,17 @@ public func coro_context_shape(coro: &var CoroProgram) -> CoroContext {
 //   timer    _d = __saw_exec_timer_deadline(NANOS)
 //             (*_C).deadline = move _d; (*(*_C).park) = const 1
 //   fd        (*_C).deadline = DEADLINE, or const 0; (*(*_C).park) = const -1
-//             _t = copy (*_C).park as Int; __saw_exec_io_register(FD, WRITE, move _t)
+//             _t = copy (*_C).park; __saw_exec_io_register(FD, WRITE, move _t)
 //   offload   (*_C).deadline = const 0; _j = JOB; _w = __saw_exec_offload_park(copy _j)
-//             _p = __saw_exec_offload_pipe(copy _j); (*(*_C).park) = move _w
-//             _t = copy (*_C).park as Int; __saw_exec_io_register(move _p, const 0, move _t)
+//             _q = copy _j as P; _p = __saw_exec_offload_pipe(copy _q); (*(*_C).park) = move _w
+//             _t = copy (*_C).park; __saw_exec_io_register(move _p, const 0, move _t)
 //
 // Each operand moves or copies as the park's call passed it, so the rewrite
 // adds no ownership operation; the offload's job, an `Int`, is read once into
 // a local of the lowering's own, which both its uses copy. The token an arm
-// passes is the park word's address, which lives as long as the task.
+// passes is the park word's address, which lives as long as the task, as the
+// context's own pointer; the job reaches the pipe entry as that entry's
+// pointer parameter type `P`, cast from the `Int`.
 func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int, b: Int, kind: CoroPointKind) -> Int {
     let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
     let c = coro.mono.dp.bc.mir.blocks[at].call
@@ -1011,7 +1013,7 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
             let marker = coro_int_operand(&var coro, word, CORO_PARK_FD)
             coro_record_word(&var coro, &cx, f, b, ctx, marker, node)
             let token = coro_token(&var coro, &cx, f, b, ctx, node)
-            let token_arg = coro_whole_operand(&var coro, token, word, true)
+            let token_arg = coro_whole_operand(&var coro, token, cx.park_ty, true)
             let item = coro.mono.park_register_item
             var call = coro_exec_call(&var coro, item, node)
             coro_push_arg(&var coro, &var call, args[0])
@@ -1038,17 +1040,21 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
             let pipe_item = coro.mono.park_pipe_item
             let pipe = coro_add_local(&var coro, f, word)
             var pipe_call = coro_exec_call(&var coro, pipe_item, node)
-            let pipe_job = coro_whole_operand(&var coro, job, word, false)
+            let pipe_job_ty = coro_first_param_type(&coro, pipe_item)
+            let pipe_job_local = coro_add_local(&var coro, f, pipe_job_ty)
+            let pipe_job = coro_whole_operand(&var coro, pipe_job_local, pipe_job_ty, false)
             coro_push_arg(&var coro, &var pipe_call, pipe_job)
             pipe_call.dest = coro_whole_place(&var coro, pipe, word)
             let parked = coro_move_call(&var coro, f, b, c)
             let piping = coro_add_exec_block(&var coro, f, pipe_call, pipe_item, node)
+            let pipe_job_int = coro_whole_operand(&var coro, job, word, false)
+            coro_append_cast(&var coro, f, piping, pipe_job_local, pipe_job_ty, pipe_job_int, node)
             let recorded = coro_whole_operand(&var coro, completion, word, true)
             coro_record_word(&var coro, &cx, f, piping, ctx, recorded, node)
             let token = coro_token(&var coro, &cx, f, piping, ctx, node)
             let pipe_arg = coro_whole_operand(&var coro, pipe, word, true)
             let read = coro_int_operand(&var coro, word, 0)
-            let token_arg = coro_whole_operand(&var coro, token, word, true)
+            let token_arg = coro_whole_operand(&var coro, token, cx.park_ty, true)
             let item = coro.mono.park_register_item
             var call = coro_exec_call(&var coro, item, node)
             coro_push_arg(&var coro, &var call, pipe_arg)
@@ -1086,7 +1092,7 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
 // take writes the destination and goes where the call returned:
 //
 //   bbB  dest = ext(args) -> bbN   becomes the start, ext(args) -> bbD
-//   bbD  _d = __saw_exec_offload_done(copy (*_F).[S: Int]) -> bbE
+//   bbD  _j = copy (*_F).[S: Int] as P; _d = __saw_exec_offload_done(copy _j) -> bbE
 //   bbE  switch move _d -> [true: bbT, false: bbP]
 //   bbP  the offload park on job (*_F).[S: Int] (`coro_lower_park`), whose
 //        park returns to bbD
@@ -1114,10 +1120,14 @@ func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_
     let truth = coro.mono.dp.bc.mir.tc.bool_type()
     let done = coro_add_local(&var coro, f, truth)
     var check = coro_exec_call(&var coro, done_item, node)
-    let job = coro_slot_operand(&var coro, frame_local, storage, word)
+    let job_ty = coro_first_param_type(&coro, done_item)
+    let job_local = coro_add_local(&var coro, f, job_ty)
+    let job = coro_whole_operand(&var coro, job_local, job_ty, false)
     coro_push_arg(&var coro, &var check, job)
     check.dest = coro_whole_place(&var coro, done, truth)
     let checked = coro_add_exec_block(&var coro, f, check, done_item, node)
+    let job_slot = coro_slot_operand(&var coro, frame_local, storage, word)
+    coro_append_cast(&var coro, f, checked, job_local, job_ty, job_slot, node)
     let test = coro_add_goto_block(&var coro, f, -1, node)
     var park = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
     park.target = park_decl
@@ -1214,19 +1224,37 @@ func coro_record_deadline(coro: &var CoroProgram, cx: &CoroContext, f: Int, b: I
     coro_append_stmt(&var coro, f, b, place, rv, node)
 }
 
-// Appends to block `b` of function `f` the arm's token, `_t = copy (*_C).park
-// as Int`, the park word's address, and returns the new local `_t`.
+// Appends to block `b` of function `f` the arm's token, `_t = copy (*_C).park`,
+// the park word's address as the pointer the context holds, and returns the
+// new local `_t`.
 func coro_token(coro: &var CoroProgram, cx: &CoroContext, f: Int, b: Int, ctx: Int, node: Int) -> Int {
-    let word = coro.mono.dp.bc.mir.tc.int_type()
-    let token = coro_add_local(&var coro, f, word)
+    let token = coro_add_local(&var coro, f, cx.park_ty)
     let from = coro_context_place(&var coro, ctx, cx.ty, cx.park, cx.park_ty, false)
     let o = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: cx.park_ty,
                                                       const_kind: MirConstKind.Unit, text: -1, param: -1))
-    let rv = coro.mono.dp.bc.mir.rv_one(MirRvalueKind.Cast, word, "", o)
-    let place = coro_whole_place(&var coro, token, word)
+    let rv = coro_operand_rvalue(&var coro, cx.park_ty, o)
+    let place = coro_whole_place(&var coro, token, cx.park_ty)
     coro_append_stmt(&var coro, f, b, place, rv, node)
     token
+}
+
+// The parameter type of function item `k`'s declaration, which a lowering
+// call passes a cast `Int` as: the executor's entries that take an address
+// as a pointer.
+func coro_first_param_type(coro: &CoroProgram, k: Int) -> Int {
+    let d = coro.mono.items[k].decl
+    let s = coro.mono.dp.bc.mir.tc.sigs[d]
+    coro.mono.dp.bc.mir.tc.params[s.param_first].ty
+}
+
+// Appends to block `b` of function `f` the cast `_l = o as TY` of the `Int`
+// operand `o` into local `l`, so a call in `b` can pass an address the
+// frame keeps as an `Int` to a parameter that is a pointer.
+func coro_append_cast(coro: &var CoroProgram, f: Int, b: Int, l: Int, ty: Int, o: Int, node: Int) {
+    let rv = coro.mono.dp.bc.mir.rv_one(MirRvalueKind.Cast, ty, "", o)
+    let place = coro_whole_place(&var coro, l, ty)
+    coro_append_stmt(&var coro, f, b, place, rv, node)
 }
 
 // A new place in the task's context, of type `context_ty`, through local

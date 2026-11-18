@@ -1,8 +1,9 @@
-// probe: stated
-// about: four thousand short `Thread.spawn` bodies, two at once, each drive a one-task `TaskGroup()` and then wait at a gate until the other has too, so both threads hold an executor record at once in every round, and the executor makes two thread records in all, each reused once its thread ends, conformance row K189 (SL-793)
-// stage 0: has no per-thread executor record to count (SL-793)
-// speeds: -O0 -O2
-// prints: 4000 tasks, 2 executor records
+// Four thousand short `Thread.spawn` bodies, two at once, each drive a
+// one-task `TaskGroup()` and then wait at a gate until the other has too, so
+// both threads hold an executor record at once in every round, and the
+// executor makes two thread records in all, each reused once its thread ends
+// (conformance row K189, SL-793). The record count is a std-internal entry,
+// so the std lane builds this program against its executor std copy.
 import std.task.*
 import std.taskgroup.{__saw_exec_record_count}
 

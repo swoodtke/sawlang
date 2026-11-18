@@ -44,13 +44,13 @@ fn std.task.fd_wait(fd: Int, write: Int) -> Void {
     let _2: Int;  // param write
     let _3: &var Int;
     let _4: &var std.taskgroup.TaskContext;
-    let _5: Int;
+    let _5: UnsafePointer<Int>;
 
     bb0: {
         (*_4).deadline = const 0: UInt64;
         (*(*_4).park) = const -1: Int;
-        _5 = cast(copy (*_4).park as Int);
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [copy (*_3).[8: Int], copy (*_3).[16: Int], move _5] -> [return: bb2];
+        _5 = copy (*_4).park;
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) [copy (*_3).[8: Int], copy (*_3).[16: Int], move _5] -> [return: bb2];
     }
 
     bb1: {
@@ -71,13 +71,13 @@ fn std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) -> Void {
     let _3: UInt64;  // param deadline
     let _4: &var Int;
     let _5: &var std.taskgroup.TaskContext;
-    let _6: Int;
+    let _6: UnsafePointer<Int>;
 
     bb0: {
         (*_5).deadline = copy (*_4).[24: UInt64];
         (*(*_5).park) = const -1: Int;
-        _6 = cast(copy (*_5).park as Int);
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [copy (*_4).[8: Int], copy (*_4).[16: Int], move _6] -> [return: bb2];
+        _6 = copy (*_5).park;
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) [copy (*_4).[8: Int], copy (*_4).[16: Int], move _6] -> [return: bb2];
     }
 
     bb1: {

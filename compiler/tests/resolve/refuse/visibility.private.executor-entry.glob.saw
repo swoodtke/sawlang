@@ -1,0 +1,8 @@
+// refuses: slice.not-yet at 7:5
+// a glob import misses std's executor entry, public(package), so its bare name is only an intrinsic spelling
+
+import std.taskgroup.*
+
+func f() unsafe {
+    __saw_exec_close_background()
+}

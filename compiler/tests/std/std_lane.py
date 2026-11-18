@@ -32,11 +32,12 @@ profile, and the lang-item table.
   the drops stage's records and any other in typecheck's;
 - each `exec/` program, which builds coroutine frames by hand with their
   descriptors and drives them through the executor's entries, builds with
-  sawc against `std/` at -O0 and -O2 and prints exactly its `NAME.out` on
+  sawc against a copy of `std/` that exposes those `public(package)` entries
+  (`EXEC_ENTRIES`) as `public`, at -O0 and -O2, and prints exactly its `NAME.out` on
   standard output, exiting 0, or, headed `// expect-panic: TEXT`, panicking
   with that text, its standard error exactly its `NAME.err`;
-  a `park_NAME.saw` program builds instead against a copy of std whose
-  `task.saw` ends in `parks/task_tail.saw`, which re-exposes the std-internal
+  a `park_NAME.saw` program builds instead against that copy with a
+  `task.saw` that ends in `parks/task_tail.saw`, which re-exposes the std-internal
   descriptor wait to those programs alone;
 - the compiler finds the OS-thread engine in `std.thread` (SL-965): the
   resolve dump's lang-item table equals `thread/lang_items.std`, and each
@@ -108,6 +109,15 @@ CONE = os.path.join(HERE, "cone")
 MIR = os.path.join(HERE, "mir")
 OUT = os.path.join(REPO, ".build", "std-lane")
 PARK_STD = os.path.join(OUT, "park-std")
+EXEC_STD = os.path.join(OUT, "exec-std")
+# The `public(package)` entries of `std/taskgroup.saw` the executor programs
+# call from outside the std package. No user program may name them, so the
+# programs build against a std copy that declares them `public` (SL-1112).
+EXEC_ENTRIES = ("__saw_exec_offload_park", "__saw_exec_record_count", "__saw_exec_task_box",
+                "__saw_exec_timer_deadline", "__saw_exec_io_register", "__saw_exec_offload_pipe",
+                "__saw_exec_offload_done", "__saw_exec_background", "__saw_exec_close_background",
+                "__saw_exec_drive_main", "__saw_exec_drive", "__saw_exec_drive_steps",
+                "__saw_spawn")
 # The OS-thread engine's programs and lang-item table (SL-965).
 THREAD = os.path.join(HERE, "thread")
 TIMEOUT = 300
@@ -735,23 +745,40 @@ def check_mir_pins(failures, counts, write):
 
 # ------------------------------------------------------------ the executor
 
-def make_park_std():
-    """A fresh copy of `std/` whose `task.saw` ends in `parks/task_tail.saw`,
-    for the `park_` executor programs alone; its root, relative to the repo."""
-    shutil.rmtree(PARK_STD, ignore_errors=True)
-    shutil.copytree(os.path.join(REPO, NEW_ROOT), PARK_STD)
-    with open(PARKS_TAIL, encoding="utf-8") as fh:
-        tail = fh.read()
-    with open(os.path.join(PARK_STD, "task.saw"), "a", encoding="utf-8") as fh:
-        fh.write("\n" + tail)
-    return rel(PARK_STD)
+def make_exec_std(root, tail=False):
+    """A fresh copy of `std/` at `root` for the executor programs, which are
+    std's own tests: every `public(package)` entry of `EXEC_ENTRIES` is
+    `public` in the copy, so a program outside the std package reaches the
+    entry as std's own code does, and with `tail` its `task.saw` ends in
+    `parks/task_tail.saw`. Returns the root, relative to the repo, and the
+    entries it could not expose, which is none while `std/` declares each
+    as written here."""
+    shutil.rmtree(root, ignore_errors=True)
+    shutil.copytree(os.path.join(REPO, NEW_ROOT), root)
+    path = os.path.join(root, "taskgroup.saw")
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    missing = []
+    for name in EXEC_ENTRIES:
+        marker = "public(package) %sfunc %s(" % ("static " if name == "__saw_spawn" else "", name)
+        if text.count(marker) != 1:
+            missing.append(name)
+        text = text.replace(marker, marker.replace("public(package)", "public", 1))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    if tail:
+        with open(PARKS_TAIL, encoding="utf-8") as fh:
+            parks = fh.read()
+        with open(os.path.join(root, "task.saw"), "a", encoding="utf-8") as fh:
+            fh.write("\n" + parks)
+    return rel(root), missing
 
 
 def exec_std_root(path):
     """The std root executor program `path` builds against."""
     if module_name(path).startswith(PARK_EXEC_PREFIX):
         return rel(PARK_STD)
-    return NEW_ROOT
+    return rel(EXEC_STD)
 
 
 def build_and_run_exec(path, speed):
@@ -803,8 +830,11 @@ def check_exec(failures, counts):
     """Each `exec/` program, which builds frames by hand and drives them
     through the executor's entries, built by sawc at -O0 and -O2 and run."""
     programs = sorted(glob.glob(os.path.join(EXEC, "*.saw")))
-    if any(module_name(p).startswith(PARK_EXEC_PREFIX) for p in programs):
-        make_park_std()
+    for root, tail in ((EXEC_STD, False), (PARK_STD, True)):
+        _, missing = make_exec_std(root, tail)
+        for name in missing:
+            failures.append("std exec: `std/taskgroup.saw` has no single `public(package)` "
+                            "declaration of `%s` for the executor programs' std copy to expose" % name)
     jobs = [(p, speed) for p in programs for speed in ("-O0", "-O2")]
     for failure in gate_jobs.map_ordered(lambda job: build_and_run_exec(*job), jobs, most=4):
         if failure:

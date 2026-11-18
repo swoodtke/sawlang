@@ -370,8 +370,8 @@ arguments taken, ends the last block the rewrite leaves: it is the park.
 | channel | `bbB` gains `(*(*_C).park) = WORD` |
 | thread | `bbB` gains `(*(*_C).park) = WORD` |
 | timer | `bbB` ends in `_d = __saw_exec_timer_deadline(NANOS)`, then a new block records `(*_C).deadline = move _d` and `(*(*_C).park) = const 1` and parks |
-| fd | `bbB` gains `(*_C).deadline = DEADLINE`, or `const 0` for `__saw_park_fd`, `(*(*_C).park) = const -1` and the token `_t = cast(copy (*_C).park as Int)`, and ends in the arm `__saw_exec_io_register(FD, WRITE, move _t)`; a new block parks |
-| offload | `bbB` gains `(*_C).deadline = const 0` and `_j = JOB` and ends in `_w = __saw_exec_offload_park(copy _j)`; a new block records `(*(*_C).park) = move _w` and the token and ends in `_p = __saw_exec_offload_pipe(copy _j)`; another ends in the arm `__saw_exec_io_register(move _p, const 0, move _t)`; another parks |
+| fd | `bbB` gains `(*_C).deadline = DEADLINE`, or `const 0` for `__saw_park_fd`, `(*(*_C).park) = const -1` and the token `_t = copy (*_C).park` (the park word's pointer, passed as one), and ends in the arm `__saw_exec_io_register(FD, WRITE, move _t)`; a new block parks |
+| offload | `bbB` gains `(*_C).deadline = const 0` and `_j = JOB` and ends in `_w = __saw_exec_offload_park(copy _j)`; a new block records `(*(*_C).park) = move _w` and the token and ends in `_p = __saw_exec_offload_pipe(copy _q)`, `_q = cast(copy _j as UnsafePointer<UInt8>)` (the job as the pointer it is); another ends in the arm `__saw_exec_io_register(move _p, const 0, move _t)`; another parks |
 
 A signal watch parks as a descriptor does. So in every reason the record
 dominates the arm, and an arm's token is the park word's address, which
@@ -410,7 +410,7 @@ and loses its destination, and new blocks follow it:
 | block | what it holds |
 |---|---|
 | `bbB` | the start: the call itself, `ext(args) -> bbD` |
-| `bbD` | `_d = __saw_exec_offload_done(copy (*_F).[S: Int])`, the job's completion |
+| `bbD` | `_d = __saw_exec_offload_done(copy _q)`, `_q = cast(copy (*_F).[S: Int] as UnsafePointer<UInt8>)`, the job's completion |
 | `bbE` | `switch move _d -> [true: bbT, false: bbP]`: the completion exit, else the park |
 | `bbP` ... | the offload park on the job `copy (*_F).[S: Int]` (the table above), whose park returns to `bbD` |
 | `bbT` | the take: `dest = ext()`, which goes where the call returned |

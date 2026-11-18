@@ -1502,7 +1502,7 @@ machine-checked.
 | background group | `__saw_bg_group() -> UnsafePointer<TaskGroup>`, `__saw_bg_close()` | the `Task.spawn` helper; the synthesized `main` of a program with a background spawn |
 | drive with spawns | `__saw_exec_run_root(rootbox)`, `__saw_exec_run_root_status(rootbox, cellbox, cellp) -> Int` | the entry executor of a suspending `main` in a program that spawns |
 | single-frame park | `__saw_exec_park(wake: Int, deadline: Int)` | the entry executor of a suspending `main` with no spawns; an `io_wait` or channel park outside any frame |
-| arm io | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)` | the `io_wait` and offload park lowerings; `io_wait` outside a frame (token `0`) |
+| arm io | `__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>)` | the `io_wait` and offload park lowerings; `io_wait` outside a frame (token `0`) |
 | disarm io | `__saw_exec_io_unregister(fd: Int, dir: Int)` | the `io_unwait` lowering, including a frame's synthesized `release` |
 | thread-engine count | `__saw_exec_thread_task_started()` | `Thread.spawn` codegen |
 | panic sink | `__saw_bt_panic(message, length)` | the panic path of a program that links the executor |

@@ -125,10 +125,12 @@ fn prologue chains.Bed.slot() -> &var Int {
     let _4: &var Int;
     let _5: &var std.taskgroup.TaskContext;
     let _6: Bool;
-    let _7: Int;
+    let _7: UnsafePointer<UInt8>;
     let _8: Int;
     let _9: Int;
     let _10: Int;
+    let _11: UnsafePointer<UInt8>;
+    let _12: UnsafePointer<Int>;
 
     bb0: {
         call chains.usleep(us: UInt32) [const 1: UInt32] -> [return: bb2];
@@ -141,7 +143,8 @@ fn prologue chains.Bed.slot() -> &var Int {
     }
 
     bb2: {
-        _6 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_4).[8: Int]] -> [return: bb3];
+        _7 = cast(copy (*_4).[8: Int] as UnsafePointer<UInt8>);
+        _6 = call std.taskgroup.__saw_exec_offload_done(job: UnsafePointer<UInt8>) [copy _7] -> [return: bb3];
     }
 
     bb3: {
@@ -150,8 +153,8 @@ fn prologue chains.Bed.slot() -> &var Int {
 
     bb4: {
         (*_5).deadline = const 0: UInt64;
-        _7 = copy (*_4).[8: Int];
-        _8 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _7] -> [return: bb6];
+        _8 = copy (*_4).[8: Int];
+        _9 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _8] -> [return: bb6];
     }
 
     bb5: {
@@ -159,13 +162,14 @@ fn prologue chains.Bed.slot() -> &var Int {
     }
 
     bb6: {
-        (*(*_5).park) = move _8;
-        _10 = cast(copy (*_5).park as Int);
-        _9 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _7] -> [return: bb7];
+        _11 = cast(copy _8 as UnsafePointer<UInt8>);
+        (*(*_5).park) = move _9;
+        _12 = copy (*_5).park;
+        _10 = call std.taskgroup.__saw_exec_offload_pipe(job: UnsafePointer<UInt8>) [copy _11] -> [return: bb7];
     }
 
     bb7: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _9, const 0: Int, move _10] -> [return: bb5];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) [move _10, const 0: Int, move _12] -> [return: bb5];
     }
 
     bb8: {
@@ -240,10 +244,12 @@ fn chains.Bed.nap() -> Int {
     let _5: &var Int;
     let _6: &var std.taskgroup.TaskContext;
     let _7: Bool;
-    let _8: Int;
+    let _8: UnsafePointer<UInt8>;
     let _9: Int;
     let _10: Int;
     let _11: Int;
+    let _12: UnsafePointer<UInt8>;
+    let _13: UnsafePointer<Int>;
 
     bb0: {
         call chains.usleep(us: UInt32) [const 1: UInt32] -> [return: bb2];
@@ -257,7 +263,8 @@ fn chains.Bed.nap() -> Int {
     }
 
     bb2: {
-        _7 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_5).[8: Int]] -> [return: bb3];
+        _8 = cast(copy (*_5).[8: Int] as UnsafePointer<UInt8>);
+        _7 = call std.taskgroup.__saw_exec_offload_done(job: UnsafePointer<UInt8>) [copy _8] -> [return: bb3];
     }
 
     bb3: {
@@ -266,8 +273,8 @@ fn chains.Bed.nap() -> Int {
 
     bb4: {
         (*_6).deadline = const 0: UInt64;
-        _8 = copy (*_5).[8: Int];
-        _9 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _8] -> [return: bb6];
+        _9 = copy (*_5).[8: Int];
+        _10 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _9] -> [return: bb6];
     }
 
     bb5: {
@@ -275,13 +282,14 @@ fn chains.Bed.nap() -> Int {
     }
 
     bb6: {
-        (*(*_6).park) = move _9;
-        _11 = cast(copy (*_6).park as Int);
-        _10 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _8] -> [return: bb7];
+        _12 = cast(copy _9 as UnsafePointer<UInt8>);
+        (*(*_6).park) = move _10;
+        _13 = copy (*_6).park;
+        _11 = call std.taskgroup.__saw_exec_offload_pipe(job: UnsafePointer<UInt8>) [copy _12] -> [return: bb7];
     }
 
     bb7: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _10, const 0: Int, move _11] -> [return: bb5];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) [move _11, const 0: Int, move _13] -> [return: bb5];
     }
 
     bb8: {

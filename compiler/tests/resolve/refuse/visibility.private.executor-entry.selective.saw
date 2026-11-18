@@ -1,0 +1,7 @@
+// refuses: visibility.private at 4:23
+// a selective import of one of std's executor entries, which is public(package)
+
+import std.taskgroup.{__saw_exec_close_background}
+
+func f() {
+}

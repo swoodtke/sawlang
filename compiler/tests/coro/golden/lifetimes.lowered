@@ -219,10 +219,12 @@ fn lifetimes.offload_storage() -> Void {
     let _1: &var Int;
     let _2: &var std.taskgroup.TaskContext;
     let _3: Bool;
-    let _4: Int;
+    let _4: UnsafePointer<UInt8>;
     let _5: Int;
     let _6: Int;
     let _7: Int;
+    let _8: UnsafePointer<UInt8>;
+    let _9: UnsafePointer<Int>;
 
     bb0: {
         call lifetimes.pause() [] -> [return: bb2];
@@ -233,7 +235,8 @@ fn lifetimes.offload_storage() -> Void {
     }
 
     bb2: {
-        _3 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_1).[8: Int]] -> [return: bb3];
+        _4 = cast(copy (*_1).[8: Int] as UnsafePointer<UInt8>);
+        _3 = call std.taskgroup.__saw_exec_offload_done(job: UnsafePointer<UInt8>) [copy _4] -> [return: bb3];
     }
 
     bb3: {
@@ -242,8 +245,8 @@ fn lifetimes.offload_storage() -> Void {
 
     bb4: {
         (*_2).deadline = const 0: UInt64;
-        _4 = copy (*_1).[8: Int];
-        _5 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _4] -> [return: bb6];
+        _5 = copy (*_1).[8: Int];
+        _6 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _5] -> [return: bb6];
     }
 
     bb5: {
@@ -251,13 +254,14 @@ fn lifetimes.offload_storage() -> Void {
     }
 
     bb6: {
-        (*(*_2).park) = move _5;
-        _7 = cast(copy (*_2).park as Int);
-        _6 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _4] -> [return: bb7];
+        _8 = cast(copy _5 as UnsafePointer<UInt8>);
+        (*(*_2).park) = move _6;
+        _9 = copy (*_2).park;
+        _7 = call std.taskgroup.__saw_exec_offload_pipe(job: UnsafePointer<UInt8>) [copy _8] -> [return: bb7];
     }
 
     bb7: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _6, const 0: Int, move _7] -> [return: bb5];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) [move _7, const 0: Int, move _9] -> [return: bb5];
     }
 
     bb8: {

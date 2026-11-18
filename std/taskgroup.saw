@@ -227,7 +227,7 @@ func polls_for(park: Int) -> Bool {
 /// The park word of a wait for offload job `job` to finish, which an offload
 /// park records: ready once the job's C call has returned, and never woken by
 /// a cancel, since nothing can interrupt the call.
-public func __saw_exec_offload_park(job: Int) -> Int {
+public(package) func __saw_exec_offload_park(job: Int) -> Int {
     // A job is a heap block, so its handle is non-null and aligned to at
     // least 4, and the tag fits beneath it (`park_on`).
     //
@@ -248,7 +248,7 @@ static OFFLOAD_CHECK: Atomic<Int> = Atomic(0)
 // the first park word that names a job. A losing racer installed the same
 // address.
 func install_offload_check() unsafe {
-    let check: FuncPointer<(Int) sync -> Bool> = { job in __saw_exec_offload_done(job) }
+    let check: FuncPointer<(Int) sync -> Bool> = { job in __saw_exec_offload_done(job as UnsafePointer<UInt8>) }
     let _ = OFFLOAD_CHECK.compare_exchange(0, Int.from(truncating: check.address()))
 }
 
@@ -1257,7 +1257,7 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
 // (`thread_event`), after its background group is closed and ahead of the
 // running-thread count dropping. Its record, if it has one, is published
 // empty first, and claimable after that, so a walk that reads a claimable
-// record finds nothing waiting in it (the run probe `executor_records_reused`).
+// record finds nothing waiting in it (the std lane's `executor_records_reused`).
 // A group still registered in it stays there, read by the walk, until
 // whichever thread tears it down unlinks it.
 func __saw_exec_thread_exiting() unsafe {
@@ -1275,7 +1275,7 @@ func __saw_exec_thread_exiting() unsafe {
 /// thread that was ever running at once and drove a task group.
 ///
 /// A std-internal count, for the executor's tests.
-public func __saw_exec_record_count() unsafe -> Int {
+public(package) func __saw_exec_record_count() unsafe -> Int {
     var n = 0
     var cur = EXEC_RECORDS.load()
     while cur != 0 {
@@ -1337,7 +1337,7 @@ func round_up(n: Int, align: Int) -> Int {
 /// for the compiler's spawn lowering to write the root's arguments into.
 ///
 /// Panics if the allocation is refused.
-public func __saw_exec_task_box(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointer<UInt8> {
+public(package) func __saw_exec_task_box(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointer<UInt8> {
     exec_alloc(descriptor[0].size, descriptor[0].align, "Task.spawn") as UnsafePointer<UInt8>
 }
 
@@ -3458,7 +3458,7 @@ func reactor_poll(millis: Int) unsafe {
 /// The monotonic instant `nanos` nanoseconds from now, in nanoseconds: the
 /// deadline a timer park records in its context. A span past the clock's end
 /// saturates there, since no clock reaches it.
-public func __saw_exec_timer_deadline(nanos: UInt64) -> UInt64 {
+public(package) func __saw_exec_timer_deadline(nanos: UInt64) -> UInt64 {
     let now = monotonic_now()
     if nanos > UInt64.max - now {
         return UInt64.max
@@ -3468,12 +3468,12 @@ public func __saw_exec_timer_deadline(nanos: UInt64) -> UInt64 {
 
 /// Arms the reactor for descriptor `fd`'s readiness, for reading when `dir`
 /// is 0 and for writing when it is 1, so that it wakes the task whose park
-/// word is at address `token`: the arm of a descriptor park and of an offload
-/// park, made after the park records its word.
+/// word is `token`: the arm of a descriptor park and of an offload park, made
+/// after the park records its word.
 ///
 /// Panics if the arm fails, naming the descriptor, the direction and the
 /// platform's error code.
-public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
+public(package) func __saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) unsafe {
     // The one arm funnel. The park value its park recorded is published
     // through `token` again, atomically, before the arm, so every latch the
     // reactor's poll makes, from any thread, lands after it and is never
@@ -3494,9 +3494,9 @@ public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
     //   coro_lower_park's descriptor park (`__saw_park_fd`, `__saw_park_fd_until`)
     //   coro_lower_park's offload park (`__saw_park_offload`)
     let word = token as UnsafePointer<Atomic<Int>>
-    let recorded = __saw_atomic_load_i64_seq_cst(token as UnsafePointer<Int>)
+    let recorded = __saw_atomic_load_i64_seq_cst(token)
     word[0].store(recorded)
-    let status = __saw_rt_reactor_register(host_reactor(), fd, dir, token)
+    let status = __saw_rt_reactor_register(host_reactor(), fd, dir, token as Int)
     if status != 0 {
         let direction = if dir != 0 { "write" } else { "read" }
         panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction,
@@ -3529,19 +3529,19 @@ extern "C" {
 
 /// The read end of offload job `job`'s completion pipe, which an offload park
 /// arms through `__saw_exec_io_register` after it records its word.
-public func __saw_exec_offload_pipe(job: Int) -> Int {
+public(package) func __saw_exec_offload_pipe(job: UnsafePointer<UInt8>) unsafe -> Int {
     // The registration is never withdrawn: the park ends only once the call
     // has returned, and the take then closes this descriptor, which removes
     // it from the reactor, before the task can park again or its cell can be
     // freed.
-    __saw_rt_offload_pipe_fd(job)
+    __saw_rt_offload_pipe_fd(job as Int)
 }
 
 /// Whether offload job `job`'s C call has returned, which an offload asks
 /// before it parks and after every wake, so that only a finished job reaches
 /// the take that joins the job's thread, cancelled task or not.
-public func __saw_exec_offload_done(job: Int) -> Bool {
-    __saw_rt_offload_done(job) != 0
+public(package) func __saw_exec_offload_done(job: UnsafePointer<UInt8>) unsafe -> Bool {
+    __saw_rt_offload_done(job as Int) != 0
 }
 
 /// The calling thread's background group, the one `Task.spawn` spawns into,
@@ -3549,7 +3549,7 @@ public func __saw_exec_offload_done(job: Int) -> Bool {
 ///
 /// Each thread has its own, so only the thread that spawned a background
 /// task ever runs it. Panics if the group cannot be allocated.
-public func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
+public(package) func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
     let record = this_executor()
     let current = record[0].background
     if current != 0 {
@@ -3572,7 +3572,7 @@ public func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
 /// not wake it, such as a join of a thread, holds the close open until that
 /// wait ends. Does nothing when the thread never spawned a background task.
 /// The group is left empty, for the next thread that takes this record.
-public func __saw_exec_close_background() unsafe {
+public(package) func __saw_exec_close_background() unsafe {
     let current = __saw_rt_thread_executor()
     if current == 0 {
         return
@@ -3600,8 +3600,8 @@ public func __saw_exec_close_background() unsafe {
 /// The frame is the caller's, and keeps `main`'s result where the frame's
 /// descriptor says. This is the body of `std.task`'s `__saw_exec_run_main`,
 /// the entry the compiler calls.
-public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
-                                  frame: UnsafePointer<UInt8>) unsafe {
+public(package) func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
+                                           frame: UnsafePointer<UInt8>) unsafe {
     var root = TaskGroup()
     let ticket = root.enqueue(descriptor, frame, false)
     let at = (&root) as UnsafePointer<TaskGroup> as Int
@@ -3621,8 +3621,8 @@ public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
 ///
 /// Panics if the frame parks on a wait the executor does not perform yet
 /// (`drive_frame`).
-public func __saw_exec_drive(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
-                             site: String) unsafe {
+public(package) func __saw_exec_drive(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                                      site: String) unsafe {
     drive_frame(descriptor, frame, &site)
 }
 
@@ -3633,8 +3633,8 @@ public func __saw_exec_drive(descriptor: UnsafePointer<FrameDescriptor>, frame: 
 ///
 /// Panics if the frame parks on a wait the executor does not perform yet
 /// (`drive_frame`).
-public func __saw_exec_drive_steps(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
-                                   site: String) unsafe -> Int {
+public(package) func __saw_exec_drive_steps(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                                            site: String) unsafe -> Int {
     let steps = drive_frame(descriptor, frame, &site)
     let drop = descriptor[0].drop_result
     drop((frame as Int + descriptor[0].result_offset) as UnsafePointer<UInt8>)
@@ -3716,10 +3716,10 @@ public struct Task<T> {
 extension Task<T> {
     // The compiler's spawn lowering: puts the frame at `frame`, its arguments
     // written, on `group`'s run queue, and hands back its handle.
-    public static func __saw_spawn(group: UnsafePointer<TaskGroup>,
-                                   descriptor: UnsafePointer<FrameDescriptor>,
-                                   frame: UnsafePointer<UInt8>,
-                                   provenance: TaskProvenance) unsafe -> Task<T> {
+    public(package) static func __saw_spawn(group: UnsafePointer<TaskGroup>,
+                                            descriptor: UnsafePointer<FrameDescriptor>,
+                                            frame: UnsafePointer<UInt8>,
+                                            provenance: TaskProvenance) unsafe -> Task<T> {
         if descriptor[0].result_size != sizeof<T>() {
             panic("Task.spawn: the frame's result is {} bytes, and the task's is {}",
                   descriptor[0].result_size, sizeof<T>())

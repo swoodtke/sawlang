@@ -174,7 +174,10 @@ the binary, whatever the working directory, and `sawc runtime` reads that
 tree's `runtime/` the same way. A root holding no std is refused, naming the
 path. Its prelude module declares what Stage
 0's builtin module synthesizes, and resolve's lang-item table (resolve/README.md)
-binds the compiler's vocabulary to it.
+binds the compiler's vocabulary to it. The calls the lowerings synthesize
+(spawn, drive, park, offload) name std's executor entries by module and name
+(`module_named` and `top_decl`) with no visibility check, which is why those
+entries are `public(package)` and no user program can import them.
 
 Each stage has its own directory and is a package, with its source under
 `src/`, which is the package's module root: `--module-path` maps the package

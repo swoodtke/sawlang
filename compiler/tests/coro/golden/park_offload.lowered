@@ -31,7 +31,8 @@ fn std.task.offload_wait(job: Int) -> Void {
     let _4: Int;
     let _5: Int;
     let _6: Int;
-    let _7: Int;
+    let _7: UnsafePointer<UInt8>;
+    let _8: UnsafePointer<Int>;
 
     bb0: {
         (*_3).deadline = const 0: UInt64;
@@ -48,12 +49,13 @@ fn std.task.offload_wait(job: Int) -> Void {
     }
 
     bb3: {
+        _7 = cast(copy _4 as UnsafePointer<UInt8>);
         (*(*_3).park) = move _5;
-        _7 = cast(copy (*_3).park as Int);
-        _6 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _4] -> [return: bb4];
+        _8 = copy (*_3).park;
+        _6 = call std.taskgroup.__saw_exec_offload_pipe(job: UnsafePointer<UInt8>) [copy _7] -> [return: bb4];
     }
 
     bb4: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _6, const 0: Int, move _7] -> [return: bb2];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>) [move _6, const 0: Int, move _8] -> [return: bb2];
     }
 }

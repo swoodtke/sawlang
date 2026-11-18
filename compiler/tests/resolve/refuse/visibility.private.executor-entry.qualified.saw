@@ -1,0 +1,8 @@
+// refuses: visibility.private at 7:15
+// a qualified reach of one of std's executor entries, which is public(package)
+
+import std.taskgroup
+
+func f() unsafe {
+    taskgroup.__saw_exec_close_background()
+}
