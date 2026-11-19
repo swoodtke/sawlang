@@ -1,0 +1,12 @@
+// refuses: borrows.root-exclusive-sync at 10:21
+// errors: 1
+// the window is `borrows(sync, ...)` but the function is not `sync`: both words are owed (SL-1156)
+// message: so it is declared `sync` and `borrows(sync, BOOT.count)`
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+func count() unsafe borrows(sync, BOOT.count) -> &var Int {
+    panic("an exclusive root never suspends")
+}

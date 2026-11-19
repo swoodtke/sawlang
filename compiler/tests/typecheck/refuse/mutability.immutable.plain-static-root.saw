@@ -1,0 +1,10 @@
+// refuses: mutability.immutable at 8:19
+// errors: 1
+// `-> &var T` over a plain `static` lends it writable, and a `static` is immutable (SL-1156)
+// message: and a `static` is immutable
+
+static TOTAL: Int = 1
+
+func total() sync borrows(sync, TOTAL) -> &var Int {
+    panic("a plain static is read only")
+}

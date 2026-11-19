@@ -1,0 +1,13 @@
+// refuses: effect.borrows-value at 11:13
+// errors: 1
+// a `borrows` function is never a function value: its call lends a place for a window the call site opens, and a value has none (SL-1172; on main mono died with an INVARIANT)
+// message: `nothing` is a `borrows` function, and a `borrows` function is never a value
+
+func nothing() borrows -> &Int {
+    panic("never lends")
+}
+
+func main() {
+    let f = nothing
+    print("made")
+}

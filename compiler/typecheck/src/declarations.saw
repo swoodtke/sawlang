@@ -8,7 +8,7 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
 import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
                                TC_FLAG_DEFAULT_BODY, TC_FLAG_DERIVED_TWIN, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
                                TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcHeadKind, TcLend,
@@ -241,6 +241,7 @@ extension TcProgram {
         var effects = 0
         var flags = 0
         var result = -1
+        var root_decl = -1
         var receiver = TcReceiver.Absent
         if info.flag && info.kind != ResDeclKind.Init {
             flags = flags | TC_FLAG_STATIC
@@ -259,6 +260,23 @@ extension TcProgram {
                 if k > name_end {
                     let word = self.text(m, c)
                     effects = tc_effect_bit(effects, &word)
+                }
+            } else if self.has_alt(c, Alt.Decl_BorrowsRoot) {
+                // The root's first segment names a static of this module; its
+                // field hops and every rule on it are judged once all
+                // signatures stand (`check_borrows_root`). (SL-1156)
+                effects = effects | TC_EFFECT_BORROWS
+                let parts = self.res.child_count(c)
+                var j = 0
+                while j < parts {
+                    let part = self.res.child(c, j)
+                    j = j + 1
+                    if self.is_leaf(part) {
+                        effects = effects | TC_EFFECT_BORROWS_SYNC
+                    } else {
+                        let head = self.res.first_leaf(part)
+                        root_decl = self.top_decl(m, self.text(m, head))
+                    }
                 }
             } else if self.has_alt(c, Alt.Decl_Param_Receiver) {
                 let r = self.res.first_node_child(c)
@@ -302,6 +320,7 @@ extension TcProgram {
         s.effects = effects
         s.flags = s.flags | flags
         s.result = result
+        s.root_decl = root_decl
         if (effects & TC_EFFECT_BORROWS) != 0 {
             s.lending = self.lend_kind(result)
             s.lending_exclusive = self.lend_is_exclusive(result)

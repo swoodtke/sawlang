@@ -381,6 +381,17 @@ extension TcProgram {
             }
             try! out.append(")")
         }
+        if s.root_decl >= 0 {
+            try! out.append(" (root ")
+            try! out.append(self.res.decl_path(s.root_decl))
+            var r = 0
+            while r < s.root_count {
+                try! out.append(".")
+                try! out.append(self.res.name_text(self.res.decls[self.root_fields[s.root_first + r]].name))
+                r = r + 1
+            }
+            try! out.append(")")
+        }
         try! out.append(" -> ")
         self.append_type(&var out, s.result)
         if (s.flags & TC_FLAG_STATIC) != 0 {

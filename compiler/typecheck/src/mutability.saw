@@ -60,6 +60,8 @@ enum TcWriteRefusal {
     case Static,
     // A `borrows` accessor that lends read-only, `-> &T`.
     case ReadOnlyLend,
+    // The static a function lends shared as its `borrows(ROOT)`, in its body.
+    case SharedRoot,
     // A bare `borrow` statement, which lends its place shared.
     case SharedBorrow
 }
@@ -358,7 +360,7 @@ extension TcProgram {
             let leaf = self.res.last_leaf_of(e)
             let b = self.binding_at(leaf)
             if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
-                return self.static_verdict(e, b.decl)
+                return self.static_verdict(e, b.decl, &var tables)
             }
             let base = self.res.first_node_child(e)
             return self.place_verdict(base, &var tables)
@@ -430,17 +432,40 @@ extension TcProgram {
             return self.binding_verdict(b.node, e, &var tables)
         }
         if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
-            return self.static_verdict(e, b.decl)
+            return self.static_verdict(e, b.decl, &var tables)
         }
         TcWriteVerdict.ok()
     }
 
-    // A static is written only as an `unsafe static var` (design 149).
-    func static_verdict(&self, e: Int, d: Int) -> TcWriteVerdict {
+    // A static is written only as an `unsafe static var`, and never from the
+    // body of a function that borrows it as its `borrows(ROOT)` shared: that
+    // lend is read-only all the way down, as `&self` is. (SL-1156)
+    func static_verdict(&self, e: Int, d: Int, tables: &var TcMutTables) -> TcWriteVerdict {
+        if self.shared_root_body(e, d, &var tables) {
+            return TcWriteVerdict.refused(TcWriteRefusal.SharedRoot, e)
+        }
         if (self.sigs[d].flags & TC_FLAG_UNSAFE_VAR) != 0 {
             return TcWriteVerdict.ok()
         }
         TcWriteVerdict.refused(TcWriteRefusal.Static, e)
+    }
+
+    // Whether `e` lies in the body of a function that declares static `d` its
+    // root and lends it shared.
+    func shared_root_body(&self, e: Int, d: Int, tables: &var TcMutTables) -> Bool {
+        var at = e
+        while at >= 0 {
+            let owner = tables.decl_of_node[at]
+            if owner >= 0 {
+                let kind = self.res.decls[owner].kind
+                if kind == ResDeclKind.Func || kind == ResDeclKind.Method {
+                    let s = self.sigs[owner]
+                    return s.root_decl == d && not s.lending_exclusive
+                }
+            }
+            at = tables.parents[at]
+        }
+        false
     }
 
     // Whether the binding declared at `binding` may be written from `site`:
@@ -621,6 +646,9 @@ extension TcProgram {
                 } else {
                     try! msg.append(": declare the accessor `-> &var T` to lend a writable one")
                 }
+            },
+            case SharedRoot -> {
+                try! msg.append(", and this function borrows its root shared (`-> &T`), so nothing under it is written: declare the lend `-> &var T`, over an `unsafe static var`, to write")
             },
             case SharedBorrow -> {
                 try! msg.append(", and `")

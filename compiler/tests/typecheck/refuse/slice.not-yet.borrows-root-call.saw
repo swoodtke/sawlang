@@ -1,0 +1,16 @@
+// refuses: slice.not-yet at 15:11
+// errors: 1
+// a call of a function that declares `borrows(ROOT)` is refused until the call sites lower the root's window (SL-1156)
+// message: which declares `borrows(ROOT)`, is not in the bootstrap slice yet
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    panic("diverges")
+}
+
+func main() {
+    print(count())
+}

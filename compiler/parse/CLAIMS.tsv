@@ -454,6 +454,9 @@ syntax.decl.constexpr	U4g
 syntax.decl.borrows-effect.plain	U4g
 syntax.decl.borrows-effect.sync	U4g
 syntax.decl.borrows-sync	U4g
+syntax.decl.borrows-effect.root	SL-1156
+syntax.decl.borrows-root	SL-1156
+syntax.decl.root-path	SL-1156
 syntax.decl.struct	U4g
 syntax.decl.struct-modifier.unsafe	U4g
 syntax.decl.struct-modifier.borrows	U4g
@@ -532,6 +535,7 @@ syntax.rule.attribute-position	U4g
 syntax.rule.receiver-and-static	U4g
 syntax.rule.extern-abi	U4g
 syntax.rule.requirement-borrows	U4g
+syntax.rule.borrows-root	SL-1156
 syntax.rule.declaration-separator	U4g
 syntax.rule.subscript-declaration	U4g
 syntax.lex.doc-attach	U4g

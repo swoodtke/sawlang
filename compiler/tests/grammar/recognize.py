@@ -62,6 +62,7 @@ SEPARATORS = (",", ";")
 PREFERENCES = {
     "generic-arg": ("syntax.generic.arg.type", ("syntax.rule.generic-arg-value",)),
     "pattern": ("syntax.pat.pattern.wildcard", ("syntax.rule.name-pattern",)),
+    "borrows-effect": ("syntax.decl.borrows-effect.sync", ("syntax.rule.borrows-root",)),
     "non-expr-statement": ("syntax.stmt.non-expr.optional-assign",
                            ("syntax.rule.optional-chain-run",)),
 }

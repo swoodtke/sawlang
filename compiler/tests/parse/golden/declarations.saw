@@ -128,6 +128,23 @@ extension S {
     }
 }
 
+// case: syntax.rule.borrows-root/roots
+struct Boot { system: Int }
+
+unsafe static var BOOT: Boot
+
+func system() unsafe borrows(BOOT.system) -> &Int {
+    lend BOOT.system
+}
+
+func count() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func window() borrows(sync) -> &Int {
+    lend BOOT.system
+}
+
 // case: syntax.rule.subscript-declaration/getitem
 extension Grid {
     func [](&self, i: Int) -> Int {

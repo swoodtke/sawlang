@@ -3746,6 +3746,41 @@ extension Parser {
         self.refuse(Rule.Decl_RefusedReceiver, at, message, hint)
     }
 
+    // `borrows-root-effect ::= "borrows" "(" ( 'sync' "," )? root-path ")"` and
+    // `root-path ::= IDENT ( "." IDENT )*`. A lone `sync` in the parentheses
+    // is the window effect, which the caller has already taken
+    // (syntax.rule.borrows-root).
+    func parse_borrows_root(&var self) -> Bool {
+        self.see(Alt.Decl_BorrowsEffect_Root)
+        self.see(Alt.Decl_BorrowsRoot)
+        let start = self.here()
+        let mark = self.builder.mark()
+        self.advance()
+        self.advance()
+        if self.word_at(0, "sync") && self.kind_at(1) == TokenKind.Comma {
+            self.take_leaf()
+            self.advance()
+        }
+        if self.kind() != TokenKind.Ident {
+            return self.error("expected the static a `borrows` function lends from")
+        }
+        self.see(Alt.Decl_RootPath)
+        let path_start = self.here()
+        let path_mark = self.builder.mark()
+        self.take_leaf()
+        while self.kind() == TokenKind.Dot && self.kind_at(1) == TokenKind.Ident {
+            self.advance()
+            self.take_leaf()
+        }
+        self.close(path_mark, Alt.Decl_RootPath, path_start)
+        if self.kind() != TokenKind.RParen {
+            return self.error("expected `)` to close the root of `borrows(`")
+        }
+        self.advance()
+        self.close(mark, Alt.Decl_BorrowsRoot, start)
+        true
+    }
+
     // `effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? blocking-effect? 'sync'? borrows-effect? refused-escaping?`,
     // each word a leaf of the declaration. `consumes` stands only on a method
     // whose first parameter is `&var self` (`exclusive`), and `borrows` on
@@ -3783,6 +3818,10 @@ extension Parser {
                 self.advance()
                 self.take_leaf()
                 self.advance()
+            } else if self.kind_at(1) == TokenKind.LParen {
+                if not self.parse_borrows_root() {
+                    return false
+                }
             } else {
                 self.see(Alt.Decl_BorrowsEffect_Plain)
                 self.take_leaf()

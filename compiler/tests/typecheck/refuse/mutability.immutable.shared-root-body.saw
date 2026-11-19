@@ -1,0 +1,13 @@
+// refuses: mutability.immutable at 11:5
+// errors: 1
+// a body that lends its root shared (`-> &T`) reads every place under it: a write is refused, as `&self` is read-only all the way down (SL-1156)
+// message: this function borrows its root shared
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    BOOT.count = 3
+    panic("a shared root is read only")
+}

@@ -1,0 +1,21 @@
+borrows_root_lone_sync.saw: 1 tree(s)
+  (File
+    (Declaration.func
+      (Func window borrows sync
+        (RefType.shared
+          (NamedType (Path Int)))
+        (Block
+          (ExprStmt
+            (Call.paren
+              (Name panic)
+              (Arg.positional (StringLit "never lends")))))))
+    (Declaration.func
+      (Func counter unsafe sync
+        (BorrowsRoot sync (RootPath BOOT count))
+        (RefType.exclusive
+          (NamedType (Path Int)))
+        (Block
+          (ExprStmt
+            (Call.paren
+              (Name panic)
+              (Arg.positional (StringLit "never lends"))))))))

@@ -560,8 +560,32 @@ func a() borrows { }
 // case: syntax.decl.borrows-effect.sync/alt
 func a() borrows (sync) { }
 
+// case: syntax.decl.borrows-effect.root/alt
+func a() borrows (b) { }
+
 // case: syntax.decl.borrows-sync/alt
 func a() borrows (sync) { }
+
+// case: syntax.decl.borrows-root/alt
+func a() borrows (b) { }
+
+// case: syntax.decl.borrows-root/opt:2:('sync' ",")?=absent
+func a() borrows (b) { }
+
+// case: syntax.decl.borrows-root/opt:2:('sync' ",")?=present
+func a() borrows (sync, b) { }
+
+// case: syntax.decl.root-path/alt
+func a() borrows (b) { }
+
+// case: syntax.decl.root-path/rep:1:("." IDENT)*=0
+func a() borrows (b) { }
+
+// case: syntax.decl.root-path/rep:1:("." IDENT)*=1
+func a() borrows (b.c) { }
+
+// case: syntax.decl.root-path/rep:1:("." IDENT)*=many
+func a() borrows (b.c.d.e) { }
 
 // case: syntax.decl.struct/alt
 struct a { }

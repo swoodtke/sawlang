@@ -1,0 +1,51 @@
+(Module borrows_root_declarations
+  (declarations
+    (struct Boot 6:8 private)
+    (field Boot.count 6:15 private Int)
+    (field Boot.limit 6:27 private Int)
+    (static LIMIT 8:8 private Int)
+    (static BOOT 10:19 private borrows_root_declarations.Boot unsafe-var)
+    (func limit 12:6 private (signature (params) (effects borrows) (lend place shared) (root LIMIT) -> &Int) (summary body (suspends no) (sync-callable yes)))
+    (func count 16:6 private (signature (params) (effects unsafe borrows) (lend place shared) (root BOOT.count) -> &Int) (summary body (suspends no) (sync-callable yes)))
+    (func count_exclusive 20:6 private (signature (params) (effects unsafe sync borrows(sync)) (lend place exclusive) (root BOOT.count) -> &var Int) (summary body (suspends no) (sync-callable yes)))
+    (func reset 24:6 private (signature (params) (effects unsafe sync borrows(sync)) (lend place exclusive) (root BOOT.count) -> &var Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 29:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (borrows_root_declarations.Boot
+      (field count Int private declared)
+      (field limit Int private declared)))
+  (views
+    (borrows_root_declarations.Boot count limit))
+  (conformances)
+  (copy-tier
+    (borrows_root_declarations.Boot Copy))
+  (bodies
+    (LIMIT 8:8
+      (8:21-8:22 IntLit Int value temp))
+    (limit 12:6
+      (13:5-13:22 Call.paren Never value temp (builtin panic))
+      (13:11-13:21 StringLit String value temp))
+    (count 16:6
+      (17:5-17:22 Call.paren Never value temp (builtin panic))
+      (17:11-17:21 StringLit String value temp))
+    (count_exclusive 20:6
+      (21:5-21:22 Call.paren Never value temp (builtin panic))
+      (21:11-21:21 StringLit String value temp))
+    (reset 24:6
+      (25:5-25:15 Member Int place write)
+      (25:5-25:9 Name borrows_root_declarations.Boot place project)
+      (25:18-25:19 IntLit Int value temp)
+      (26:5-26:22 Call.paren Never value temp (builtin panic))
+      (26:11-26:21 StringLit String value temp))
+    (main 29:6
+      (30:5-30:13 Call.paren Void value temp (builtin print))
+      (30:11-30:12 IntLit Int value borrow)))
+  (string-positions
+    (13:11 message std.string.string_literal)
+    (13:5 panic std.panic.panic_sink)
+    (17:11 message std.string.string_literal)
+    (17:5 panic std.panic.panic_sink)
+    (21:11 message std.string.string_literal)
+    (21:5 panic std.panic.panic_sink)
+    (26:11 message std.string.string_literal)
+    (26:5 panic std.panic.panic_sink)))

@@ -270,6 +270,9 @@ public struct TcProgram {
     // Trait declarations: generic bounds, trait parents, conformance lists.
     traits: Vector<Int>
     params: Vector<TcParam>
+    // The field declarations of each `borrows(ROOT)` path, which a signature's
+    // `root_first` and `root_count` index.
+    root_fields: Vector<Int>
     // The type each type-position node denotes, a signature's or a body's, or
     // -1; and how many times each was built, which the body verifier holds to
     // one for a type written in a body.
@@ -743,7 +746,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                         device: -1, normal: -1, read_only: -1, write_only: -1, allocator: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: Vector<TcSig>(),
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
-                      params: Vector<TcParam>(), node_types: Vector<Int>(),
+                      params: Vector<TcParam>(), root_fields: Vector<Int>(), node_types: Vector<Int>(),
                       type_builds: Vector<Int>(),
                       param_owners: ResIndex(), extensions_of: ResIndex(),
                       conformances: Vector<TcConformance>(), statuses: Vector<TcStatus>(),

@@ -1,0 +1,12 @@
+// refuses: slice.not-yet at 11:5
+// errors: 1
+// a `lend` under a declared `borrows(ROOT)` is refused until the callee accepts the root (SL-1156)
+// message: is not in the bootstrap slice yet: the root's lend is lowered by a later unit
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}

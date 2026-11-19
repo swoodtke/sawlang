@@ -1,0 +1,10 @@
+// refuses: borrows.root-public at 8:22
+// errors: 1
+// a root is module-private: a `public` static is refused, since every importer could name it (SL-1156, the owner's ruling R2)
+// message: is `public`, and a root is module-private
+
+public static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("a root is private")
+}

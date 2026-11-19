@@ -292,6 +292,38 @@
             (NamedType (Path Int)))
           (Block))))))
 
+// case: syntax.rule.borrows-root/roots
+(File
+  (Declaration.struct
+    (Struct Boot
+      (Field system
+        (NamedType (Path Int)))))
+  (Declaration.static
+    (Static.unsafe-var BOOT
+      (NamedType (Path Boot))))
+  (Declaration.func
+    (Func system unsafe
+      (BorrowsRoot (RootPath BOOT system))
+      (RefType.shared
+        (NamedType (Path Int)))
+      (Block
+        (Lend
+          (Member (Name BOOT) system)))))
+  (Declaration.func
+    (Func count unsafe sync
+      (BorrowsRoot sync (RootPath BOOT))
+      (RefType.exclusive
+        (NamedType (Path Boot)))
+      (Block
+        (Lend (Name BOOT)))))
+  (Declaration.func
+    (Func window borrows sync
+      (RefType.shared
+        (NamedType (Path Int)))
+      (Block
+        (Lend
+          (Member (Name BOOT) system))))))
+
 // case: syntax.rule.subscript-declaration/getitem
 (File
   (Declaration.extension

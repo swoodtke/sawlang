@@ -103,7 +103,7 @@ SECTIONS = (
     ("## Moves and use-after-move", "## Moves and use-after-move"),
     ("## Places (`borrows` / `lend`)", "## Places (`borrows` / `lend`)"),
 )
-OWNERS = ("U6d1", "U6d2", "typecheck", "SL-462", "typecheck-gap", "parse", "mir", "§3.7", "§3.8", "§3.9",
+OWNERS = ("U6d1", "U6d2", "typecheck", "SL-462", "SL-1156", "typecheck-gap", "parse", "mir", "§3.7", "§3.8", "§3.9",
           "slice.not-yet")
 LABELS = ("static", "elided", "flagged")
 # The owners whose rows must name a fixture or golden of this directory.

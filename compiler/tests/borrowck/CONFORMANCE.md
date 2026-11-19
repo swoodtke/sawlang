@@ -18,6 +18,7 @@ INDEX.md, or when an owner is not one of the words below.
 | `§3.7` | drop elaboration: how many times a value is released, and where |
 | `§3.8` | monomorphization: the lifecycle glue generated per concrete type, retains and copies, and the checks made per instantiation |
 | `§3.9` | coroutine lowering |
+| `SL-1156` | a rule SL-1156 owns and has not built yet (a static lent from a `borrows(ROOT)` function); each of its units moves a row to its final owner |
 | `slice.not-yet` | sawc refuses a construct in the row's file as outside the bootstrap slice; the construct is named, and the owner the row reaches after it in parentheses |
 
 ## Mutability
@@ -384,3 +385,13 @@ INDEX.md, or when an owner is not one of the words below.
 | P31 | U6d2 | `loan.window-root` with the trap's text: `compiler/tests/borrowck/refuse/loan.window-root.if-let-block.saw` |
 | P32 | typecheck | `borrows.redundant-prefix` and the kept prefixes: `compiler/tests/typecheck/warn/kept.saw` |
 | P33 | typecheck | `mutability.immutable` through the slice accessor's shared twin (SL-988): `compiler/tests/typecheck/refuse/mutability.immutable.slice-twin-let-root.saw` and `mutability.immutable.slice-twin-shared-param.saw`; both halves, the run probe `compiler/tests/run/probes/range_view_accessor.saw` |
+| P34 | SL-1156 | the callee's `lendable_root` and the lend's lowering; a later unit of SL-1156 builds it |
+| P35 | SL-1156 | `lend.root` outside the declared root; a later unit of SL-1156 builds it |
+| P36 | typecheck | the declaration rules: `compiler/tests/typecheck/refuse/borrows.root-public.saw`, `borrows.root-not-static.parameter.saw`, `borrows.root-not-static.function.saw`, `member.unknown.borrows-root.saw`, `borrows.root-with-receiver.saw` and `borrows.root-requirement.saw` |
+| P37 | SL-1156 | typecheck's naming rule; a later unit of SL-1156 builds it |
+| P38 | typecheck | `mutability.immutable` under a declared root: `compiler/tests/typecheck/refuse/mutability.immutable.shared-root-body.saw` and `mutability.immutable.plain-static-root.saw` |
+| P39 | SL-1156 | the receiver-less window's static path; a later unit of SL-1156 builds it |
+| P40 | SL-1156 | the call summary; a later unit of SL-1156 builds it |
+| P41 | SL-1156 | typecheck's declaration rule and the `borrows(sync)` fence; a later unit of SL-1156 builds it |
+| P42 | SL-1156 | a shared window across a suspension; a later unit of SL-1156 builds it |
+| P43 | typecheck | `effect.borrows-value`: `compiler/tests/typecheck/refuse/effect.borrows-value.saw` and `effect.borrows-value.sync.saw` |

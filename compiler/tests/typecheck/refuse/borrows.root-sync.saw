@@ -1,0 +1,12 @@
+// refuses: borrows.root-sync at 10:20
+// errors: 1
+// a shared window on a root may stand in several threads at once, so the root's type is `Sync` (SL-1156, the owner's ruling on threads)
+// message: which is not `Sync`
+
+struct Handle { raw: UnsafePointer<Int> }
+
+unsafe static var HELD: Handle
+
+func held() unsafe borrows(HELD) -> &Handle {
+    panic("a shared root is Sync")
+}

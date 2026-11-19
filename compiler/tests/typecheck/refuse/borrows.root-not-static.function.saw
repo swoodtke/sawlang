@@ -1,0 +1,11 @@
+// refuses: borrows.root-not-static at 9:21
+// errors: 1
+// a function is not a root: only a module static is (SL-1156)
+// message: `helper` is not a static declared in this module
+
+func helper() {
+}
+
+func lent() borrows(helper) -> &Int {
+    panic("a root names a static")
+}

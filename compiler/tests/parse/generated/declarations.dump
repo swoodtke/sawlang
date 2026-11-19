@@ -854,10 +854,66 @@
   (Declaration.func
     (Func a borrows sync (Block))))
 
+// case: syntax.decl.borrows-effect.root/alt
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b))
+      (Block))))
+
 // case: syntax.decl.borrows-sync/alt
 (File
   (Declaration.func
     (Func a borrows sync (Block))))
+
+// case: syntax.decl.borrows-root/alt
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b))
+      (Block))))
+
+// case: syntax.decl.borrows-root/opt:2:('sync' ",")?=absent
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b))
+      (Block))))
+
+// case: syntax.decl.borrows-root/opt:2:('sync' ",")?=present
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot sync (RootPath b))
+      (Block))))
+
+// case: syntax.decl.root-path/alt
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b))
+      (Block))))
+
+// case: syntax.decl.root-path/rep:1:("." IDENT)*=0
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b))
+      (Block))))
+
+// case: syntax.decl.root-path/rep:1:("." IDENT)*=1
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b c))
+      (Block))))
+
+// case: syntax.decl.root-path/rep:1:("." IDENT)*=many
+(File
+  (Declaration.func
+    (Func a
+      (BorrowsRoot (RootPath b c d e))
+      (Block))))
 
 // case: syntax.decl.struct/alt
 (File

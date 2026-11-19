@@ -1,0 +1,13 @@
+// refuses: effect.borrows-value at 11:13
+// errors: 1
+// the same through `borrows(sync)` (SL-1172)
+// message: `nothing` is a `borrows` function, and a `borrows` function is never a value
+
+func nothing() sync borrows(sync) -> &Int {
+    panic("never lends")
+}
+
+func main() {
+    let f = nothing
+    print("made")
+}

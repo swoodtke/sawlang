@@ -1,0 +1,8 @@
+// rule: syntax.rule.borrows-root
+func window() borrows(sync) -> &Int {
+    panic("never lends")
+}
+
+func counter() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    panic("never lends")
+}

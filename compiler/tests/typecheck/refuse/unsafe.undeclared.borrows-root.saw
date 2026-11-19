@@ -1,0 +1,13 @@
+// refuses: unsafe.undeclared at 10:6
+// errors: 1
+// a root function names an `unsafe static var`, so the trigger rule asks it to be declared `unsafe` (SL-1156)
+// message: `BOOT`
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+func count() borrows(BOOT.count) -> &Int {
+    print(BOOT.count)
+    panic("a root function that names its static is unsafe")
+}

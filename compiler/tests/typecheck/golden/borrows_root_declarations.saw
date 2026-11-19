@@ -1,0 +1,31 @@
+// Declared roots that typecheck accepts: a shared root over a plain static, a
+// field path of an `unsafe static var`, and an exclusive `sync` root, each
+// with a diverging body so no lend or call stands; the exclusive root writes
+// under its root (SL-1156).
+
+struct Boot { count: Int, limit: Int }
+
+static LIMIT: Int = 4
+
+unsafe static var BOOT: Boot
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    panic("diverges")
+}
+
+func count_exclusive() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    panic("diverges")
+}
+
+func reset() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    BOOT.count = 0
+    panic("diverges")
+}
+
+func main() {
+    print(1)
+}

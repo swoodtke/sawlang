@@ -391,6 +391,18 @@ func a() borrows (sync {   )  }
 // case: syntax.decl.borrows-effect.sync/alt/close:4
 func a(  borrows (sync) { }
 
+// case: syntax.decl.borrows-effect.root/alt/drop:7
+func a() borrows ( ) { }
+
+// case: syntax.decl.borrows-effect.root/alt/dup:4
+func a() ) borrows (b) { }
+
+// case: syntax.decl.borrows-effect.root/alt/swap:6
+func a() borrows  b  ( ) { }
+
+// case: syntax.decl.borrows-effect.root/alt/close:8
+func a() borrows (b  { }
+
 // case: syntax.decl.borrows-sync/alt/drop:6
 func a() borrows  sync) { }
 
@@ -402,6 +414,18 @@ func a() borrows  sync  ( ) { }
 
 // case: syntax.decl.borrows-sync/alt/close:8
 func a() borrows (sync  { }
+
+// case: syntax.decl.borrows-root/alt/dup:6
+func a() borrows ( (b) { }
+
+// case: syntax.decl.borrows-root/alt/swap:1
+ a   func () borrows (b) { }
+
+// case: syntax.decl.borrows-root/alt/close:10
+func a() borrows (b) {
+
+// case: syntax.decl.root-path/alt/dup:3
+func a( () borrows (b) { }
 
 // case: syntax.decl.struct/alt/dup:3
 struct a { { }

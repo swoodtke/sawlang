@@ -1,0 +1,8 @@
+// refuses: borrows.root-not-static at 6:31
+// errors: 1
+// the root of a `borrows` function is a module static, so a parameter's name is refused (SL-1156)
+// message: `value` is a parameter of `lent`
+
+func lent(value: Int) borrows(value) -> &Int {
+    panic("a root names a static")
+}

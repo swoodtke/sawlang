@@ -1,0 +1,14 @@
+// refuses: borrows.root-with-receiver at 11:29
+// errors: 1
+// a method with a receiver is rooted in its receiver, so it declares no root in v1 (SL-1156)
+// message: a method with a receiver is rooted in its receiver
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+extension Boot {
+    func slot(&self) unsafe borrows(BOOT.count) -> &Int {
+        panic("a root is for a function with no receiver")
+    }
+}

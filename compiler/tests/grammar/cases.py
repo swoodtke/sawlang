@@ -644,7 +644,7 @@ NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax
 CHOOSING_RULES = (
     "syntax.lex.double-question", "syntax.lex.longest-match", "syntax.lex.refusal-text",
     "syntax.lex.tuple-index",
-    "syntax.rule.arm-statement-end", "syntax.rule.borrow-extent",
+    "syntax.rule.arm-statement-end", "syntax.rule.borrow-extent", "syntax.rule.borrows-root",
     "syntax.rule.coalesce-grouping", "syntax.rule.continuation-keywords",
     "syntax.rule.deref-or-multiply", "syntax.rule.flat-chains", "syntax.rule.flat-else-if",
     "syntax.rule.generic-arg-value", "syntax.rule.generic-close-split", "syntax.rule.head-reset",

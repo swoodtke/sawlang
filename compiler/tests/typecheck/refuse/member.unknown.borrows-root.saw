@@ -1,0 +1,12 @@
+// refuses: member.unknown at 10:33
+// errors: 1
+// a root's hop must name a field of the type before it (SL-1156)
+// message: has no field `missing`
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+func lent() unsafe borrows(BOOT.missing) -> &Int {
+    panic("a root names fields")
+}

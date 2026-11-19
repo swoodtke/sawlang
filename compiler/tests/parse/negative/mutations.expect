@@ -391,6 +391,18 @@ refuses syntax.lex.unclosed-bracket at 1:24
 // case: syntax.decl.borrows-effect.sync/alt/close:4
 refuses syntax.lex.unclosed-bracket at 1:7
 
+// case: syntax.decl.borrows-effect.root/alt/drop:7
+refuses parse-error at 1:20
+
+// case: syntax.decl.borrows-effect.root/alt/dup:4
+refuses parse-error at 1:10
+
+// case: syntax.decl.borrows-effect.root/alt/swap:6
+refuses parse-error at 1:19
+
+// case: syntax.decl.borrows-effect.root/alt/close:8
+refuses syntax.lex.unclosed-bracket at 1:18
+
 // case: syntax.decl.borrows-sync/alt/drop:6
 refuses syntax.rule.effect-slot at 1:19
 
@@ -402,6 +414,18 @@ refuses syntax.rule.effect-slot at 1:19
 
 // case: syntax.decl.borrows-sync/alt/close:8
 refuses syntax.lex.unclosed-bracket at 1:18
+
+// case: syntax.decl.borrows-root/alt/dup:6
+refuses syntax.lex.unclosed-bracket at 1:18
+
+// case: syntax.decl.borrows-root/alt/swap:1
+refuses parse-error at 1:2
+
+// case: syntax.decl.borrows-root/alt/close:10
+refuses syntax.lex.unclosed-bracket at 1:22
+
+// case: syntax.decl.root-path/alt/dup:3
+refuses syntax.lex.unclosed-bracket at 1:7
 
 // case: syntax.decl.struct/alt/dup:3
 refuses syntax.lex.unclosed-bracket at 1:10

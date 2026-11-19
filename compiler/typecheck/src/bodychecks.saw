@@ -8,7 +8,7 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
 import sawresolve.layer.{FrontLayer}
-import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule, ResVis}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
@@ -17,9 +17,9 @@ import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
-                               TcCall, TcLend, TcParam, TcRole, TcSig, TcUse}
+                               TcCall, TcLend, TcParam, TcReceiver, TcRole, TcSig, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -121,6 +121,7 @@ extension TcProgram {
                 }
             } else if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement || info.kind == ResDeclKind.InitRequirement {
                 self.check_function_containment(decl)
+                self.check_borrows_root(decl)
             } else if info.kind == ResDeclKind.Enum {
                 self.check_raw_backing(decl)
             } else if info.kind == ResDeclKind.Struct && self.is_borrowing_struct(decl) {
@@ -172,6 +173,194 @@ extension TcProgram {
                 try! self.quiet_refused.push(m)
             }
         }
+    }
+
+    // THE ROOT FUNNEL: every rule on the `borrows(ROOT)` a function declares,
+    // each refused at the declaration, and the root's field path recorded in
+    // the signature once it names fields. A root is a module-private static
+    // of the declaring module (SL-1156).
+    // ENTRY POINTS:
+    //     check_containment_signatures
+    func check_borrows_root(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let m = info.module
+        var root = -1
+        let n = self.res.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.res.child(info.node, k)
+            if self.has_alt(c, Alt.Decl_BorrowsRoot) {
+                root = c
+            }
+            k = k + 1
+        }
+        if root < 0 {
+            return
+        }
+        if info.kind == ResDeclKind.Requirement {
+            self.refuse_in(m, root, "borrows.root-requirement",
+                           "a trait requirement is never `borrows(ROOT)`: a root names a static of one module, and a requirement has no body to lend it from; declare the lending function in an extension")
+            return
+        }
+        let path = self.res.last_node_child(root)
+        let first = self.res.first_leaf(path)
+        let static_name = self.text(m, first)
+        let s = self.sigs[d]
+        let target = s.root_decl
+        if target < 0 || self.res.decls[target].kind != ResDeclKind.Static {
+            var msg = StringBuilder()
+            try! msg.append("the root of a `borrows` function is a module static, and `")
+            try! msg.append(static_name)
+            if self.names_parameter(d, static_name) {
+                try! msg.append("` is a parameter of `")
+                try! msg.append(self.res.decl_path(d))
+                try! msg.append("`")
+            } else {
+                try! msg.append("` is not a static declared in this module")
+            }
+            try! msg.append(": a lend rooted in a parameter or a local dies with the call, so name a `static` or an `unsafe static var` of this module")
+            self.refuse_in(m, first, "borrows.root-not-static", msg.build())
+            return
+        }
+        let st = self.res.decls[target]
+        if st.vis != ResVis.Private {
+            var msg = StringBuilder()
+            try! msg.append("the root `")
+            try! msg.append(self.res.decl_path(target))
+            try! msg.append("` is `public`, and a root is module-private: once a function declares it, only functions that declare it name it, and a public static would let every importer name it; drop the modifier")
+            self.refuse_in(m, first, "borrows.root-public", msg.build())
+            return
+        }
+        var t = self.sigs[target].result
+        var hops = Vector<Int>()
+        var j = self.leaf_index_after(path, first)
+        let leaves = self.res.child_count(path)
+        while j < leaves {
+            let leaf = self.res.child(path, j)
+            j = j + 1
+            let name = self.res.intern(self.text(m, leaf))
+            let sd = self.nominal_decl(t)
+            let f = if sd >= 0 { self.field_named(sd, name) } else { -1 }
+            if f < 0 || self.has_error(t) {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.type_text(t))
+                try! msg.append("` has no field `")
+                try! msg.append(self.text(m, leaf))
+                try! msg.append("`: a root names a static and then fields of it, nothing else")
+                self.refuse_in(m, leaf, "member.unknown", msg.build())
+                return
+            }
+            try! hops.push(f)
+            let arguments = self.nominal_args(t)
+            let subst = TcSubst(owner: sd, args: move arguments)
+            t = self.subst(self.sigs[f].result, &subst)
+        }
+        var written = self.sigs[d]
+        written.root_first = self.root_fields.len()
+        written.root_count = hops.len()
+        var h = 0
+        while h < hops.len() {
+            try! self.root_fields.push(hops[h])
+            h = h + 1
+        }
+        self.sigs[d] = written
+        if s.receiver != TcReceiver.Absent {
+            self.refuse_in(m, root, "borrows.root-with-receiver",
+                           "a method with a receiver is rooted in its receiver, so it declares no `borrows(ROOT)`: lend a field of `self`, or make this a free function or a `static func` that names the static")
+            return
+        }
+        if s.lending_exclusive {
+            if (s.effects & TC_EFFECT_SYNC) == 0 || (s.effects & TC_EFFECT_BORROWS_SYNC) == 0 {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(d))
+                try! msg.append("` lends its root exclusive (`-> &var`), so it is declared `sync` and `borrows(sync, ")
+                try! msg.append(self.root_text(m, path))
+                try! msg.append(")`: while an exclusive window or its function is parked, another task on the same thread could open a window on the root, and no view of one function can see that task; write `sync borrows(sync, ")
+                try! msg.append(self.root_text(m, path))
+                try! msg.append(")`")
+                self.refuse_in(m, root, "borrows.root-exclusive-sync", msg.build())
+            }
+            if (self.sigs[target].flags & TC_FLAG_UNSAFE_VAR) == 0 {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(d))
+                try! msg.append("` lends `")
+                try! msg.append(self.res.decl_path(target))
+                try! msg.append("` writable (`-> &var`), and a `static` is immutable: only an `unsafe static var` is written (design 149)")
+                self.refuse_in(m, root, "mutability.immutable", msg.build())
+            }
+        } else {
+            self.check_root_sync(d, root, t)
+        }
+    }
+
+    // A shared root's type is `Sync`, since shared windows on it may stand in
+    // several threads at once (SL-1156).
+    func check_root_sync(&var self, d: Int, root: Int, t: Int) {
+        if self.has_error(t) {
+            return
+        }
+        let sync = self.known.sync
+        let info = self.res.decls[d]
+        if sync < 0 || self.satisfies(t, sync, -1, -1, info.module, info.test_only) {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("the root of `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` has type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which is not `Sync`, and a shared window on a root may stand in several threads at once")
+        let why = self.sync_blocker_text(t, info.module, info.test_only)
+        if why.len() > 0 {
+            try! msg.append(": ")
+            try! msg.append(why)
+        }
+        try! msg.append("; give the root a `Sync` type, or declare `UnsafeSync` on the type that owns the argument")
+        self.refuse_in(info.module, root, "borrows.root-sync", msg.build())
+    }
+
+    // Whether `name` is a parameter of function `d`.
+    func names_parameter(&self, d: Int, name: String) -> Bool {
+        let s = self.sigs[d]
+        let m = self.res.decls[d].module
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            k = k + 1
+            if p.leaf >= 0 && self.text(m, p.leaf).equals(name) {
+                return true
+            }
+        }
+        false
+    }
+
+    // The index among `path`'s children after leaf `first`.
+    func leaf_index_after(&self, path: Int, first: Int) -> Int {
+        var k = 0
+        while k < self.res.child_count(path) {
+            if self.res.child(path, k) == first {
+                return k + 1
+            }
+            k = k + 1
+        }
+        self.res.child_count(path)
+    }
+
+    // The root path as written, `BOOT.system`.
+    func root_text(&self, m: Int, path: Int) -> String {
+        var out = StringBuilder()
+        var k = 0
+        while k < self.res.child_count(path) {
+            if k > 0 {
+                try! out.append(".")
+            }
+            try! out.append(self.text(m, self.res.child(path, k)))
+            k = k + 1
+        }
+        out.build()
     }
 
     func check_function_containment(&var self, d: Int) {

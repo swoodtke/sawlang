@@ -5633,7 +5633,8 @@ may not lend the payload of a value the body just built), stated for a plain
 A parameter is refused on the same terms, `&var` included, even though its
 referent outlives the window: lending what a caller handed you is a larger
 promise than lending your own storage, and there is no shape yet that needs it.
-Widening the rule later stays compatible.
+Widening the rule later stays compatible; a function with no receiver widens
+it by declaring a static root ([Lending a static](#lending-a-static)).
 
 Three things count as the receiver's own storage without being written
 `self.…`. A `match` arm's payload binding is one, when the scrutinee is
@@ -5645,6 +5646,71 @@ cast from `self.byte_ptr()`. That storage is the receiver's own heap and no
 more dies with the accessor than a field does. Lending such a binding whole
 (`lend buf`) is still refused — that would hand out the frame's copy of the
 pointer.
+
+#### Lending a static
+
+**Status: grammar and declaration rules landing (SL-1156). Not built yet: the
+lend itself, the naming rule (today another function may still name the
+static), the caller's window on the root, and the call summary.** A function with no receiver may lend a module static if it
+declares which one: `borrows(ROOT)` names the root, and `lend` may hand out a
+place under it.
+
+```saw-pending SL-1156
+struct Boot { system: System?, count: Int }
+
+unsafe static var BOOT: Boot
+
+func system() unsafe borrows(BOOT.system) -> &System { lend BOOT.system! }
+func count() unsafe sync borrows(sync, BOOT.count) -> &var Int { lend BOOT.count }
+```
+
+`ROOT` is a static's name followed by field hops (`BOOT.system`). Its first
+segment is a `static` or an `unsafe static var` of the declaring module, and
+only a module-private one: a `public` static is refused as a root, so no
+caller outside the module can write the root, and the function is the
+module's one door to it. One root per function. `borrows(sync, ROOT)` is the
+`sync` window effect with a root; a lone `sync` inside the parentheses is the
+window effect and never a root.
+
+The lend's type declares the access. `-> &T` charges the root shared and the
+body only reads places under it. `-> &var T` charges it exclusive, so the root
+is an `unsafe static var` (a plain `static` is immutable). There is no receiver
+to carry the access, so the declared lend does. A function with a root has no
+`&self` or `&var self` receiver in v1, and no `borrows` function is a function
+value: a root function and a receiver accessor alike are called, never named.
+
+Once any function declares `borrows(S)`, the name `S` is legal only in the
+bodies of functions whose declared root covers the use. Another function, a
+closure (even inside a root function), another static's initializer, a
+constant position and test code each refuse it. Every access to the static
+goes through a window the compiler can see.
+
+The caller's window charges the root's static path, so two windows on
+overlapping roots conflict under the Law of Exclusivity, and disjoint field
+roots (`BOOT.system` and `BOOT.count`) coexist. A call that may open a
+conflicting window on the root, through any chain of callees, is refused inside
+a live window on it, and so is a call the compiler cannot see into.
+
+A static is reachable from every task and thread, so the compiler checks what
+one function and its callees can show, and the root's module owes the rest:
+
+- A shared root's type is `Sync`, derived or declared `UnsafeSync`, so shared
+  windows may stand in several threads at once. A plain `static` already is.
+- A shared window may span a suspension. An exclusive root's function is
+  declared `sync … borrows(sync, ROOT)`, so neither its body nor its window
+  suspends, and on one thread no other task runs inside it.
+- **The `unsafe` obligation:** an exclusive window on a static root never
+  overlaps another window on an overlapping root opened by another task or
+  thread. Every function that can open one names an `unsafe static var` and is
+  declared `unsafe`, in one module, so that module states the argument (start-up
+  before threads, a lock, one thread), as `claim()` does for `TABLE` in
+  [`unsafe static var`](#unsafe-static-var--mutable-statics-for-compound-state).
+
+A declared root that is an `unsafe static var` may hold a type with a
+hand-written `deinit`. Every write to it goes through an exclusive window and
+is a place write, so it drops the old value. The last value is never dropped:
+a static lives for the whole program, and the exception narrows the
+[`Immortal`](#module-level-statics) rule for declared roots only.
 
 #### Lends and their windows
 
@@ -13367,7 +13433,9 @@ Statics obey five rules, ratified in design 19:
   trivially destructible: no hand-written `deinit` anywhere in its type
   tree, and no field that owns a resource. A declared copy POLICY is not
   the test — `NoCopy` says "do not duplicate me", which has nothing to say
-  about a value that is never duplicated.
+  about a value that is never duplicated. An `unsafe static var` that a
+  function declares as its `borrows` root is the one exception
+  ([Lending a static](#lending-a-static)).
 - **Never optional.** A static's own type may not be an optional
   (`static SLOT: Int? = 7` is a compile error naming the rule). A static is
   initialized once at compile time and never changes, so it is always
@@ -13515,7 +13583,9 @@ Four rules:
   making by hand, and the compound state this exists for (slots holding
   raw pointers, shadow register state) is structurally non-Sync exactly
   where it is most wanted.
-- **Trivially destructible only** (v1), like every static.
+- **Trivially destructible only** (v1), like every static. The one exception
+  is a static that a function declares as its `borrows` root: its type may
+  carry a `deinit` ([Lending a static](#lending-a-static)).
 
 `unsafe` takes the PREFIX position here, as it does on `unsafe struct`
 and for the same reason: a static has no parameter list, so there is no

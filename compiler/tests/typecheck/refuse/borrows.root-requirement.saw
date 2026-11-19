@@ -1,0 +1,12 @@
+// refuses: borrows.root-requirement at 11:29
+// errors: 1
+// a trait requirement is never `borrows(ROOT)`: a root names a static of one module (SL-1156)
+// message: a trait requirement is never `borrows(ROOT)`
+
+struct Boot { count: Int }
+
+unsafe static var BOOT: Boot
+
+trait Slots {
+    func slot(&self) unsafe borrows(BOOT.count) -> &Int
+}
