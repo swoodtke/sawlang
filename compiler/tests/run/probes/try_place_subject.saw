@@ -1,0 +1,567 @@
+// probe: stated
+// about: a `try` over a place copies the part each path takes and every value is released once, at each subject kind and error tier (SL-677)
+// stage 0: not run; it takes a NoCopy error out of a place on its Err path and runs its deinit twice
+// speeds: -O0 -O2
+// leaks: none
+// A line is `NAME T=a E=b live=n`: `a` copies of the Ok payload and `b` copies
+// of the error run in that cell, and `n` values are still alive after it, which
+// is 0 when each was released exactly once. `try?` and `try!` take no error
+// (E=0 on every path); `try` and `try … catch` copy it on the Err path alone.
+// The subject kinds are a binding (b), a field (f), a reference (r) and a
+// `borrow let` alias (a); `Bad` is NoCopy, `Loud` Copy and `Slab` ExplicitCopy.
+// prints: b_try ok T=1 E=0 live=0
+// prints: b_try err T=0 E=1 live=0
+// prints: b_catch ok T=1 E=0 live=0
+// prints: b_catch err T=0 E=1 live=0
+// prints: b_opt ok T=1 E=0 live=0
+// prints: b_opt err T=0 E=0 live=0
+// prints: b_force ok T=1 E=0 live=0
+// prints: f_try ok T=1 E=0 live=0
+// prints: f_try err T=0 E=1 live=0
+// prints: f_catch ok T=1 E=0 live=0
+// prints: f_catch err T=0 E=1 live=0
+// prints: f_opt ok T=1 E=0 live=0
+// prints: f_opt err T=0 E=0 live=0
+// prints: f_force ok T=1 E=0 live=0
+// prints: r_try ok T=1 E=0 live=0
+// prints: r_try err T=0 E=1 live=0
+// prints: r_catch ok T=1 E=0 live=0
+// prints: r_catch err T=0 E=1 live=0
+// prints: r_opt ok T=1 E=0 live=0
+// prints: r_opt err T=0 E=0 live=0
+// prints: r_force ok T=1 E=0 live=0
+// prints: a_try ok T=1 E=0 live=0
+// prints: a_try err T=0 E=1 live=0
+// prints: a_catch ok T=1 E=0 live=0
+// prints: a_catch err T=0 E=1 live=0
+// prints: a_opt ok T=1 E=0 live=0
+// prints: a_opt err T=0 E=0 live=0
+// prints: a_force ok T=1 E=0 live=0
+// prints: b_opt_nocopy ok T=1 E=0 live=0
+// prints: b_opt_nocopy err T=0 E=0 live=0
+// prints: b_force_nocopy ok T=1 E=0 live=0
+// prints: f_opt_nocopy ok T=1 E=0 live=0
+// prints: f_opt_nocopy err T=0 E=0 live=0
+// prints: f_force_nocopy ok T=1 E=0 live=0
+// prints: r_opt_nocopy ok T=1 E=0 live=0
+// prints: r_opt_nocopy err T=0 E=0 live=0
+// prints: r_force_nocopy ok T=1 E=0 live=0
+// prints: a_opt_nocopy ok T=1 E=0 live=0
+// prints: a_opt_nocopy err T=0 E=0 live=0
+// prints: a_force_nocopy ok T=1 E=0 live=0
+// prints: v_try ok T=1 E=0 live=0
+// prints: v_try err T=0 E=1 live=0
+// prints: v_catch ok T=1 E=0 live=0
+// prints: v_catch err T=0 E=1 live=0
+// prints: v_opt ok T=1 E=0 live=0
+// prints: v_opt err T=0 E=0 live=0
+// prints: v_force ok T=1 E=0 live=0
+// prints: m_try ok T=1 E=0 live=0
+// prints: m_try err T=0 E=1 live=0
+// prints: m_opt ok T=1 E=0 live=0
+// prints: m_opt err T=0 E=0 live=0
+// prints: m_force ok T=1 E=0 live=0
+// prints: s_try ok T=1 E=0 live=0
+// prints: s_try err T=0 E=1 live=0
+// prints: s_opt ok T=1 E=0 live=0
+// prints: s_opt err T=0 E=0 live=0
+// prints: s_catch_mutate ok T=1 E=0 live=0
+// prints: s_catch_mutate err T=0 E=1 live=0
+// prints: x_try ok T=1 E=0 live=0
+// prints: x_try err T=0 E=1 live=0
+// prints: x_opt ok T=1 E=0 live=0
+// prints: x_opt err T=0 E=0 live=0
+// prints: x_catch_mutate ok T=1 E=0 live=0
+// prints: x_catch_mutate err T=0 E=1 live=0
+// prints: v_catch_mutate ok T=1 E=0 live=0
+// prints: v_catch_mutate err T=0 E=1 live=0
+// prints: g_force ok T=1 E=0 live=0
+// prints: g_opt ok T=1 E=0 live=0
+// prints: g_opt err T=0 E=0 live=0
+// prints: erased_subscript ok T=1 E=0 live=0
+// prints: erased_subscript err T=0 E=1 live=0
+// prints: window push 2
+// prints: window assign 7
+// prints: window shared 2
+// prints: b_erased ok T=1 E=0 live=0
+// prints: b_erased err T=0 E=1 live=0
+// prints: b_opt_explicit err T=0 E=0 live=0
+// prints: b_force_explicit ok T=1 E=0 live=0
+// prints: move_try ok T=0 E=0 live=0
+// prints: move_try err T=0 E=0 live=0
+// prints: move_catch ok T=0 E=0 live=0
+// prints: move_catch err T=0 E=0 live=0
+// prints: temp_try ok T=0 E=0 live=0
+// prints: temp_catch err T=0 E=0 live=0
+// prints: driven_force ok T=1 E=0 live=0
+// prints: driven_opt err T=0 E=0 live=0
+// prints: driven_try err T=0 E=1 live=0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+static COPIED_T: Atomic<Int> = Atomic(0)
+static COPIED_E: Atomic<Int> = Atomic(0)
+
+func live(by: Int) { LIVE.store(LIVE.load() + by) }
+func copied_t() { COPIED_T.store(COPIED_T.load() + 1) }
+func copied_e() { COPIED_E.store(COPIED_E.load() + 1) }
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { copied_t(); live(1); Counted(n: self.n) }
+    func deinit(&var self) { live(-1) }
+}
+
+struct Loud { n: Int }
+extension Loud: Copy {
+    func copy(&self) -> Loud { copied_e(); live(1); Loud(n: self.n) }
+    func deinit(&var self) { live(-1) }
+}
+
+struct Bad { n: Int }
+extension Bad: NoCopy {
+    func deinit(&var self) { live(-1) }
+}
+
+struct Slab { n: Int }
+extension Slab: ExplicitCopy {
+    func copy(&self) -> Slab { copied_e(); live(1); Slab(n: self.n) }
+    func deinit(&var self) { live(-1) }
+}
+
+struct Fault { code: Int }
+extension Fault: Copy {
+    func copy(&self) -> Fault { copied_e(); live(1); Fault(code: self.code) }
+    func deinit(&var self) { live(-1) }
+}
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("fault")
+    }
+}
+extension Fault: Error {}
+
+struct HolderLoud { r: Result<Counted, Loud> }
+extension HolderLoud: NoCopy {}
+
+struct HolderBad { r: Result<Counted, Bad> }
+extension HolderBad: NoCopy {}
+
+func ct(n: Int) -> Counted { live(1); Counted(n: n) }
+func ok_loud(n: Int) -> Result<Counted, Loud> { ct(n) }
+func err_loud(n: Int) -> Result<Counted, Loud> { live(1); Loud(n: n) }
+func ok_bad(n: Int) -> Result<Counted, Bad> { ct(n) }
+func err_bad(n: Int) -> Result<Counted, Bad> { live(1); Bad(n: n) }
+func ok_slab(n: Int) -> Result<Counted, Slab> { ct(n) }
+func err_slab(n: Int) -> Result<Counted, Slab> { live(1); Slab(n: n) }
+
+func ok_fault(n: Int) -> Result<Counted, Fault> { ct(n) }
+func err_fault(n: Int) -> Result<Counted, Fault> { live(1); Fault(code: n) }
+
+func report(name: String) {
+    print("{} T={} E={} live={}", name, COPIED_T.load(), COPIED_E.load(), LIVE.load())
+    COPIED_T.store(0)
+    COPIED_E.store(0)
+}
+
+// ---- a binding: a by-value parameter ---------------------------------------
+
+func b_try(r: Result<Counted, Loud>) -> Result<Int, Loud> { let g = try r; g.n }
+func b_catch(r: Result<Counted, Loud>) -> Int { let g = try r catch { ct(error.n) }; g.n }
+func b_opt(r: Result<Counted, Loud>) -> Int { let g = try? r; if g.is_some() { 1 } else { 0 } }
+func b_force(r: Result<Counted, Loud>) -> Int { let g = try! r; g.n }
+
+// ---- a field of a by-value parameter ---------------------------------------
+
+func f_try(h: HolderLoud) -> Result<Int, Loud> { let g = try h.r; g.n }
+func f_catch(h: HolderLoud) -> Int { let g = try h.r catch { ct(error.n) }; g.n }
+func f_opt(h: HolderLoud) -> Int { let g = try? h.r; if g.is_some() { 1 } else { 0 } }
+func f_force(h: HolderLoud) -> Int { let g = try! h.r; g.n }
+
+// ---- a reference: the referent is the place --------------------------------
+
+func r_try(p: &Result<Counted, Loud>) -> Result<Int, Loud> { let g = try p; g.n }
+func r_catch(p: &Result<Counted, Loud>) -> Int { let g = try p catch { ct(error.n) }; g.n }
+func r_opt(p: &Result<Counted, Loud>) -> Int { let g = try? p; if g.is_some() { 1 } else { 0 } }
+func r_force(p: &Result<Counted, Loud>) -> Int { let g = try! p; g.n }
+
+// ---- a `borrow let` alias of an element ------------------------------------
+
+func a_try(v: &Vector<Result<Counted, Loud>>) -> Result<Int, Loud> {
+    borrow let e = v[0] {
+        let g = try e
+        g.n
+    }
+}
+
+func a_catch(v: &Vector<Result<Counted, Loud>>) -> Int {
+    borrow let e = v[0] {
+        let g = try e catch { ct(error.n) }
+        g.n
+    }
+}
+
+func a_opt(v: &Vector<Result<Counted, Loud>>) -> Int {
+    borrow let e = v[0] {
+        let g = try? e
+        if g.is_some() { 1 } else { 0 }
+    }
+}
+
+func a_force(v: &Vector<Result<Counted, Loud>>) -> Int {
+    borrow let e = v[0] {
+        let g = try! e
+        g.n
+    }
+}
+
+// ---- a NoCopy error: `try!` and `try?` take none ----------------------------
+
+func b_opt_nocopy(r: Result<Counted, Bad>) -> Int { let g = try? r; if g.is_some() { 1 } else { 0 } }
+func b_force_nocopy(r: Result<Counted, Bad>) -> Int { let g = try! r; g.n }
+func f_opt_nocopy(h: HolderBad) -> Int { let g = try? h.r; if g.is_some() { 1 } else { 0 } }
+func f_force_nocopy(h: HolderBad) -> Int { let g = try! h.r; g.n }
+func r_opt_nocopy(p: &Result<Counted, Bad>) -> Int { let g = try? p; if g.is_some() { 1 } else { 0 } }
+func r_force_nocopy(p: &Result<Counted, Bad>) -> Int { let g = try! p; g.n }
+
+func a_opt_nocopy(v: &Vector<Result<Counted, Bad>>) -> Int {
+    borrow let e = v[0] {
+        let g = try? e
+        if g.is_some() { 1 } else { 0 }
+    }
+}
+
+func a_force_nocopy(v: &Vector<Result<Counted, Bad>>) -> Int {
+    borrow let e = v[0] {
+        let g = try! e
+        g.n
+    }
+}
+
+// ---- an erased error: the copy is boxed where the body returns it ---------
+
+func b_erased(r: Result<Counted, Fault>) -> Result<Int, Box<any Error>> { let g = try r; g.n }
+
+// ---- an ExplicitCopy error: taken by no spelling that reads in place --------
+
+func b_opt_explicit(r: Result<Counted, Slab>) -> Int { let g = try? r; if g.is_some() { 1 } else { 0 } }
+func b_force_explicit(r: Result<Counted, Slab>) -> Int { let g = try! r; g.n }
+
+// ---- the controls: `move` and a temporary take the whole Result ------------
+
+func move_try(r: Result<Counted, Bad>) -> Result<Int, Bad> { let g = try move r; g.n }
+func move_catch(r: Result<Counted, Bad>) -> Int { let g = try move r catch { ct(error.n) }; g.n }
+func temp_try() -> Result<Int, Bad> { let g = try ok_bad(1); g.n }
+func temp_catch() -> Int { let g = try err_bad(1) catch { ct(error.n) }; g.n }
+
+// ---- a subscript: the part is copied out of the lent place, once ----------
+//
+// `Vector`'s and `Map`'s `[]` and a shared accessor copy the element when
+// read by value; a `try` takes only the part its path takes out of the lent
+// place. A `&var self`-only accessor and a catch block that mutates the
+// container: the window closes before the handler runs, since `error` is a copy.
+
+func v_try(v: &Vector<Result<Counted, Loud>>) -> Result<Int, Loud> { let g = try v[0]; g.n }
+func v_catch(v: &Vector<Result<Counted, Loud>>) -> Int { let g = try v[0] catch { ct(error.n) }; g.n }
+func v_opt(v: &Vector<Result<Counted, Loud>>) -> Int { let g = try? v[0]; if g.is_some() { 1 } else { 0 } }
+func v_force(v: &Vector<Result<Counted, Loud>>) -> Int { let g = try! v[0]; g.n }
+
+func m_try(m: &Map<Int, Result<Counted, Loud>>) -> Result<Int, Loud> { let g = try m[1]; g.n }
+func m_opt(m: &Map<Int, Result<Counted, Loud>>) -> Int { let g = try? m[1]; if g.is_some() { 1 } else { 0 } }
+func m_force(m: &Map<Int, Result<Counted, Loud>>) -> Int { let g = try! m[1]; g.n }
+
+struct Shared { items: Vector<Result<Counted, Loud>> }
+extension Shared: NoCopy {}
+extension Shared {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Result<Counted, Loud> {
+        lend self.items[i]
+    }
+    func add(&var self, x: Result<Counted, Loud>) { try! self.items.push(move x) }
+}
+
+struct Exclusive { items: Vector<Result<Counted, Loud>> }
+extension Exclusive: NoCopy {}
+extension Exclusive {
+    func [](&var self, i: Int) borrows -> &var Result<Counted, Loud> {
+        lend self.items[i]
+    }
+    func add(&var self, x: Result<Counted, Loud>) { try! self.items.push(move x) }
+}
+
+func s_try(c: &Shared) -> Result<Int, Loud> { let g = try c[0]; g.n }
+func s_opt(c: &Shared) -> Int { let g = try? c[0]; if g.is_some() { 1 } else { 0 } }
+func s_catch_mutate(r: Result<Counted, Loud>) -> Int {
+    var c = Shared(items: Vector<Result<Counted, Loud>>())
+    c.add(move r)
+    let g = try c[0] catch {
+        c.add(ok_loud(9))
+        ct(error.n)
+    }
+    g.n
+}
+
+func x_try(c: &var Exclusive) -> Result<Int, Loud> { let g = try c[0]; g.n }
+func x_opt(c: &var Exclusive) -> Int { let g = try? c[0]; if g.is_some() { 1 } else { 0 } }
+func x_catch_mutate(r: Result<Counted, Loud>) -> Int {
+    var c = Exclusive(items: Vector<Result<Counted, Loud>>())
+    c.add(move r)
+    let g = try c[0] catch {
+        c.add(ok_loud(9))
+        ct(error.n)
+    }
+    g.n
+}
+
+func v_catch_mutate(r: Result<Counted, Loud>) -> Int {
+    var v = Vector<Result<Counted, Loud>>()
+    try! v.push(move r)
+    let g = try v[0] catch {
+        try! v.push(ok_loud(9))
+        ct(error.n)
+    }
+    g.n
+}
+
+func g_force<T: Copy, E>(v: &Vector<Result<T, E>>) -> T { try! v[0] }
+func g_opt<T: Copy, E>(v: &Vector<Result<T, E>>) -> T? { try? v[0] }
+
+func erased_subscript(v: &Vector<Result<Counted, Fault>>) -> Result<Int, Box<any Error>> { let g = try v[0]; g.n }
+
+// ---- the window closes once the part is copied ----------------------------
+//
+// The statement goes on to mutate the container the `try` read, which main
+// accepts: the parts are out of the lent place when the tag is read.
+
+enum Soft { case Nope }
+
+struct SoftBox { items: Vector<Result<Int, Soft>> }
+extension SoftBox: NoCopy {}
+extension SoftBox {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Result<Int, Soft> {
+        lend self.items[i]
+    }
+    func add(&var self, x: Result<Int, Soft>) { try! self.items.push(move x) }
+}
+
+func window_push() {
+    var v = Vector<Result<Int, Soft>>()
+    try! v.push(Result<Int, Soft>.Ok(value: 1))
+    try! v.push(Result<Int, Soft>.Ok(value: try! v[0]))
+    print("window push {}", v.len())
+}
+
+func window_assign() {
+    var v = Vector<Result<Int, Soft>>()
+    try! v.push(Result<Int, Soft>.Ok(value: 7))
+    try! v.push(Result<Int, Soft>.Ok(value: 0))
+    v[1] = Result<Int, Soft>.Ok(value: try! v[0])
+    print("window assign {}", try! v[1])
+}
+
+func window_shared() {
+    var b = SoftBox(items: Vector<Result<Int, Soft>>())
+    b.add(Result<Int, Soft>.Ok(value: 1))
+    b.add(try! b[0])
+    print("window shared {}", b.items.len())
+}
+
+// ---- driven: the Result lives in the coroutine frame across a suspension ---
+
+func driven_force(n: Int) -> Int {
+    let r = ok_bad(n)
+    yield_now()
+    let g = try! r
+    g.n
+}
+
+func driven_opt(n: Int) -> Int {
+    let r = err_bad(n)
+    yield_now()
+    let g = try? r
+    if g.is_some() { 1 } else { 0 }
+}
+
+func driven_try(n: Int) -> Result<Int, Loud> {
+    let r = err_loud(n)
+    yield_now()
+    let g = try r
+    g.n
+}
+
+// ---- the cells -----------------------------------------------------------------
+
+func hold_loud(r: Result<Counted, Loud>) -> Vector<Result<Counted, Loud>> {
+    var v = Vector<Result<Counted, Loud>>()
+    try! v.push(move r)
+    return move v
+}
+
+func hold_bad(r: Result<Counted, Bad>) -> Vector<Result<Counted, Bad>> {
+    var v = Vector<Result<Counted, Bad>>()
+    try! v.push(move r)
+    return move v
+}
+
+func c_v_try_ok() { var v = Vector<Result<Counted, Loud>>(); try! v.push(ok_loud(1)); let _ = v_try(&v) }
+func c_v_try_err() { var v = Vector<Result<Counted, Loud>>(); try! v.push(err_loud(1)); let _ = v_try(&v) }
+func c_v_catch_ok() { var v = Vector<Result<Counted, Loud>>(); try! v.push(ok_loud(1)); let _ = v_catch(&v) }
+func c_v_catch_err() { var v = Vector<Result<Counted, Loud>>(); try! v.push(err_loud(1)); let _ = v_catch(&v) }
+func c_v_opt_ok() { var v = Vector<Result<Counted, Loud>>(); try! v.push(ok_loud(1)); let _ = v_opt(&v) }
+func c_v_opt_err() { var v = Vector<Result<Counted, Loud>>(); try! v.push(err_loud(1)); let _ = v_opt(&v) }
+func c_v_force_ok() { var v = Vector<Result<Counted, Loud>>(); try! v.push(ok_loud(1)); let _ = v_force(&v) }
+
+func c_m_try_ok() { var m = Map<Int, Result<Counted, Loud>>(); let _ = m.insert(1, ok_loud(1)); let _ = m_try(&m) }
+func c_m_try_err() { var m = Map<Int, Result<Counted, Loud>>(); let _ = m.insert(1, err_loud(1)); let _ = m_try(&m) }
+func c_m_opt_ok() { var m = Map<Int, Result<Counted, Loud>>(); let _ = m.insert(1, ok_loud(1)); let _ = m_opt(&m) }
+func c_m_opt_err() { var m = Map<Int, Result<Counted, Loud>>(); let _ = m.insert(1, err_loud(1)); let _ = m_opt(&m) }
+func c_m_force_ok() { var m = Map<Int, Result<Counted, Loud>>(); let _ = m.insert(1, ok_loud(1)); let _ = m_force(&m) }
+
+func c_s_try_ok() { var c = Shared(items: Vector<Result<Counted, Loud>>()); c.add(ok_loud(1)); let _ = s_try(&c) }
+func c_s_try_err() { var c = Shared(items: Vector<Result<Counted, Loud>>()); c.add(err_loud(1)); let _ = s_try(&c) }
+func c_s_opt_ok() { var c = Shared(items: Vector<Result<Counted, Loud>>()); c.add(ok_loud(1)); let _ = s_opt(&c) }
+func c_s_opt_err() { var c = Shared(items: Vector<Result<Counted, Loud>>()); c.add(err_loud(1)); let _ = s_opt(&c) }
+
+func c_x_try_ok() { var c = Exclusive(items: Vector<Result<Counted, Loud>>()); c.add(ok_loud(1)); let _ = x_try(&var c) }
+func c_x_try_err() { var c = Exclusive(items: Vector<Result<Counted, Loud>>()); c.add(err_loud(1)); let _ = x_try(&var c) }
+func c_x_opt_ok() { var c = Exclusive(items: Vector<Result<Counted, Loud>>()); c.add(ok_loud(1)); let _ = x_opt(&var c) }
+func c_x_opt_err() { var c = Exclusive(items: Vector<Result<Counted, Loud>>()); c.add(err_loud(1)); let _ = x_opt(&var c) }
+
+func c_g_force_ok() { var v = Vector<Result<Counted, Bad>>(); try! v.push(ok_bad(1)); let _ = g_force(&v) }
+func c_g_opt_ok() { var v = Vector<Result<Counted, Bad>>(); try! v.push(ok_bad(1)); let _ = g_opt(&v) }
+func c_g_opt_err() { var v = Vector<Result<Counted, Bad>>(); try! v.push(err_bad(1)); let _ = g_opt(&v) }
+
+func c_erased_ok() { var v = Vector<Result<Counted, Fault>>(); try! v.push(ok_fault(1)); let _ = erased_subscript(&v) }
+func c_erased_err() { var v = Vector<Result<Counted, Fault>>(); try! v.push(err_fault(1)); let _ = erased_subscript(&v) }
+
+func main() {
+    let _ = b_try(ok_loud(1)); report("b_try ok")
+    let _ = b_try(err_loud(1)); report("b_try err")
+    let _ = b_catch(ok_loud(1)); report("b_catch ok")
+    let _ = b_catch(err_loud(1)); report("b_catch err")
+    let _ = b_opt(ok_loud(1)); report("b_opt ok")
+    let _ = b_opt(err_loud(1)); report("b_opt err")
+    let _ = b_force(ok_loud(1)); report("b_force ok")
+
+    let _ = f_try(HolderLoud(r: ok_loud(1))); report("f_try ok")
+    let _ = f_try(HolderLoud(r: err_loud(1))); report("f_try err")
+    let _ = f_catch(HolderLoud(r: ok_loud(1))); report("f_catch ok")
+    let _ = f_catch(HolderLoud(r: err_loud(1))); report("f_catch err")
+    let _ = f_opt(HolderLoud(r: ok_loud(1))); report("f_opt ok")
+    let _ = f_opt(HolderLoud(r: err_loud(1))); report("f_opt err")
+    let _ = f_force(HolderLoud(r: ok_loud(1))); report("f_force ok")
+
+    c_r_try_ok(); report("r_try ok")
+    c_r_try_err(); report("r_try err")
+    c_r_catch_ok(); report("r_catch ok")
+    c_r_catch_err(); report("r_catch err")
+    c_r_opt_ok(); report("r_opt ok")
+    c_r_opt_err(); report("r_opt err")
+    c_r_force_ok(); report("r_force ok")
+
+    c_a_try_ok(); report("a_try ok")
+    c_a_try_err(); report("a_try err")
+    c_a_catch_ok(); report("a_catch ok")
+    c_a_catch_err(); report("a_catch err")
+    c_a_opt_ok(); report("a_opt ok")
+    c_a_opt_err(); report("a_opt err")
+    c_a_force_ok(); report("a_force ok")
+
+    let _ = b_opt_nocopy(ok_bad(1)); report("b_opt_nocopy ok")
+    let _ = b_opt_nocopy(err_bad(1)); report("b_opt_nocopy err")
+    let _ = b_force_nocopy(ok_bad(1)); report("b_force_nocopy ok")
+    let _ = f_opt_nocopy(HolderBad(r: ok_bad(1))); report("f_opt_nocopy ok")
+    let _ = f_opt_nocopy(HolderBad(r: err_bad(1))); report("f_opt_nocopy err")
+    let _ = f_force_nocopy(HolderBad(r: ok_bad(1))); report("f_force_nocopy ok")
+    c_r_opt_nocopy_ok(); report("r_opt_nocopy ok")
+    c_r_opt_nocopy_err(); report("r_opt_nocopy err")
+    c_r_force_nocopy_ok(); report("r_force_nocopy ok")
+    c_a_opt_nocopy_ok(); report("a_opt_nocopy ok")
+    c_a_opt_nocopy_err(); report("a_opt_nocopy err")
+    c_a_force_nocopy_ok(); report("a_force_nocopy ok")
+
+    c_v_try_ok(); report("v_try ok")
+    c_v_try_err(); report("v_try err")
+    c_v_catch_ok(); report("v_catch ok")
+    c_v_catch_err(); report("v_catch err")
+    c_v_opt_ok(); report("v_opt ok")
+    c_v_opt_err(); report("v_opt err")
+    c_v_force_ok(); report("v_force ok")
+    c_m_try_ok(); report("m_try ok")
+    c_m_try_err(); report("m_try err")
+    c_m_opt_ok(); report("m_opt ok")
+    c_m_opt_err(); report("m_opt err")
+    c_m_force_ok(); report("m_force ok")
+    c_s_try_ok(); report("s_try ok")
+    c_s_try_err(); report("s_try err")
+    c_s_opt_ok(); report("s_opt ok")
+    c_s_opt_err(); report("s_opt err")
+    let _ = s_catch_mutate(ok_loud(1)); report("s_catch_mutate ok")
+    let _ = s_catch_mutate(err_loud(1)); report("s_catch_mutate err")
+    c_x_try_ok(); report("x_try ok")
+    c_x_try_err(); report("x_try err")
+    c_x_opt_ok(); report("x_opt ok")
+    c_x_opt_err(); report("x_opt err")
+    let _ = x_catch_mutate(ok_loud(1)); report("x_catch_mutate ok")
+    let _ = x_catch_mutate(err_loud(1)); report("x_catch_mutate err")
+    let _ = v_catch_mutate(ok_loud(1)); report("v_catch_mutate ok")
+    let _ = v_catch_mutate(err_loud(1)); report("v_catch_mutate err")
+    c_g_force_ok(); report("g_force ok")
+    c_g_opt_ok(); report("g_opt ok")
+    c_g_opt_err(); report("g_opt err")
+    c_erased_ok(); report("erased_subscript ok")
+    c_erased_err(); report("erased_subscript err")
+    window_push()
+    window_assign()
+    window_shared()
+    let _ = b_erased(ok_fault(1)); report("b_erased ok")
+    let _ = b_erased(err_fault(1)); report("b_erased err")
+
+    let _ = b_opt_explicit(err_slab(1)); report("b_opt_explicit err")
+    let _ = b_force_explicit(ok_slab(1)); report("b_force_explicit ok")
+
+    let _ = move_try(ok_bad(1)); report("move_try ok")
+    let _ = move_try(err_bad(1)); report("move_try err")
+    let _ = move_catch(ok_bad(1)); report("move_catch ok")
+    let _ = move_catch(err_bad(1)); report("move_catch err")
+    let _ = temp_try(); report("temp_try ok")
+    let _ = temp_catch(); report("temp_catch err")
+
+    var group = TaskGroup()
+    let h1 = group.spawn(driven_force(1))
+    let _ = h1.join()
+    report("driven_force ok")
+    let h2 = group.spawn(driven_opt(1))
+    let _ = h2.join()
+    report("driven_opt err")
+    let h3 = group.spawn(driven_try(1))
+    let _ = h3.join()
+    report("driven_try err")
+}
+
+// A subject that outlives its call is built here, so it is released before the
+// cell is reported.
+func c_r_try_ok() { let v = ok_loud(1); let _ = r_try(&v) }
+func c_r_try_err() { let v = err_loud(1); let _ = r_try(&v) }
+func c_r_catch_ok() { let v = ok_loud(1); let _ = r_catch(&v) }
+func c_r_catch_err() { let v = err_loud(1); let _ = r_catch(&v) }
+func c_r_opt_ok() { let v = ok_loud(1); let _ = r_opt(&v) }
+func c_r_opt_err() { let v = err_loud(1); let _ = r_opt(&v) }
+func c_r_force_ok() { let v = ok_loud(1); let _ = r_force(&v) }
+
+func c_a_try_ok() { let v = hold_loud(ok_loud(1)); let _ = a_try(&v) }
+func c_a_try_err() { let v = hold_loud(err_loud(1)); let _ = a_try(&v) }
+func c_a_catch_ok() { let v = hold_loud(ok_loud(1)); let _ = a_catch(&v) }
+func c_a_catch_err() { let v = hold_loud(err_loud(1)); let _ = a_catch(&v) }
+func c_a_opt_ok() { let v = hold_loud(ok_loud(1)); let _ = a_opt(&v) }
+func c_a_opt_err() { let v = hold_loud(err_loud(1)); let _ = a_opt(&v) }
+func c_a_force_ok() { let v = hold_loud(ok_loud(1)); let _ = a_force(&v) }
+
+func c_r_opt_nocopy_ok() { let v = ok_bad(1); let _ = r_opt_nocopy(&v) }
+func c_r_opt_nocopy_err() { let v = err_bad(1); let _ = r_opt_nocopy(&v) }
+func c_r_force_nocopy_ok() { let v = ok_bad(1); let _ = r_force_nocopy(&v) }
+func c_a_opt_nocopy_ok() { let v = hold_bad(ok_bad(1)); let _ = a_opt_nocopy(&v) }
+func c_a_opt_nocopy_err() { let v = hold_bad(err_bad(1)); let _ = a_opt_nocopy(&v) }
+func c_a_force_nocopy_ok() { let v = hold_bad(ok_bad(1)); let _ = a_force_nocopy(&v) }

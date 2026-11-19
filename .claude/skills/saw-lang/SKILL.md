@@ -362,9 +362,15 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `?` must not change whether a `move` is written. A `self` read has NO `move`
   spelling (a borrowed receiver is the caller's) — declare the method
   `consumes`, or give the type a duplicable policy and spell `self.copy()`. A
-  `try` names the SUBJECT in its fixit because that is what owns the payload,
-  and a FIELD subject wants restructuring (`move h.r` is the partial-move
-  error). UNTOUCHED: `try f()` over a call result, a wrap around a fresh
+  `try` over a PLACE reads it in place and judges each PART its spelling takes
+  on the path that takes it (SL-677): the payload on all four spellings, the
+  error only on `try` and `try … catch`, never the whole `Result`. So `try! r`
+  and `try? r` need no `move` over a `Copy` payload with a `NoCopy` error, and
+  `r` stays usable; a propagated or caught `NoCopy` error is refused, naming
+  the error's type. The fixit names the SUBJECT (`try move r`) because that is
+  what owns the parts, and a FIELD or reference subject wants restructuring
+  (`move h.r` is the partial-move error). A generic body owes `Copy` of the
+  duplicated parts only. UNTOUCHED: `try f()` over a call result, a wrap around a fresh
   temporary, a generic body's `-> T?` forwarding (it defers per PATH, so
   `func hand<T>(x: T) -> T? { x }` stays callable at a move-only type), and the
   `Copy` tier, which retains exactly once as it always did. Treat all of it as

@@ -1,0 +1,329 @@
+module try_place_subjects
+
+fn try_place_subjects.Counted.copy() -> try_place_subjects.Counted {
+    let _0: try_place_subjects.Counted;  // return
+    let _1: &try_place_subjects.Counted;  // self
+    let _2: try_place_subjects.Counted;
+
+    bb0: {
+        _2 = try_place_subjects.Counted { n: copy (*_1).n };
+        _0 = move _2;
+        return;
+    }
+}
+
+fn try_place_subjects.Loud.copy() -> try_place_subjects.Loud {
+    let _0: try_place_subjects.Loud;  // return
+    let _1: &try_place_subjects.Loud;  // self
+    let _2: try_place_subjects.Loud;
+
+    bb0: {
+        _2 = try_place_subjects.Loud { n: copy (*_1).n };
+        _0 = move _2;
+        return;
+    }
+}
+
+fn try_place_subjects.made() -> Result<try_place_subjects.Counted, try_place_subjects.Bad> {
+    let _0: Result<try_place_subjects.Counted, try_place_subjects.Bad>;  // return
+    let _1: try_place_subjects.Counted;
+    let _2: Result<try_place_subjects.Counted, try_place_subjects.Bad>;
+
+    bb0: {
+        _1 = try_place_subjects.Counted { n: const 1: Int };
+        _2 = Result<try_place_subjects.Counted, try_place_subjects.Bad>::Ok(move _1);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn try_place_subjects.over_binding(r: Result<try_place_subjects.Counted, try_place_subjects.Bad>) -> Int {
+    let _0: Int;  // return
+    let _1: Result<try_place_subjects.Counted, try_place_subjects.Bad>;  // param r
+    let _2: try_place_subjects.Counted;  // a
+    let _3: &try_place_subjects.Counted;
+    let _4: try_place_subjects.Counted;
+    let _5: try_place_subjects.Counted?;  // b
+    let _6: try_place_subjects.Counted?;
+    let _7: &try_place_subjects.Counted;
+    let _8: try_place_subjects.Counted;
+    let _9: Int;
+    let _10: Int;
+
+    bb0: {
+        _3 = ref(shared, (_1 as Ok!).0);
+        _4 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _4;
+        switch discriminant(_1) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _7 = ref(shared, (_1 as Ok).0);
+        _8 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _7] -> [return: bb5];
+    }
+
+    bb3: {
+        _6 = try_place_subjects.Counted?::None;
+        goto -> bb4;
+    }
+
+    bb4: {
+        _5 = move _6;
+        _9 = copy _2.n;
+        _10 = Add(move _9, copy (_5 as Some!).0.n);
+        _0 = move _10;
+        drop(_5);
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb5: {
+        _6 = try_place_subjects.Counted?::Some(move _8);
+        goto -> bb4;
+    }
+}
+
+fn try_place_subjects.over_field(h: try_place_subjects.Holder) -> Int {
+    let _0: Int;  // return
+    let _1: try_place_subjects.Holder;  // param h
+    let _2: try_place_subjects.Counted;  // a
+    let _3: &try_place_subjects.Counted;
+    let _4: try_place_subjects.Counted;
+
+    bb0: {
+        _3 = ref(shared, (_1.r as Ok!).0);
+        _4 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _4;
+        _0 = copy _2.n;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn try_place_subjects.over_reference(p: &Result<try_place_subjects.Counted, try_place_subjects.Bad>) -> Int {
+    let _0: Int;  // return
+    let _1: &Result<try_place_subjects.Counted, try_place_subjects.Bad>;  // param p
+    let _2: try_place_subjects.Counted?;  // a
+    let _3: try_place_subjects.Counted?;
+    let _4: &try_place_subjects.Counted;
+    let _5: try_place_subjects.Counted;
+    let _6: &try_place_subjects.Counted?;
+    let _7: Bool;
+
+    bb0: {
+        switch discriminant((*_1)) -> [Ok: bb1, Err: bb2];
+    }
+
+    bb1: {
+        _4 = ref(shared, ((*_1) as Ok).0);
+        _5 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _4] -> [return: bb4];
+    }
+
+    bb2: {
+        _3 = try_place_subjects.Counted?::None;
+        goto -> bb3;
+    }
+
+    bb3: {
+        _2 = move _3;
+        _6 = ref(shared, _2);
+        _7 = call Optional.is_some() (owner try_place_subjects.Counted?) [move _6] -> [return: bb6];
+    }
+
+    bb4: {
+        _3 = try_place_subjects.Counted?::Some(move _5);
+        goto -> bb3;
+    }
+
+    bb5: {
+        drop(_2);
+        return;
+    }
+
+    bb6: {
+        switch move _7 -> [true: bb7, false: bb8];
+    }
+
+    bb7: {
+        _0 = const 1: Int;
+        goto -> bb5;
+    }
+
+    bb8: {
+        _0 = const 0: Int;
+        goto -> bb5;
+    }
+}
+
+fn try_place_subjects.over_alias(v: &std.vector.Vector<Result<try_place_subjects.Counted, try_place_subjects.Bad>, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &std.vector.Vector<Result<try_place_subjects.Counted, try_place_subjects.Bad>, std.alloc.GlobalAllocator>;  // param v
+    let _2: &Result<try_place_subjects.Counted, try_place_subjects.Bad>;
+    let _3: &std.vector.Vector<Result<try_place_subjects.Counted, try_place_subjects.Bad>, std.alloc.GlobalAllocator>;
+    let _4: &Result<try_place_subjects.Counted, try_place_subjects.Bad>;  // ref e
+    let _5: try_place_subjects.Counted;  // a
+    let _6: &try_place_subjects.Counted;
+    let _7: try_place_subjects.Counted;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Result<try_place_subjects.Counted, try_place_subjects.Bad>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, (*_2));
+        _6 = ref(shared, ((*_4) as Ok!).0);
+        _7 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = move _7;
+        _0 = copy _5.n;
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Result<try_place_subjects.Counted, try_place_subjects.Bad>, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn try_place_subjects.propagated(r: Result<try_place_subjects.Counted, try_place_subjects.Loud>) -> Result<Int, try_place_subjects.Loud> {
+    let _0: Result<Int, try_place_subjects.Loud>;  // return
+    let _1: Result<try_place_subjects.Counted, try_place_subjects.Loud>;  // param r
+    let _2: try_place_subjects.Counted;  // a
+    let _3: &try_place_subjects.Loud;
+    let _4: try_place_subjects.Loud;
+    let _5: &try_place_subjects.Counted;
+    let _6: try_place_subjects.Counted;
+    let _7: Result<Int, try_place_subjects.Loud>;
+
+    bb0: {
+        switch discriminant(_1) -> [Ok: bb1, Err: bb2];
+    }
+
+    bb1: {
+        _5 = ref(shared, (_1 as Ok).0);
+        _6 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _5] -> [return: bb4];
+    }
+
+    bb2: {
+        _3 = ref(shared, (_1 as Err).0);
+        _4 = call try_place_subjects.Loud.copy() (owner try_place_subjects.Loud) [move _3] -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = Result<Int, try_place_subjects.Loud>::Err(move _4);
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _2 = move _6;
+        _7 = Result<Int, try_place_subjects.Loud>::Ok(copy _2.n);
+        _0 = move _7;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn try_place_subjects.caught(r: Result<try_place_subjects.Counted, try_place_subjects.Loud>) -> Int {
+    let _0: Int;  // return
+    let _1: Result<try_place_subjects.Counted, try_place_subjects.Loud>;  // param r
+    let _2: try_place_subjects.Counted;  // a
+    let _3: &try_place_subjects.Counted;
+    let _4: try_place_subjects.Counted;
+    let _5: try_place_subjects.Loud;  // error
+    let _6: &try_place_subjects.Loud;
+    let _7: try_place_subjects.Loud;
+    let _8: try_place_subjects.Counted;
+
+    bb0: {
+        switch discriminant(_1) -> [Ok: bb1, Err: bb2];
+    }
+
+    bb1: {
+        _3 = ref(shared, (_1 as Ok).0);
+        _4 = call try_place_subjects.Counted.copy() (owner try_place_subjects.Counted) [move _3] -> [return: bb4];
+    }
+
+    bb2: {
+        _6 = ref(shared, (_1 as Err).0);
+        _7 = call try_place_subjects.Loud.copy() (owner try_place_subjects.Loud) [move _6] -> [return: bb5];
+    }
+
+    bb3: {
+        _0 = copy _2.n;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _2 = move _4;
+        goto -> bb3;
+    }
+
+    bb5: {
+        _5 = move _7;
+        _8 = try_place_subjects.Counted { n: copy _5.n };
+        _2 = move _8;
+        drop(_5);
+        goto -> bb3;
+    }
+}
+
+fn try_place_subjects.over_temporary() -> Int {
+    let _0: Int;  // return
+    let _1: try_place_subjects.Counted;  // a
+    let _2: Result<try_place_subjects.Counted, try_place_subjects.Bad>;
+    let _3: try_place_subjects.Counted;
+
+    bb0: {
+        _2 = call try_place_subjects.made() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move (_2 as Ok!).0;
+        _1 = move _3;
+        _0 = copy _1.n;
+        drop(_1);
+        return;
+    }
+}
+
+fn try_place_subjects.over_move(r: Result<try_place_subjects.Counted, try_place_subjects.Bad>) -> Int {
+    let _0: Int;  // return
+    let _1: Result<try_place_subjects.Counted, try_place_subjects.Bad>;  // param r
+    let _2: try_place_subjects.Counted;  // a
+    let _3: Result<try_place_subjects.Counted, try_place_subjects.Bad>;
+    let _4: try_place_subjects.Counted;
+
+    bb0: {
+        _3 = move _1;
+        _4 = move (_3 as Ok!).0;
+        _2 = move _4;
+        _0 = copy _2.n;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn try_place_subjects.main() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        return;
+    }
+}

@@ -1,0 +1,18 @@
+// refuses: transfer.move-from-borrow at 12:24
+// errors: 1
+// a `try` over `move e` of a `borrow var` binding is refused once (SL-677)
+// message: cannot move out of `e`
+
+struct Counted { n: Int }
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func take(v: &var Vector<Result<Counted, Bad>>) -> Int {
+    borrow var e = v[0] {
+        let got = try? move e
+        if got.is_some() { 1 } else { 0 }
+    }
+}
+
+func main() {
+}

@@ -1,0 +1,21 @@
+// refuses: transfer.implicit-copy at 16:19
+// a NoCopy error propagated out of a field: a field is not moved out on its
+// own, so no `move` is offered (SL-677)
+// message: this `try` propagates its error, of type
+// message: a field is not moved out on its own, use `try!` or `try?`, which take no error, or borrow it
+
+struct Counted { n: Int }
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+struct Holder { r: Result<Counted, Bad> }
+extension Holder: NoCopy {}
+
+func pass(h: Holder) -> Result<Int, Bad> {
+    let got = try h.r
+    got.n
+}
+
+func main() {
+}

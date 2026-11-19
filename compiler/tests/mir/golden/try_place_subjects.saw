@@ -1,0 +1,85 @@
+// A `try` over a place switches on the tag in place and copies the part its
+// path takes (SL-677): the Ok payload on every spelling, the error on a
+// propagating or catching Err path, nothing on `try!` or `try?` over an Err.
+// The temporary and `move` subjects stay as they were, taken whole and
+// dissolved around the part.
+
+struct Counted {
+    n: Int
+}
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        Counted(n: self.n)
+    }
+}
+
+struct Loud {
+    n: Int
+}
+
+extension Loud: Copy {
+    func copy(&self) -> Loud {
+        Loud(n: self.n)
+    }
+}
+
+enum Bad { case Nope }
+
+extension Bad: NoCopy {}
+
+struct Holder {
+    r: Result<Counted, Bad>
+}
+
+extension Holder: NoCopy {}
+
+func made() -> Result<Counted, Bad> {
+    Counted(n: 1)
+}
+
+func over_binding(r: Result<Counted, Bad>) -> Int {
+    let a = try! r
+    let b = try? r
+    a.n + b!.n
+}
+
+func over_field(h: Holder) -> Int {
+    let a = try! h.r
+    a.n
+}
+
+func over_reference(p: &Result<Counted, Bad>) -> Int {
+    let a = try? p
+    if a.is_some() { 1 } else { 0 }
+}
+
+func over_alias(v: &Vector<Result<Counted, Bad>>) -> Int {
+    borrow let e = v[0] {
+        let a = try! e
+        a.n
+    }
+}
+
+func propagated(r: Result<Counted, Loud>) -> Result<Int, Loud> {
+    let a = try r
+    a.n
+}
+
+func caught(r: Result<Counted, Loud>) -> Int {
+    let a = try r catch { Counted(n: error.n) }
+    a.n
+}
+
+func over_temporary() -> Int {
+    let a = try! made()
+    a.n
+}
+
+func over_move(r: Result<Counted, Bad>) -> Int {
+    let a = try! move r
+    a.n
+}
+
+func main() {
+}

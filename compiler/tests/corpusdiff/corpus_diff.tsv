@@ -522,6 +522,9 @@ conformance/V174b_closure_called_in_place_is_dropped_O2.saw	pass	judged by its o
 conformance/V175_move_base_ends_the_binding.saw	pass	judged by its own directives (no oracle)	-
 conformance/V175_move_base_later_use_is_refused.saw	pass	judged by its own directives (no oracle)	move.use-after: `x.n` is used after it may have been moved (moved at 27:14); a moved value is gone until it is assigned again
 conformance/V176_closure_called_in_place_move_capture_transfers.saw	pass	judged by its own directives (no oracle)	-
+conformance/V177_try_place_takes_each_paths_part.saw	pass	judged by its own directives (no oracle)	-
+conformance/V178_try_place_error_side_refused.saw	pass	judged by its own directives (no oracle)	transfer.implicit-copy: this `try` propagates its error, of type `V178_try_place_error_side_refused.Bad`, out of `r`, which keeps it, and `V178_try_place_error_side_refused.Bad` is NoCopy: only a Copy
+conformance/V179_generic_try_requires_its_parts.saw	pass	judged by its own directives (no oracle)	-
 conformance/V18_discard_nocopy_without_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.box.Box<Int, std.alloc.GlobalAllocator>`, which is NoCopy, by value: only a Copy type copies silently; write `move b` to take it, or borrow it
 conformance/V21_optional_explicitcopy_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 conformance/V25_implicitcopy_deinit_once.saw	pass	-	-
@@ -579,12 +582,12 @@ conformance/V83_closure_tail_refusal_reaches_every_source.saw	pass	-	transfer.im
 conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	pass	-	-
 conformance/V85_closure_tail_fence_is_narrow.saw	pass	-	-
 conformance/V86_self_receiver_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V86_self_receiver_read_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to m
-conformance/V87_try_subject_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<V87_try_subject_read_is_a_transfer.Res, V87_try_subject_read_is_a_transfer.Bad>`, which is NoCopy, by value: only a Copy type copies silently
+conformance/V87_try_subject_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this `try` copies its Ok payload, of type `V87_try_subject_read_is_a_transfer.Res`, out of `r`, which keeps it, and `V87_try_subject_read_is_a_transfer.Res` is NoCopy: only a C
 conformance/V88_auto_wrapped_return_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V88_auto_wrapped_return_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a field is not moved out on its own, so bor
-conformance/V89_forwarding_copy_tier_duplicates_exactly_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V89_forwarding_copy_tier_duplicates_exactly_once.Counted, V89_forwarding_copy_tier_duplicates_exactly_once.Bad>`, which is NoCopy, by value: only a Copy type copies
+conformance/V89_forwarding_copy_tier_duplicates_exactly_once.saw	pass	-	-
 conformance/V90_forwarding_fence_is_narrow.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/V91_try_catch_copies_per_path.saw	pass	judged by its own directives (edited since its oracle)	-
-conformance/V92_merged_results_copy_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V92_merged_results_copy_once.Counted, V92_merged_results_copy_once.Bad>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or
+conformance/V92_merged_results_copy_once.saw	pass	-	-
 conformance/V93_specialization_judges_the_instance.saw	pass	-	-
 conformance/V94_driven_body_keeps_the_sync_decision.saw	pass	-	-
 conformance/V95_materialized_capture_releases_once.saw	pass	-	-

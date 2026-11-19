@@ -51,6 +51,10 @@ public struct TcPaths {
     // By local: the by-value read and the use after it on one path, or -1.
     dup_first: Vector<Int>
     dup_second: Vector<Int>
+    // The names a `try` reads in place (`try_subject`), and the `try` of each:
+    // a by-value read of the local for its parts, though its use is `project`.
+    subjects: Vector<Int>
+    subject_tries: Vector<Int>
     width: Int
     // The open frames, innermost last up to `depth`: each one's kind and two
     // accumulated states, what reaches its exit and, for a loop, its head.
@@ -63,8 +67,21 @@ extension TcPaths: NoCopy {}
 
 func tc_paths(base: Int, nodes: Int) -> TcPaths {
     TcPaths(index: tc_node_table(base, nodes, -1), leaves: Vector<Int>(), aliases: Vector<Int>(), reads: Vector<Int>(),
-            read_local: Vector<Int>(), dup_first: Vector<Int>(), dup_second: Vector<Int>(), width: 1,
+            read_local: Vector<Int>(), dup_first: Vector<Int>(), dup_second: Vector<Int>(),
+            subjects: Vector<Int>(), subject_tries: Vector<Int>(), width: 1,
             frame_kinds: Vector<Int>(), frame_states: Vector<Int>(), depth: 0)
+}
+
+// The position of `x` in `v`, or -1.
+func tc_index_of(v: &Vector<Int>, x: Int) -> Int {
+    var k = 0
+    while k < v.len() {
+        if v[k] == x {
+            return k
+        }
+        k = k + 1
+    }
+    -1
 }
 
 // Settles every body's by-value reads of its locals (design 219).
@@ -112,6 +129,8 @@ extension TcProgram {
         w.aliases = Vector<Int>()
         w.dup_first = Vector<Int>()
         w.dup_second = Vector<Int>()
+        w.subjects = Vector<Int>()
+        w.subject_tries = Vector<Int>()
         self.collect_path_reads(&var w, root, d)
         if w.reads.len() == 0 {
             self.clear_path_index(&var w)
@@ -131,6 +150,12 @@ extension TcProgram {
             let first = w.dup_first[i]
             if first < 0 {
                 self.expr_use[r] = TcUse.Move
+                // A `try` that takes its subject whole owes no copy of its parts.
+                let at = tc_index_of(&w.subjects, r)
+                if at >= 0 {
+                    self.implied_copies[r] = -1
+                    self.implied_copies[w.subject_tries[at]] = -1
+                }
                 if not tc_contains(&self.fresh_placements, r) {
                     let t = self.expr_types[r]
                     self.check_relocation(r, r, t, d, TcRelocation.Read)
@@ -170,6 +195,8 @@ extension TcProgram {
     // copies out of storage the body does not own.
     func collect_path_reads(&var self, w: &var TcPaths, root: Int, d: Int) {
         var names = Vector<Int>()
+        // The `try` of each name, or -1 for a name copied whole.
+        var tries = Vector<Int>()
         var stack = Vector<Int>()
         try! stack.push(root)
         var depth = 1
@@ -183,8 +210,16 @@ extension TcProgram {
             if self.has_alt(id, Alt.Expr_Name) || self.has_alt(id, Alt.Expr_NameRef) {
                 if u == TcUse.Copy {
                     try! names.push(id)
+                    try! tries.push(-1)
                 }
                 continue
+            }
+            let subject = self.try_subject_name(id)
+            if subject >= 0 {
+                try! names.push(subject)
+                try! tries.push(id)
+                try! w.subjects.push(subject)
+                try! w.subject_tries.push(id)
             }
             if u == TcUse.Borrow || u == TcUse.BorrowVar {
                 let leaf = self.res.first_leaf(id)
@@ -209,6 +244,7 @@ extension TcProgram {
         var k = 0
         while k < names.len() {
             let id = names[k]
+            let of_try = tries[k]
             k = k + 1
             let leaf = self.res.first_leaf(id)
             let b = self.binding_at(leaf)
@@ -220,8 +256,18 @@ extension TcProgram {
                 continue
             }
             var acc = TcAcc(owner: d, unit: -1)
-            let t = self.expr_types[id]
-            if not self.copy_needs(t, id, id, &var acc) || acc.copies.len() == 0 {
+            if of_try >= 0 {
+                // Only the parts the `try` copies are the read's requirement.
+                if self.implied_copies[of_try] >= 0 {
+                    let _ = self.copy_needs(self.implied_copies[of_try], id, id, &var acc)
+                }
+                if self.implied_copies[id] >= 0 {
+                    let _ = self.copy_needs(self.implied_copies[id], id, id, &var acc)
+                }
+                if acc.copies.len() == 0 {
+                    continue
+                }
+            } else if not self.copy_needs(self.expr_types[id], id, id, &var acc) || acc.copies.len() == 0 {
                 continue
             }
             var i = w.index[b.node]
@@ -235,6 +281,19 @@ extension TcProgram {
             try! w.reads.push(id)
             try! w.read_local.push(i)
         }
+    }
+
+    // The name `try` form `id` reads in place, or -1: its subject, when it is
+    // a plain name whose use `try_subject` made `project`.
+    func try_subject_name(&self, id: Int) -> Int {
+        if not (self.has_alt(id, Alt.Expr_Try_Propagate) || self.has_alt(id, Alt.Expr_Try_Force) || self.has_alt(id, Alt.Expr_Try_Optional) || self.has_alt(id, Alt.Expr_Try_Catch)) {
+            return -1
+        }
+        let operand = self.res.first_node_child(id)
+        if operand >= 0 && self.has_alt(operand, Alt.Expr_Name) && self.expr_use[operand] == TcUse.Project {
+            return operand
+        }
+        -1
     }
 
     func is_path_alias(&self, w: &TcPaths, leaf: Int) -> Bool {
@@ -504,7 +563,7 @@ extension TcProgram {
         }
         if u == TcUse.Move {
             st[i] = TC_PATH_GONE
-        } else if u == TcUse.Copy {
+        } else if u == TcUse.Copy || (u == TcUse.Project && tc_contains(&w.subjects, id)) {
             st[i] = id
         }
     }

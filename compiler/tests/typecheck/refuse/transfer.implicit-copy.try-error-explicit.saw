@@ -1,0 +1,20 @@
+// refuses: transfer.implicit-copy at 15:19
+// an ExplicitCopy error propagated out of a place: the fix offers the copy of
+// the whole Result as well as the move (SL-677)
+// message: this `try` propagates its error, of type
+// message: is ExplicitCopy: only a Copy type copies silently; write `try move r` to take the whole Result, write `try r.copy()` for a copy of the whole Result, use `try!` or `try?`, which take no error, or borrow it
+
+struct Counted { n: Int }
+
+struct Loud { code: Int }
+extension Loud: ExplicitCopy {
+    func copy(&self) -> Loud { Loud(code: self.code) }
+}
+
+func pass(r: Result<Counted, Loud>) -> Result<Int, Loud> {
+    let got = try r
+    got.n
+}
+
+func main() {
+}

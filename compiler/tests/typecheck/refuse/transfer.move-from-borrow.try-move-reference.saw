@@ -1,0 +1,17 @@
+// refuses: transfer.move-from-borrow at 12:20
+// errors: 1
+// a `try` over `move p` of a reference is refused where the `move` is written,
+// once: the parts of a `move` operand are not judged (SL-677)
+// message: cannot move out of `p`: it is a reference
+
+struct Counted { n: Int }
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func take(p: &Result<Counted, Bad>) -> Int {
+    let got = try! move p
+    got.n
+}
+
+func main() {
+}

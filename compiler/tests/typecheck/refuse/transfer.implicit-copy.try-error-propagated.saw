@@ -1,0 +1,19 @@
+// refuses: transfer.implicit-copy at 14:19
+// a `try` that propagates a NoCopy error out of a place, which keeps it: the
+// part is judged on the path that takes it, so the whole Result is taken
+// with `try move`, or no error is taken, by `try!` and `try?` (SL-677)
+// message: this `try` propagates its error, of type
+// message: is NoCopy: only a Copy type copies silently; write `try move r` to take the whole Result, use `try!` or `try?`, which take no error, or borrow it
+
+struct Counted { n: Int }
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func pass(r: Result<Counted, Bad>) -> Result<Int, Bad> {
+    let got = try r
+    got.n
+}
+
+func main() {
+}

@@ -5463,6 +5463,9 @@ extension MirProgram {
     // exits; the `Ok` payload is the value.
     func try_propagate(&var self, e: Int) -> Int {
         let inner = self.tc.res.first_node_child(e)
+        if self.reads_in_place(inner) {
+            return self.try_propagate_place(e, inner)
+        }
         let o = self.operand(inner)
         let p = self.as_place(MirVal(operand: o), inner)
         let pt = self.place_type(p)
@@ -5543,6 +5546,17 @@ extension MirProgram {
     // `try! e`: the `Ok` payload, which panics with the error otherwise.
     func try_force(&var self, e: Int) -> MirVal {
         let inner = self.tc.res.first_node_child(e)
+        if self.reads_in_place(inner) {
+            let mark = self.scope.len()
+            let p = self.try_place(inner)
+            let windows = self.windows_since(mark)
+            let ok = self.result_case("Ok")
+            let t = self.tc.expr_types[e]
+            let value = self.project(p, MirProjKind.Force, ok, 0, t)
+            let o = self.copied_part(value)
+            self.end_try_windows(&windows)
+            return MirVal(operand: o)
+        }
         let o = self.operand(inner)
         let p = self.as_place(MirVal(operand: o), inner)
         let ok = self.result_case("Ok")
@@ -5566,6 +5580,9 @@ extension MirProgram {
     // `try? e`: `Some` of the `Ok` payload, or `None`.
     func try_optional(&var self, e: Int) -> Int {
         let inner = self.tc.res.first_node_child(e)
+        if self.reads_in_place(inner) {
+            return self.try_optional_place(e, inner)
+        }
         let o = self.operand(inner)
         let p = self.as_place(MirVal(operand: o), inner)
         let pt = self.place_type(p)
@@ -5614,6 +5631,226 @@ extension MirProgram {
         self.goto(join)
         self.enter(join)
         self.move_local(r)
+    }
+
+    // Whether `try` subject `inner` is a place its `try` reads in place,
+    // which keeps its Result: each path copies the part it takes, and
+    // nothing is dissolved (`try_subject`).
+    func reads_in_place(&self, inner: Int) -> Bool {
+        self.tc.expr_use[inner] == TcUse.Project
+    }
+
+    // The place `try` subject `inner` is, with the reference reads its
+    // adjustments begin with, a lend's window open for the statement.
+    func try_place(&var self, inner: Int) -> Int {
+        var steps = Vector<MirStep>()
+        self.prepare_base(inner, &var steps)
+        let v = self.realize_read(&steps, false)
+        if v.fresh || (steps.len() == 1 && steps[0].fresh) {
+            self.own_temp(v.place)
+        }
+        v.place
+    }
+
+    // The error type subject `inner` is erased into where a `try` propagates
+    // it out of the body, or -1.
+    func erased_error(&self, inner: Int) -> Int {
+        var a = self.tc.adj_head[inner]
+        while a >= 0 {
+            let adj = self.tc.adjusts[a]
+            if adj.kind == TcAdjustKind.Erase {
+                return self.tc.arg_of(adj.to, 1)
+            }
+            a = adj.next
+        }
+        -1
+    }
+
+    // `part`'s place read as a value on its own path: a copy, since the
+    // Result keeps it, and a `Void` part takes nothing.
+    func copied_part(&var self, part: Int) -> Int {
+        if self.is_unit_type(self.place_type(part)) {
+            return self.op_move(part)
+        }
+        self.copy_place(part)
+    }
+
+    // `try e` over a place: the error copies into the catch block's `error`
+    // or the body's `Err` on its path, the `Ok` payload copies on the other.
+    func try_propagate_place(&var self, e: Int, inner: Int) -> Int {
+        let mark = self.scope.len()
+        let p = self.try_place(inner)
+        let windows = self.windows_since(mark)
+        let pt = self.place_type(p)
+        let t = self.tc.expr_types[e]
+        let et = self.tc.arg_of(pt, 1)
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let good = self.new_block()
+        let bad = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(bad)
+        let error = self.project(p, MirProjKind.Payload, err, 0, et)
+        var carried = self.copied_part(error)
+        let caught = self.catches.len()
+        if caught > 0 {
+            let c = self.catches[caught - 1]
+            if self.local_type(c.error) != et {
+                self.missing(e, "a `try` in a `try` block propagates an error of a type its catch block's `error` does not hold")
+            }
+            let rv = self.rv_use(carried)
+            self.assign_local(c.error, rv)
+        } else {
+            let erased = self.erased_error(inner)
+            if erased >= 0 {
+                carried = self.rebuilt(MirRvalueKind.Erase, erased, carried).operand
+            }
+            let result = self.local_type(0)
+            var ops = Vector<Int>()
+            try! ops.push(carried)
+            let rv = self.rv_aggregate(MirAggregate.Case, err, result, &ops)
+            let ret = self.place_local(0)
+            self.assign(ret, rv)
+        }
+        if caught > 0 {
+            var c = self.catches[caught - 1]
+            self.unwind_to(c.depth)
+            self.goto(c.block)
+            c.reached = true
+            self.catches[caught - 1] = c
+        } else {
+            self.unwind_to(0)
+            self.ret()
+        }
+        self.enter(good)
+        let value = self.project(p, MirProjKind.Payload, ok, 0, t)
+        let o = self.copied_part(value)
+        self.end_try_windows(&windows)
+        o
+    }
+
+    // `try? e` over a place: `Some` of a copy of the `Ok` payload, or `None`,
+    // which takes nothing out of the Result.
+    func try_optional_place(&var self, e: Int, inner: Int) -> Int {
+        let mark = self.scope.len()
+        let p = self.try_place(inner)
+        let windows = self.windows_since(mark)
+        let pt = self.place_type(p)
+        let t = self.tc.expr_types[e]
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let r = self.new_temp(t)
+        let good = self.new_block()
+        let bad = self.new_block()
+        let join = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(good)
+        let value = self.project(p, MirProjKind.Payload, ok, 0, self.tc.arg_of(pt, 0))
+        var ops = Vector<Int>()
+        try! ops.push(self.copied_part(value))
+        let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
+        self.assign_local(r, rv)
+        self.close_try_windows(&windows)
+        self.goto(join)
+        self.enter(bad)
+        let empty = Vector<Int>()
+        let nrv = self.rv_aggregate(MirAggregate.Case, none, t, &empty)
+        self.assign_local(r, nrv)
+        self.end_try_windows(&windows)
+        self.goto(join)
+        self.enter(join)
+        self.move_local(r)
+    }
+
+    // `try e catch { … }` over a place: a copy of the `Ok` payload is the
+    // value, and on `Err` a copy of the error is the catch block's `error`.
+    func try_catch_place(&var self, inner: Int, handler: Int, dest: Int) {
+        let mark = self.scope.len()
+        let p = self.try_place(inner)
+        let windows = self.windows_since(mark)
+        let pt = self.place_type(p)
+        let t = self.tc.arg_of(pt, 0)
+        let et = self.tc.arg_of(pt, 1)
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let good = self.new_block()
+        let bad = self.new_block()
+        let join = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(good)
+        if dest >= 0 && not self.is_unit_type(t) {
+            let value = self.project(p, MirProjKind.Payload, ok, 0, t)
+            let rv = self.rv_use(self.copied_part(value))
+            self.assign(dest, rv)
+        }
+        self.close_try_windows(&windows)
+        self.goto(join)
+        self.enter(bad)
+        let error = self.project(p, MirProjKind.Payload, err, 0, et)
+        let l = self.error_local(handler, et)
+        let rv = self.rv_use(self.copied_part(error))
+        self.assign_local(l, rv)
+        self.end_try_windows(&windows)
+        self.lower_catch_block(handler, l, dest)
+        self.goto(join)
+        self.enter(join)
+    }
+
+    // The windows registered since scope entry `mark`, newest first: those
+    // a `try` subject opened.
+    func windows_since(&self, mark: Int) -> Vector<Int> {
+        var windows = Vector<Int>()
+        var k = self.scope.len() - 1
+        while k >= mark {
+            if self.scope[k].window {
+                try! windows.push(self.scope[k].index)
+            }
+            k = k - 1
+        }
+        move windows
+    }
+
+    // The windows a `try` subject opened, newest first, closed on the
+    // current path: its parts are copied out, so the catch block, which runs
+    // after the close, may reach the lent place's root again.
+    func close_try_windows(&var self, windows: &Vector<Int>) {
+        var k = 0
+        while k < windows.len() {
+            self.close_window(windows[k])
+            self.set_window_value_read(windows[k])
+            k = k + 1
+        }
+    }
+
+    // `close_try_windows` on the last path that reaches the scope's exits:
+    // the windows are forgotten, so no later exit closes them again.
+    func end_try_windows(&var self, windows: &Vector<Int>) {
+        self.close_try_windows(&windows)
+        var k = 0
+        while k < windows.len() {
+            self.forget_window(windows[k])
+            k = k + 1
+        }
     }
 
     // A tuple's elements, in order.
@@ -6683,6 +6920,10 @@ extension MirProgram {
         let inner = self.tc.res.first_node_child(e)
         let clause = self.tc.res.last_node_child(e)
         let handler = self.tc.res.first_node_child(clause)
+        if self.reads_in_place(inner) {
+            self.try_catch_place(inner, handler, dest)
+            return
+        }
         let o = self.operand(inner)
         let p = self.as_place(MirVal(operand: o), inner)
         let pt = self.place_type(p)

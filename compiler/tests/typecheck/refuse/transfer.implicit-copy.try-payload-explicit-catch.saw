@@ -1,0 +1,20 @@
+// refuses: transfer.implicit-copy at 15:19
+// an ExplicitCopy Ok payload under `try … catch` over a local: both fixes
+// are written in the catch spelling (SL-677)
+// message: this `try … catch` copies its Ok payload, of type
+// message: is ExplicitCopy: only a Copy type copies silently; write `try move r catch { … }` to take the whole Result, write `try r.copy() catch { … }` for a copy of the whole Result, or borrow it
+
+struct Slab { w: Int }
+extension Slab: ExplicitCopy {
+    func copy(&self) -> Slab { Slab(w: self.w) }
+}
+
+enum Bad { case Nope }
+
+func fetch(r: Result<Slab, Bad>) -> Int {
+    let got = try r catch { Slab(w: 0) }
+    got.w
+}
+
+func main() {
+}

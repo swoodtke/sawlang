@@ -1,0 +1,18 @@
+// refuses: transfer.implicit-copy at 13:19
+// a `try … catch` over a place binds a copy of the error, so a NoCopy error
+// is refused there too, and the fix names the catch spelling (SL-677)
+// message: this `try … catch` binds its error, of type
+// message: is NoCopy: only a Copy type copies silently; write `try move r catch { … }` to take the whole Result, use `try!` or `try?`, which take no error, or borrow it
+
+struct Counted { n: Int }
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func fallback(r: Result<Counted, Bad>) -> Int {
+    let got = try r catch { Counted(n: 0) }
+    got.n
+}
+
+func main() {
+}

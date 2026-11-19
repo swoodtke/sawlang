@@ -8700,16 +8700,31 @@ before.
 
 #### A `try` forwards its subject's storage
 
-**Status: implemented (design 269).**
+**Status: implemented (design 269; the per-path rule, SL-677).**
 
-`try r` extracts the Ok payload out of `r`. When `r` is a binding or a field,
-that storage still has an owner, so the extraction is a transfer and takes the
-checkpoint — in all four spellings (`try`, `try!`, `try?`, and
-`try … catch { }`, whose catch arm is judged separately as a branch arm).
+`try r` takes parts out of `r`. When `r` is a binding, a field, or a reference's
+referent, that storage still has an owner, so the `try` reads it in place and
+`r` keeps its `Result`. Each part the spelling takes is copied on the path that
+takes it, and the part's own copy tier decides, never the whole `Result`'s:
+
+| spelling | Ok path takes | Err path takes |
+|---|---|---|
+| `try!` | the payload | nothing (it panics, rendering the error by reference) |
+| `try?` | the payload | nothing (it yields `None`; the error stays in `r`) |
+| `try` | the payload | the error, into the `Err` it returns or the enclosing `try` block's `error` |
+| `try … catch { }` | the payload | the error, into the catch block's `error`, an owned copy |
+
+A part that copies silently needs no `move`, and `r` stays usable afterwards.
+A part that does not (`NoCopy` or `ExplicitCopy`) is refused, naming the part's
+type and the path that takes it. `try!` and `try?` take no error, so a `Result`
+with a `Copy` payload and a `NoCopy` error is read by them freely. A `try` that
+propagates or catches such an error out of a place is refused: taking it would
+move it out of `r` on one path only, and a written `try` never decides whether a
+`move` is written.
 
 ```saw-error
 // error-rule: transfer.implicit-copy
-// error-contains: write `move r` to take it
+// error-contains: write `try move r` to take the whole Result
 struct Res { w: Int }
 extension Res: NoCopy {}
 enum Bad { case Nope }
@@ -8720,17 +8735,39 @@ func made(n: Int) -> Result<Res, Bad> { Res(w: n) }
 func use_it() -> Result<Int, Bad> {
     let r = made(1)
     let a = try r
-    // error: this reads a place of type `Result<Res, Bad>`, which is NoCopy,
-    //        by value: only a Copy type copies silently; write `move r` to take
-    //        it, or borrow it
+    // error: this `try` copies its Ok payload, of type `Res`, out of `r`, which
+    //        keeps it, and `Res` is NoCopy: only a Copy type copies silently;
+    //        write `try move r` to take the whole Result, or borrow it
     a.w
 }
 ```
 
-The `move` goes on the SUBJECT, because that is what owns the payload:
-`try move r` transfers the whole `Result` in and releases the payload exactly
-once. On a FIELD subject there is no such spelling — `move h.r` would be a
-partial move — so restructure, as anywhere else a field must give something up.
+The `move` goes on the SUBJECT, because that is what owns the parts:
+`try move r` moves the whole `Result` before the tag is read, on every path,
+and releases each part exactly once. Every tier is legal there. On a FIELD or a
+reference there is no such spelling (`move h.r` would be a partial move), so
+restructure, as anywhere else a field must give something up. A `Result` whose
+type is `ExplicitCopy` can also be copied whole, `try r.copy()`.
+
+A payload that copies and an error that does not is the common shape, and the
+payload-only spellings accept it:
+
+```saw
+struct Reading { n: Int }
+enum Fault { case Lost }
+extension Fault: NoCopy {}
+
+func peek(r: Result<Reading, Fault>) -> Int {
+    let first = try! r
+    let again = try! r     // `r` is intact: only the payload was copied
+    first.n + again.n
+}
+```
+
+In a generic body the same rule sets the requirement: a `try` of a `Result<T,
+E>` owes `Copy` of the parts it duplicates, `T` for `try!` and `try?`, and `E`
+too for `try` and `try … catch`. A read of the local at its last use still moves
+the whole `Result` and requires neither.
 
 A `try` over a CALL RESULT is not affected: `try made(1)` unwraps a fresh
 temporary the reader already owns, and stays legal. That is the same line that

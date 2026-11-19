@@ -1,0 +1,18 @@
+// refuses: transfer.implicit-copy at 13:19
+// a NoCopy error caught out of a Result behind a reference: the referent is
+// the place, and nothing moves out of a reference (SL-677)
+// message: this `try … catch` binds its error, of type
+// message: is NoCopy: only a Copy type copies silently; use `try!` or `try?`, which take no error, or borrow it
+
+struct Counted { n: Int }
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func fallback(p: &Result<Counted, Bad>) -> Int {
+    let got = try p catch { Counted(n: 0) }
+    got.n
+}
+
+func main() {
+}

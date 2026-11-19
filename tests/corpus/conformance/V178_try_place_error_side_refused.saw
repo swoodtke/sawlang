@@ -1,0 +1,44 @@
+// Conformance row V178 — propagating or catching an error that does not copy
+// silently, out of a place, is refused, naming the ERROR's type
+//
+// SL-677. A `try` over a place keeps the Result, so the error it propagates, or
+// binds in a catch block, is a copy of the part still in the place, and a
+// NoCopy error has none. Taking it would move it out of the place on this path
+// alone, and a written `try` never decides whether a `move` is written. The
+// Ok payload here copies silently, so the refusal is the error side's alone,
+// and names the whole-Result spelling that takes it: `try move r`. `try!` and
+// `try?` take no error, so they need no `move` over the same Result.
+//
+// A Result copy would drop the one error twice: it is the double `deinit`
+// that Stage 0 ran for this program, exit 0. The fixtures of
+// `compiler/tests/typecheck/refuse/` carry the matrix of subject kinds and
+// tiers (`transfer.implicit-copy.try-error-*`).
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: propagates its error, of type
+
+struct Counted { n: Int }
+
+struct Bad { code: Int }
+extension Bad: NoCopy {
+    func deinit(&var self) { print("drop Bad {}", self.code) }
+}
+
+func fails() -> Result<Counted, Bad> { Bad(code: 1) }
+
+func propagates() -> Result<Int, Bad> {
+    let r = fails()
+    let got = try r
+    got.n
+}
+
+func catches() -> Int {
+    let r = fails()
+    let got = try r catch { Counted(n: error.code) }
+    got.n
+}
+
+func main() {
+    let _ = propagates()
+    print("{}", catches())
+}

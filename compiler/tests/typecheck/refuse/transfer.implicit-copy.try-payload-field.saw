@@ -1,0 +1,22 @@
+// refuses: transfer.implicit-copy at 17:20
+// a NoCopy Ok payload taken out of a field by `try!`: the payload is the part
+// this spelling takes, so it is judged by its own type, and the whole Result
+// cannot be moved out of a field (SL-677)
+// message: this `try!` copies its Ok payload, of type
+// message: is NoCopy: only a Copy type copies silently; a field is not moved out on its own, or borrow it
+
+struct Res { w: Int }
+extension Res: NoCopy {}
+
+enum Bad { case Nope }
+
+struct Holder { r: Result<Res, Bad> }
+extension Holder: NoCopy {}
+
+func take(h: Holder) -> Int {
+    let got = try! h.r
+    got.w
+}
+
+func main() {
+}

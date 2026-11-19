@@ -1,0 +1,29 @@
+// refuses: copy.requirement at 28:13
+// errors: 1
+// a generic body's `try` over a subscript owes `Copy` of the error it
+// propagates, `E`, and not of the payload `T` its bound already gives; the
+// `try!` and `try?` spellings take no error and are accepted at a NoCopy `E`
+// (SL-677)
+// message: `pass` requires `E` to be Copy, as its body copies one at
+// message: is NoCopy: pass a Copy type
+
+struct Counted { n: Int }
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func pass<T: Copy, E>(v: &Vector<Result<T, E>>) -> Result<T, E> {
+    let got = try v[0]
+    got
+}
+
+func forced<T: Copy, E>(v: &Vector<Result<T, E>>) -> T { try! v[0] }
+
+func peeked<T: Copy, E>(v: &Vector<Result<T, E>>) -> T? { try? v[0] }
+
+func main() {
+    var v = Vector<Result<Counted, Bad>>()
+    try! v.push(Counted(n: 1))
+    let a = forced(&v)
+    let b = peeked(&v)
+    let c = pass(&v)
+}

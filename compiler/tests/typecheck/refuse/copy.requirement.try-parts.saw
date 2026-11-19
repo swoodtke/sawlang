@@ -1,0 +1,23 @@
+// refuses: copy.requirement at 22:16
+// a generic body that reads one Result twice with `try?` and `try!` duplicates
+// the Ok payload only, so it requires `T` to be Copy and says nothing of `E`
+// (SL-677; design 219)
+// message: `twice` requires `T` to be Copy, as its body copies one at
+// message: is NoCopy: pass a Copy type
+
+struct Res { w: Int }
+extension Res: NoCopy {}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func twice<T, E>(r: Result<T, E>) -> T {
+    let first = try? r
+    try! r
+}
+
+func made(w: Int) -> Result<Res, Bad> { Res(w: w) }
+
+func main() {
+    let held = twice(made(3))
+}

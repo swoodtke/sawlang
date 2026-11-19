@@ -1,0 +1,60 @@
+// A `try` over a place reads it in place (SL-677): its use is `project`, and the
+// parts it takes are the copies the generic summaries read. A temporary and a
+// spelled `move` keep their uses.
+struct Counted { n: Int }
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+struct Holder { r: Result<Counted, Bad> }
+extension Holder: NoCopy {}
+
+func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }
+
+func over_binding(r: Result<Counted, Bad>) -> Int {
+    let a = try! r
+    let b = try? r
+    a.n + b!.n
+}
+
+func over_field(h: Holder) -> Int {
+    let a = try! h.r
+    a.n
+}
+
+func over_reference(p: &Result<Counted, Bad>) -> Int {
+    let a = try! p
+    a.n
+}
+
+func over_temporary() -> Int {
+    let a = try! made(1)
+    a.n
+}
+
+func over_move(r: Result<Counted, Bad>) -> Int {
+    let a = try! move r
+    a.n
+}
+
+func propagated(r: Result<Counted, Counted>) -> Result<Int, Counted> {
+    let a = try r
+    a.n
+}
+
+func caught(r: Result<Counted, Counted>) -> Int {
+    let a = try r catch { Counted(n: error.n) }
+    a.n
+}
+
+func once<T, E>(r: Result<T, E>) -> T { try! r }
+
+func twice<T, E>(r: Result<T, E>) -> T {
+    let first = try? r
+    try! r
+}
+
+func main() {
+    let a = once(made(2))
+    let b = twice(made(3))
+}

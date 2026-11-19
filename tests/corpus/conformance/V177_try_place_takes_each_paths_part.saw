@@ -1,0 +1,295 @@
+// Conformance row V177 — a `try` over a PLACE takes only the part each path
+// extracts: the Ok payload on every spelling, the error on a propagating or
+// catching Err path, nothing on `try!`'s or `try?`'s Err path
+//
+// SL-677. A `try` reads its subject in place and the subject keeps its Result.
+// Each path copies the part its spelling takes, inside that path, so a Result
+// whose payload copies silently and whose error does not (a NoCopy error) is
+// read by `try!` and `try?` with no `move`, and read again afterwards. A
+// whole-Result copy would have been refused there, and on `try?`'s Err path it
+// ran the error's copy hook for a value nothing took.
+//
+// THE ORACLE IS THE HOOKS. `Counted` is Copy-tier with a printing `copy` and
+// `deinit`, so each line `copy T n` is one extraction of the payload and each
+// `drop T n` one value released; `Bad` is NoCopy with a printing `deinit`, so
+// each `drop Bad n` is the one error released, never two. A part that copied
+// where it should not, or twice, shows as an extra `copy`; a part dropped
+// twice, as an extra `drop`.
+//
+// THE SUBJECT KINDS: a binding, a field of a by-value parameter, a reference
+// parameter (the referent is the place), and a `borrow let` alias of an
+// element. THE LAST SECTION is the Copy-tier error with hooks of its own:
+// propagating and catching copy it once on the Err path, and `try?` copies
+// nothing there. The DRIVEN twin holds the Result in a coroutine frame across
+// a suspension.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- binding ok
+// EXPECT-OUTPUT: copy T 1
+// EXPECT-OUTPUT: copy T 1
+// EXPECT-OUTPUT: copy T 1
+// EXPECT-OUTPUT: ok 1 1 1
+// EXPECT-OUTPUT: drop T 1
+// EXPECT-OUTPUT: drop T 1
+// EXPECT-OUTPUT: drop T 1
+// EXPECT-OUTPUT: drop T 1
+// EXPECT-OUTPUT: -- binding err
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: drop Bad 2
+// EXPECT-OUTPUT: -- field ok
+// EXPECT-OUTPUT: copy T 3
+// EXPECT-OUTPUT: copy T 3
+// EXPECT-OUTPUT: ok 3 3
+// EXPECT-OUTPUT: drop T 3
+// EXPECT-OUTPUT: drop T 3
+// EXPECT-OUTPUT: drop T 3
+// EXPECT-OUTPUT: -- field err
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: drop Bad 4
+// EXPECT-OUTPUT: -- reference ok
+// EXPECT-OUTPUT: copy T 5
+// EXPECT-OUTPUT: copy T 5
+// EXPECT-OUTPUT: ok 5 5
+// EXPECT-OUTPUT: drop T 5
+// EXPECT-OUTPUT: drop T 5
+// EXPECT-OUTPUT: -- reference err
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: -- alias ok
+// EXPECT-OUTPUT: copy T 7
+// EXPECT-OUTPUT: copy T 7
+// EXPECT-OUTPUT: ok 7 7
+// EXPECT-OUTPUT: drop T 7
+// EXPECT-OUTPUT: drop T 7
+// EXPECT-OUTPUT: -- alias err
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: -- the Result is intact afterwards
+// EXPECT-OUTPUT: copy T 9
+// EXPECT-OUTPUT: copy T 9
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: drop T 9
+// EXPECT-OUTPUT: drop T 9
+// EXPECT-OUTPUT: drop T 9
+// EXPECT-OUTPUT: -- Copy-tier error: propagated
+// EXPECT-OUTPUT: copy E 10
+// EXPECT-OUTPUT: drop E 10
+// EXPECT-OUTPUT: copy E 10
+// EXPECT-OUTPUT: err 10
+// EXPECT-OUTPUT: drop E 10
+// EXPECT-OUTPUT: -- Copy-tier error: caught
+// EXPECT-OUTPUT: copy E 11
+// EXPECT-OUTPUT: caught 11
+// EXPECT-OUTPUT: drop E 11
+// EXPECT-OUTPUT: drop T 0
+// EXPECT-OUTPUT: drop E 11
+// EXPECT-OUTPUT: = 0
+// EXPECT-OUTPUT: -- Copy-tier error: try?
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: drop E 12
+// EXPECT-OUTPUT: = 0
+// EXPECT-OUTPUT: -- driven ok
+// EXPECT-OUTPUT: copy T 13
+// EXPECT-OUTPUT: copy T 13
+// EXPECT-OUTPUT: drop T 13
+// EXPECT-OUTPUT: drop T 13
+// EXPECT-OUTPUT: drop T 13
+// EXPECT-OUTPUT: = 26
+// EXPECT-OUTPUT: -- driven err
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: drop Bad 14
+// EXPECT-OUTPUT: = 0
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: drop E 10
+// EXPECT-OUTPUT: drop Bad 8
+// EXPECT-OUTPUT: drop T 7
+// EXPECT-OUTPUT: drop Bad 6
+// EXPECT-OUTPUT: drop T 5
+
+import std.task.*
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy T {}", self.n); Counted(n: self.n) }
+    func deinit(&var self) { print("drop T {}", self.n) }
+}
+
+struct Bad { code: Int }
+extension Bad: NoCopy {
+    func deinit(&var self) { print("drop Bad {}", self.code) }
+}
+
+struct Holder { r: Result<Counted, Bad> }
+extension Holder: NoCopy {}
+
+func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }
+func fails(n: Int) -> Result<Counted, Bad> { Bad(code: n) }
+
+// ---- a binding ----------------------------------------------------------
+
+func binding_ok() {
+    let r = made(1)
+    let a = try! r
+    let b = try? r
+    let c = try! r
+    print("ok {} {} {}", a.n, b!.n, c.n)
+}
+
+// `try?` takes no error: the Bad stays in `r` and drops once, with it.
+func binding_err() {
+    let r = fails(2)
+    let a = try? r
+    if a.is_none() { print("none") }
+}
+
+// ---- a field of a by-value parameter -------------------------------------
+
+func field_ok(h: Holder) {
+    let a = try! h.r
+    let b = try? h.r
+    print("ok {} {}", a.n, b!.n)
+}
+
+func field_err(h: Holder) {
+    let a = try? h.r
+    if a.is_none() { print("none") }
+}
+
+// ---- a reference parameter: the referent is the place --------------------
+
+func reference_ok(p: &Result<Counted, Bad>) {
+    let a = try! p
+    let b = try? p
+    print("ok {} {}", a.n, b!.n)
+}
+
+func reference_err(p: &Result<Counted, Bad>) {
+    let a = try? p
+    if a.is_none() { print("none") }
+}
+
+// ---- a `borrow let` alias of an element -----------------------------------
+
+func alias_ok(v: &var Vector<Result<Counted, Bad>>) {
+    borrow let e = v[0] {
+        let a = try! e
+        let b = try? e
+        print("ok {} {}", a.n, b!.n)
+    }
+}
+
+func alias_err(v: &var Vector<Result<Counted, Bad>>) {
+    borrow let e = v[0] {
+        let a = try? e
+        if a.is_none() { print("none") }
+    }
+}
+
+// ---- the Result is intact after every read --------------------------------
+
+func intact() {
+    let r = made(9)
+    let a = try! r
+    let again = try! r
+    match r {
+        case Ok(_) -> print("{}", a.n + again.n - 18),
+        case Err(_) -> print("err")
+    }
+}
+
+// ---- a Copy-tier error with hooks of its own -------------------------------
+//
+// `Loud` copies silently, so `try` and `try … catch` may take it out of the
+// place: one `copy E` on the Err path that takes it, and `try?`, which takes
+// no error, runs no `copy E` at all.
+
+struct Loud { n: Int }
+extension Loud: Copy {
+    func copy(&self) -> Loud { print("copy E {}", self.n); Loud(n: self.n) }
+    func deinit(&var self) { print("drop E {}", self.n) }
+}
+
+func loud_fails(n: Int) -> Result<Counted, Loud> { Loud(n: n) }
+
+func propagates(n: Int) -> Result<Int, Loud> {
+    let r = loud_fails(n)
+    let got = try r
+    got.n
+}
+
+func catches(n: Int) -> Int {
+    let r = loud_fails(n)
+    let got = try r catch {
+        print("caught {}", error.n)
+        Counted(n: 0)
+    }
+    got.n
+}
+
+func optional(n: Int) -> Int {
+    let r = loud_fails(n)
+    let a = try? r
+    if a.is_none() { print("none") }
+    0
+}
+
+// ---- the DRIVEN twin: the Result lives in the coroutine frame --------------
+
+func driven_ok(n: Int) -> Int {
+    let r = made(n)
+    yield_now()
+    let a = try! r
+    let b = try? r
+    a.n + b!.n
+}
+
+func driven_err(n: Int) -> Int {
+    let r = fails(n)
+    yield_now()
+    let a = try? r
+    if a.is_none() { print("none") }
+    0
+}
+
+func main() {
+    print("-- binding ok")
+    binding_ok()
+    print("-- binding err")
+    binding_err()
+    print("-- field ok")
+    field_ok(Holder(r: made(3)))
+    print("-- field err")
+    field_err(Holder(r: fails(4)))
+    print("-- reference ok")
+    let ok5 = made(5)
+    reference_ok(&ok5)
+    print("-- reference err")
+    let bad6 = fails(6)
+    reference_err(&bad6)
+    print("-- alias ok")
+    var ok7 = Vector<Result<Counted, Bad>>()
+    try! ok7.push(made(7))
+    alias_ok(&var ok7)
+    print("-- alias err")
+    var bad8 = Vector<Result<Counted, Bad>>()
+    try! bad8.push(fails(8))
+    alias_err(&var bad8)
+    print("-- the Result is intact afterwards")
+    intact()
+    print("-- Copy-tier error: propagated")
+    let p = propagates(10)
+    match p {
+        case Ok(_) -> print("ok"),
+        case Err(e) -> print("err {}", e.n)
+    }
+    print("-- Copy-tier error: caught")
+    print("= {}", catches(11))
+    print("-- Copy-tier error: try?")
+    print("= {}", optional(12))
+    var group = TaskGroup()
+    print("-- driven ok")
+    let h1 = group.spawn(driven_ok(13))
+    print("= {}", h1.join())
+    print("-- driven err")
+    let h2 = group.spawn(driven_err(14))
+    print("= {}", h2.join())
+    print("end")
+}

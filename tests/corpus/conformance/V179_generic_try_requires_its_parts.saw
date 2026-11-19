@@ -1,0 +1,45 @@
+// Conformance row V179 — a generic body's `try` requires `Copy` of exactly the
+// parts it duplicates
+//
+// SL-677 (design 219). The requirement is per path, as it is for any by-value
+// read of a local in a generic body. `once` reads its Result at its last use,
+// so the read moves the whole Result and requires nothing: it is callable at
+// a NoCopy payload. `twice` reads its Result a second time, so the first read
+// leaves it in place and copies the Ok payload it takes, and the body requires
+// `T` to be Copy and says nothing of `E`: it is callable at `(Int, Bad)` with
+// a NoCopy error. The refusal half, `twice` at a NoCopy payload, names `T`
+// and not `E`, and lives in
+// `compiler/tests/typecheck/refuse/copy.requirement.try-parts.saw`.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: once 1
+// EXPECT-OUTPUT: twice 2
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: drop 1
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Bad { code: Int }
+extension Bad: NoCopy {
+    func deinit(&var self) { print("drop Bad {}", self.code) }
+}
+
+func once<T, E>(r: Result<T, E>) -> T { try! r }
+
+func twice<T, E>(r: Result<T, E>) -> T {
+    let first = try? r
+    try! r
+}
+
+func made(w: Int) -> Result<Res, Bad> { Res(w: w) }
+func counted(n: Int) -> Result<Int, Bad> { n }
+
+func main() {
+    let a = once(made(1))
+    print("once {}", a.w)
+    print("twice {}", twice(counted(2)))
+    print("end")
+}

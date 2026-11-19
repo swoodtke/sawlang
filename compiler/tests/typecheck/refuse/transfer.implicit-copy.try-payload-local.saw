@@ -1,0 +1,18 @@
+// refuses: transfer.implicit-copy at 13:20
+// a NoCopy Ok payload under `try?` over a local: the payload is named, not the
+// whole Result, and the move is spelled on the subject (SL-677)
+// message: this `try?` copies its Ok payload, of type
+// message: is NoCopy: only a Copy type copies silently; write `try? move r` to take the whole Result, or borrow it
+
+struct Res { w: Int }
+extension Res: NoCopy {}
+
+enum Bad { case Nope }
+
+func peek(r: Result<Res, Bad>) -> Bool {
+    let got = try? r
+    got.is_some()
+}
+
+func main() {
+}

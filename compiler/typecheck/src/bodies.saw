@@ -6303,8 +6303,7 @@ extension TcProgram {
     func try_expr(&var self, e: Int, which: Int) -> Int {
         let operand = self.res.first_node_child(e)
         let _ = self.expr(operand, TC_WANT_NONE)
-        self.consume(operand)
-        let t = self.final_type(operand)
+        let t = self.try_subject(e, operand, which)
         if self.has_error(t) {
             return self.set_type(e, t, false)
         }
@@ -6356,6 +6355,160 @@ extension TcProgram {
         self.set_type(e, ok, false)
     }
 
+    // THE TRY-SUBJECT FUNNEL: the subject `operand` of `try` form `e`, `which`
+    // 0 for `try`, 1 for `try!`, 2 for `try?` and 3 for `try … catch`, read
+    // by what its spelling takes. A temporary or a spelled `move` is taken
+    // whole. A place, a reference's referent included, is read in place and
+    // keeps its Result: each part the spelling takes out of it (the Ok payload
+    // on every spelling, the error on `try` and `try … catch`) copies on the
+    // path that takes it, so each must copy silently, and a generic body owes
+    // the Copy requirement for those parts only (`implied_copies`: the payload
+    // at the `try`, the error at the subject). Returns the Result's type, read
+    // through any reference (design 269).
+    //
+    // ENTRY POINTS:
+    //     try_expr
+    //     try_catch_expr
+    func try_subject(&var self, e: Int, operand: Int, which: Int) -> Int {
+        let whole = self.final_type(operand)
+        let held = self.referent(whole)
+        let result = if held >= 0 { held } else { whole }
+        if operand < 0 || self.expr_use[operand] != TcUse.Unused || self.has_error(result) || not self.is_result(result) {
+            self.consume(operand)
+            return whole
+        }
+        let u = self.by_value_use(operand)
+        // A `move` takes the whole Result, so its parts are not judged, and
+        // moving out of a reference is refused where the `move` is written.
+        if u == TcUse.Move {
+            self.set_use(operand, u)
+            return result
+        }
+        if held < 0 && u != TcUse.Copy {
+            self.set_use(operand, u)
+            return whole
+        }
+        self.set_use(operand, TcUse.Project)
+        let t = self.through_refs(operand)
+        let ok = self.arg_of(t, 0)
+        let err = self.arg_of(t, 1)
+        if not self.is_void(ok) && not self.is_never(ok) {
+            if self.copies_silently(ok) {
+                self.implied_copies[e] = ok
+            } else {
+                self.refuse_try_part(operand, which, t, ok, false)
+            }
+        }
+        if (which == 0 || which == 3) && not self.is_void(err) && not self.is_never(err) {
+            if self.copies_silently(err) {
+                self.implied_copies[operand] = err
+            } else {
+                self.refuse_try_part(operand, which, t, err, true)
+            }
+        }
+        t
+    }
+
+    // A `try` of spelling `which` copies `part`, the Ok payload or, with
+    // `error`, the error, out of place `operand` of Result type `whole`, and
+    // `part` does not copy silently. The fixes name the spelling on the
+    // subject, which takes the whole Result, and where it offers none a
+    // place's own part is borrowed.
+    func refuse_try_part(&var self, operand: Int, which: Int, whole: Int, part: Int, error: Bool) {
+        let place = self.unparenthesized(operand)
+        let m = self.node_module(place)
+        let text = self.text(m, place)
+        var msg = StringBuilder()
+        try! msg.append("this `")
+        try! msg.append(self.try_spelling(which))
+        try! msg.append("` ")
+        if error && which == 3 {
+            try! msg.append("binds its error")
+        } else if error {
+            try! msg.append("propagates its error")
+        } else {
+            try! msg.append("copies its Ok payload")
+        }
+        try! msg.append(", of type `")
+        try! msg.append(self.type_text(part))
+        try! msg.append("`, out of `")
+        try! msg.append(text)
+        try! msg.append("`, which keeps it, and `")
+        try! msg.append(self.type_text(part))
+        try! msg.append("` is ")
+        let tier = self.established_tier(part)
+        if tier.len() > 0 {
+            try! msg.append(tier)
+        } else {
+            try! msg.append("not made `Copy` by any bound in scope")
+        }
+        try! msg.append(": only a Copy type copies silently; ")
+        var offered = false
+        if self.owns_binding(place) {
+            var moved = StringBuilder()
+            try! moved.append("move ")
+            try! moved.append(text)
+            let spelled = moved.build()
+            try! msg.append("write `")
+            try! msg.append(self.try_written(which, &spelled))
+            try! msg.append("` to take the whole Result, ")
+            offered = true
+        } else if self.has_alt(place, Alt.Expr_Member) {
+            try! msg.append("a field is not moved out on its own, ")
+        }
+        let ec = self.known.explicit_copy
+        let env = self.current_decl
+        let ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
+        if ec >= 0 && not self.open_tier(whole) && self.satisfies(whole, ec, env, ext, viewer, in_test) {
+            var copied = StringBuilder()
+            try! copied.append(text)
+            try! copied.append(".copy()")
+            let spelled = copied.build()
+            try! msg.append("write `")
+            try! msg.append(self.try_written(which, &spelled))
+            try! msg.append("` for a copy of the whole Result, ")
+            offered = true
+        }
+        if error {
+            try! msg.append("use `try!` or `try?`, which take no error, ")
+        }
+        if not offered && self.read_from_lend(place) {
+            try! msg.append("name the place for a block: `")
+            try! msg.append(self.binding_form(place))
+            try! msg.append("`")
+        } else {
+            try! msg.append("or borrow it")
+        }
+        self.refuse(operand, "transfer.implicit-copy", msg.build())
+    }
+
+    func try_spelling(&self, which: Int) -> String {
+        match which {
+            case 1 -> "try!",
+            case 2 -> "try?",
+            case 3 -> "try … catch",
+            case _ -> "try"
+        }
+    }
+
+    // `try` form `which` over `subject`, as it is written.
+    func try_written(&self, which: Int, subject: &String) -> String {
+        var out = StringBuilder()
+        try! out.append(match which {
+            case 1 -> "try!",
+            case 2 -> "try?",
+            case _ -> "try"
+        })
+        try! out.append(" ")
+        try! out.append(subject)
+        if which == 3 {
+            try! out.append(" catch \{ … \}")
+        }
+        out.build()
+    }
+
     // Error type `err`, which a `try` propagates into the innermost open
     // `try` block, noted once per block (spec, The error union:
     // "Deduplicated").
@@ -6405,8 +6558,7 @@ extension TcProgram {
         let clause = self.res.last_node_child(e)
         let handler = self.res.first_node_child(clause)
         let _ = self.expr(operand, TC_WANT_NONE)
-        self.consume(operand)
-        let t = self.final_type(operand)
+        let t = self.try_subject(e, operand, 3)
         var ok = self.error_type
         var err = self.error_type
         if not self.has_error(t) {
@@ -15024,7 +15176,9 @@ extension TcProgram {
             if self.use_writes(e, &parents) {
                 continue
             }
-            if self.lent_in_place(e, &parents) || self.spells_copy(e, &parents) {
+            // A subscript a `try` reads in place lends its place, and the
+            // `try` takes the parts out of it (`try_subject`).
+            if self.lent_in_place(e, &parents) || self.spells_copy(e, &parents) || (c.role == TcRole.Place && self.lent_to_try(e, &parents)) {
                 continue
             }
             let t = self.expr_types[e]
@@ -15577,6 +15731,18 @@ extension TcProgram {
         self.lends_in_place(parents[top])
     }
 
+    // Whether the projection subscript `e` heads is the subject of a `try`
+    // that reads it in place, so a place accessor lends it and the `try`
+    // copies its parts out of the lent place.
+    func lent_to_try(&self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
+        let top = self.projection_top(e, &parents)
+        let p = parents[top]
+        if p < 0 || self.expr_use[top] != TcUse.Project || self.res.first_node_child(p) != top {
+            return false
+        }
+        self.has_alt(p, Alt.Expr_Try_Propagate) || self.has_alt(p, Alt.Expr_Try_Force) || self.has_alt(p, Alt.Expr_Try_Optional) || self.has_alt(p, Alt.Expr_Try_Catch)
+    }
+
     // Whether node `p`, holding a projection, lends the place it names
     // rather than reading it by value.
     func lends_in_place(&self, p: Int) -> Bool {
@@ -15659,7 +15825,8 @@ extension TcProgram {
         let plain = self.plain_role_exists(at)
         // A subscript a `borrow` form or a binding head lends takes the place
         // accessor beside a declared getitem, as a write does.
-        let lent_here = subscript && not first_lends && self.lent_in_place(e, &parents)
+        let lent_now = self.lent_in_place(e, &parents) || (subscript && self.lent_to_try(e, &parents) && (c.twin >= 0 || first_lends || pair_lends))
+        let lent_here = subscript && not first_lends && lent_now
         if (writes || lent_here) && c.twin >= 0 {
             var switched = self.calls[at]
             switched.target = c.twin
@@ -15668,7 +15835,7 @@ extension TcProgram {
         }
         // A plain member beside a `borrows` one of its name: a write or a
         // `borrow` form takes the `borrows` one (SL:borrowing §12.4, SL-684).
-        if pair_lends && (writes || self.lent_in_place(e, &parents)) {
+        if pair_lends && (writes || lent_now) {
             var switched = self.calls[at]
             switched.target = c.pair
             switched.pair = c.target
@@ -15697,7 +15864,7 @@ extension TcProgram {
                 role = TcRole.Setitem
             } else if direct == TcUse.Copy || direct == TcUse.Temp || direct == TcUse.Move {
                 role = TcRole.Getitem
-            } else if (direct == TcUse.Project || direct == TcUse.Test) && not writes && not self.lent_in_place(e, &parents) && plain {
+            } else if (direct == TcUse.Project || direct == TcUse.Test) && not writes && not lent_now && plain {
                 role = TcRole.Getitem
             }
             self.settle_subscript(at, role, writes, lending)
