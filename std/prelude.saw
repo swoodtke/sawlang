@@ -126,11 +126,9 @@ extension Hasher {
         Hasher(state: -3750763034362895579i64)
     }
 
-    /// Feeds `n` into the state: an xor, a wrapping multiply by the FNV prime,
-    /// then the product's high half xored into its low half.
+    /// Feeds `n` into the state, sign-extended to 64 bits.
     public func write_int(&var self, n: Int) {
-        let m = UInt64.from(truncating: self.state ^ (n as Int64)) &* 0x0000_0100_0000_01B3
-        self.state = Int64.from(truncating: m ^ (m >> 32))
+        hasher_write_wide(&var self, n as Int64)
     }
 
     /// Returns the digest, the state through SplitMix64's finalizer, as an
@@ -141,6 +139,16 @@ extension Hasher {
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         Int.from(truncating: z ^ (z >> 31))
     }
+}
+
+/// The feed step: an xor, a wrapping multiply by the FNV prime, then the
+/// product's high half xored into its low half. Every integer reaches the
+/// state through it as its 64-bit value, so a digest is the same on every
+/// target; the compiler's hash glue calls it directly. A free function, not
+/// a `Hasher` member, because `Hasher`'s members are a lang item's shape.
+public(package) func hasher_write_wide(h: &var Hasher, n: Int64) {
+    let m = UInt64.from(truncating: h.state ^ n) &* 0x0000_0100_0000_01B3
+    h.state = Int64.from(truncating: m ^ (m >> 32))
 }
 
 /// A type usable as a hash-map key: it feeds itself into a `Hasher`.

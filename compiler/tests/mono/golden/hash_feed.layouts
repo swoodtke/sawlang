@@ -1,0 +1,27 @@
+&Atomic<Int>: size 8 align 8 pointer
+&Float: size 8 align 8 pointer
+&Hasher: size 8 align 8 pointer
+&Int: size 8 align 8 pointer
+&Int32: size 8 align 8 pointer
+&Int64: size 8 align 8 pointer
+&String: size 8 align 8 pointer
+&UInt64: size 8 align 8 pointer
+&UnsafeMutableInterior<Int>: size 8 align 8 pointer
+&hash_feed.Wide: size 8 align 8 pointer
+&var Hasher: size 8 align 8 pointer
+Bool: size 1 align 1 int
+Float: size 8 align 8 float
+FuncPointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>: size 8 align 8 pointer
+Hasher: size 8 align 8 record offsets 0
+Int: size 8 align 8 int
+Int32: size 4 align 4 int
+Int64: size 8 align 8 int
+Never: size 0 align 1 zero
+String: size 8 align 8 record offsets 0
+UInt64: size 8 align 8 int
+UnsafePointer<Int64>: size 8 align 8 pointer
+UnsafePointer<Int8>: size 8 align 8 pointer
+UnsafePointer<Int>: size 8 align 8 pointer
+UnsafePointer<UInt8>: size 8 align 8 pointer
+Void: size 0 align 1 zero
+hash_feed.Wide: size 8 align 8 int tag 8, Low=22136, High=4294989432

@@ -2,12 +2,14 @@
 // under Stage 0 alone, so this pin holds the new std's side until a backend
 // runs the pair on both. `String.hash` must match Stage 0's
 // (sawc/std/string.saw): a byte loop calling `h.write_int(byte as Int)` once
-// per byte, unsigned, with no length prefix. `Hasher.write_int` is an xor, a
+// per byte, unsigned, with no length prefix. `Hasher.write_int` widens its
+// argument to 64 bits and calls `hasher_write_wide`, which is an xor, a
 // wrapping multiply by the FNV prime, then the product's high half xored into
 // its low half; `Hasher.finish` is SplitMix64's finalizer, not Stage 0's
 // fold, so digests differ from Stage 0's while the feed does not.
 // function: fn std.string.String.hash(h: &var Hasher)
 // function: fn Hasher.write_int(n: Int)
+// function: fn hasher_write_wide(h: &var Hasher, n: Int64)
 // function: fn Hasher.finish()
 fn std.string.String.hash(h: &var Hasher) -> Void {
     let _0: Void;  // return
@@ -73,29 +75,43 @@ fn Hasher.write_int(n: Int) -> Void {
     let _0: Void;  // return
     let _1: &var Hasher;  // self
     let _2: Int;  // param n
+    let _3: &var Hasher;
+    let _4: Int64;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _4 = cast(copy _2 as Int64);
+        call hasher_write_wide(h: &var Hasher, n: Int64) [move _3, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn hasher_write_wide(h: &var Hasher, n: Int64) -> Void {
+    let _0: Void;  // return
+    let _1: &var Hasher;  // param h
+    let _2: Int64;  // param n
     let _3: UInt64;  // m
     let _4: Int64;
-    let _5: Int64;
-    let _6: Int64;
+    let _5: UInt64;
+    let _6: UInt64;
     let _7: UInt64;
     let _8: UInt64;
     let _9: UInt64;
-    let _10: UInt64;
-    let _11: UInt64;
-    let _12: Int64;
+    let _10: Int64;
 
     bb0: {
-        _4 = copy (*_1).state;
-        _5 = cast(copy _2 as Int64);
-        _6 = BitXor(move _4, move _5);
-        _7 = from(truncating:)(move _6 as UInt64);
-        _8 = MulWrapping(move _7, const 0x0000_0100_0000_01B3: UInt64);
-        _3 = move _8;
-        _9 = copy _3;
-        _10 = Shr(copy _3, const 32: Int);
-        _11 = BitXor(move _9, move _10);
-        _12 = from(truncating:)(move _11 as Int64);
-        (*_1).state = move _12;
+        _4 = BitXor(copy (*_1).state, copy _2);
+        _5 = from(truncating:)(move _4 as UInt64);
+        _6 = MulWrapping(move _5, const 0x0000_0100_0000_01B3: UInt64);
+        _3 = move _6;
+        _7 = copy _3;
+        _8 = Shr(copy _3, const 32: Int);
+        _9 = BitXor(move _7, move _8);
+        _10 = from(truncating:)(move _9 as Int64);
+        (*_1).state = move _10;
         return;
     }
 }

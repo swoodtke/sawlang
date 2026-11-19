@@ -1,0 +1,534 @@
+item #0: hash_feed.main()
+fn -> Void {
+    let _0: Void;  // return
+    let _1: Float;  // ratio
+    let _2: Hasher;  // h
+    let _3: Hasher;
+    let _4: Int64;  // wide
+    let _5: Int32;  // narrow
+    let _6: Int32;
+    let _7: UInt64;  // unsigned
+    let _8: Int;  // word
+    let _9: &var Hasher;
+    let _10: &Int64;
+    let _11: &var Hasher;
+    let _12: &Int32;
+    let _13: &var Hasher;
+    let _14: &UInt64;
+    let _15: &var Hasher;
+    let _16: &Int;
+    let _17: &var Hasher;
+    let _18: &Float;
+    let _19: hash_feed.Wide;
+    let _20: &var Hasher;
+    let _21: &hash_feed.Wide;
+    let _22: &Hasher;
+    let _23: Int;
+
+    bb0: {
+        _1 = const 1.5: Float;
+        _3 = call Hasher.init() (owner Hasher) [] -> [return: bb1]; => #5
+    }
+
+    bb1: {
+        _2 = move _3;
+        _4 = const 0x1_0000_5678: Int64;
+        _6 = Neg(const 1: Int32);
+        _5 = move _6;
+        _7 = const 0xFFFF_FFFF_FFFF_FFFF: UInt64;
+        _8 = const 0x5678: Int;
+        _9 = ref(exclusive, _2);
+        _10 = ref(shared, _4);
+        call Hashable.hash(h: &var Hasher) (owner Int64) [move _10, move _9] -> [return: bb2]; => #6
+    }
+
+    bb2: {
+        _11 = ref(exclusive, _2);
+        _12 = ref(shared, _5);
+        call Hashable.hash(h: &var Hasher) (owner Int32) [move _12, move _11] -> [return: bb3]; => #7
+    }
+
+    bb3: {
+        _13 = ref(exclusive, _2);
+        _14 = ref(shared, _7);
+        call Hashable.hash(h: &var Hasher) (owner UInt64) [move _14, move _13] -> [return: bb4]; => #8
+    }
+
+    bb4: {
+        _15 = ref(exclusive, _2);
+        _16 = ref(shared, _8);
+        call Hashable.hash(h: &var Hasher) (owner Int) [move _16, move _15] -> [return: bb5]; => #9
+    }
+
+    bb5: {
+        _17 = ref(exclusive, _2);
+        _18 = ref(shared, _1);
+        call Hashable.hash(h: &var Hasher) (owner Float) [move _18, move _17] -> [return: bb6]; => #10
+    }
+
+    bb6: {
+        _19 = hash_feed.Wide::High;
+        _20 = ref(exclusive, _2);
+        _21 = ref(shared, _19);
+        call Hashable.hash(h: &var Hasher) (owner hash_feed.Wide) [move _21, move _20] -> [return: bb7]; => #11
+    }
+
+    bb7: {
+        _22 = ref(shared, _2);
+        _23 = call Hasher.finish() (owner Hasher) [move _22] -> [return: bb8]; => #12
+    }
+
+    bb8: {
+        call builtin print [format "{}", copy _23] -> [return: bb9];
+    }
+
+    bb9: {
+        return;
+    }
+}
+
+item #1: std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)
+fn -> Never {
+    let _0: Never;  // return
+    let _1: UnsafePointer<Int8>;  // param message
+    let _2: Int;  // param length
+    let _3: Int;  // at
+    let _4: &Atomic<Int>;
+    let _5: Int;
+    let _6: Bool;
+    let _7: Bool;
+    let _8: &Atomic<Int>;
+    let _9: Bool;
+    let _10: FuncPointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>;  // report
+    let _11: UnsafePointer<UInt8>;
+    let _12: FuncPointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>;
+
+    bb0: {
+        _4 = ref(shared, static std.panic.PANIC_REPORT);
+        _5 = call Atomic.load() (owner Atomic<Int>) [move _4] -> [return: bb1]; => #13
+    }
+
+    bb1: {
+        _3 = move _5;
+        _7 = Ne(copy _3, const 0: Int);
+        switch move _7 -> [true: bb4, false: bb5];
+    }
+
+    bb2: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, copy _2] -> !; => #14
+    }
+
+    bb3: {
+        switch move _6 -> [true: bb7, false: bb8];
+    }
+
+    bb4: {
+        _8 = ref(shared, static std.panic.PANIC_REPORTING);
+        _9 = call Atomic.compare_exchange(expected: Int, desired: Int) (owner Atomic<Int>) [move _8, const 0: Int, const 1: Int] -> [return: bb6]; => #15
+    }
+
+    bb5: {
+        _6 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb6: {
+        _6 = move _9;
+        goto -> bb3;
+    }
+
+    bb7: {
+        _11 = cast(copy _3 as UnsafePointer<UInt8>);
+        _12 = from_raw(move _11 as FuncPointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>);
+        _10 = move _12;
+        call value copy _10 [copy _1, copy _2] -> [return: bb9];
+    }
+
+    bb8: {
+        goto -> bb2;
+    }
+
+    bb9: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, const 0: Int] -> !; => #14
+    }
+}
+
+item #2: std.string.string_literal(bytes: UnsafePointer<Int8>)
+fn -> String {
+    let _0: String;  // return
+    let _1: UnsafePointer<Int8>;  // param bytes
+    let _2: String;
+
+    bb0: {
+        _2 = String { bytes: copy _1 };
+        _0 = move _2;
+        return;
+    }
+}
+
+item #3: std.string.string_bytes(text: &String)
+fn -> UnsafePointer<Int8> {
+    let _0: UnsafePointer<Int8>;  // return
+    let _1: &String;  // param text
+
+    bb0: {
+        _0 = copy (*_1).bytes;
+        return;
+    }
+}
+
+item #4: std.string.string_length(text: &String)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // param text
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #16
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #5: Hasher.init()  (from #0)
+fn -> Hasher {
+    let _0: Hasher;  // return
+    let _1: Int64;
+    let _2: Hasher;
+
+    bb0: {
+        _1 = Neg(const 3750763034362895579i64: Int64);
+        _2 = Hasher { state: move _1 };
+        _0 = move _2;
+        return;
+    }
+}
+
+item #6: member glue Hashable.hash(h: &var Hasher) on Int64  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &Int64;  // param
+    let _2: &var Hasher;  // param
+    let _3: Void;
+
+    bb0: {
+        _3 = call hasher_write_wide(h: &var Hasher, n: Int64) (owner Hasher) [copy _2, copy (*_1)] -> [return: bb1]; => #17
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #7: member glue Hashable.hash(h: &var Hasher) on Int32  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &Int32;  // param
+    let _2: &var Hasher;  // param
+    let _3: Int64;
+    let _4: Int64;
+    let _5: Void;
+
+    bb0: {
+        _3 = widen(copy (*_1) as Int64);
+        _4 = BitAnd(move _3, const 4294967295: Int64);
+        _5 = call hasher_write_wide(h: &var Hasher, n: Int64) (owner Hasher) [copy _2, move _4] -> [return: bb1]; => #17
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #8: member glue Hashable.hash(h: &var Hasher) on UInt64  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &UInt64;  // param
+    let _2: &var Hasher;  // param
+    let _3: Int64;
+    let _4: Void;
+
+    bb0: {
+        _3 = from(truncating:)(copy (*_1) as Int64);
+        _4 = call hasher_write_wide(h: &var Hasher, n: Int64) (owner Hasher) [copy _2, move _3] -> [return: bb1]; => #17
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #9: member glue Hashable.hash(h: &var Hasher) on Int  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &Int;  // param
+    let _2: &var Hasher;  // param
+    let _3: Int64;
+    let _4: Void;
+
+    bb0: {
+        _3 = from(truncating:)(copy (*_1) as Int64);
+        _4 = call hasher_write_wide(h: &var Hasher, n: Int64) (owner Hasher) [copy _2, move _3] -> [return: bb1]; => #17
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #10: member glue Hashable.hash(h: &var Hasher) on Float  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &Float;  // param
+    let _2: &var Hasher;  // param
+    let _3: Int64;
+    let _4: Bool;
+    let _5: UnsafePointer<Int64>;
+    let _6: Void;
+
+    bb0: {
+        _4 = Eq(copy (*_1), const 0.0: Float);
+        switch move _4 -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _3 = const 0: Int64;
+        goto -> bb3;
+    }
+
+    bb2: {
+        _5 = cast(copy _1 as UnsafePointer<Int64>);
+        _3 = copy (*_5);
+        goto -> bb3;
+    }
+
+    bb3: {
+        _6 = call hasher_write_wide(h: &var Hasher, n: Int64) (owner Hasher) [copy _2, move _3] -> [return: bb4]; => #17
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+item #11: member glue Hashable.hash(h: &var Hasher) on hash_feed.Wide  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &hash_feed.Wide;  // param
+    let _2: &var Hasher;  // param
+    let _3: UInt64;
+    let _4: Int64;
+    let _5: Void;
+
+    bb0: {
+        _3 = cast(copy (*_1) as UInt64);
+        _4 = from(truncating:)(move _3 as Int64);
+        _5 = call hasher_write_wide(h: &var Hasher, n: Int64) (owner Hasher) [copy _2, move _4] -> [return: bb2]; => #17
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+}
+
+item #12: Hasher.finish()  (from #0)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Hasher;  // self
+    let _2: UInt64;  // z
+    let _3: UInt64;
+    let _4: UInt64;
+    let _5: UInt64;
+    let _6: UInt64;
+    let _7: UInt64;
+    let _8: UInt64;
+    let _9: UInt64;
+    let _10: UInt64;
+    let _11: UInt64;
+    let _12: UInt64;
+    let _13: UInt64;
+    let _14: UInt64;
+    let _15: Int;
+
+    bb0: {
+        _3 = from(truncating:)(copy (*_1).state as UInt64);
+        _2 = move _3;
+        _4 = copy _2;
+        _5 = Shr(copy _2, const 30: Int);
+        _6 = BitXor(move _4, move _5);
+        _7 = MulWrapping(move _6, const 0xBF58_476D_1CE4_E5B9: UInt64);
+        _2 = move _7;
+        _8 = copy _2;
+        _9 = Shr(copy _2, const 27: Int);
+        _10 = BitXor(move _8, move _9);
+        _11 = MulWrapping(move _10, const 0x94D0_49BB_1331_11EB: UInt64);
+        _2 = move _11;
+        _12 = copy _2;
+        _13 = Shr(copy _2, const 31: Int);
+        _14 = BitXor(move _12, move _13);
+        _15 = from(truncating:)(move _14 as Int);
+        _0 = move _15;
+        return;
+    }
+}
+
+item #13: Atomic.load() args Int  (from #1)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Atomic<Int>;  // self
+    let _2: &Atomic<Int>;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #18
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #14: extern __saw_rt_panic  (from #1)
+
+item #15: Atomic.compare_exchange(expected: Int, desired: Int) args Int  (from #1)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &Atomic<Int>;  // self
+    let _2: Int;  // param expected
+    let _3: Int;  // param desired
+    let _4: &Atomic<Int>;
+    let _5: Bool;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #19
+    }
+
+    bb1: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #16: std.string.String.len()  (from #4)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _4 = copy static std.string.LENGTH_SLOT;
+        _0 = copy _2[_4];
+        return;
+    }
+}
+
+item #17: hasher_write_wide(h: &var Hasher, n: Int64)  (from #6)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var Hasher;  // param h
+    let _2: Int64;  // param n
+    let _3: UInt64;  // m
+    let _4: Int64;
+    let _5: UInt64;
+    let _6: UInt64;
+    let _7: UInt64;
+    let _8: UInt64;
+    let _9: UInt64;
+    let _10: Int64;
+
+    bb0: {
+        _4 = BitXor(copy (*_1).state, copy _2);
+        _5 = from(truncating:)(move _4 as UInt64);
+        _6 = MulWrapping(move _5, const 0x0000_0100_0000_01B3: UInt64);
+        _3 = move _6;
+        _7 = copy _3;
+        _8 = Shr(copy _3, const 32: Int);
+        _9 = BitXor(move _7, move _8);
+        _10 = from(truncating:)(move _9 as Int64);
+        (*_1).state = move _10;
+        return;
+    }
+}
+
+item #18: atomic_load_word(a: &Atomic<T>) inst Int  (from #13)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Atomic<Int>;  // param a
+    let _2: &UnsafeMutableInterior<Int>;
+    let _3: UnsafePointer<Int>;
+    let _4: UnsafePointer<Int>;
+    let _5: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).value);
+        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #20
+    }
+
+    bb1: {
+        _4 = cast(move _3 as UnsafePointer<Int>);
+        _5 = call builtin __saw_atomic_load_i64_seq_cst [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #19: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #15)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &Atomic<Int>;  // param a
+    let _2: Int;  // param expected
+    let _3: Int;  // param desired
+    let _4: &UnsafeMutableInterior<Int>;
+    let _5: UnsafePointer<Int>;
+    let _6: UnsafePointer<Int>;
+    let _7: Bool;
+
+    bb0: {
+        _4 = ref(shared, (*_1).value);
+        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #20
+    }
+
+    bb1: {
+        _6 = cast(move _5 as UnsafePointer<Int>);
+        _7 = call builtin __saw_atomic_cmpxchg_i64_seq_cst [move _6, copy _2, copy _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _7;
+        return;
+    }
+}
+
+item #20: UnsafeMutableInterior.ptr() args Int  (from #18)
+fn -> UnsafePointer<Int> {
+    let _0: UnsafePointer<Int>;  // return
+    let _1: &UnsafeMutableInterior<Int>;  // self
+    let _2: &Int;
+    let _3: UnsafePointer<Int>;
+
+    bb0: {
+        _2 = ref(shared, (*_1).value);
+        _3 = cast(move _2 as UnsafePointer<Int>);
+        _0 = move _3;
+        return;
+    }
+}

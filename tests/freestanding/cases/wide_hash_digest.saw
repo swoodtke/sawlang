@@ -1,0 +1,115 @@
+// A hash digest is the same on every target: each integer and Float feeds the hasher as
+// its 64-bit value, so an `Int64` on riscv32 hashes as it does on arm64, where
+// the word already is 64 bits, and the arm64 run is the control. `finish`
+// returns an `Int`, so a 32-bit target's digest is the low word of a 64-bit
+// target's, and each line prints that low word.
+//
+// The expected lines are the host's digests of the same values, low 32 bits.
+
+import fscore.*
+
+struct Pair { a: Int64, b: Int32 }
+
+@synthesize
+extension Pair: Equatable {}
+
+@synthesize
+extension Pair: Hashable {}
+
+enum Wide: UInt64 {
+    case Low = 0x5678,
+    case High = 0x1_0000_5678
+}
+
+@synthesize
+extension Wide: Equatable {}
+
+@synthesize
+extension Wide: Hashable {}
+
+func float_of(bits: UInt64) unsafe -> Float {
+    Float.from(bits: bits)
+}
+
+func digest_of<T: Hashable>(v: T) -> UInt32 {
+    var h = Hasher()
+    v.hash(&var h)
+    UInt32.from(truncating: h.finish())
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    let a: Int64 = 0x5678
+    let b: Int64 = 0x5678 + 4_294_967_296
+    let c: UInt64 = 0x1_0000_5678
+    let e: Int64 = -1
+    let f: Int32 = 0x5678
+    let g: UInt16 = 0x5678
+    let i: Int = 0x5678
+    let n32: Int32 = -1
+    let u32: UInt32 = 0xFFFF_FFFF
+    print("fs value i64_5678={}", digest_of(a))
+    print("fs value i64_5678_high={}", digest_of(b))
+    print("fs value u64_high={}", digest_of(c))
+    print("fs value i64_minus_one={}", digest_of(e))
+    print("fs value i32_5678={}", digest_of(f))
+    print("fs value u16_5678={}", digest_of(g))
+    print("fs value int_5678={}", digest_of(i))
+    print("fs value i32_minus_one={}", digest_of(n32))
+    print("fs value u32_max={}", digest_of(u32))
+    let p = Pair(a: 0x1_0000_5678, b: 7)
+    print("fs value struct={}", digest_of(p))
+    let t: (UInt64, UInt64) = (0x1_0000_0001, 2)
+    print("fs value tuple={}", digest_of(t))
+    let o: UInt64? = 0x1_0000_0001
+    print("fs value optional={}", digest_of(o))
+    let arr: [UInt64; 2] = [0x1_0000_0001, 5]
+    print("fs value array={}", digest_of(arr))
+
+    print("fs value float_one={}", digest_of(float_of(0x3FF0_0000_0000_0000)))
+    print("fs value float_neg_zero={}", digest_of(float_of(0x8000_0000_0000_0000)))
+    print("fs value float_zero={}", digest_of(float_of(0)))
+    print("fs value float_nan={}", digest_of(float_of(0x7FF8_0000_0000_0000)))
+    print("fs value float_max={}", digest_of(float_of(0x7FEF_FFFF_FFFF_FFFF)))
+    print("fs value float_low_a={}", digest_of(float_of(0x3FF0_0000_0000_0001)))
+    print("fs value float_low_b={}", digest_of(float_of(0x4000_0000_0000_0001)))
+    let pair: (Float, Float) = (float_of(0x3FF0_0000_0000_0001), float_of(0x4000_0000_0000_0001))
+    print("fs value float_tuple={}", digest_of(pair))
+    let maybe: Float? = float_of(0x4000_0000_0000_0001)
+    print("fs value float_optional={}", digest_of(maybe))
+    let floats: [Float; 2] = [float_of(0x3FF0_0000_0000_0001), float_of(0x8000_0000_0000_0000)]
+    print("fs value float_array={}", digest_of(floats))
+    check("float_low_word_pair_distinct", digest_of(float_of(0x3FF0_0000_0000_0001)) != digest_of(float_of(0x4000_0000_0000_0001)))
+
+    print("fs value enum_low={}", digest_of(Wide.Low))
+    print("fs value enum_high={}", digest_of(Wide.High))
+    check("enum_low_matches_raw", digest_of(Wide.Low) == digest_of(0x5678u64))
+    check("enum_high_matches_raw", digest_of(Wide.High) == digest_of(0x1_0000_5678u64))
+    check("enum_cases_distinct", digest_of(Wide.Low) != digest_of(Wide.High))
+
+    var digests: [Int; 1000] = [0; 1000]
+    var distinct = 0
+    var k = 0
+    while k < 1000 {
+        let key: Int64 = 0x5678 + ((k as Int64) << 32)
+        var h = Hasher()
+        key.hash(&var h)
+        let digest = h.finish()
+        var j = 0
+        var fresh = true
+        while j < k {
+            if digests[j] == digest {
+                fresh = false
+            }
+            j = j + 1
+        }
+        if fresh {
+            distinct = distinct + 1
+        }
+        digests[k] = digest
+        k = k + 1
+    }
+    check_value("high_word_keys_distinct", distinct, 1000)
+
+    finish("wide_hash_digest")
+}

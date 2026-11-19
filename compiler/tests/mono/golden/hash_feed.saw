@@ -1,0 +1,25 @@
+// Every integer's `hash` feeds the hasher its 64-bit value through one step,
+// whatever the target's word: an `Int64` as it is, an `Int32` zero-extended
+// from its own width, a `UInt64` reinterpreted, and the platform `Int`
+// widened; a `Float` goes in as its 64-bit pattern, with `-0.0` as `0.0`; a raw-backed enum, its raw value.
+// The riscv32 record is the 32-bit word's feed of the same values.
+enum Wide: UInt64 {
+    case Low = 0x5678,
+    case High = 0x1_0000_5678
+}
+
+func main() {
+    let ratio = 1.5
+    var h = Hasher()
+    let wide: Int64 = 0x1_0000_5678
+    let narrow: Int32 = -1
+    let unsigned: UInt64 = 0xFFFF_FFFF_FFFF_FFFF
+    let word = 0x5678
+    wide.hash(&var h)
+    narrow.hash(&var h)
+    unsigned.hash(&var h)
+    word.hash(&var h)
+    ratio.hash(&var h)
+    Wide.High.hash(&var h)
+    print("{}", h.finish())
+}

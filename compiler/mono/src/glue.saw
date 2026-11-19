@@ -798,11 +798,12 @@ extension MonoProgram {
         self.dp.bc.mir.goto(join)
     }
 
-    // `hash(h:)`: the value's bits fed to the hasher's `write_int(n:)` as an
-    // `Int`, a narrow value zero-extended whatever its sign, a Bool as 1 or 0,
-    // a Float as `float_word` reads it, which are the words Stage 0 feeds,
-    // and an address as its unsigned word. `Void` feeds nothing: its one
-    // value has nothing to tell apart.
+    // `hash(h:)`: an integer fed to the prelude's `hasher_write_wide(h:n:)`
+    // as its 64-bit value (`hash_value`), so a digest is the same on every
+    // target; a Float as `float_word` reads it, also through
+    // `hasher_write_wide`; a Bool as 1 or 0 and an address as its unsigned
+    // word go through `write_int(n:)`. `Void` feeds nothing: its one value
+    // has nothing to tell apart.
     func build_scalar_hash(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
@@ -817,27 +818,28 @@ extension MonoProgram {
         let hasher = self.dp.bc.mir.tc.referent(into)
         let word_type = self.dp.bc.mir.tc.int_type()
         let write = self.glue_member(hasher, "write_int", "n", word_type)
-        if write < 0 {
-            self.refuse(-1, "mono.not-yet", "a scalar's `Hashable.hash` with no `write_int(n:)` on the hasher")
+        let write_wide = self.dp.bc.mir.tc.top_decl(self.dp.bc.mir.tc.res.std_prelude, "hasher_write_wide")
+        if write < 0 || write_wide < 0 {
+            self.refuse(-1, "mono.not-yet", "a scalar's `Hashable.hash` with no `write_int(n:)` and the prelude's `hasher_write_wide`")
             self.dp.bc.mir.ret()
             self.finish_glue(k, f)
             return
         }
         var value = -1
+        var step = write
         if self.dp.bc.mir.tc.is_bool(t) {
             value = self.bool_word(t)
         } else if self.dp.bc.mir.tc.is_float(t) {
             value = self.float_word(t)
+            step = write_wide
         } else if self.glue_kind(t) == MonoGlueKind.Pointer {
-            let uint_decl = self.dp.bc.mir.tc.known.uint
-            let uint_type = self.dp.bc.mir.tc.prim(uint_decl)
-            let address = self.address_word(t)
-            value = self.hash_word(address, uint_type)
+            value = self.to_int(self.address_word(t), "from(truncating:)")
         } else {
             let bits = self.referent_copy(1, t)
-            value = self.hash_word(bits, t)
+            value = self.hash_value(bits, t)
+            step = write_wide
         }
-        let _ = self.call_member(write, hasher, value)
+        let _ = self.call_member(step, hasher, value)
         self.dp.bc.mir.ret()
         self.finish_glue(k, f)
     }
@@ -862,18 +864,18 @@ extension MonoProgram {
         let join = self.dp.bc.mir.new_block()
         let flag = self.referent_copy(1, t)
         self.dp.bc.mir.switch_bool(flag, yes, no)
-        self.set_word(yes, word, "1", join)
-        self.set_word(no, word, "0", join)
+        self.set_word(yes, word, "1", join, int_type)
+        self.set_word(no, word, "0", join, int_type)
         self.dp.bc.mir.enter(join)
         self.dp.bc.mir.move_local(word)
     }
 
-    // `(*_1)`, a Float, as an `Int`: 0 when it equals `0.0`, so `-0.0`
-    // hashes as `0.0` does, else its bits, a NaN's unnormalized. The bits are
-    // read through the address `_1` already holds, as `to_bits` reads them,
-    // so the word needs no conversion the backend lacks.
+    // `(*_1)`, a Float, as an `Int64`: 0 when it equals `0.0`, so `-0.0`
+    // hashes as `0.0` does, else its 64 bits, a NaN's unnormalized. The bits
+    // are read through the address `_1` already holds, as `to_bits` reads
+    // them, so the word needs no conversion the backend lacks.
     func float_word(&var self, t: Int) -> Int {
-        let int_type = self.dp.bc.mir.tc.int_type()
+        let int_type = self.wide_type()
         let bool_type = self.dp.bc.mir.tc.bool_type()
         let word = self.dp.bc.mir.new_temp(int_type)
         let zero = self.dp.bc.mir.new_block()
@@ -886,7 +888,7 @@ extension MonoProgram {
         let is_zero = self.dp.bc.mir.temp_of(rv)
         let is_zero_op = self.dp.bc.mir.move_local(is_zero)
         self.dp.bc.mir.switch_bool(is_zero_op, zero, bits)
-        self.set_word(zero, word, "0", join)
+        self.set_word(zero, word, "0", join, int_type)
         self.dp.bc.mir.enter(bits)
         var targs = Vector<Int>()
         try! targs.push(int_type)
@@ -905,32 +907,39 @@ extension MonoProgram {
         self.dp.bc.mir.move_local(word)
     }
 
-    // Block `b`: `Int` local `word` is `text`, then `join`.
-    func set_word(&var self, b: Int, word: Int, text: String, join: Int) {
+    // Block `b`: local `word`, of integer type `word_type`, is `text`, then
+    // `join`.
+    func set_word(&var self, b: Int, word: Int, text: String, join: Int, word_type: Int) {
         self.dp.bc.mir.enter(b)
-        let int_type = self.dp.bc.mir.tc.int_type()
-        let one = self.dp.bc.mir.op_const(MirConstKind.Int, text, int_type)
+        let one = self.dp.bc.mir.op_const(MirConstKind.Int, text, word_type)
         let rv = self.dp.bc.mir.rv_use(one)
         let p = self.dp.bc.mir.place_local(word)
         self.dp.bc.mir.assign(p, rv)
         self.dp.bc.mir.goto(join)
     }
 
-    // Operand `value`, an integer of type `t`, as the `Int` of its bits: a
-    // width of the target's word as it is, a wider one its low word (which
-    // equal values still share), a narrower one zero-extended.
-    func hash_word(&var self, value: Int, t: Int) -> Int {
-        let int_type = self.dp.bc.mir.tc.int_type()
-        if t == int_type {
+    // `Int64`, the type of every integer's hash feed.
+    func wide_type(&var self) -> Int {
+        let decl = self.dp.bc.mir.tc.known.int64
+        self.dp.bc.mir.tc.prim(decl)
+    }
+
+    // Operand `value`, an integer of type `t`, as the `Int64` the hasher's
+    // `hasher_write_wide` takes: its 64-bit value, whatever the target's word. A
+    // fixed width narrower than 64 bits is zero-extended from its own width,
+    // the platform `Int` is sign-extended, `UInt` is zero-extended and a
+    // 64-bit type is reinterpreted as it is.
+    func hash_value(&var self, value: Int, t: Int) -> Int {
+        let wide = self.wide_type()
+        if t == wide {
             return value
         }
         let width = self.dp.bc.mir.tc.int_width(t)
-        let word = self.dp.bc.mir.tc.target.word_bits
-        if width > word || (self.dp.bc.mir.tc.is_unsigned(t) && width == word) {
-            return self.to_int(value, "from(truncating:)")
+        if width >= 64 {
+            return self.to_wide(value, "from(truncating:)")
         }
-        let widened = self.to_int(value, "")
-        if self.dp.bc.mir.tc.is_unsigned(t) || width == word {
+        let widened = self.to_wide(value, "")
+        if self.dp.bc.mir.tc.is_unsigned(t) || t == self.dp.bc.mir.tc.int_type() {
             return widened
         }
         var mask = "255"
@@ -941,10 +950,24 @@ extension MonoProgram {
         }
         var ops = Vector<Int>()
         try! ops.push(widened)
-        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, mask, int_type))
-        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, int_type, "&", &ops)
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, mask, wide))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, wide, "&", &ops)
         let low = self.dp.bc.mir.temp_of(rv)
         self.dp.bc.mir.move_local(low)
+    }
+
+    // Integer operand `value` as an `Int64`: the implicit widening when `word`
+    // is "", else the conversion `word` spells.
+    func to_wide(&var self, value: Int, word: String) -> Int {
+        let wide = self.wide_type()
+        var rv = -1
+        if word.len() == 0 {
+            rv = self.dp.bc.mir.rv_one(MirRvalueKind.Widen, wide, "", value)
+        } else {
+            rv = self.dp.bc.mir.rv_one(MirRvalueKind.Conversion, wide, word, value)
+        }
+        let l = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.move_local(l)
     }
 
     // Integer operand `value` as an `Int`: the implicit widening when `word`
@@ -1575,8 +1598,9 @@ extension MonoProgram {
             let hasher = self.dp.bc.mir.tc.referent(into)
             let word_type = self.dp.bc.mir.tc.int_type()
             let write = self.glue_member(hasher, "write_int", "n", word_type)
-            if write < 0 {
-                self.refuse(-1, "mono.not-yet", "an enum's `Hashable.hash` with no `write_int(n:)` on the hasher")
+            let write_wide = self.dp.bc.mir.tc.top_decl(self.dp.bc.mir.tc.res.std_prelude, "hasher_write_wide")
+            if write < 0 || write_wide < 0 {
+                self.refuse(-1, "mono.not-yet", "an enum's `Hashable.hash` with no `write_int(n:)` and the prelude's `hasher_write_wide`")
                 self.dp.bc.mir.ret()
                 self.finish_glue(k, f)
                 return
@@ -1586,8 +1610,8 @@ extension MonoProgram {
             if backing >= 0 {
                 let x = self.cast_word(1, t, backing)
                 let bits = self.dp.bc.mir.move_local(x)
-                let word = self.hash_word(bits, backing)
-                let _ = self.call_member(write, hasher, word)
+                let word = self.hash_value(bits, backing)
+                let _ = self.call_member(write_wide, hasher, word)
                 self.dp.bc.mir.goto(done)
             } else {
                 let int_type = self.dp.bc.mir.tc.int_type()
@@ -1774,7 +1798,7 @@ extension MonoProgram {
         while j < cases.len() {
             var text = StringBuilder()
             try! text.append(j)
-            self.set_word(arms[j], word, text.build(), join)
+            self.set_word(arms[j], word, text.build(), join, self.dp.bc.mir.tc.int_type())
             j = j + 1
         }
         self.dp.bc.mir.enter(join)
