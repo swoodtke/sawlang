@@ -294,22 +294,26 @@ extension ResProgram {
     }
 
     // A field's own tier: its type's, narrowed by `private` or given by a
-    // written visibility (design 258).
+    // written visibility. The one reader of a field's modifier; a leading Doc
+    // node is not a leaf, so the first leaf is `private` or the name, whatever
+    // trivia precedes it (design 258).
     func field_visibility(&var self, f: Int, inherited: ResVis) -> ResVis {
         let written = self.visibility_of(f)
         if written != ResVis.Private {
             return written
         }
+        let name = self.field_name_leaf(f)
         let n = self.child_count(f)
-        if n >= 3 {
-            let first = self.child(f, 0)
-            if self.is_leaf(first) {
-                let m = self.current
-                let word = self.text_of(m, first)
-                if word.equals("private") {
+        var k = 0
+        while k < n {
+            let c = self.child(f, k)
+            if self.is_leaf(c) {
+                if c != name && self.text_of(self.current, c).equals("private") {
                     return ResVis.Private
                 }
+                break
             }
+            k = k + 1
         }
         inherited
     }

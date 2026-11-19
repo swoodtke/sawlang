@@ -1,0 +1,88 @@
+(Module main
+  (declarations
+    (func main 3:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views
+    (lib.Ledger shown shared reveal)
+    (lib.Named private)
+    (lib.NamedDoc private))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 3:6
+      (4:9-4:10 BindingName lib.Ledger place temp)
+      (4:13-4:23 Call.paren lib.Ledger value temp (call lib.open()))
+      (5:5-5:12 Member Int place write)
+      (5:5-5:6 Name lib.Ledger place project)
+      (5:15-5:16 IntLit Int value temp)
+      (6:5-6:13 Member Int place write)
+      (6:5-6:6 Name lib.Ledger place project)
+      (6:16-6:17 IntLit Int value temp)
+      (7:5-7:43 Call.paren Void value temp (builtin print))
+      (7:11-7:42 Binary Int value borrow (op + +))
+      (7:11-7:18 Member Int place copy)
+      (7:11-7:12 Name lib.Ledger place project)
+      (7:21-7:29 Member Int place copy)
+      (7:21-7:22 Name lib.Ledger place project)
+      (7:32-7:42 Call.paren Int value temp (call lib.Ledger.reveal() (owner lib.Ledger)))
+      (7:32-7:33 Name lib.Ledger (borrow &lib.Ledger) place borrow)
+      (8:9-8:10 BindingName lib.Named place temp)
+      (8:13-8:24 Call.paren lib.Named value temp (call lib.named()))
+      (9:9-9:10 BindingName lib.NamedDoc place temp)
+      (9:13-9:28 Call.paren lib.NamedDoc value temp (call lib.named_doc()))
+      (10:5-10:33 Call.paren Void value temp (builtin print))
+      (10:11-10:32 Binary Int value borrow (op +))
+      (10:11-10:20 Member Int place copy)
+      (10:11-10:12 Name lib.Named place project)
+      (10:23-10:32 Member Int place copy)
+      (10:23-10:24 Name lib.NamedDoc place project))))
+
+(Module lib
+  (declarations
+    (struct Ledger 5:15 public)
+    (field Ledger.shown 7:12 public Int)
+    (field Ledger.shared 9:21 package Int)
+    (field Ledger.secret 11:13 private Int)
+    (func open 14:13 public (signature (params) -> lib.Ledger) (summary body (suspends no) (sync-callable yes)))
+    (extension 18:1 (target lib.Ledger))
+    (method Ledger.reveal 19:17 public (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (struct Named 25:15 public)
+    (field Named.private 26:5 public Int)
+    (struct NamedDoc 29:15 public)
+    (field NamedDoc.private 31:5 public Int)
+    (func named 34:13 public (signature (params) -> lib.Named) (summary body (suspends no) (sync-callable yes)))
+    (func named_doc 38:13 public (signature (params) -> lib.NamedDoc) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (lib.Ledger
+      (field shown Int public declared)
+      (field shared Int package declared)
+      (field secret Int private declared)
+      (method reveal public (extension lib)))
+    (lib.Named
+      (field private Int public declared))
+    (lib.NamedDoc
+      (field private Int public declared)))
+  (views
+    (lib.Ledger shown shared secret reveal)
+    (lib.Named private)
+    (lib.NamedDoc private))
+  (conformances)
+  (copy-tier
+    (lib.Ledger Copy)
+    (lib.Named Copy)
+    (lib.NamedDoc Copy))
+  (bodies
+    (open 14:13
+      (15:5-15:43 Call.paren lib.Ledger value temp (memberwise lib.Ledger (owner lib.Ledger)))
+      (15:19-15:20 IntLit Int value temp)
+      (15:30-15:31 IntLit Int value temp)
+      (15:41-15:42 IntLit Int value temp))
+    (Ledger.reveal 19:17
+      (20:9-20:20 Member Int place copy)
+      (20:9-20:13 SelfExpr lib.Ledger place project))
+    (named 34:13
+      (35:5-35:22 Call.paren lib.Named value temp (memberwise lib.Named (owner lib.Named)))
+      (35:20-35:21 IntLit Int value temp))
+    (named_doc 38:13
+      (39:5-39:25 Call.paren lib.NamedDoc value temp (memberwise lib.NamedDoc (owner lib.NamedDoc)))
+      (39:23-39:24 IntLit Int value temp))))

@@ -1,0 +1,11 @@
+// The register block another module touches.
+
+public struct Secret {
+    /// The caller's identity; only this module may set it.
+    private owner: Int
+    public shown: Int
+}
+
+public func make() -> Secret {
+    Secret(owner: 1, shown: 2)
+}

@@ -1,0 +1,10 @@
+// refuses: member.unknown at 9:7
+// a private field under a `///` doc comment is as invisible to another
+// module as one under none: a write is refused
+
+import lib
+
+func main() {
+    var s = lib.make()
+    s.owner = 99
+}

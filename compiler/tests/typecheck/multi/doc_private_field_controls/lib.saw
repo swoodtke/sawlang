@@ -1,0 +1,40 @@
+// A doc comment above a field never changes its tier: public and
+// public(package) fields stay reachable from a sibling file, a private one
+// stays this module's own.
+
+public struct Ledger {
+    /// Readable and writable anywhere.
+    public shown: Int
+    /// Reachable from files of this package.
+    public(package) shared: Int
+    /// This module only.
+    private secret: Int
+}
+
+public func open() -> Ledger {
+    Ledger(shown: 1, shared: 2, secret: 3)
+}
+
+extension Ledger {
+    public func reveal(&self) -> Int {
+        self.secret
+    }
+}
+
+// A field NAMED `private` carries no modifier: it keeps its struct's tier.
+public struct Named {
+    private: Int
+}
+
+public struct NamedDoc {
+    /// Still a name, not a modifier.
+    private: Int
+}
+
+public func named() -> Named {
+    Named(private: 7)
+}
+
+public func named_doc() -> NamedDoc {
+    NamedDoc(private: 8)
+}

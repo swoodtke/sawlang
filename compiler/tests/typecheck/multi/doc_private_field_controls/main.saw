@@ -1,0 +1,11 @@
+import lib
+
+func main() {
+    var l = lib.open()
+    l.shown = 5
+    l.shared = 6
+    print(l.shown + l.shared + l.reveal())
+    let n = lib.named()
+    let d = lib.named_doc()
+    print(n.private + d.private)
+}

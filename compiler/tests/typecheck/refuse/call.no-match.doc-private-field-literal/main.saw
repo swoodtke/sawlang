@@ -1,0 +1,10 @@
+// refuses: call.no-match at 8:13
+// a memberwise literal naming a private field under a `///` doc comment is
+// refused outside its module
+
+import lib
+
+func main() {
+    let s = lib.Secret(owner: 1, shown: 2)
+    print(s.shown)
+}
