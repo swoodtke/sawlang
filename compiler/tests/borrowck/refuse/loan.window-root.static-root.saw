@@ -1,0 +1,30 @@
+// refuses: loan.window-root at 25:24
+// a root call on one field, opened inside the window of a root call on the
+// whole static: the window charges `BOOT`, so the field overlaps it, shared
+// window or exclusive (SL-1156)
+
+struct System { n: Int }
+
+struct Boot {
+    system: System?
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func whole() unsafe borrows(BOOT) -> &Boot {
+    lend BOOT
+}
+
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func main() {
+    borrow let w = whole() {
+        borrow var c = count_slot() {
+            c = 2
+        }
+        print("{}", w.count)
+    }
+}

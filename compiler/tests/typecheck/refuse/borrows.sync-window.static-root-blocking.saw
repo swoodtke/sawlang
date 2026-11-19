@@ -1,0 +1,29 @@
+// refuses: borrows.sync-window at 22:17
+// a blocking call inside the block of a window on an exclusive static root: a
+// blocking extern offloads and suspends, which `borrows(sync, ROOT)` forbids
+// a window to span (SL-1156)
+
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func bump() {
+    borrow var c = count_slot() {
+        let _ = usleep(1)
+        c += 1
+    }
+}
+
+func main() {
+    bump()
+}

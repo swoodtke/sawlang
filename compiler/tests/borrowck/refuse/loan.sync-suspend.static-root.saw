@@ -1,0 +1,29 @@
+// refuses: loan.sync-suspend at 28:28
+// an exclusive window on a static root held across a suspension point: the
+// window a `borrow var` argument opens stays open while a later argument
+// suspends; typecheck's `borrows.sync-window` refuses the block form (SL-1156)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func slow() -> Int {
+    yield_now()
+    1
+}
+
+func add(n: &var Int, k: Int) {
+    n += k
+}
+
+func main() {
+    add(&var count_slot(), slow())
+}

@@ -81,6 +81,7 @@ PROBE_PATTERNS = (
     "lent_optional_*.saw",
     "serialize_library_*.saw",
     "serialize_derived_*.saw",
+    "lend_static_root*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

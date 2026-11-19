@@ -114,30 +114,6 @@ extension TcProgram {
         self.check_entry_root()
         self.check_blocking_declarations(&layer)
         self.check_function_values(&layer)
-        self.check_root_calls(&layer)
-    }
-
-    // A call of a `borrows(ROOT)` function: its window charges the root, which
-    // the call sites do not lower yet, so it is refused rather than read as a
-    // plain `borrows` call (SL-1156).
-    func check_root_calls(&var self, layer: &FrontLayer) {
-        var k = layer.tc_call_first
-        while k < self.calls.len() {
-            let c = self.calls[k]
-            k = k + 1
-            if c.role == TcRole.Value || c.target < 0 || self.sigs[c.target].root_decl < 0 {
-                continue
-            }
-            let m = self.node_module(c.node)
-            if m < 0 {
-                continue
-            }
-            var msg = StringBuilder()
-            try! msg.append("a call of `")
-            try! msg.append(self.res.decl_path(c.target))
-            try! msg.append("`, which declares `borrows(ROOT)`, is not in the bootstrap slice yet: its window charges the root, and the call sites do not lower that yet")
-            self.refuse_in(m, c.node, "slice.not-yet", msg.build())
-        }
     }
 
     // Each named function taken as a function value (`function_value`), once

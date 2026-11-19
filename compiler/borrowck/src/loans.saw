@@ -894,10 +894,18 @@ extension BorrowckProgram {
             if block.term == MirTermKind.Call {
                 let c = self.mir.calls[block.call]
                 if c.kind == MirCallKind.WindowOpen && c.window >= 0 && c.window < info.window_count {
-                    let r = self.receiver_place(f, block.call, &facts)
-                    if r >= 0 {
-                        let path = self.path_of(r, &var facts)
+                    // A root function has no receiver: its first argument, if
+                    // any, is an ordinary parameter, not the window's root.
+                    let accessor = self.mir.windows[info.window_first + c.window].accessor
+                    if accessor >= 0 && self.mir.tc.sigs[accessor].root_decl >= 0 {
+                        let path = self.declared_root_path(accessor, &var facts)
                         facts.window_path[c.window] = path
+                    } else {
+                        let r = self.receiver_place(f, block.call, &facts)
+                        if r >= 0 {
+                            let path = self.path_of(r, &var facts)
+                            facts.window_path[c.window] = path
+                        }
                     }
                 }
             }
@@ -928,6 +936,20 @@ extension BorrowckProgram {
                 try! work.push(outer)
             }
         }
+    }
+
+    // The static path root function `accessor` declares, `BOOT.system`: the
+    // storage a window on it holds, since no receiver names one (SL-1156).
+    func declared_root_path(&self, accessor: Int, facts: &var BorrowckLoans) -> BorrowckPath {
+        let s = self.mir.tc.sigs[accessor]
+        let first = facts.projs.len()
+        var k = 0
+        while k < s.root_count {
+            let field = self.mir.tc.root_fields[s.root_first + k]
+            try! facts.projs.push(MirProj(kind: MirProjKind.Field, decl: field, index: -1, ty: self.mir.tc.sigs[field].result))
+            k = k + 1
+        }
+        BorrowckPath(local: -1, static_decl: s.root_decl, first: first, count: s.root_count)
     }
 
     // The window whose lent place window `w` borrows its receiver through,

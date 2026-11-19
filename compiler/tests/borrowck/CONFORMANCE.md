@@ -385,13 +385,13 @@ INDEX.md, or when an owner is not one of the words below.
 | P31 | U6d2 | `loan.window-root` with the trap's text: `compiler/tests/borrowck/refuse/loan.window-root.if-let-block.saw` |
 | P32 | typecheck | `borrows.redundant-prefix` and the kept prefixes: `compiler/tests/typecheck/warn/kept.saw` |
 | P33 | typecheck | `mutability.immutable` through the slice accessor's shared twin (SL-988): `compiler/tests/typecheck/refuse/mutability.immutable.slice-twin-let-root.saw` and `mutability.immutable.slice-twin-shared-param.saw`; both halves, the run probe `compiler/tests/run/probes/range_view_accessor.saw` |
-| P34 | SL-1156 | the callee's `lendable_root` accepts the declared root: `compiler/tests/borrowck/golden/static_roots.saw`; the run probe waits on the caller unit of SL-1156 |
+| P34 | U6d2 | the callee's `lendable_root` accepts the declared root, golden `compiler/tests/borrowck/golden/static_roots.saw`, and the caller's window, run probe `compiler/tests/run/probes/lend_static_root.saw` |
 | P35 | U6d2 | `lend.root` outside the declared root: `compiler/tests/borrowck/refuse/lend.root.outside-declared-root.saw`, `.local.saw` and `.parameter.saw`, beside the `lend.root.free-*` fixtures; a sibling field or the bare static is refused earlier, by `compiler/tests/typecheck/refuse/borrows.root-named-outside.sibling-path.saw` |
 | P36 | typecheck | the declaration rules: `compiler/tests/typecheck/refuse/borrows.root-public.saw`, `borrows.root-not-static.parameter.saw`, `borrows.root-not-static.function.saw`, `member.unknown.borrows-root.saw`, `borrows.root-with-receiver.saw` and `borrows.root-requirement.saw` |
 | P37 | typecheck | `borrows.root-named-outside`: `compiler/tests/typecheck/refuse/borrows.root-named-outside.saw` and its `.closure`, `.static-init`, `.static-assert`, `.length`, `.repeat`, `.generic-argument`, `.default`, `.test` and `.sibling-path` variants; the legal bodies, golden `compiler/tests/typecheck/golden/borrows_root_naming.saw` |
 | P38 | typecheck | `mutability.immutable` under a declared root: `compiler/tests/typecheck/refuse/mutability.immutable.shared-root-body.saw` and `mutability.immutable.plain-static-root.saw` |
-| P39 | SL-1156 | the receiver-less window's static path; a later unit of SL-1156 builds it |
+| P39 | U6d2 | the receiver-less window charges the root's static path: `compiler/tests/borrowck/refuse/loan.window-root.static-root.saw` and `loan.window-root.static-root-whole-over-field.saw`; disjoint field roots and shared windows coexist in golden `static_roots.saw` |
 | P40 | SL-1156 | the call summary; a later unit of SL-1156 builds it |
-| P41 | SL-1156 | typecheck's declaration rule and the `borrows(sync)` fence; a later unit of SL-1156 builds it |
-| P42 | SL-1156 | a shared window across a suspension; a later unit of SL-1156 builds it |
+| P41 | U6d2 | typecheck's declaration rule, and the `borrows(sync)` fences on a static root: `compiler/tests/borrowck/refuse/loan.sync-suspend.static-root.saw`, `compiler/tests/typecheck/refuse/borrows.sync-window.static-root.saw` and `borrows.sync-window.static-root-blocking.saw` |
+| P42 | §3.9 | a shared window on a static root spans a suspension in a task and a blocking call: run probe `compiler/tests/run/probes/lend_static_root_across_suspension.saw` |
 | P43 | typecheck | `effect.borrows-value`: `compiler/tests/typecheck/refuse/effect.borrows-value.saw` and `effect.borrows-value.sync.saw` |

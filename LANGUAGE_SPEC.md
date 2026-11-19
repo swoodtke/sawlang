@@ -5650,9 +5650,10 @@ pointer.
 #### Lending a static
 
 **Status: grammar and declaration rules landing (SL-1156). Built: the
-declaration rules, the naming rule and the callee's `lend`. Not built yet: the
-caller's window on the root and the call summary, so a call of a root function
-is still refused.** A function with no receiver may lend a module static if it
+declaration rules, the naming rule, the callee's `lend` and the caller's
+window, which charges the root. Not built yet: the call summary, so a callee
+that opens a window on the same root inside a caller's window goes
+unchecked.** A function with no receiver may lend a module static if it
 declares which one: `borrows(ROOT)` names the root, and `lend` may hand out a
 place under it.
 

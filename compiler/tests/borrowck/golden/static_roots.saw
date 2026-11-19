@@ -1,8 +1,9 @@
-// Root functions' prologues accepted: a `lend` rooted in the declared static,
-// a field path under it, a forced optional payload, a conditional lend, a
-// `static func`, a generic function and a body that suspends, each declaring
-// the root it lends. No call stands in this file, since the call sites of a
-// root function are not lowered yet (SL-1156).
+// Root functions' prologues and their callers' windows: a `lend` rooted in the
+// declared static, a field path under it, a forced optional payload, a
+// conditional lend, a `static func`, a generic function and a body that
+// suspends, each declaring the root it lends. A call of one opens a window
+// that charges the root's static path: shared for `-> &T`, exclusive for
+// `-> &var T`, so windows on disjoint fields coexist (SL-1156).
 import std.task.*
 
 struct System { n: Int }
@@ -45,12 +46,47 @@ func slow() unsafe borrows(BOOT.count) -> &Int {
     lend BOOT.count
 }
 
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
 extension Boot {
     static func count() unsafe borrows(BOOT.count) -> &Int {
         lend BOOT.count
     }
 }
 
+func disjoint() -> Int {
+    borrow let s = system() {
+        borrow var c = count_slot() {
+            borrow let d = depth() {
+                c = d + s.n
+            }
+        }
+        0
+    }
+}
+
+func shared_twice() -> Int {
+    borrow let w = whole() {
+        borrow let c = Boot.count() {
+            c + w.count
+        }
+    }
+}
+
+func conditional() -> Int {
+    borrow let m = maybe() {
+        if let x = m { x.n } else { 0 }
+    }
+}
+
+func generic() -> Int {
+    borrow let g = count_for(tag: 1) {
+        g
+    }
+}
+
 func main() {
-    print(1)
+    print(disjoint() + shared_twice() + conditional() + generic())
 }

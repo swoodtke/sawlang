@@ -1,0 +1,26 @@
+// refuses: borrows.sync-window at 24:14
+// a suspending call inside the block of a window on an exclusive static root,
+// which `borrows(sync, ROOT)` forbids a suspension to span (SL-1156)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func pause() -> Int {
+    yield_now()
+    1
+}
+
+func bump() {
+    borrow var c = count_slot() {
+        c += pause()
+    }
+}

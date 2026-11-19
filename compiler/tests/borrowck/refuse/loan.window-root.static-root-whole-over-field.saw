@@ -1,0 +1,30 @@
+// refuses: loan.window-root at 25:24
+// a second root call whose root is the whole static, opened inside the window
+// of a root call on one of its fields: the window charges `BOOT.system`, and
+// `BOOT` overlaps it in a conflicting mode (SL-1156)
+
+struct System { n: Int }
+
+struct Boot {
+    system: System?
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func system() unsafe borrows(BOOT.system) -> &System {
+    lend BOOT.system!
+}
+
+func main() {
+    borrow let s = system() {
+        borrow var b = boot_slot() {
+            b.count = 1
+        }
+        print("{}", s.n)
+    }
+}

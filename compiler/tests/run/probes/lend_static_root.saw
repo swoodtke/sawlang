@@ -1,0 +1,134 @@
+// probe: stated
+// about: a `borrows(ROOT)` function lends its declared static to a caller: a free function, a `static func`, a field root, a forced payload, a conditional lend present and absent, a generic and a forwarded window (SL-1156)
+// stage 0: refuses `borrows(ROOT)`, which is the self-hosted compiler's own form
+// speeds: -O0 -O2
+// leaks: none
+// prints: whole 7 3 11
+// prints: field 3
+// prints: depth 5
+// prints: forced 7
+// prints: present 7
+// prints: generic 3
+// prints: static func 3
+// prints: forward 7
+// prints: write 12
+// prints: noisy open
+// prints: noisy body 12
+// prints: noisy close
+// prints: after 12
+// prints: absent
+struct System {
+    n: Int
+}
+
+struct Pair {
+    depth: Int
+    width: Int
+}
+
+struct Boot {
+    system: System?
+    pair: Pair
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func whole() unsafe borrows(BOOT) -> &Boot {
+    lend BOOT
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func depth() unsafe borrows(BOOT.pair) -> &Int {
+    lend BOOT.pair.depth
+}
+
+func system() unsafe borrows(BOOT.system) -> &System {
+    lend BOOT.system!
+}
+
+func maybe() unsafe borrows(BOOT.system) -> &System? {
+    if BOOT.system.is_none() {
+        return None
+    }
+    lend BOOT.system!
+}
+
+func count_for<T>(tag: T) unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func forwarded() unsafe borrows(BOOT.system) -> &System {
+    lend system()
+}
+
+func noisy() unsafe borrows(BOOT.count) -> &Int {
+    print("noisy open")
+    lend BOOT.count
+    print("noisy close")
+}
+
+extension Boot {
+    static func count_of() unsafe borrows(BOOT.count) -> &Int {
+        lend BOOT.count
+    }
+}
+
+func main() {
+    boot_slot() = Boot(system: System(n: 7), pair: Pair(depth: 5, width: 6), count: 3)
+    borrow let b = whole() {
+        print("whole {} {} {}", b.system!.n, b.count, b.pair.depth + b.pair.width)
+    }
+    borrow let c = count() {
+        print("field {}", c)
+    }
+    borrow let d = depth() {
+        print("depth {}", d)
+    }
+    borrow let s = system() {
+        print("forced {}", s.n)
+    }
+    borrow let m = maybe() {
+        if let x = m {
+            print("present {}", x.n)
+        }
+    }
+    borrow let g = count_for(tag: "x") {
+        print("generic {}", g)
+    }
+    borrow let k = Boot.count_of() {
+        print("static func {}", k)
+    }
+    borrow let f = forwarded() {
+        print("forward {}", f.n)
+    }
+    borrow var w = count_slot() {
+        w = 12
+    }
+    borrow let w2 = count() {
+        print("write {}", w2)
+    }
+    borrow let n = noisy() {
+        print("noisy body {}", n)
+    }
+    print("after {}", count())
+    boot_slot().system = None
+    borrow let none = maybe() {
+        if let _ = none {
+            print("present again")
+        } else {
+            print("absent")
+        }
+    }
+}

@@ -1,0 +1,80 @@
+// probe: stated
+// about: a shared window on a static root spans a suspension in a spawned task and a blocking call, and the root's epilogue runs once; a root function whose body suspends is lent the same way (SL-1156)
+// stage 0: refuses `borrows(ROOT)`, which is the self-hosted compiler's own form
+// speeds: -O0 -O2
+// leaks: none
+// prints: task before 7
+// prints: sibling sees 7
+// prints: task after 7
+// prints: noted epilogue
+// prints: slow open
+// prints: slow body 7
+// prints: slow epilogue
+// prints: blocking 7
+// prints: noted epilogue
+// prints: done 7
+import std.task.{yield_now}
+
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+struct Boot {
+    value: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func value() unsafe borrows(BOOT.value) -> &Int {
+    lend BOOT.value
+}
+
+func noted() unsafe borrows(BOOT.value) -> &Int {
+    lend BOOT.value
+    print("noted epilogue")
+}
+
+func slow_value() unsafe borrows(BOOT.value) -> &Int {
+    print("slow open")
+    yield_now()
+    lend BOOT.value
+    print("slow epilogue")
+}
+
+func sibling() {
+    borrow let v = value() {
+        print("sibling sees {}", v)
+    }
+}
+
+func hold() {
+    borrow let v = noted() {
+        print("task before {}", v)
+        yield_now()
+        print("task after {}", v)
+    }
+}
+
+func block_inside() {
+    borrow let v = noted() {
+        let _ = usleep(10)
+        print("blocking {}", v)
+    }
+}
+
+func main() {
+    boot_slot() = Boot(value: 7)
+    let task = Task.spawn(hold())
+    let other = Task.spawn(sibling())
+    task.join()
+    other.join()
+    borrow let s = slow_value() {
+        print("slow body {}", s)
+    }
+    block_inside()
+    print("done {}", value())
+}
