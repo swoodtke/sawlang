@@ -118,6 +118,12 @@ public struct Package {
     // `sawc --no-hidden-alloc` does. A dependency's key is not read when it is
     // built as a dependency. Absent means false. (design 135)
     private no_hidden_alloc: Bool
+    // `max-task-frame = "64KiB"` sets the most bytes a task's frame may take
+    // in every compile of a build this package is the root of, as `sawc
+    // --max-task-frame=` does, in the flag's own spelling. A dependency's key
+    // is not read when it is built as a dependency. Absent, "", means the
+    // profile's default. (SL-1166)
+    private max_task_frame: String
 }
 
 public struct Manifest {
@@ -161,7 +167,32 @@ func read_package(doc: &TomlDoc, path: String) -> Result<Package, Box<any Error>
     let version = try in_manifest(path, doc.root().table("package")!.string("version"))
     let runtime = try in_manifest(path, doc.root().table("package")!.optional_boolean("runtime")) ?? false
     let no_hidden_alloc = try in_manifest(path, doc.root().table("package")!.optional_boolean("no-hidden-alloc")) ?? false
-    Package(name: name, version: version, runtime: runtime, no_hidden_alloc: no_hidden_alloc)
+    var max_task_frame = ""
+    if let given = try in_manifest(path, doc.root().table("package")!.optional_string("max-task-frame")) {
+        if not task_frame_spelling_ok(given) {
+            return ManifestError(msg: "{path}: `max-task-frame` in [package] is \"{given}\", which is not a size: write bytes, or a whole number then `KiB`, `MiB` or `GiB`, such as \"64KiB\"")
+        }
+        max_task_frame = given
+    }
+    Package(name: name, version: version, runtime: runtime, no_hidden_alloc: no_hidden_alloc,
+            max_task_frame: max_task_frame)
+}
+
+// Whether `text` is the shape `sawc --max-task-frame=` reads: digits, then
+// nothing or one of `KiB`, `MiB`, `GiB`. The flag reaches a shell command
+// line in `blade test`, so only this shape is passed on; sawc judges the
+// size itself (zero, overflow).
+func task_frame_spelling_ok(text: String) -> Bool {
+    var digits = 0
+    while digits < text.len() {
+        let b = text.byte_at(digits) as Int
+        if b < 48 || b > 57 {
+            break
+        }
+        digits = digits + 1
+    }
+    let suffix = text.substring(digits, text.len())
+    digits > 0 && (suffix.len() == 0 || suffix.equals("KiB") || suffix.equals("MiB") || suffix.equals("GiB"))
 }
 
 // The `[dependencies]` entries, each a table with a `path` or a `git` source.
@@ -301,5 +332,14 @@ extension Manifest {
     // Whether every compile of this package's build passes `--no-hidden-alloc`.
     public func is_no_hidden_alloc(&self) -> Bool {
         self.package.no_hidden_alloc
+    }
+
+    // The `--max-task-frame=` flag every compile of this package's build
+    // passes, or "" when the package states none.
+    public func task_frame_flag(&self) -> String {
+        if self.package.max_task_frame.is_empty() {
+            return ""
+        }
+        "--max-task-frame={self.package.max_task_frame}"
     }
 }

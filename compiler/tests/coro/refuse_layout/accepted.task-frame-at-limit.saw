@@ -1,0 +1,16 @@
+// accepts: (size 1048592 align 8,
+// flags: --max-task-frame=1048592
+// A task whose frame is exactly the limit, 1048592 bytes, is accepted: the
+// limit is the most a frame may take. Never built; `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 1_048_576]
+    yield_now()
+    a[0] = 1
+}
+
+func main() {
+    let t = Task.spawn(hold())
+    t.join()
+}

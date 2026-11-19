@@ -1,0 +1,4 @@
+[package]
+name = "typed_max_task_frame_integer"
+version = "0.1.0"
+max-task-frame = 65536

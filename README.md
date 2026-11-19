@@ -753,7 +753,7 @@ and flag, including one subcommand per compiler stage (`lex`, `parse`,
 ```bash
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--target TRIPLE]
            [--target-features FEATURES] [--freestanding] [--runtime]
-           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+           [--max-task-frame=SIZE] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc fix [--check] FILE...
 sawc runtime (--out DIR | --emit-ll FILE)
 sawc tools [--target TRIPLE]
@@ -765,7 +765,10 @@ The `-O` level goes to clang and is `-O0` when none is given. `-c` writes an
 object and links nothing. `--freestanding` writes an ELF object under the
 freestanding profile, rooted at its `@export`s. `--runtime` builds a program
 that is its own runtime, defining every `__saw_rt_*` seam it reaches (checked
-against `runtime/ABI.md`). `sawc runtime` builds the hosted runtime from
+against `runtime/ABI.md`). `--max-task-frame=SIZE` sets the most bytes a spawned task's frame may take, in
+bytes or with a `KiB`, `MiB` or `GiB` suffix; a task over it is a compile error
+naming its largest slots. The default is 1MiB hosted and 4KiB freestanding.
+`sawc runtime` builds the hosted runtime from
 `runtime/`. `sawc tools` prints the `clang`, `ld.lld` and `objcopy` recorded for
 a target, one `NAME PATH` line each. `sawc --build-id` prints one line that
 identifies the compiler binary, the std it compiles against and its runtime

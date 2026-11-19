@@ -1907,6 +1907,12 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   — `print("{}", 0x1234_0000_5678)` on riscv32 wrote 22136, its low word, with
   nothing said — so distrust a wide value printed by an older freestanding build.
   Invisible on a 64-bit host, where the two widths coincide.
+- **A spawned task's frame has a compile-time maximum.** `Task.spawn`/`group.spawn`
+  heap-allocate the root's whole frame (callees' frames inside it); over 1 MiB
+  hosted or 4 KiB freestanding is the compile error `task.frame-size`, naming the
+  largest slots (a big array held across a suspension is the usual cause).
+  `--max-task-frame=64KiB` (bytes, or `KiB`/`MiB`/`GiB`) or Blade's `[package]
+  max-task-frame = "64KiB"` replaces the default image-wide; `main` is not limited.
 - **`--no-hidden-alloc` (design 135) — the guarantee, as a flag.** Per
   invocation; rejects allocations the COMPILER inserts that no source construct
   names. THREE sites error: (1) string interpolation `"{x}"` ANYWHERE, with NO

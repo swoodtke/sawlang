@@ -1,0 +1,52 @@
+// `[package] max-task-frame` is read as a size string in `sawc --max-task-frame=`'s
+// spelling, passed on as that flag, and absent when not written; a value of another
+// type, or a string that is not a size, is refused naming the key. Blade passes the
+// flag to sawc from this reading.
+
+import blade.manifest.*
+import std.path.{Path}
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/max_task_frame_64kib")) {
+        case Ok(m) -> {
+            assert(m.task_frame_flag().equals("--max-task-frame=64KiB"), "the key is passed as written: {m.task_frame_flag()}")
+        },
+        case Err(e) -> panic("max_task_frame_64kib/Saw.toml should load: {e}")
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/max_task_frame_bytes")) {
+        case Ok(m) -> {
+            assert(m.task_frame_flag().equals("--max-task-frame=4096"), "bytes are passed as written: {m.task_frame_flag()}")
+        },
+        case Err(e) -> panic("max_task_frame_bytes/Saw.toml should load: {e}")
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/deps_ok")) {
+        case Ok(m) -> {
+            assert(m.task_frame_flag().equals(""), "an absent key passes no flag")
+        },
+        case Err(e) -> panic("deps_ok/Saw.toml should load: {e}")
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/typed_max_task_frame_integer")) {
+        case Ok(_) -> panic("max-task-frame = 65536 should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("`max-task-frame`") && said.contains("is an integer, not a string"),
+                   "the refusal names the key and both types: {said}")
+            assert(said.contains("tests/fixtures/typed_max_task_frame_integer/Saw.toml: line 4, column 18"),
+                   "the refusal names the file and the position: {said}")
+        }
+    }
+
+    match Manifest.load_from(Path(s: "tests/fixtures/max_task_frame_spaced")) {
+        case Ok(_) -> panic("max-task-frame = \"64 KiB\" should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("`max-task-frame` in [package] is \"64 KiB\", which is not a size"),
+                   "the refusal names the key and the value: {said}")
+        }
+    }
+
+    print("manifest_max_task_frame_key: ok")
+}

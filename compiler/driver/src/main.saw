@@ -135,13 +135,16 @@ func driver_usage() -> Int {
     print("                  [FILE | @LIST]...")
     print("       sawc mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
-    print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--freestanding]")
+    print("                 [--max-task-frame=SIZE] [--std-root DIR] [--target TRIPLE] [--target-features FEATURES]")
+    print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
     print("                  [-W borrow-prefix] [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]")
-    print("                  [--no-object-cache] [--no-front-cache] [--module-path NAME=DIR]...")
+    print("                  [--no-object-cache] [--no-front-cache] [--max-task-frame=SIZE] [--module-path NAME=DIR]...")
     print("                  (FILE [-o OUT] | --emit-ll FILE)")
+    print("       --max-task-frame=SIZE   the most bytes a task's frame may take, in bytes or with a `KiB`, `MiB` or")
+    print("                               `GiB` suffix; the default is 1MiB hosted and 4KiB freestanding")
     print("       (resolve through coro, and fix, each also take --no-front-cache)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
@@ -184,7 +187,9 @@ func driver_speed_level(flag: String) -> String {
 // so it must define every seam it reaches (`ll_check_provider_seams`);
 // `--runtime-build` is refused, naming `sawc runtime`. `--no-hidden-alloc`
 // has typecheck refuse the allocations no source construct names
-// (`refuse_hidden_allocation`). The program carries DWARF line tables unless
+// (`refuse_hidden_allocation`). `--max-task-frame=SIZE` sets the most bytes a
+// task's frame may take, for the whole image (`coro_task_frame_limit`); the
+// profile's default holds without it. The program carries DWARF line tables unless
 // `-g0` turns them off; `-g` spells the default (spec, Debug info).
 // `--codegen-units=module` compiles one module per Saw module in parallel and
 // links them (`driver_split_build`), optimised across them as `--lto` says
@@ -217,6 +222,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var timed = false
     var no_cache = false
     var no_front = false
+    var task_frame = 0
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -229,6 +235,11 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             units = arg.substring(16, arg.len())
         } else if arg.starts_with("--lto=") {
             lto = arg.substring(6, arg.len())
+        } else if arg.starts_with("--max-task-frame=") {
+            guard let size = driver_task_frame_size("sawc build", arg.substring(17, arg.len())) else {
+                return DRIVER_EXIT_USAGE
+            }
+            task_frame = size
         } else if arg.equals("-c") {
             object = true
         } else if arg.equals("-g") {
@@ -357,7 +368,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         let emitting = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                     module_triple: target_clang_triple(triple), runtime: false,
                                     freestanding: freestanding, provider: provider, no_hidden_alloc: hidden,
-                                    sanitize_address: sanitize, debug_info: debug, features: features, object: object)
+                                    sanitize_address: sanitize, debug_info: debug, features: features, object: object,
+                                    max_task_frame: task_frame)
         return driver_emit(path, &var front, &plan, &emitting, warn)
     }
     // Another target links against its own runtime, which a manifest of its
@@ -399,7 +411,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple,
                                runtime: false, freestanding: freestanding, provider: provider,
                                no_hidden_alloc: hidden, sanitize_address: sanitize, debug_info: debug,
-                               features: features, object: object)
+                               features: features, object: object, max_task_frame: task_frame)
     var record = StringBuilder()
     var ir = StringBuilder()
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
@@ -3316,6 +3328,48 @@ func driver_features_ok(features: String) -> Bool {
     true
 }
 
+// THE TASK FRAME SIZE: the bytes `--max-task-frame=` names, from `value`, the
+// text after the `=`: a whole number of bytes, or a whole number then `KiB`,
+// `MiB` or `GiB` (binary). Anything else, zero, and a size that does not fit
+// an `Int` are usage errors, printed first, and give None. The one place the
+// flag is read.
+// ENTRY POINTS:
+//     driver_build
+//     driver_coro
+func driver_task_frame_size(command: String, value: String) -> Int? {
+    var digits = 0
+    while digits < value.len() {
+        let b = value.byte_at(digits) as Int
+        if b < 48 || b > 57 {
+            break
+        }
+        digits = digits + 1
+    }
+    let suffix = value.substring(digits, value.len())
+    var scale = 1
+    if suffix.equals("KiB") {
+        scale = 1024
+    } else if suffix.equals("MiB") {
+        scale = 1048576
+    } else if suffix.equals("GiB") {
+        scale = 1073741824
+    }
+    if digits == 0 || (suffix.len() > 0 && scale == 1) {
+        print("{}: --max-task-frame takes a size in bytes, or a whole number then `KiB`, `MiB` or `GiB`, such as `--max-task-frame=65536` or `--max-task-frame=64KiB`, not `{}`", command, value)
+        return None
+    }
+    let count = value.substring(0, digits).to_int() ?? -1
+    if count < 0 || count > Int.max / scale {
+        print("{}: --max-task-frame={} does not fit an `Int` counted in bytes", command, value)
+        return None
+    }
+    if count == 0 {
+        print("{}: --max-task-frame=0 would refuse every task: a task's frame holds at least its state word, so name a size of at least a few bytes", command)
+        return None
+    }
+    count * scale
+}
+
 // THE FEATURE-NAME CHECK: whether the clang at `clang` recognizes each name
 // in `features` for `clang_triple`, which it compiles the build's IR for.
 // LLVM drops a name it does not know with a warning and builds without it,
@@ -3758,7 +3812,8 @@ func driver_runtime(args: &Vector<String>) -> Int {
     let options = BuildOptions(std_root: std_root, target: host, speed: speed,
                                module_triple: target_clang_triple(host), runtime: true, freestanding: false,
                                provider: false, no_hidden_alloc: false,
-                               sanitize_address: false, debug_info: false, features: "", object: false)
+                               sanitize_address: false, debug_info: false, features: "", object: false,
+                               max_task_frame: 0)
     let names = Vector<String>()
     let dirs = Vector<String>()
     let front_on = driver_front_choice("sawc runtime", false)
@@ -4117,6 +4172,8 @@ func driver_coro(args: &Vector<String>) -> Int {
     var check = false
     var notes = false
     var no_front = false
+    var freestanding = false
+    var task_frame = 0
     var std_root = ""
     var triple = driver_check_triple()
     var features = ""
@@ -4140,6 +4197,13 @@ func driver_coro(args: &Vector<String>) -> Int {
             check = true
         } else if arg.equals("--notes") {
             notes = true
+        } else if arg.equals("--freestanding") {
+            freestanding = true
+        } else if arg.starts_with("--max-task-frame=") {
+            guard let size = driver_task_frame_size("sawc coro", arg.substring(17, arg.len())) else {
+                return DRIVER_EXIT_USAGE
+            }
+            task_frame = size
         } else if (arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
                    || arg.equals("--target-features")) {
             let value = args.get(i + 1) ?? ""
@@ -4175,7 +4239,7 @@ func driver_coro(args: &Vector<String>) -> Int {
     if modes != 1 {
         return driver_usage()
     }
-    guard let checked_for = driver_check_target(triple, features, false) else {
+    guard let checked_for = driver_check_target(triple, features, freestanding) else {
         return DRIVER_EXIT_USAGE
     }
     std_root = driver_std_root("sawc coro", std_root)
@@ -4186,9 +4250,9 @@ func driver_coro(args: &Vector<String>) -> Int {
     if front_on < 0 {
         return DRIVER_EXIT_USAGE
     }
-    var front = driver_front(std_root, checked_for, false, false, false, front_on == 1, false)
+    var front = driver_front(std_root, checked_for, false, freestanding, false, front_on == 1, false)
     let options = CoroOptions(std_root: std_root, target: checked_for, dump: dump, layouts: layouts, lowered: lowered,
-                              notes: notes)
+                              notes: notes, max_task_frame: task_frame)
     var status = 0
     var k = 0
     while k < inputs.len() {

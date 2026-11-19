@@ -1,0 +1,20 @@
+// refuses: task.frame-size at 18:13
+// message: the frame of the task `hold` takes 1048592 bytes
+// message: over the 1048576 a task's frame may take in a hosted build
+// message: `--max-task-frame=SIZE`
+// message: `a` (`[UInt8; 1048576]`) 1048576 bytes
+// A task whose one local, a megabyte, is live across a suspension: its frame
+// is the megabyte, the state word and the suspended callee's slot, just over
+// the hosted default of 1 MiB. Never built; `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 1_048_576]
+    yield_now()
+    a[0] = 1
+}
+
+func main() {
+    let t = Task.spawn(hold())
+    t.join()
+}

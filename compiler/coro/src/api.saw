@@ -12,6 +12,7 @@ import sawcoro.dropblocks.{coro_check_blocking_drops}
 import sawcoro.send.{coro_check_frame_send}
 import sawcoro.spawn.{coro_check_spawns, coro_lower_spawn_sites}
 import sawcoro.suspends.{coro_solve_suspension}
+import sawcoro.taskframe.{coro_check_task_frames}
 import sawcoro.verify.{coro_verify_lowering, coro_verify_snapshot}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag}
@@ -36,6 +37,9 @@ public struct CoroOptions {
     // Print each lowered frame's resume function.
     lowered: Bool
     notes: Bool
+    // `--max-task-frame`: the most bytes a task's frame may take, or 0 for
+    // the profile's default (`coro_task_frame_limit`).
+    max_task_frame: Int
 }
 
 // The program whose entry file is `path`, brought through mono, then
@@ -120,6 +124,7 @@ public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
     let _ = coro.mono.root_print_failure()
     stagetime_begin(StageTime.CoroLower)
     coro_lay_out_frames(&var coro, &var target)
+    coro_check_task_frames(&var coro)
     stagetime_end(StageTime.CoroLower)
     stagetime_begin(StageTime.VerifyCoro)
     coro_verify_snapshot(&var coro)
@@ -149,6 +154,7 @@ public func coro_record(out: &var StringBuilder, front: FrontCut, path: String, 
                         names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var coro = coro_lower_cut(out: &var out, front: move front, path: path, notes: options.notes, names: &names,
                               dirs: &dirs)
+    coro.max_task_frame = options.max_task_frame
     coro_append_findings(out: &var out, coro: &coro)
     var status = 0
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
@@ -161,7 +167,9 @@ public func coro_record(out: &var StringBuilder, front: FrontCut, path: String, 
         var target = coro.mono.target_for()
         let seen = coro.diags.len()
         coro_lay_out_frames(&var coro, &var target)
-        // A frame that does not fit is refused as the layout meets it.
+        coro_check_task_frames(&var coro)
+        // A frame that does not fit, or a task's frame over the limit, is
+        // refused as the layout meets it.
         var d = seen
         while d < coro.diags.len() {
             let diag = coro.diags[d]

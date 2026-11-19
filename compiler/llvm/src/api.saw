@@ -45,6 +45,9 @@ public struct BuildOptions {
     features: String
     // `-c`: the module is an object's, which owes no `main`.
     object: Bool
+    // `--max-task-frame`: the most bytes a task's frame may take, or 0 for the
+    // profile's default (`coro_task_frame_limit`).
+    max_task_frame: Int
 }
 
 // The `.ll` of the program whose front end through drops is `front` into
@@ -79,6 +82,7 @@ func llvm_build_planned(out: &var StringBuilder, ir: &var StringBuilder, exports
     }
     var target = coro.mono.target_for()
     coro.sanitize = options.sanitize_address
+    coro.max_task_frame = options.max_task_frame
     coro_lower_for(&var coro, &var target)
     if coro.diags.len() > 0 || coro.problems.len() > 0 {
         try! out.append(head)

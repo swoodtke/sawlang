@@ -464,6 +464,37 @@ def check_layout_refusals(failures, counts):
         counts["coro layout refusal fixtures"] = counts.get("coro layout refusal fixtures", 0) + 1
 
 
+TASK_FRAME_GOOD = ["1", "4096", "64KiB", "2MiB", "1GiB", "9223372036854775807", "8589934591GiB"]
+
+# Each spelling `--max-task-frame=` refuses: empty, zero, a sign or a point,
+# a suffix other than `KiB`, `MiB` and `GiB` (case and spacing included), no
+# number, and a count that does not fit an `Int` in bytes.
+TASK_FRAME_BAD = ["", "0", "0KiB", "-1", "+1", "1.5MiB", "1kib", "1KB", "1MB", "1B", "KiB", "10 KiB", "1 KiB",
+                  "99999999999999999999", "9223372036854775808", "8589934592GiB", "9007199254740992MiB"]
+
+
+def check_task_frame_flag(failures, counts):
+    """`--max-task-frame=SIZE` takes bytes or a whole number with `KiB`, `MiB`
+    or `GiB`; every other spelling is a usage error (status 2) naming the
+    flag, from `sawc coro` and `sawc build` alike, before anything compiles."""
+    program = rel(os.path.join(REFUSE_LAYOUT, "accepted.main-frame-not-limited.saw"))
+    for value in TASK_FRAME_GOOD:
+        r = subprocess.run([build.SAWC, "coro", "--check", "--std-root", "std", "--max-task-frame=" + value, program],
+                           capture_output=True, text=True, cwd=REPO, timeout=TIMEOUT)
+        if r.returncode != 0:
+            failures.append("coro task frame flag: --max-task-frame=%s exits %d, not 0: %s"
+                            % (value, r.returncode, first_line(r.stdout)))
+        counts["coro task frame flag spellings"] = counts.get("coro task frame flag spellings", 0) + 1
+    for value in TASK_FRAME_BAD:
+        for command in (["coro", "--check"], ["build", "--emit-ll"]):
+            r = subprocess.run([build.SAWC] + command + ["--std-root", "std", "--max-task-frame=" + value, program],
+                               capture_output=True, text=True, cwd=REPO, timeout=TIMEOUT)
+            if r.returncode != 2 or "--max-task-frame" not in r.stdout:
+                failures.append("coro task frame flag: sawc %s --max-task-frame=%r exits %d, not 2 with a message "
+                                "naming the flag: %s" % (command[0], value, r.returncode, first_line(r.stdout)))
+            counts["coro task frame flag spellings"] = counts.get("coro task frame flag spellings", 0) + 1
+
+
 def check_agreement(failures, counts):
     """Typecheck's summaries and the frame decisions, over programs other
     lanes hold: a disagreement is an `INVARIANT` line of `sawc coro`."""
@@ -542,6 +573,7 @@ def run(write=False):
     build.guarded(failures, "coro bt ir", check_bt_ir, failures, counts)
     build.guarded(failures, "coro refusal", check_refusals, failures, counts, rules)
     build.guarded(failures, "coro layout refusal", check_layout_refusals, failures, counts)
+    build.guarded(failures, "coro task frame flag", check_task_frame_flag, failures, counts)
     build.guarded(failures, "coro agreement", check_agreement, failures, counts)
     build.guarded(failures, "coro park injections", check_park_injections, failures, counts)
     return failures, counts

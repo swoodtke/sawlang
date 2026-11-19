@@ -1,0 +1,169 @@
+// The limit on a task's frame. A cooperative spawn allocates the root's whole
+// frame, nested suspending callees included, as one heap block, and sawc lays
+// that frame out itself, so its size is known when the program is compiled:
+// a root over the limit is refused here, at the spawn site, instead of
+// failing when the task starts. A drive site's root runs over a frame on the
+// driver's own stack, and a suspending `main`'s frame is on the entry's stack,
+// so neither is a task root this limit covers (design SL-1166).
+//
+// ENTRY POINTS of the task frame limit:
+//   coro_task_frame_limit
+//   coro_check_task_frames
+
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
+import sawmir.dump.{mir_dump_module}
+import sawmir.model.{MirCallKind, MirLocalKind, MirTermKind}
+
+// How many of a frame's slots a refusal names, the largest first.
+static CORO_TASK_FRAME_BLAME: Int = 4
+
+// The most bytes a task's frame may take, by default, in a hosted build.
+static CORO_TASK_FRAME_HOSTED: Int = 1_048_576
+
+// The most bytes a task's frame may take, by default, in a freestanding build.
+static CORO_TASK_FRAME_FREESTANDING: Int = 4_096
+
+// THE LIMIT: the most bytes a task's frame may take in this image, and the
+// one place it is decided: `--max-task-frame` (or a Blade package's key) when
+// the build gave one, else the profile's default. A build's whole image shares
+// it, a dependency's tasks included.
+public func coro_task_frame_limit(coro: &CoroProgram) -> Int {
+    if coro.max_task_frame > 0 {
+        return coro.max_task_frame
+    }
+    if coro.mono.dp.bc.mir.tc.profile.hosted() {
+        return CORO_TASK_FRAME_HOSTED
+    }
+    CORO_TASK_FRAME_FREESTANDING
+}
+
+// Refuses, as `task.frame-size`, each task root a cooperative spawn site
+// reaches whose laid-out frame is over the limit, once per root, at the first
+// site that spawns it. Runs after `coro_lay_out_frames`; a root whose frame
+// has no size (unsupported, or past the target's `Int`) is already refused.
+public func coro_check_task_frames(coro: &var CoroProgram) {
+    let limit = coro_task_frame_limit(&coro)
+    var seen = Vector<Bool>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! seen.push(false)
+        k = k + 1
+    }
+    k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f < 0 {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let site = coro.mono.dp.bc.mir.calls[block.call]
+            if site.kind != MirCallKind.Spawn {
+                continue
+            }
+            let root = coro.mono.call_item(block.call)
+            if root < 0 || seen[root] {
+                continue
+            }
+            seen[root] = true
+            let at = coro_frame_of(&coro, root)
+            if at < 0 {
+                continue
+            }
+            let frame = coro.frames[at]
+            if frame.unsupported >= 0 || frame.size <= limit {
+                continue
+            }
+            coro_refuse_task_frame(&var coro, item, root, site.node, at, limit)
+        }
+    }
+}
+
+// The refusal of root `root`, whose frame is `at`, spawned from `item` at
+// `node`: its size, the limit, and the largest slots to shrink.
+func coro_refuse_task_frame(coro: &var CoroProgram, item: Int, root: Int, node: Int, at: Int, limit: Int) {
+    let frame = coro.frames[at]
+    var msg = StringBuilder()
+    try! msg.append("the frame of the task `")
+    try! msg.append(coro.item_label(root))
+    try! msg.append("` takes ")
+    try! msg.append(frame.size)
+    try! msg.append(" bytes, over the ")
+    try! msg.append(limit)
+    if coro.max_task_frame > 0 {
+        try! msg.append(" a task's frame may take here")
+    } else if coro.mono.dp.bc.mir.tc.profile.hosted() {
+        try! msg.append(" a task's frame may take in a hosted build")
+    } else {
+        try! msg.append(" a task's frame may take in a freestanding build")
+    }
+    try! msg.append(": shrink what is held across a suspension, or raise the limit with `--max-task-frame=SIZE`. Largest: ")
+    var taken = Vector<Bool>()
+    var j = 0
+    while j < frame.value_count {
+        try! taken.push(false)
+        j = j + 1
+    }
+    var named = 0
+    while named < CORO_TASK_FRAME_BLAME {
+        var best = -1
+        j = 0
+        while j < frame.value_count {
+            let v = coro.values[frame.value_first + j]
+            let slot = v.kind != CoroValueKind.State && v.kind != CoroValueKind.Budget
+            if slot && not taken[j] && v.size > 0 && (best < 0 || v.size > coro.values[frame.value_first + best].size) {
+                best = j
+            }
+            j = j + 1
+        }
+        if best < 0 {
+            break
+        }
+        taken[best] = true
+        if named > 0 {
+            try! msg.append("; ")
+        }
+        let v = coro.values[frame.value_first + best]
+        coro_append_slot(&coro, &var msg, &frame, &v)
+        named = named + 1
+    }
+    coro.refuse_within(item, root, node, "task.frame-size", msg.build())
+}
+
+// `NAME (TYPE) N bytes`, or for a child's slot `the frame of NAME N bytes`.
+func coro_append_slot(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFrame, v: &CoroValue) {
+    if v.kind == CoroValueKind.Child {
+        try! out.append("the frame of `")
+        try! out.append(coro.item_label(v.child))
+        try! out.append("`")
+    } else if v.kind == CoroValueKind.Offload {
+        try! out.append("the offloaded call `")
+        try! out.append(coro.item_label(v.child))
+        try! out.append("`")
+    } else {
+        let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + v.local]
+        let named = local.kind == MirLocalKind.User || local.kind == MirLocalKind.Param
+        if named && local.name >= 0 {
+            try! out.append("`")
+            try! out.append(coro.mono.dp.bc.mir.tc.name_text(local.name))
+            try! out.append("`")
+        } else {
+            try! out.append("a temporary")
+        }
+        try! out.append(" (`")
+        coro.mono.dp.bc.mir.append_type(&var out, v.ty)
+        try! out.append("`)")
+    }
+    try! out.append(" ")
+    try! out.append(v.size)
+    try! out.append(" bytes")
+}

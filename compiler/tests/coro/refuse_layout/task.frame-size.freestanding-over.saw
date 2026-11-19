@@ -1,0 +1,21 @@
+// refuses: task.frame-size at 19:13
+// flags: --freestanding --target riscv32-unknown-none-elf
+// message: the frame of the task `hold` takes 4104 bytes
+// message: over the 4096 a task's frame may take in a freestanding build
+// A task holding 4 KiB across a suspension: over the freestanding default of
+// 4 KiB, where the same frame is far under the hosted one. Never built;
+// `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 4_096]
+    yield_now()
+    a[0] = 1
+}
+
+@export("entry")
+func entry() {
+    let g = TaskGroup()
+    let t = g.spawn(hold())
+    t.join()
+}

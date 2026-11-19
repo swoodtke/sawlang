@@ -1,0 +1,24 @@
+// refuses: task.frame-size at 22:13
+// flags: --max-task-frame=64KiB
+// message: the frame of the task `outer` takes
+// message: over the 65536 a task's frame may take here
+// message: Largest: the frame of `inner`
+// A task root's frame embeds each suspending callee's frame: `outer` holds
+// nothing large itself, and its bytes come from `inner`, which the message
+// names. Never built; `coro --layouts` only.
+import std.task.*
+
+func inner() {
+    var a = [0u8; 70_000]
+    yield_now()
+    a[0] = 1
+}
+
+func outer() {
+    inner()
+}
+
+func main() {
+    let t = Task.spawn(outer())
+    t.join()
+}

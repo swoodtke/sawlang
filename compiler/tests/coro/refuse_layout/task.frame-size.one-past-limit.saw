@@ -1,0 +1,17 @@
+// refuses: task.frame-size at 15:13
+// flags: --max-task-frame=1048591
+// message: takes 1048592 bytes, over the 1048591 a task's frame may take here
+// The frame of `accepted.task-frame-at-limit.saw`, one byte over a limit the
+// image states. Never built; `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 1_048_576]
+    yield_now()
+    a[0] = 1
+}
+
+func main() {
+    let t = Task.spawn(hold())
+    t.join()
+}

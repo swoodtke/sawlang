@@ -21,6 +21,10 @@ Steps, each printed, the first failure ending the run:
   5c. A package with `no-hidden-alloc = true` has `blade build` and `blade test`
      refuse an interpolation with sawc's diagnostic, builds without the key, and
      rebuilds when the key changes; a dependency's key does not reach its dependents.
+  5d. A package with `max-task-frame = "64KiB"` has `blade build` and `blade test`
+     refuse a task whose frame is over it, builds with a larger key or none, rebuilds
+     when the key changes, refuses a value that is not a size; a dependency's key does
+     not reach its dependents.
   6. `blade new` and `blade run` make and run a package in a directory under
      `.build/`.
 
@@ -851,6 +855,82 @@ def check_blade_no_hidden_alloc_image(binary):
     blade_refused(binary, args, package, HIDDEN_ALLOC_DIAGNOSTIC, env)
 
 
+TASK_FRAME_DIAGNOSTIC = "task.frame-size"
+BIG_TASK_SOURCE = ("import std.task.*\n\nfunc hold() {\n    var a = [0u8; 70_000]\n    yield_now()\n    a[0] = 1\n}\n\n"
+                   "func %s {\n    let t = Task.spawn(hold())\n    t.join()\n}\n")
+
+
+def task_frame_manifest(key, extra=""):
+    """A Saw.toml for a package `app`; `key` is the text of its max-task-frame value, or None."""
+    return '[package]\nname = "app"\nversion = "0.1.0"\n%s%s' % ("max-task-frame = %s\n" % key if key else "", extra)
+
+
+def check_blade_max_task_frame(binary=None):
+    """`[package] max-task-frame = "64KiB"` has Blade pass `--max-task-frame=64KiB` to every
+    sawc run of a build whose root package declares it: a task whose 70 KB frame the hosted
+    default accepts is refused by `blade build` and fails to compile under `blade test`, the
+    same package with a larger key builds, flipping the key after an up-to-date build rebuilds,
+    a spelling or a type that is not a size is refused naming the key, and a dependency's key
+    does not reach its dependents."""
+    binary = binary or SELF_BUILT
+    work = os.path.join(WORK_DIR, "max_task_frame")
+    shutil.rmtree(work, ignore_errors=True)
+    package = os.path.join(work, "app")
+    manifest = os.path.join(package, "Saw.toml")
+    write_text(os.path.join(package, "src", "main.saw"), BIG_TASK_SOURCE % "main()")
+    write_text(os.path.join(package, "tests", "big.saw"), BIG_TASK_SOURCE % "main()")
+    write_text(manifest, task_frame_manifest('"64KiB"'))
+    print('blade: a package with max-task-frame = "64KiB" is refused for a 70 KB task frame', flush=True)
+    blade_refused(binary, ["build"], package, TASK_FRAME_DIAGNOSTIC)
+    print("blade: its test program with the same task fails to compile under blade test", flush=True)
+    code, out = run_blade(binary, ["test"], package)
+    if code == 0 or "test big ... FAILED" not in out:
+        raise Failure("blade test with max-task-frame = \"64KiB\" did not fail the big task's test (exit %s)\n%s"
+                      % (code, out))
+    for key in (None, '"128KiB"', "\"1MiB\""):
+        write_text(manifest, task_frame_manifest(key))
+        print("blade: the same package with %s builds and tests" % ("no key" if key is None else "max-task-frame = " + key),
+              flush=True)
+        blade_ok(binary, ["build"], package, "Finished .build/host/app")
+        blade_ok(binary, ["test"], package, "test result: ok")
+    plain = os.path.join(work, "plain")
+    write_text(os.path.join(plain, "src", "main.saw"), PLAIN_MAIN)
+    write_text(os.path.join(plain, "Saw.toml"), task_frame_manifest(None))
+    rebuilds_after(binary, "max-task-frame key, set", ["build"], plain,
+                   lambda: write_text(os.path.join(plain, "Saw.toml"), task_frame_manifest('"64KiB"')))
+    rebuilds_after(binary, "max-task-frame key, changed", ["build"], plain,
+                   lambda: write_text(os.path.join(plain, "Saw.toml"), task_frame_manifest('"96KiB"')))
+    for key, said in (('64', "`max-task-frame` in [package] is an integer, not a string"),
+                      ('"64 KiB"', "`max-task-frame` in [package] is \"64 KiB\", which is not a size"),
+                      ('"64KB"', "which is not a size"),
+                      ('""', "which is not a size"),
+                      ('"64KiB; echo"', "which is not a size")):
+        wrong = os.path.join(work, "wrong")
+        write_text(os.path.join(wrong, "src", "main.saw"), PLAIN_MAIN)
+        write_text(os.path.join(wrong, "Saw.toml"), task_frame_manifest(key))
+        print("blade: max-task-frame = %s is refused" % key, flush=True)
+        blade_refused(binary, ["build"], wrong, said)
+    zero = os.path.join(work, "zero")
+    write_text(os.path.join(zero, "src", "main.saw"), PLAIN_MAIN)
+    write_text(os.path.join(zero, "Saw.toml"), task_frame_manifest('"0"'))
+    print('blade: max-task-frame = "0" is refused by sawc, which judges the size', flush=True)
+    blade_refused(binary, ["build"], zero, "--max-task-frame")
+    root = os.path.join(work, "root")
+    write_text(os.path.join(root, "Saw.toml"),
+               '[package]\nname = "root"\nversion = "0.1.0"\n\n[dependencies]\nlib = { path = "../biglib" }\n')
+    write_text(os.path.join(root, "src", "main.saw"), 'import lib\n\nfunc main() {\n    lib.run()\n}\n')
+    write_text(os.path.join(work, "biglib", "Saw.toml"),
+               '[package]\nname = "lib"\nversion = "0.1.0"\nmax-task-frame = "1KiB"\n')
+    write_text(os.path.join(work, "biglib", "src", "lib.saw"), BIG_TASK_SOURCE.replace("func %s", "public func %s") % "run()")
+    print("blade: a dependency's max-task-frame key does not reach the package that depends on it", flush=True)
+    blade_ok(binary, ["build"], root, "Finished .build/host/root")
+    write_text(os.path.join(root, "Saw.toml"),
+               '[package]\nname = "root"\nversion = "0.1.0"\nmax-task-frame = "1KiB"\n\n'
+               '[dependencies]\nlib = { path = "../biglib" }\n')
+    print("blade: the root's key makes the dependency's task frame an error", flush=True)
+    blade_refused(binary, ["build"], root, TASK_FRAME_DIAGNOSTIC)
+
+
 def manifest_app(work, deps):
     """`work/app`, a package whose Saw.toml states `deps` under [dependencies]."""
     package = os.path.join(work, "app")
@@ -955,6 +1035,7 @@ def lane():
         check_blade_freshness_hosted()
         check_blade_freshness_images()
         check_blade_no_hidden_alloc()
+        check_blade_max_task_frame()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

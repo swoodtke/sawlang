@@ -1,0 +1,11 @@
+// accepts: (size 2000016 align 8,
+// A suspending `main`'s frame is on the entry's stack, not a task's heap
+// block, so the task frame limit does not cover it: this frame is far over
+// the hosted default and is accepted. Never built; `coro --layouts` only.
+import std.task.*
+
+func main() {
+    var a = [0u8; 2_000_000]
+    yield_now()
+    a[0] = 1
+}

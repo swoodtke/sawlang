@@ -10138,6 +10138,18 @@ Observable rules:
 - **What suspends is inferred, not annotated.** A function suspends iff it
   transitively reaches a suspension point; the `sync` effect check
   (design 22) already identifies every such point. No keyword marks it.
+- **A spawned task's frame has a size limit.** `Task.spawn` and `group.spawn`
+  allocate the task's whole frame, each suspending callee's frame inside it
+  included, as one heap block, and sawc computes that size at compile time. A
+  task root whose frame is larger than the limit is a compile error,
+  `task.frame-size`, reported at its first spawn site: the message names the
+  task, its size and the limit, and lists the largest slots (a local, or a
+  callee's frame) so the reader sees what to shrink. The limit is 1 MiB
+  (1,048,576 bytes) in a hosted build and 4 KiB (4,096 bytes) in a freestanding
+  one; `--max-task-frame=SIZE` replaces it for the whole image, dependencies
+  included (see Compiler CLI). A suspending `main`, and a root run by a drive
+  site, have their frame on the stack and are not limited. Thread stacks are not
+  limited here.
 - **Frame lifetime / no forced destroy.** A frame dies only by its own code
   reaching an exit — normal completion or a cooperative early `return`. There
   are NO per-suspension-point destroy paths and no way to drop a suspended
@@ -17693,8 +17705,8 @@ sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR]
            [--target TRIPLE] [--target-features FEATURES] [--sanitize address]
            [--freestanding] [--runtime] [--no-hidden-alloc] [-W borrow-prefix]
            [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]
-           [--no-object-cache] [--no-front-cache] [--module-path NAME=DIR]...
-           (FILE [-o OUT] | --emit-ll FILE)
+           [--no-object-cache] [--no-front-cache] [--max-task-frame=SIZE]
+           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
@@ -17741,6 +17753,14 @@ sawc --build-id [--std-root DIR]
   Repeatable; this is how the package manager wires dependencies, and how a
   package names itself (DIR is the package's `src/`; see Package Structure).
 - `--sanitize address` builds under AddressSanitizer.
+- `--max-task-frame=SIZE` sets the most bytes a spawned task's frame may take
+  (see Suspension and the coroutine transform). SIZE is a whole number of
+  bytes, or a whole number then `KiB`, `MiB` or `GiB` (binary): `65536`,
+  `64KiB`. Any other spelling, zero and a size that does not fit an `Int`
+  are usage errors. The default is 1MiB hosted and 4KiB freestanding. The
+  limit holds for the whole image, so a Blade root package's
+  `max-task-frame` key (a string in this spelling) governs every task in the
+  build.
 - `--freestanding` compiles under the freestanding profile to an ELF object
   for an ELF triple, as `-c` does; a macOS host names one with `--target`.
   `.o` is appended to an `-o` name that lacks it (see Profiles).

@@ -786,6 +786,9 @@ extension Builder {
         if self.manifest.is_no_hidden_alloc() {
             try! saw.arg("--no-hidden-alloc")
         }
+        if not self.manifest.task_frame_flag().is_empty() {
+            try! saw.arg(self.manifest.task_frame_flag())
+        }
         if not cfg.target_features.is_empty() {
             try! saw.arg("--target-features")
             try! saw.arg(cfg.target_features)
@@ -940,6 +943,9 @@ extension Builder {
         }
         if self.manifest.is_no_hidden_alloc() {
             try! cmd.arg("--no-hidden-alloc")
+        }
+        if not self.manifest.task_frame_flag().is_empty() {
+            try! cmd.arg(self.manifest.task_frame_flag())
         }
         // The package's own name maps to its module root, so its sources may
         // import one another as `<name>.module`.

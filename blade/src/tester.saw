@@ -70,9 +70,13 @@ extension Tester {
     // `<name>.module`, then one per dependency (design 64 B6). When resolution
     // fails only the package's own is passed, so a test that needs a missing
     // dependency fails to compile and says so. A package that declares
-    // `no-hidden-alloc` has `--no-hidden-alloc` lead them, as in `blade build`.
+    // `no-hidden-alloc` has `--no-hidden-alloc` lead them, and a `max-task-frame`
+    // its `--max-task-frame=`, as in `blade build`.
     public func dep_flags(&self) -> String {
-        let lead = if self.manifest.is_no_hidden_alloc() { " --no-hidden-alloc" } else { "" }
+        var lead = if self.manifest.is_no_hidden_alloc() { " --no-hidden-alloc" } else { "" }
+        if not self.manifest.task_frame_flag().is_empty() {
+            lead = "{lead} {self.manifest.task_frame_flag()}"
+        }
         let own = "{lead} --module-path {self.manifest.own_module_path()}"
         match resolve(self.manifest) {
             case Ok(res) -> {

@@ -23,7 +23,10 @@ coro/
                           the target's `Int`, refused by `--layouts` (where
                           frames are laid out), and accepted.VARIANT.saw, a
                           frame at the edge that fits, whose record holds the
-                          text its `// accepts:` line gives; neither is built
+                          text its `// accepts:` line gives; neither is built;
+                          and task.frame-size.VARIANT.saw, a task root over
+                          the limit of a task's frame (a `// flags:` line
+                          passes `--max-task-frame` or `--freestanding`)
   inject/                 asan_inject.saw, the sanitizer lane's injector,
                           which lowers asan_overlap.saw, edits it and hands
                           it to the backend past the verifier; and
@@ -293,6 +296,18 @@ the binding's name (`ref NAME` for a borrow binding), or nothing for a
 temporary. The across list is each state the value's lifetime contains, left
 out when it has none. `stack:` lists the locals after `_0` the frame does not
 hold, or says `none`.
+
+**The task frame limit** (`compiler/coro/src/taskframe.saw`): once frames are
+laid out, each task root a cooperative spawn site (`Task.spawn`, `group.spawn`)
+reaches whose frame is larger than `coro_task_frame_limit` is refused as
+`task.frame-size`, once per root, at its first spawn site. The limit is
+`--max-task-frame` when given, else 1 MiB for a hosted profile and 4 KiB for a
+freestanding one. The message gives the size, the limit and the four largest
+slots (locals, and child frames by name). A drive site's root and a suspending
+`main` are on the stack and are not checked. The rule is reported by `--layouts`
+and the build, not `--check` (it needs the layout), so it is in no `coro_rules`
+row; `refuse_layout/` holds its fixtures, and `check_task_frame_flag` holds the
+spellings `--max-task-frame` refuses.
 
 ## Lowering
 

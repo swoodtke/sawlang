@@ -1,4 +1,5 @@
 // accepts: (size 4611686018427387920 align 8,
+// flags: --max-task-frame=9223372036854775807
 // One local of 2^62 bytes, a quarter of a 64-bit `Int`'s range, live across a
 // suspension: the frame fits, and only the frame layout's own arithmetic is
 // asked to handle it (its placement key used to overflow the compiler's own

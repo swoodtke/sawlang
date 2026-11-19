@@ -1,0 +1,17 @@
+// accepts: (size 1048592 align 8,
+// flags: --max-task-frame=2MiB
+// The task of `task.frame-size.hosted-over.saw`, whose frame is over the
+// default, accepted once the image raises the limit. Never built; `coro
+// --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 1_048_576]
+    yield_now()
+    a[0] = 1
+}
+
+func main() {
+    let t = Task.spawn(hold())
+    t.join()
+}

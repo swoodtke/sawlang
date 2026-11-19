@@ -65,6 +65,9 @@ public struct CoroProgram {
     // each lowered frame's poison list (`coro_poison_lists`), and the runs of
     // those lists, one per resume function.
     sanitize: Bool
+    // `--max-task-frame`: the most bytes a task's frame may take, or 0 for
+    // the profile's default (`coro_task_frame_limit`).
+    max_task_frame: Int
     poisons: Vector<CoroPoison>
 }
 
@@ -79,7 +82,7 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
                 spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
                 problems: Vector<String>(), before: CoroBefore.empty(), sanitize: false,
-                poisons: Vector<CoroPoison>())
+                max_task_frame: 0, poisons: Vector<CoroPoison>())
 }
 
 // The verifier's record of the bodies the lowering may rewrite, taken just
