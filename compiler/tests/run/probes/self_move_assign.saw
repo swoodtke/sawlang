@@ -1,0 +1,180 @@
+// probe: stated
+// about: `x = move x` and `x = x` read the value before the old one drops, so a whole local assigned from itself, by move or by a retaining copy, is released exactly once, in and out of each loop form (SL-1171)
+// stage 0: not run
+// speeds: -O0 -O2
+// leaks: none
+// A line is `NAME live=n`: `n` values are still alive after the cell, which is
+// 0 when the one value of the cell was released exactly once.
+// prints: straight live=0
+// prints: while_loop live=0
+// prints: for_loop live=0
+// prints: infinite_loop live=0
+// prints: continue_break live=0
+// prints: optional live=0
+// prints: enum_payload live=0
+// prints: moved_in live=0
+// prints: ticket len=40
+// prints: ticket_loop len=40
+// prints: closure len=40
+// prints: closure_loop len=40
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+func live(by: Int) { LIVE.store(LIVE.load() + by) }
+
+struct Nc { n: Int }
+extension Nc: NoCopy {
+    func deinit(&var self) { live(-1) }
+}
+
+func made(n: Int) -> Nc {
+    live(1)
+    Nc(n: n)
+}
+
+enum Held { case Has(x: Nc), case Empty }
+extension Held: NoCopy {}
+
+func report(name: String) {
+    print("{} live={}", name, LIVE.load())
+    LIVE.store(0)
+}
+
+func straight() {
+    var r = made(1)
+    r = move r
+}
+
+func while_loop() {
+    var r = made(1)
+    var i = 0
+    while i < 3 {
+        r = move r
+        i += 1
+    }
+}
+
+func for_loop() {
+    var r = made(1)
+    for i in 0..3 {
+        r = move r
+    }
+}
+
+func infinite_loop() {
+    var r = made(1)
+    var i = 0
+    while {
+        r = move r
+        i += 1
+        if i == 3 { break }
+    }
+}
+
+func continue_break() {
+    var r = made(1)
+    var i = 0
+    while i < 4 {
+        i += 1
+        if i == 1 { continue }
+        r = move r
+        if i == 3 { break }
+    }
+}
+
+func optional() {
+    var r: Nc? = made(1)
+    var i = 0
+    while i < 3 {
+        r = move r
+        i += 1
+    }
+}
+
+func enum_payload() {
+    var r = Held.Has(x: made(1))
+    var i = 0
+    while i < 3 {
+        r = move r
+        i += 1
+    }
+}
+
+func moved_in(r0: Nc) -> Int {
+    var r = move r0
+    var i = 0
+    while i < 3 {
+        if i == 0 { r = move r }
+        i += 1
+    }
+    r.n
+}
+
+struct Ticket { code: String }
+
+func heap_text(n: Int) -> String {
+    var sb = StringBuilder()
+    var i = 0
+    while i < n {
+        try! sb.append("x")
+        i += 1
+    }
+    sb.build()
+}
+
+func ticket() {
+    var t = Ticket(code: heap_text(40))
+    t = t
+    print("ticket len={}", t.code.len())
+}
+
+func ticket_loop() {
+    var t = Ticket(code: heap_text(40))
+    var i = 0
+    while i < 3 {
+        t = t
+        i += 1
+    }
+    print("ticket_loop len={}", t.code.len())
+}
+
+func closure() {
+    let text = heap_text(40)
+    var f = { [text] in text.len() }
+    f = f
+    print("closure len={}", f())
+}
+
+func closure_loop() {
+    let text = heap_text(40)
+    var f = { [text] in text.len() }
+    var i = 0
+    while i < 3 {
+        f = f
+        i += 1
+    }
+    print("closure_loop len={}", f())
+}
+
+func main() {
+    straight()
+    report("straight")
+    while_loop()
+    report("while_loop")
+    for_loop()
+    report("for_loop")
+    infinite_loop()
+    report("infinite_loop")
+    continue_break()
+    report("continue_break")
+    optional()
+    report("optional")
+    enum_payload()
+    report("enum_payload")
+    let _ = moved_in(made(1))
+    report("moved_in")
+    ticket()
+    ticket_loop()
+    closure()
+    closure_loop()
+}

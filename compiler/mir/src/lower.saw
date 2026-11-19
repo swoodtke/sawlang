@@ -1332,7 +1332,7 @@ extension MirProgram {
         let _ = self.open_scope()
         var steps = Vector<MirStep>()
         self.prepare_target(target, &var steps)
-        let o = self.operand(value)
+        var o = self.operand(value)
         let n = steps.len()
         if n > 0 && steps[n - 1].kind == MIR_STEP_SETITEM {
             self.store_setitem(&steps, o)
@@ -1343,12 +1343,29 @@ extension MirProgram {
             if self.owns(t) && at >= 0 && at < self.places[p].count - 1 {
                 self.not_yet(target, "a write to an owning part of a raw pointer's pointee")
             } else if self.owns(t) && at < 0 {
+                // A read of the target's own local, by move or copy, is taken into a
+                // temporary first: the operand is read by the store below,
+                // after the old value's drop, which would otherwise drop
+                // the value the store is about to read.
+                if self.reads_own_root(o, p) {
+                    o = self.move_local(self.temp_of(self.rv_use(o)))
+                }
                 self.emit_drop(p)
             }
             let rv = self.rv_use(o)
             self.assign(p, rv)
         }
         self.close_scope()
+    }
+
+    // Whether operand `o` reads, by move or copy, the local that place `p` is rooted in.
+    func reads_own_root(&self, o: Int, p: Int) -> Bool {
+        let info = self.operands[o]
+        if info.kind == MirOperandKind.Const || info.place < 0 {
+            return false
+        }
+        let root = self.places[info.place].local
+        root >= 0 && root == self.places[p].local
     }
 
     // An assignment's target planned: its subexpressions evaluated now, its
