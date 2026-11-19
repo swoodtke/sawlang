@@ -1,0 +1,15 @@
+// refuses: borrows.root-named-outside at 14:12
+// errors: 1
+// test code may not name a root (SL-1156)
+// message: test code
+
+static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+@test
+func reads_the_limit() {
+    assert(LIMIT == 4)
+}

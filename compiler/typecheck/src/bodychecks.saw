@@ -17,6 +17,7 @@ import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.nodetable.{TcNodeTable, tc_node_table}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
                                TcCall, TcLend, TcParam, TcReceiver, TcRole, TcSig, TcUse}
@@ -35,6 +36,7 @@ public func tc_check_body_rules(p: &var TcProgram, layer: &FrontLayer) {
     p.check_containment_signatures(&layer)
     p.mark_lend_refused_uses(&layer)
     p.check_body_rules(&layer)
+    p.check_root_naming(&layer)
     p.check_lend_origins(&layer)
 }
 
@@ -294,6 +296,190 @@ extension TcProgram {
         } else {
             self.check_root_sync(d, root, t)
         }
+    }
+
+    // THE ROOT NAMING FUNNEL: a static some function declares as its
+    // `borrows(ROOT)` is named only in the body of a function whose root
+    // covers the use, since a window on the root is the one way to reach it
+    // and a name anywhere else would reach it unseen. Every use of a root
+    // static, found by the name records of `layer`'s nodes, is judged by the
+    // nearest declaration above it and the position between (SL-1156).
+    // ENTRY POINTS:
+    //     tc_check_body_rules
+    func check_root_naming(&var self, layer: &FrontLayer) {
+        var roots = Vector<Int>()
+        var owners = Vector<Int>()
+        var d = layer.decl_first
+        while d < self.res.decls.len() {
+            let kind = self.res.decls[d].kind
+            let callable = kind == ResDeclKind.Func || kind == ResDeclKind.Method
+            let target = self.sigs[d].root_decl
+            d = d + 1
+            if callable && target >= 0 && not tc_contains(&roots, target) {
+                try! roots.push(target)
+                try! owners.push(d - 1)
+            }
+        }
+        if roots.len() == 0 {
+            return
+        }
+        let n = self.res.nodes.len()
+        let parents = self.layer_parents(&layer)
+        var decl_of = tc_node_table(layer.node_first, n, -1)
+        d = layer.decl_first
+        while d < self.res.decls.len() {
+            let node = self.res.decls[d].node
+            if node >= layer.node_first {
+                decl_of[node] = d
+            }
+            d = d + 1
+        }
+        var at = layer.node_first
+        while at < n {
+            let leaf = at
+            at = at + 1
+            if self.res.record_of[leaf] < 0 {
+                continue
+            }
+            let b = self.binding_at(leaf)
+            if b.kind != ResBindKind.Decl || b.decl < 0 || not tc_contains(&roots, b.decl) {
+                continue
+            }
+            var j = 0
+            while roots[j] != b.decl {
+                j = j + 1
+            }
+            self.judge_root_use(leaf, b.decl, owners[j], &parents, &decl_of)
+        }
+    }
+
+    // One use of root static `target` at `leaf`; `owner` is a function that
+    // declares it, for the message.
+    func judge_root_use(&var self, leaf: Int, target: Int, owner: Int, parents: &TcNodeTable<Int>, decl_of: &TcNodeTable<Int>) {
+        let m = self.node_module(leaf)
+        if m < 0 {
+            return
+        }
+        var place = ""
+        var d = -1
+        var up = parents[leaf]
+        if self.is_type_argument(leaf, &parents) {
+            place = "a constant position (an array length, a repeat count or a const generic argument)"
+        }
+        while up >= 0 && d < 0 {
+            if decl_of[up] >= 0 {
+                d = decl_of[up]
+                break
+            }
+            if place.len() == 0 {
+                if self.has_alt(up, Alt.Expr_Closure) {
+                    place = "a closure body, which can outlive the window"
+                } else if self.has_alt(up, Alt.Decl_Param_Default) {
+                    place = "a parameter default, which runs in the caller"
+                } else if self.has_alt(up, Alt.Decl_StaticAssert) || self.has_alt(up, Alt.Stmt_NonExpr_StaticAssert) {
+                    place = "a `static_assert`"
+                } else if self.has_alt(up, Alt.Decl_StaticInit) {
+                    place = "another static's initializer"
+                } else if self.is_const_position(up) {
+                    place = "a constant position (an array length, a repeat count or a const generic argument)"
+                }
+            }
+            up = parents[up]
+        }
+        if place.len() == 0 {
+            if d < 0 {
+                place = "code outside any function"
+            } else {
+                let info = self.res.decls[d]
+                if info.test_only {
+                    place = "test code"
+                } else if info.kind == ResDeclKind.Static {
+                    place = "another static's initializer"
+                } else if info.kind != ResDeclKind.Func && info.kind != ResDeclKind.Method {
+                    place = "a declaration that is no function body"
+                } else if not self.in_function_body(leaf, d, &parents) {
+                    place = "a function's signature"
+                } else if not self.root_covers(d, target, leaf, &parents) {
+                    place = "the body of a function whose root does not cover this use"
+                }
+            }
+        }
+        if place.len() == 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(target))
+        try! msg.append("` is the root of `")
+        try! msg.append(self.res.decl_path(owner))
+        try! msg.append("`, so it is named only in the body of a function whose `borrows(ROOT)` covers the use, and this is ")
+        try! msg.append(place)
+        try! msg.append(": reach it through the function that declares the root, or declare this function's own")
+        self.refuse_in(m, leaf, "borrows.root-named-outside", msg.build())
+    }
+
+    // Whether the name at `leaf` is written as a generic argument, `Grid<N>`:
+    // a named type that is not the head of its own.
+    func is_type_argument(&self, leaf: Int, parents: &TcNodeTable<Int>) -> Bool {
+        let path = parents[leaf]
+        if path < 0 || not self.has_alt(path, Alt.Type_Path) {
+            return false
+        }
+        let named = parents[path]
+        if named < 0 || not self.has_alt(named, Alt.Type_Named) {
+            return false
+        }
+        let outer = parents[named]
+        outer >= 0 && (self.has_alt(outer, Alt.Type_Named) || self.has_alt(outer, Alt.Expr_Name))
+    }
+
+    // Whether node `up` is a constant position: a const expression, an array
+    // type's length, or a repeat literal's count.
+    func is_const_position(&self, up: Int) -> Bool {
+        self.has_alt(up, Alt.Const_Expr) || self.has_alt(up, Alt.Type_Array) || self.has_alt(up, Alt.Expr_Repeat)
+    }
+
+    // Whether `leaf` lies under the body block of function `d`, rather than
+    // its signature.
+    func in_function_body(&self, leaf: Int, d: Int, parents: &TcNodeTable<Int>) -> Bool {
+        let node = self.res.decls[d].node
+        var at = leaf
+        while at >= 0 && parents[at] != node {
+            at = parents[at]
+        }
+        at >= 0 && self.has_alt(at, Alt.Stmt_Block)
+    }
+
+    // Whether function `d`'s declared root covers the use of static `target`
+    // whose name is `leaf`: the same static, its field path a prefix of the
+    // fields the use names after it.
+    func root_covers(&self, d: Int, target: Int, leaf: Int, parents: &TcNodeTable<Int>) -> Bool {
+        let s = self.sigs[d]
+        if s.root_decl != target {
+            return false
+        }
+        let m = self.node_module(leaf)
+        var at = leaf
+        var p = parents[at]
+        if p >= 0 && self.has_alt(p, Alt.Expr_Name) {
+            at = p
+            p = parents[at]
+        }
+        var k = 0
+        while k < s.root_count {
+            if p < 0 || not self.has_alt(p, Alt.Expr_Member) || self.res.first_node_child(p) != at {
+                return false
+            }
+            let field = self.res.last_leaf_of(p)
+            let hop = self.res.decls[self.root_fields[s.root_first + k]]
+            if not self.text(m, field).equals(self.text(hop.module, hop.leaf)) {
+                return false
+            }
+            at = p
+            p = parents[at]
+            k = k + 1
+        }
+        true
     }
 
     // A shared root's type is `Sync`, since shared windows on it may stand in

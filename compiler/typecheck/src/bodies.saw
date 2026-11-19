@@ -1625,9 +1625,6 @@ extension TcProgram {
             return
         }
         let sig = self.sigs[d]
-        if sig.root_decl >= 0 {
-            self.refuse(s, "slice.not-yet", "a `lend` under a declared `borrows(ROOT)` is not in the bootstrap slice yet: the root's lend is lowered by a later unit")
-        }
         if self.lend_refused(d) {
             self.lend_mode(e, sig.lending_exclusive)
             return

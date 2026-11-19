@@ -1,0 +1,59 @@
+(Module borrows_root_naming
+  (declarations
+    (struct Part 5:8 private)
+    (field Part.depth 5:15 private Int)
+    (field Part.width 5:27 private Int)
+    (struct Boot 7:8 private)
+    (field Boot.system 7:15 private borrows_root_naming.Part)
+    (field Boot.process 7:29 private borrows_root_naming.Part)
+    (static BOOT 9:19 private borrows_root_naming.Boot unsafe-var)
+    (func whole 11:6 private (signature (params) (effects unsafe borrows) (lend place shared) (root BOOT) -> &borrows_root_naming.Boot) (summary body (suspends no) (sync-callable yes)))
+    (func system 16:6 private (signature (params) (effects unsafe borrows) (lend place shared) (root BOOT.system) -> &borrows_root_naming.Part) (summary body (suspends no) (sync-callable yes)))
+    (func process_depth 21:6 private (signature (params) (effects unsafe borrows) (lend place shared) (root BOOT.process.depth) -> &Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 26:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (borrows_root_naming.Part
+      (field depth Int private declared)
+      (field width Int private declared))
+    (borrows_root_naming.Boot
+      (field system borrows_root_naming.Part private declared)
+      (field process borrows_root_naming.Part private declared)))
+  (views
+    (borrows_root_naming.Part depth width)
+    (borrows_root_naming.Boot system process))
+  (conformances)
+  (copy-tier
+    (borrows_root_naming.Part Copy)
+    (borrows_root_naming.Boot Copy))
+  (bodies
+    (whole 11:6
+      (12:5-12:29 Call.paren Void value temp (builtin print))
+      (12:11-12:28 Member Int place borrow)
+      (12:11-12:22 Member borrows_root_naming.Part place project)
+      (12:11-12:15 Name borrows_root_naming.Boot place project)
+      (13:5-13:22 Call.paren Never value temp (builtin panic))
+      (13:11-13:21 StringLit String value temp))
+    (system 16:6
+      (17:5-17:29 Call.paren Void value temp (builtin print))
+      (17:11-17:28 Member Int place borrow)
+      (17:11-17:22 Member borrows_root_naming.Part place project)
+      (17:11-17:15 Name borrows_root_naming.Boot place project)
+      (18:5-18:22 Call.paren Never value temp (builtin panic))
+      (18:11-18:21 StringLit String value temp))
+    (process_depth 21:6
+      (22:5-22:30 Call.paren Void value temp (builtin print))
+      (22:11-22:29 Member Int place borrow)
+      (22:11-22:23 Member borrows_root_naming.Part place project)
+      (22:11-22:15 Name borrows_root_naming.Boot place project)
+      (23:5-23:22 Call.paren Never value temp (builtin panic))
+      (23:11-23:21 StringLit String value temp))
+    (main 26:6
+      (27:5-27:13 Call.paren Void value temp (builtin print))
+      (27:11-27:12 IntLit Int value borrow)))
+  (string-positions
+    (13:11 message std.string.string_literal)
+    (13:5 panic std.panic.panic_sink)
+    (18:11 message std.string.string_literal)
+    (18:5 panic std.panic.panic_sink)
+    (23:11 message std.string.string_literal)
+    (23:5 panic std.panic.panic_sink)))

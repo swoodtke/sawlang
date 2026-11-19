@@ -1,0 +1,188 @@
+module static_roots
+
+fn prologue static_roots.whole() {
+    loan L0: shared static static_roots.BOOT;  // ref at 21:5
+
+    bb0: {
+        [] {} _1 = ref(shared, static static_roots.BOOT);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.whole() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue static_roots.system() {
+    loan L0: shared (static static_roots.BOOT.system as Some!).0;  // ref at 25:5
+
+    bb0: {
+        [] {} _1 = ref(shared, (static static_roots.BOOT.system as Some!).0);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.system() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue static_roots.depth() {
+    loan L0: shared static static_roots.BOOT.pair.depth;  // ref at 29:5
+
+    bb0: {
+        [] {} _1 = ref(shared, static static_roots.BOOT.pair.depth);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.depth() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue static_roots.maybe() {
+    loan L0: shared static static_roots.BOOT.system;  // argument at 33:8
+    loan L1: shared (static static_roots.BOOT.system as Some!).0;  // ref at 36:5
+
+    bb0: {
+        [] {} _1 = ref(shared, static static_roots.BOOT.system);
+        [] {L0} _2 = call Optional.is_none() (owner static_roots.System?) [move _1] -> [return: bb2];
+    }
+
+    bb1: {
+        [] {} _3 = ref(shared, (static static_roots.BOOT.system as Some!).0);
+        [] {L1} _4 = (&static_roots.System)?::Some(move _3);
+        [] {L1} _0 = move _4;
+        [] {L1} return;
+    }
+
+    bb2: {
+        [] {} switch move _2 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        [] {} _0 = (&static_roots.System)?::None;
+        [] {} return;
+    }
+
+    bb4: {
+        [] {} goto -> bb1;
+    }
+}
+
+fn epilogue static_roots.maybe() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue static_roots.count_for(tag: T) {
+    place _2: T;  // tag
+    loan L0: shared static static_roots.BOOT.count;  // ref at 40:5
+
+    bb0: {
+        [W] {} _3 = ref(shared, static static_roots.BOOT.count);
+        [W] {L0} _0 = move _3;
+        [W] {L0} (*_1).0 = move _2;
+        [M] {L0} return;
+    }
+}
+
+fn epilogue static_roots.count_for(tag: T) {
+    place _2: T;  // tag
+
+    bb0: {
+        [U] _2 = move (*_1).0;
+        [W] goto -> bb1;
+    }
+
+    bb1: {
+        [W] drop(_2);  // static
+        [D] return;
+    }
+}
+
+fn prologue static_roots.slow() {
+    loan L0: shared static static_roots.BOOT.count;  // ref at 45:5
+
+    bb0: {
+        [] {} call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        [] {} _1 = ref(shared, static static_roots.BOOT.count);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.slow() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue static_roots.Boot.count() {
+    loan L0: shared static static_roots.BOOT.count;  // ref at 50:9
+
+    bb0: {
+        [] {} _1 = ref(shared, static static_roots.BOOT.count);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.Boot.count() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn static_roots.main() {
+
+    bb0: {
+        [] call builtin print [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        [] return;
+    }
+}

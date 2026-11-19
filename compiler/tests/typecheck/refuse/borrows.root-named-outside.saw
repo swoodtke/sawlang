@@ -1,0 +1,14 @@
+// refuses: borrows.root-named-outside at 13:5
+// errors: 1
+// once a function declares a static its root, another function may not name it (SL-1156, the owner's ruling R3)
+// message: is the root of `limit`
+
+static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+func other() -> Int {
+    LIMIT + 1
+}

@@ -1,0 +1,12 @@
+// refuses: borrows.root-named-outside at 11:26
+// errors: 1
+// a root function names only the fields under its own root path: a sibling field and the bare static are outside it (SL-1156)
+// message: does not cover this use
+
+struct Boot { system: Int, process: Int }
+
+static BOOT: Boot = Boot(system: 1, process: 2)
+
+func system() borrows(BOOT.system) -> &Int {
+    panic("diverges {}", BOOT.process)
+}

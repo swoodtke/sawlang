@@ -1,0 +1,15 @@
+// refuses: borrows.root-named-outside at 13:27
+// errors: 1
+// a repeat literal's count may not name a root (SL-1156)
+// message: a constant position
+
+static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+func table() -> Int {
+    let t: [Int; 4] = [0; LIMIT]
+    t.len()
+}

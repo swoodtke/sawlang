@@ -1,0 +1,12 @@
+// refuses: lend.root at 11:5
+// a root function lends the storage of its own root only: another static is outside it, and the message names the declared root (SL-1156)
+// message: `borrows(BOOT.system)`
+
+struct Boot { system: Int }
+
+unsafe static var BOOT: Boot
+unsafe static var OTHER: Boot
+
+func system() unsafe borrows(BOOT.system) -> &Int {
+    lend OTHER.system
+}

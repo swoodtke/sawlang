@@ -1,0 +1,11 @@
+// refuses: lend.root at 10:5
+// storage a parameter refers to is outside a root function's root (SL-1156)
+// message: `borrows(BOOT.system)`
+
+struct Boot { system: Int }
+
+unsafe static var BOOT: Boot
+
+func system(v: &Vector<Int>) unsafe borrows(BOOT.system) -> &Int {
+    lend v[0]
+}

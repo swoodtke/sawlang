@@ -1,0 +1,12 @@
+// refuses: borrows.root-named-outside at 8:22
+// errors: 2
+// another static's initializer may not name a root (SL-1156)
+// message: another static's initializer
+
+static LIMIT: Int = 4
+
+static DOUBLE: Int = LIMIT + LIMIT
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}

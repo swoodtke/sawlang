@@ -1,0 +1,12 @@
+// refuses: borrows.root-named-outside at 8:15
+// errors: 1
+// a `static_assert` may not name a root (SL-1156)
+// message: a `static_assert`
+
+static LIMIT: Int = 4
+
+static_assert(LIMIT == 4, "the limit is four")
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}

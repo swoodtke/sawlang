@@ -1505,7 +1505,13 @@ extension BorrowckProgram {
                         var msg = StringBuilder()
                         try! msg.append("`lend` hands out `")
                         try! msg.append(self.borrowck_path_text(f, &root, &facts))
-                        try! msg.append("`, which is not rooted in the receiver: it is the accessor's own local or parameter, storage a parameter refers to, or a static. An accessor lends storage its receiver already owns: `self`'s fields, a receiver-rooted `match` payload, an indirection read out of the receiver, or a window opened on one of those")
+                        if s.root_decl >= 0 {
+                            try! msg.append("`, which is not under the root this function declares, `borrows(")
+                            try! msg.append(self.root_text(info.decl))
+                            try! msg.append(")`: it is the accessor's own local or parameter, storage a parameter refers to, or another static. A root function lends the storage of its root: the static or a field path under it, an indirection read out of that, or a window opened on a root function whose root lies under its own")
+                        } else {
+                            try! msg.append("`, which is not rooted in the receiver: it is the accessor's own local or parameter, storage a parameter refers to, or a static. An accessor lends storage its receiver already owns: `self`'s fields, a receiver-rooted `match` payload, an indirection read out of the receiver, or a window opened on one of those; a function with no receiver lends a static through `borrows(ROOT)`")
+                        }
                         self.report_loan(f, loan.node, "lend.root", msg.build(), &var reported)
                     }
                 }
@@ -1540,17 +1546,25 @@ extension BorrowckProgram {
     // (spec, The lent place is rooted in the receiver): rooted in `self`, or
     // reached through an indirection, a pointer's index or referent, whose
     // pointer was read out of the receiver. Tracing has already followed a
-    // window's lent reference to its receiver. A place a parameter refers
-    // to, `&var` included, the accessor's own locals, a fixed array element
-    // of one, and a static are refused; widening later stays compatible.
+    // window's lent reference to its receiver. A function that declares
+    // `borrows(ROOT)` has no receiver: its own root is the storage it lends,
+    // the root static or a field path under it, an indirection read out of
+    // that, or a window on a root function whose root lies under its own.
+    // A place a parameter refers to, `&var` included, the accessor's own
+    // locals, a fixed array element of one, and any other static are
+    // refused (SL-1156).
     func lendable_root(&self, f: Int, p: &BorrowckPath, facts: &var BorrowckLoans) -> Bool {
         if p.count < 0 {
             return true
         }
+        let decl = self.mir.funcs[f].decl
         if p.local < 0 {
-            return false
+            return self.declared_static_root(decl, &p, &facts)
         }
         if mir_func_local(&self.mir, f, p.local).kind == MirLocalKind.Receiver {
+            return true
+        }
+        if self.forwards_root_window(f, decl, &p, &facts) {
             return true
         }
         var base = mir_func_local(&self.mir, f, p.local).ty
@@ -1568,6 +1582,67 @@ extension BorrowckProgram {
             base = step.ty
         }
         false
+    }
+
+    // The root function `decl` declares, `BOOT.system`.
+    func root_text(&self, decl: Int) -> String {
+        let s = self.mir.tc.sigs[decl]
+        var out = StringBuilder()
+        try! out.append(self.mir.decl_name(s.root_decl))
+        var k = 0
+        while k < s.root_count {
+            let hop = self.mir.tc.res.decls[self.mir.tc.root_fields[s.root_first + k]]
+            try! out.append(".")
+            try! out.append(self.mir.tc.text(hop.module, hop.leaf))
+            k = k + 1
+        }
+        out.build()
+    }
+
+    // Whether static path `p` lies under the root function `decl` declares:
+    // the same static, its first projections the root's fields.
+    func declared_static_root(&self, decl: Int, p: &BorrowckPath, facts: &BorrowckLoans) -> Bool {
+        let s = self.mir.tc.sigs[decl]
+        if s.root_decl < 0 || p.static_decl != s.root_decl || p.count < s.root_count {
+            return false
+        }
+        var k = 0
+        while k < s.root_count {
+            let step = facts.projs[p.first + k]
+            if step.kind != MirProjKind.Field || step.decl != self.mir.tc.root_fields[s.root_first + k] {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Whether prologue `f` of root function `decl` lends through a window
+    // opened on another root function whose root lies under its own: the
+    // local `p` is rooted in is that window's lent reference.
+    func forwards_root_window(&self, f: Int, decl: Int, p: &BorrowckPath, facts: &BorrowckLoans) -> Bool {
+        let s = self.mir.tc.sigs[decl]
+        let l = p.local
+        if s.root_decl < 0 || facts.def_count[l] != 1 || facts.def_stmt[l] >= 0 {
+            return false
+        }
+        let info = self.mir.funcs[f]
+        let c = self.mir.calls[self.mir.blocks[info.block_first + facts.def_block[l]].call]
+        if c.kind != MirCallKind.WindowOpen || c.window < 0 || c.window >= info.window_count {
+            return false
+        }
+        let inner = self.mir.tc.sigs[self.mir.windows[info.window_first + c.window].accessor]
+        if inner.root_decl != s.root_decl || inner.root_count < s.root_count {
+            return false
+        }
+        var k = 0
+        while k < s.root_count {
+            if self.mir.tc.root_fields[inner.root_first + k] != self.mir.tc.root_fields[s.root_first + k] {
+                return false
+            }
+            k = k + 1
+        }
+        true
     }
 
     // Whether local `l` of prologue `f` holds a value read out of the

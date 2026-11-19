@@ -1,0 +1,18 @@
+// refuses: borrows.root-named-outside at 16:20
+// errors: 1
+// a const generic argument may not name a root (SL-1156)
+// message: a constant position
+
+static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+struct Grid<const N: Int> {
+    cells: [Int; N]
+}
+
+func width(g: Grid<LIMIT>) -> Int {
+    g.cells.len()
+}

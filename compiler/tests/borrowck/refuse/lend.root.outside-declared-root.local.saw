@@ -1,0 +1,12 @@
+// refuses: lend.root at 11:5
+// a root function's own local dies with the call, so it is never the lent place, whatever root the function declares (SL-1156)
+// message: `borrows(BOOT.system)`
+
+struct Boot { system: Int }
+
+unsafe static var BOOT: Boot
+
+func system() unsafe borrows(BOOT.system) -> &Int {
+    var mine = 4
+    lend mine
+}

@@ -1,0 +1,11 @@
+// refuses: borrows.root-named-outside at 9:29
+// errors: 1
+// a closure is its own function and can outlive the window, so even one inside the root function may not name the root (SL-1156)
+// message: a closure body
+
+static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    let read: () -> Int = { LIMIT }
+    panic("diverges {}", read())
+}

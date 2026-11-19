@@ -1,0 +1,28 @@
+// A root is named inside the body of a function whose root covers the use: the
+// root itself, a field path under it, and a deeper field of it, each in a body
+// that diverges so no lend or call stands (SL-1156).
+
+struct Part { depth: Int, width: Int }
+
+struct Boot { system: Part, process: Part }
+
+unsafe static var BOOT: Boot
+
+func whole() unsafe borrows(BOOT) -> &Boot {
+    print(BOOT.system.depth)
+    panic("diverges")
+}
+
+func system() unsafe borrows(BOOT.system) -> &Part {
+    print(BOOT.system.width)
+    panic("diverges")
+}
+
+func process_depth() unsafe borrows(BOOT.process.depth) -> &Int {
+    print(BOOT.process.depth)
+    panic("diverges")
+}
+
+func main() {
+    print(1)
+}

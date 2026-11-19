@@ -1,0 +1,14 @@
+// refuses: borrows.root-named-outside at 12:23
+// errors: 1
+// a parameter default runs in the caller, so it may not name a root (SL-1156)
+// message: a parameter default
+
+static LIMIT: Int = 4
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+func scaled(by: Int = LIMIT) -> Int {
+    by * 2
+}
