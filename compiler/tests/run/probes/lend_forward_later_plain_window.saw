@@ -1,0 +1,26 @@
+// probe: stated
+// about: an accessor body that reads through a window on a later accessor before its own `lend` (SL-1173)
+// stage 0: has no `lend`-forwarding accessors to compare against; the expectation is the spec's
+// speeds: -O0 -O2
+// prints: 7
+// prints: 7
+// The window is a plain read (`self.inner_view().n`), not a forwarded `lend`.
+
+struct Inner {
+    n: Int
+}
+struct Outer {
+    inner: Inner
+}
+extension Outer {
+    func outer_view(&self) borrows -> &Inner {
+        let k = self.inner_view().n
+        print(k)
+        lend self.inner
+    }
+    func inner_view(&self) borrows -> &Inner { lend self.inner }
+}
+func main() {
+    let o = Outer(inner: Inner(n: 7))
+    print(o.outer_view().n)
+}

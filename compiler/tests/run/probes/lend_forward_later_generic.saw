@@ -1,0 +1,22 @@
+// probe: stated
+// about: a generic accessor forwarding its lend to a later one (SL-1173)
+// stage 0: has no `lend`-forwarding accessors to compare against; the expectation is the spec's
+// speeds: -O0 -O2
+// prints: 7
+// The receiver is generic, so the window's halves are instantiated.
+
+struct Inner {
+    n: Int
+}
+struct Outer {
+    inner: Inner
+}
+struct Wrap<T> { v: T }
+extension Wrap<T> {
+    func outer_view(&self) borrows -> &T { lend self.inner_view() }
+    func inner_view(&self) borrows -> &T { lend self.v }
+}
+func main() {
+    let o = Wrap(v: 7)
+    print(o.outer_view())
+}

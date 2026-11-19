@@ -1,0 +1,22 @@
+// probe: stated
+// about: a `lend` that forwards to an accessor declared later in the same extension (SL-1173)
+// stage 0: has no `lend`-forwarding accessors to compare against; the expectation is the spec's
+// speeds: -O0 -O2
+// prints: 7
+// `outer_view` forwards `inner_view`'s lend and is declared first: the window it opens
+// names `inner_view`'s halves, which exist whatever the declaration order.
+
+struct Inner {
+    n: Int
+}
+struct Outer {
+    inner: Inner
+}
+extension Outer {
+    func outer_view(&self) borrows -> &Inner { lend self.inner_view() }
+    func inner_view(&self) borrows -> &Inner { lend self.inner }
+}
+func main() {
+    let o = Outer(inner: Inner(n: 7))
+    print(o.outer_view().n)
+}

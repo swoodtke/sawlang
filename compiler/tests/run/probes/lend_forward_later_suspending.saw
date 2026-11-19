@@ -1,0 +1,25 @@
+// probe: stated
+// about: an accessor forwarding its lend to a later one whose prologue suspends (SL-1173)
+// stage 0: has no `lend`-forwarding accessors to compare against; the expectation is the spec's
+// speeds: -O0 -O2
+// prints: 7
+// The later accessor calls `yield_now` before its `lend`.
+
+struct Inner {
+    n: Int
+}
+struct Outer {
+    inner: Inner
+}
+import std.task.*
+extension Outer {
+    func outer_view(&self) borrows -> &Inner { lend self.inner_view() }
+    func inner_view(&self) borrows -> &Inner {
+        yield_now()
+        lend self.inner
+    }
+}
+func main() {
+    let o = Outer(inner: Inner(n: 7))
+    print(o.outer_view().n)
+}

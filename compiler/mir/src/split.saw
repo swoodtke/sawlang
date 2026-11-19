@@ -182,7 +182,7 @@ extension MirProgram {
     }
 
     // A refusal in function `f`, at node `node`.
-    func not_yet_at(&var self, f: Int, node: Int, what: String) {
+    public func not_yet_at(&var self, f: Int, node: Int, what: String) {
         let outer = self.refused
         self.not_yet(node, what)
         self.refused = outer

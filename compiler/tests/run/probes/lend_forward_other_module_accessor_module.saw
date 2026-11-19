@@ -1,0 +1,12 @@
+// probe: module
+// about: the module `lend_forward_other_module_accessor` imports: an accessor its forwarder calls (SL-1173)
+
+public struct Inner {
+    public n: Int
+}
+public struct Outer {
+    public inner: Inner
+}
+extension Outer {
+    public func inner_view(&self) borrows -> &Inner { lend self.inner }
+}

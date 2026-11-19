@@ -1,0 +1,23 @@
+// probe: stated
+// about: a `lend` that forwards to an accessor declared in a later extension (SL-1173)
+// stage 0: has no `lend`-forwarding accessors to compare against; the expectation is the spec's
+// speeds: -O0 -O2
+// prints: 7
+// The accessor it forwards to is in an extension that follows the forwarding one.
+
+struct Inner {
+    n: Int
+}
+struct Outer {
+    inner: Inner
+}
+extension Outer {
+    func outer_view(&self) borrows -> &Inner { lend self.inner_view() }
+}
+extension Outer {
+    func inner_view(&self) borrows -> &Inner { lend self.inner }
+}
+func main() {
+    let o = Outer(inner: Inner(n: 7))
+    print(o.outer_view().n)
+}

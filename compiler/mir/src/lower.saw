@@ -108,38 +108,167 @@ extension MirProgram {
             m = m + 1
         }
         // Accessors first, each split around its `lend`: a window's caller
-        // holds the state record its accessor's split lays out. A body calls
+        // holds the state record its accessor's split lays out, so an accessor
+        // follows the ones its body calls (`accessor_order`). A body calls
         // only its own layer's accessors and an earlier layer's, lowered then.
         self.lower_roots(&refused, true, &layer)
         self.lower_roots(&refused, false, &layer)
     }
 
     // The body roots that are, or with `accessors` false are not, a
-    // `borrows` accessor's block.
+    // `borrows` accessor's block. Accessors go callee first (`accessor_order`).
     func lower_roots(&var self, refused: &Vector<Bool>, accessors: Bool, layer: &FrontLayer) {
+        var order = Vector<Int>()
+        var cyclic = Vector<Bool>()
+        var wanted = Vector<Bool>()
         var k = layer.body_root_first
         while k < self.tc.body_roots.len() {
             let root = self.tc.body_roots[k]
             let d = self.tc.body_decls[k]
-            k = k + 1
             let module = self.tc.node_module(root)
-            if module < 0 || refused[module] || self.is_poisoned(root) {
-                continue
+            var take = false
+            if module >= 0 && not refused[module] && not self.is_poisoned(root) {
+                let info = self.tc.res.modules[module]
+                take = not info.interface_only && self.is_accessor_root(d, root) == accessors
             }
-            let info = self.tc.res.modules[module]
-            if info.interface_only || self.is_accessor_root(d, root) != accessors {
-                continue
+            try! wanted.push(take)
+            try! cyclic.push(false)
+            k = k + 1
+        }
+        if accessors {
+            self.accessor_order(layer.body_root_first, &wanted, &var order, &var cyclic)
+        } else {
+            k = 0
+            while k < wanted.len() {
+                if wanted[k] {
+                    try! order.push(k)
+                }
+                k = k + 1
             }
-            self.order_now = k - 1
+        }
+        var at = 0
+        while at < order.len() {
+            let rel = order[at]
+            at = at + 1
+            let slot = layer.body_root_first + rel
+            let root = self.tc.body_roots[slot]
+            let d = self.tc.body_decls[slot]
+            self.order_now = slot
             let f = self.funcs.len()
-            self.lower_root(module, d, root)
-            if accessors && self.tc.sigs[d].lending == TcLend.BorrowingStruct {
+            self.lower_root(self.tc.node_module(root), d, root)
+            if accessors && cyclic[rel] {
+                self.not_yet_at(f, root, "an accessor that forwards a lend to itself, through other accessors or directly,")
+            } else if accessors && self.tc.sigs[d].lending == TcLend.BorrowingStruct {
                 self.register_producer(f)
             } else if accessors {
                 self.split_accessor(f)
             }
             self.lower_pending()
         }
+    }
+
+    // The order the layer's accessor bodies are lowered in, `order` holding
+    // each one's index from `first`: an accessor after every accessor its body
+    // calls, since a window call names the halves its callee's split made and
+    // so finds none before it. `wanted[k]` marks the accessors. One that
+    // reaches itself through such calls is marked `cyclic[k]` and refused:
+    // it has no callee-first order. The one chokepoint for the order.
+    //
+    // ENTRY POINTS (accessor_order):
+    //     lower_roots
+    func accessor_order(&self, first: Int, wanted: &Vector<Bool>, order: &var Vector<Int>,
+                        cyclic: &var Vector<Bool>) {
+        let n = wanted.len()
+        var index_of = Vector<Int>()
+        var d = 0
+        while d < self.tc.res.decl_count() {
+            try! index_of.push(-1)
+            d = d + 1
+        }
+        var k = 0
+        while k < n {
+            let decl = self.tc.body_decls[first + k]
+            if wanted[k] && decl >= 0 {
+                index_of[decl] = k
+            }
+            k = k + 1
+        }
+        var calls = Vector<Vector<Int>>()
+        k = 0
+        while k < n {
+            if wanted[k] {
+                try! calls.push(self.accessors_called(self.tc.body_roots[first + k], &index_of))
+            } else {
+                try! calls.push(Vector<Int>())
+            }
+            k = k + 1
+        }
+        // 0 unvisited, 1 on the walk's stack, 2 placed.
+        var state = Vector<Int>()
+        k = 0
+        while k < n {
+            try! state.push(0)
+            k = k + 1
+        }
+        var stack = Vector<Int>()
+        var next = Vector<Int>()
+        var start = 0
+        while start < n {
+            if not wanted[start] || state[start] != 0 {
+                start = start + 1
+                continue
+            }
+            state[start] = 1
+            try! stack.push(start)
+            try! next.push(0)
+            while stack.len() > 0 {
+                let top = stack.len() - 1
+                let at = stack[top]
+                let j = next[top]
+                if j < calls[at].len() {
+                    next[top] = j + 1
+                    let callee = calls[at][j]
+                    if state[callee] == 1 {
+                        cyclic[at] = true
+                    } else if state[callee] == 0 {
+                        state[callee] = 1
+                        try! stack.push(callee)
+                        try! next.push(0)
+                    }
+                } else {
+                    state[at] = 2
+                    try! order.push(at)
+                    let _ = stack.pop()
+                    let _ = next.pop()
+                }
+            }
+            start = start + 1
+        }
+    }
+
+    // The accessors (by `index_of`'s numbering) the body under `root` calls,
+    // its closures' calls included.
+    func accessors_called(&self, root: Int, index_of: &Vector<Int>) -> Vector<Int> {
+        var found = Vector<Int>()
+        var work = Vector<Int>()
+        try! work.push(root)
+        while work.len() > 0 {
+            let e = work[work.len() - 1]
+            let _ = work.pop()
+            if e < self.tc.call_at.len() && self.tc.call_at[e] >= 0 {
+                let t = self.tc.calls[self.tc.call_at[e]].target
+                if t >= 0 && t < index_of.len() && index_of[t] >= 0 {
+                    try! found.push(index_of[t])
+                }
+            }
+            var c = 0
+            let count = self.tc.child_count(e)
+            while c < count {
+                try! work.push(self.tc.child(e, c))
+                c = c + 1
+            }
+        }
+        move found
     }
 
     // Whether `root` is the block of a `borrows` accessor: one that lends a

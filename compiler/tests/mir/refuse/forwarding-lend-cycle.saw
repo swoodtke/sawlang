@@ -1,0 +1,21 @@
+// refuses: slice.not-yet at 15:42
+// Two accessors that forward their lends to each other have no order in which
+// each finds the other's halves, so the one that closes the cycle is refused.
+
+struct Inner {
+    n: Int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Outer {
+    func a_view(&self) borrows -> &Inner { lend self.b_view() }
+    func b_view(&self) borrows -> &Inner { lend self.a_view() }
+}
+
+func main() {
+    let o = Outer(inner: Inner(n: 7))
+    print(o.a_view().n)
+}

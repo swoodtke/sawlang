@@ -1,0 +1,20 @@
+// refuses: slice.not-yet at 14:42
+// An accessor that forwards its lend to itself has no halves of its own to
+// name while it is lowered, so it is refused.
+
+struct Inner {
+    n: Int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Outer {
+    func a_view(&self) borrows -> &Inner { lend self.a_view() }
+}
+
+func main() {
+    let o = Outer(inner: Inner(n: 7))
+    print(o.a_view().n)
+}

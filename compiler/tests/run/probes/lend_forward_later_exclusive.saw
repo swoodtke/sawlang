@@ -1,0 +1,22 @@
+// probe: stated
+// about: a `&var self` accessor forwarding its lend to a later `&var self` accessor (SL-1173)
+// stage 0: has no `lend`-forwarding accessors to compare against; the expectation is the spec's
+// speeds: -O0 -O2
+// prints: 9
+// The write through the forwarded exclusive window lands in `inner`.
+
+struct Inner {
+    n: Int
+}
+struct Outer {
+    inner: Inner
+}
+extension Outer {
+    func outer_view(&var self) borrows -> &var Inner { lend self.inner_view() }
+    func inner_view(&var self) borrows -> &var Inner { lend self.inner }
+}
+func main() {
+    var o = Outer(inner: Inner(n: 7))
+    o.outer_view().n = 9
+    print(o.outer_view().n)
+}
