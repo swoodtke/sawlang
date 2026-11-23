@@ -1149,6 +1149,7 @@ errors/exclusive_window_in_a_shared_lend_accessor.saw	pass	judged by its own dir
 errors/existential_arg_wrong_trait.saw	pass	-	type.mismatch: expected `&var any existential_arg_wrong_trait.Logger`, the type of the parameter, and found `&var any existential_arg_wrong_trait.Counter`
 errors/explicit_copy_containment.saw	pass	-	copy.undeclared-policy: `Container` holds `Container.data` of type `explicit_copy_containment.Buf`, which is ExplicitCopy, so it declares its own policy: `extension Container: NoCopy {}`, or `@synthes
 errors/extern_c_compiler_symbol_mismatch_error.saw	wrong	accepts a refusal test	`printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
+errors/extern_export_signature_disagree.saw	pass	judged by its own directives (no oracle)	export.signature-disagree: `hook` is exported here as `(Int32) -> Int32`, but an `extern` declaration of the same symbol, in `extern_export_signature_disagree`, declares it `(Int) -> Int`: the program
 errors/fixed_width_arith_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 errors/fixedstringbuilder_below_five_bytes.saw	pass	judged by its own directives (no oracle)	static_assert.failed: static assertion failed: FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four, at `std.fixedbuf.FixedStringBuilder.init() args 4`
 errors/for_head_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet

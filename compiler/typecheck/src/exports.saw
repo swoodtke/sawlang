@@ -22,6 +22,7 @@ public func tc_export_rules() -> Vector<String> {
     try! out.push("export.generic")
     try! out.push("export.reserved")
     try! out.push("export.seam-signature")
+    try! out.push("export.signature-disagree")
     try! out.push("export.suspends")
     try! out.push("export.unknown-seam")
     move out
@@ -110,6 +111,35 @@ extension TcProgram {
             k = k + 1
         }
         self.name_text(info.name)
+    }
+
+    // The C symbol function `d` is exported under, or "" when `d` is no
+    // function of a module checked in full that a normal build emits under
+    // one: a static, a generic function (refused as one), a test-only export.
+    // The extern funnel reads it before `tc_check_exports` records the symbol
+    // (`export.signature-disagree`).
+    public func exported_function_symbol(&self, d: Int) -> String {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Func || info.test_only || self.sigs[d].generic_count > 0 {
+            return ""
+        }
+        let m = self.res.module(info.module)
+        if not m.available || m.interface_only {
+            return ""
+        }
+        let attr = self.export_attribute(d)
+        if attr < 0 {
+            return ""
+        }
+        self.export_symbol_of(d, attr)
+    }
+
+    // Whether `symbol` is a runtime seam name. An export of one is judged by
+    // the export funnel (`export_name_ok`: reserved outside a runtime, held to
+    // runtime/ABI.md's width classes inside one), so the extern funnel leaves
+    // it to that.
+    public func is_seam_symbol(&self, symbol: String) -> Bool {
+        symbol.starts_with("__saw_rt_")
     }
 
     func record_export(&var self, d: Int, attr: Int, table: &TcAbiTable) {

@@ -1,0 +1,8 @@
+@export("sl1175_probe")
+func probe_exported(x: Int) -> Int32 {
+    0
+}
+
+public func probe_depth(x: Int) -> Int {
+    x
+}

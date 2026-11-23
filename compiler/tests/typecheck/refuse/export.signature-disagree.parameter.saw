@@ -1,0 +1,16 @@
+// refuses: export.signature-disagree at 10:6
+// flags: --std-root std
+// the same, in a parameter: the extern passes a word, the export takes 32 bits
+
+extern "C" {
+    func hook(x: Int) -> Int
+}
+
+@export("hook")
+func my_hook(x: Int32) -> Int {
+    0
+}
+
+func main() {
+    print(hook(0))
+}

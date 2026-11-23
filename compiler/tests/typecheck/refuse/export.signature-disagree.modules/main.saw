@@ -1,0 +1,14 @@
+// refuses: export.signature-disagree at probes.saw:2:6
+// flags: --std-root std
+// an extern in the program's main module, the export in another module of it:
+// one symbol, one signature across modules
+
+import probes.{probe_depth}
+
+extern "C" {
+    func sl1175_probe(x: Int) -> Int
+}
+
+func main() {
+    print(sl1175_probe(1) + probe_depth(1))
+}

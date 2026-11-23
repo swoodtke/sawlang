@@ -1,0 +1,43 @@
+// probe: stated
+// about: an extern and an export of one C symbol agree when one has the nullable form of the other's pointer (SL-1175)
+// stage 0: does not compare an extern with an export, so it is no oracle for the refusing side
+// speeds: -O0
+// prints: 7
+// prints: true
+// prints: 5
+//
+// std declares a seam's pointer result optional and a runtime exports it plain:
+// one machine word, NULL meaning absent, the same in a parameter.
+
+extern "C" {
+    func sl1175_pick(p: UnsafePointer<Int>?) -> UnsafePointer<Int>?
+    func sl1175_sum(a: Int, b: Int) -> Int
+}
+
+@export("sl1175_pick")
+func pick(p: UnsafePointer<Int>) unsafe -> UnsafePointer<Int> {
+    p
+}
+
+// The same width in the other signedness is the same bits across the call.
+@export("sl1175_sum")
+func sum(a: UInt, b: UInt) -> UInt {
+    a + b
+}
+
+func main() unsafe {
+    var cell: [Int; 1] = [7]
+    let at = (&cell) as UnsafePointer<Int>
+    guard let got = sl1175_pick(at) else {
+        return
+    }
+    print(got[0])
+    let none: UnsafePointer<Int>? = None
+    let again = sl1175_pick(none)
+    if let _ = again {
+        print(false)
+    } else {
+        print(true)
+    }
+    print(sl1175_sum(2, 3))
+}

@@ -1,0 +1,17 @@
+// An `extern` and an `@export` of one C symbol disagree on the signature: the
+// call reads the export's 32-bit answer as a word, with no `unsafe` in sight.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is exported here as
+
+extern "C" {
+    func hook(x: Int) -> Int
+}
+
+@export("hook")
+func my_hook(x: Int32) -> Int32 {
+    x - 1
+}
+
+func main() {
+    print(hook(0))
+}

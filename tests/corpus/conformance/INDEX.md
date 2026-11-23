@@ -6,6 +6,9 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
+**882 rows**, counted from the table when SL-1175 added N13-N15, an extern and an
+export of one C symbol agreeing on the signature (N15 owed to SL-1159, covered outside
+this directory); previously
 **879 rows**, counted from the table when SL-1174 added B37, a `private` field
 invisible outside its module whatever trivia precedes it, covered by typecheck
 fixtures outside this directory; previously
@@ -1188,6 +1191,9 @@ Claim source: spec 10 *No hidden allocations* + 8 *Profiles*; designs 113, 135, 
 | N10 | `@align(N)` refuses an N that is not a power of two | `N10_align_rejects_non_power_of_two.saw`; for the self-hosted compiler also `compiler/tests/typecheck/refuse/constant.align.saw`, with zero, negative and above-4096 values in `constant.align.zero.saw`, `constant.align.negative.saw`, `constant.align.above-cap.saw` (`errors/align_above_cap.saw` in the corpus) | SL-801 |
 | N11 | `@align(N)` on a coroutine-frame-resident local refuses cleanly rather than dropping the alignment | `N11_align_refuses_frame_resident_local.saw`, `align_nonresident_local_in_suspending_function.saw`; for the self-hosted compiler also `compiler/tests/coro/refuse/coro.align-frame-resident.saw` and `.scope-ended.saw` | SL-801 — sawc keeps a drop-free local resident to the end of the body, not its scope (SL-932), so it refuses `align_nonresident_local_in_suspending_function.saw` too, saying why; an alignment is still never dropped |
 | N12 | `--no-hidden-alloc` accepts a capturing closure literal called where it is written: its environment is a local of its builder | `tests/corpus/conformance/N12_no_hidden_alloc_closure_called_in_place.saw` | SL-1137 |
+| N13 | two `extern` declarations of one C symbol agree on the signature (SL-1159's "one C symbol, one signature per compile" family, S-a) | for the self-hosted compiler `compiler/tests/typecheck/refuse/extern.signature-disagree.saw`, `.parameter.saw` and `.arity.saw`, covered outside this directory | SL-1175 |
+| N14 | an `extern` declaration and an `@export` of one C symbol agree on the signature, a pointer and its optional agreeing (S-b) | `tests/corpus/errors/extern_export_signature_disagree.saw`; for the self-hosted compiler also `compiler/tests/typecheck/refuse/export.signature-disagree.*` and the agreeing side `compiler/tests/run/probes/export_agrees_with_nullable_extern.saw` | SL-1175 |
+| N15 | a weak export with no replacement is a real call at -O2, never folded (S-e) | owed to SL-1159 (the `@weak` attribute, its unit U2), an IR pin in the run lane | SL-1159 |
 
 ## Divergence — a `Never` expression never falls through
 

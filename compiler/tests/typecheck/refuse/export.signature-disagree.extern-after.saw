@@ -1,0 +1,16 @@
+// refuses: export.signature-disagree at 11:10
+// flags: --std-root std
+// the extern written after the export is the one refused: the later of the two
+
+@export("hook")
+func my_hook(x: Int) -> Int32 {
+    0
+}
+
+extern "C" {
+    func hook(x: Int) -> Int
+}
+
+func main() {
+    print(hook(0))
+}

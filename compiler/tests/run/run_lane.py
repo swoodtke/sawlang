@@ -968,7 +968,8 @@ RUNTIME_DEFECTS = (
     ("common/sleep.saw", '@export("__saw_rt_sleep_ns")\n', "",
      "sawc runtime: no runtime object defines `__saw_rt_sleep_ns`, which runtime/ABI.md lists"),
     ("%s/dirent.saw" % ("host_macos" if build.host_triple().endswith("-apple-darwin") else "host_linux"),
-     '@export("__saw_rt_fs_dirent_name")', '@export("__saw_rt_fs_chdir")',
+     '@export("__saw_rt_fs_dirent_name")\nfunc rt_fs_dirent_name(entry: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int8> {\n    entry + DIRENT_NAME_OFFSET\n}',
+     '@export("__saw_rt_fs_chdir")\nfunc rt_fs_dirent_name(path: UnsafePointer<Int8>) unsafe -> Int {\n    0\n}',
      "sawc runtime: `__saw_rt_fs_chdir` is defined by both"),
 )
 

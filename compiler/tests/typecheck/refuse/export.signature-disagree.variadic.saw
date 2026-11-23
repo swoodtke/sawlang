@@ -1,0 +1,17 @@
+// refuses: export.signature-disagree at 11:6
+// flags: --std-root std
+// a variadic extern against a fixed export: C passes the variadic tail by a
+// different convention on some targets, so the export cannot read it
+
+extern "C" {
+    func hook(x: Int, ...) -> Int
+}
+
+@export("hook")
+func my_hook(x: Int) -> Int {
+    x
+}
+
+func main() {
+    print(1)
+}

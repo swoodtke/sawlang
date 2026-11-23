@@ -1,0 +1,17 @@
+// refuses: export.signature-disagree at 11:6
+// flags: --std-root std
+// an export with a parameter more than the extern passes: the extra argument
+// would be whatever the caller left in the register
+
+extern "C" {
+    func hook(x: Int) -> Int
+}
+
+@export("hook")
+func my_hook(x: Int, y: Int) -> Int {
+    x + y
+}
+
+func main() {
+    print(hook(0))
+}

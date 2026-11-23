@@ -1,0 +1,17 @@
+// refuses: export.signature-disagree at 11:6
+// flags: --std-root std
+// a word against a pointer is a disagreement: only a pointer's own nullable form
+// agrees with it
+
+extern "C" {
+    func hook(x: Int) -> Int
+}
+
+@export("hook")
+func my_hook(x: UnsafePointer<Int>) unsafe -> Int {
+    0
+}
+
+func main() {
+    print(hook(0))
+}

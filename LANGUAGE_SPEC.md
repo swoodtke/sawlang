@@ -12658,7 +12658,11 @@ declaration cannot be silently dropped along with its annotation, and no
 downstream declaration can make a function another module calls a suspension
 source. The same holds for the rest of the signature: every declaration of
 one symbol, std's included, has the same parameter types, arity and result,
-since the program calls one C function by that name.
+since the program calls one C function by that name. An `@export` of that
+symbol is held to the same signature, except that a pointer may be optional on
+one side and plain on the other (`UnsafePointer<T>?` against `UnsafePointer<T>`:
+one word, `None` the null address); the effects of an `extern` and of an export
+(`blocking`, `sync`, `unsafe`) are not compared.
 
 **What the offload does.** Inside a suspending body (a driven or spawned task,
 or a suspending `main`), the call lowers to three steps: start a worker thread

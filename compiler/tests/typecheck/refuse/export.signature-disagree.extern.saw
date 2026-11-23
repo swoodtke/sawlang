@@ -1,0 +1,17 @@
+// refuses: export.signature-disagree at 11:6
+// flags: --std-root std
+// a program's own export of a C symbol that its own extern declares with another
+// result: the call through the extern reads the export's 32-bit answer as a word
+
+extern "C" {
+    func hook(x: Int) -> Int
+}
+
+@export("hook")
+func my_hook(x: Int) -> Int32 {
+    0
+}
+
+func main() {
+    print(hook(0))
+}
