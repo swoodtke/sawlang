@@ -157,6 +157,30 @@
     (Static.immutable b
       (NamedType (Path c)))))
 
+// case: syntax.attr.attribute.weak/alt
+(File
+  (Declaration.func
+    (Attribute.weak)
+    (Func a (Block))))
+
+// case: syntax.attr.attribute.weak/rep:2:NEWLINE*=0
+(File
+  (Declaration.func
+    (Attribute.weak)
+    (Func a (Block))))
+
+// case: syntax.attr.attribute.weak/rep:2:NEWLINE*=1
+(File
+  (Declaration.func
+    (Attribute.weak)
+    (Func a (Block))))
+
+// case: syntax.attr.attribute.weak/rep:2:NEWLINE*=many
+(File
+  (Declaration.func
+    (Attribute.weak)
+    (Func a (Block))))
+
 // case: syntax.attr.synthesize-shared/alt
 (File
   (Declaration.extension

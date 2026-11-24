@@ -1,0 +1,12 @@
+// refuses: export.reserved at 5:1
+// `@weak` does not unreserve `main`
+
+@weak
+@export("main")
+func entry_twin() -> Int {
+    0
+}
+
+func main() {
+    print(entry_twin())
+}

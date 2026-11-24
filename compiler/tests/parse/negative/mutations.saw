@@ -971,6 +971,18 @@ extern "C" {  a   func (b: c) }
 // case: syntax.attr.attribute.align/alt/close:5
 @align (a  static b: c
 
+// case: syntax.attr.attribute.weak/alt/drop:1
+ weak func a() { }
+
+// case: syntax.attr.attribute.weak/alt/dup:7
+@weak func a() { { }
+
+// case: syntax.attr.attribute.weak/alt/swap:3
+@weak  a   func () { }
+
+// case: syntax.attr.attribute.weak/alt/close:6
+@weak func a(  { }
+
 // case: syntax.attr.synthesize-shared/alt/dup:14
 extension a { @synthesize (shared) static func b() { { } }
 

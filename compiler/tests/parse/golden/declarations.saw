@@ -201,6 +201,17 @@ extension Grid {
 public func f() {
 }
 
+// case: syntax.rule.attribute-position/weak-beside-export-on-a-function
+@weak
+@export("hook")
+func hook() {
+}
+@export
+@weak
+@section(".text")
+func other() {
+}
+
 // case: syntax.rule.receiver-and-static/receiver-first-on-a-method
 extension S {
     func m(&self, x: Int) {

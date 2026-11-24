@@ -1,0 +1,22 @@
+// refuses: export.duplicate at 15:1
+// a weak export beside two strong ones: the weak one yields, and the two strong ones are still a duplicate
+
+@weak
+@export("tick")
+func tick_weak() -> Int {
+    1
+}
+
+@export("tick")
+func tick_a() -> Int {
+    2
+}
+
+@export("tick")
+func tick_b() -> Int {
+    3
+}
+
+func main() {
+    print(tick_weak() + tick_a() + tick_b())
+}

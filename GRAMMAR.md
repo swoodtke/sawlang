@@ -203,7 +203,7 @@ everywhere else:
 | `static_assert` | followed by `(` | syntax.decl.static-assert |
 | `sizeof` `alignof` | in a const-generic argument | syntax.const.layout-query |
 | `_` | a pattern or a discarded binding | syntax.pat.wildcard, syntax.stmt.refused-var-discard |
-| `export` `section` `synthesize` `align` `test` | after `@` | syntax.attr.attribute, syntax.test.case |
+| `export` `section` `synthesize` `align` `weak` `test` | after `@` | syntax.attr.attribute, syntax.test.case |
 | `shared` | inside `@synthesize(…)` | syntax.attr.synthesize-shared |
 | `panics` `refuses` `warns` `text` `at` `none` `end` | inside `@test(…)` | syntax.test.panics, syntax.test.refuses, syntax.test.warns, syntax.test.text, syntax.test.at, syntax.test.case |
 
@@ -656,6 +656,7 @@ attribute ::= "@" 'export' NEWLINE*  @syntax.attr.attribute.export
     | "@" 'section' "(" STRING ")" NEWLINE*  @syntax.attr.attribute.section
     | "@" 'synthesize' NEWLINE*  @syntax.attr.attribute.synthesize
     | "@" 'align' "(" expr ")" NEWLINE*  @syntax.attr.attribute.align
+    | "@" 'weak' NEWLINE*  @syntax.attr.attribute.weak
     | synthesize-shared-attr  @syntax.attr.attribute.synthesize-shared
 
 # syntax.attr.synthesize-shared  status=lockdown  spec="Synthesized conformances"  node=-  ref="SL:borrowing §4"
@@ -2225,7 +2226,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.range-open-end | syntax.expr.range-from, syntax.expr.range-upto, syntax.expr.range | A range's upper bound is omitted, as in `buf[4..]` and `buf[..]`, only when the token after `..` is `]`, `)`, `,`, `;`, a line break, `}` or the end of input. A line break after `..` or `..=` always ends the range, as an exception to syntax.rule.operator-continuation: `let v = a..` followed by another line is an open range and then a new statement, and a line ending in `..=` is an error, since `..=` takes an upper bound. Inside `(` and `[` the line break is insignificant (§2.4), so there `a..` at a line end takes the next line's operand as its upper bound. | Composite Types; SL:borrowing §6; SL-406 c11 | lockdown |
 | syntax.rule.move-place | syntax.expr.move, syntax.expr.move-hop | `move` takes a place path and stops at the first token that is not a field, tuple-index or subscript hop, so `move x.f()` does not call `f`. | Move-Only Types | current |
 | syntax.rule.assignment-target | syntax.stmt.assign, syntax.stmt.compound-assign, syntax.stmt.assign-target, syntax.stmt.compound-target | The target is parsed as an expression, then checked against the place shapes. `a = b = c` and `(a, b) = t` are refused, and `self` is not a compound-assignment target. | Reference passing | current |
-| syntax.rule.attribute-position | syntax.attr.attribute, syntax.attr.synthesize-shared, syntax.decl.item, syntax.stmt.attributed-local, syntax.decl.extension-member | `@export` and `@section` go on a top-level `func` or `static`, `@align` on a `static` or a local `let` or `var` that binds one name, `@synthesize` on an extension, and `@synthesize(shared)` on a method. An attribute elsewhere, an unknown name, a repeat, or the wrong argument shape is refused. | Attributes (design 58) | current |
+| syntax.rule.attribute-position | syntax.attr.attribute, syntax.attr.synthesize-shared, syntax.decl.item, syntax.stmt.attributed-local, syntax.decl.extension-member | `@export` and `@section` go on a top-level `func` or `static`, `@weak` on a top-level `func` beside `@export` (the typechecker refuses it alone, `export.weak-alone`), `@align` on a `static` or a local `let` or `var` that binds one name, `@synthesize` on an extension, and `@synthesize(shared)` on a method. An attribute elsewhere, an unknown name, a repeat, or the wrong argument shape is refused. | Attributes (design 58) | current |
 | syntax.rule.receiver-and-static | syntax.decl.param, syntax.decl.method, syntax.decl.requirement, syntax.decl.init-requirement | A receiver may only be a method's first parameter. A method or requirement without a receiver is declared `static`, and one declared `static` has no receiver. An `init`, an init requirement's included, takes no receiver and is never `static`. | Static methods | current |
 | syntax.rule.extern-abi | syntax.decl.extern-block | The ABI string is `"C"`. | C FFI | current |
 | syntax.rule.module-inline | syntax.decl.module | `module name` followed by `{`, on its line or the next, is an inline module. | Module Declaration | current |

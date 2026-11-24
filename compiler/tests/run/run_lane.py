@@ -4984,7 +4984,61 @@ def check_main_error_whole_to_nonblocking_pipe(failures, counts):
             "run main errors written whole to a non-blocking pipe", 0) + 1
 
 
+WEAK_CALL_PROBE = "weak_export_call_survives_o2.saw"
+_WEAK_CALL = re.compile(r'^\s*(%\S+ = )?(tail )?call [^\n]*@"?weak_call_hook"?\(', re.M)
+
+
+def check_weak_export_call(failures, counts):
+    """A weak export is defined `weak` and, optimized at -O2, stays a call: a
+    replacement at the link reaches its callers. The probe's `.ll` runs through
+    the manifest clang's -O2, and `main` still calls `weak_call_hook`. The same
+    text with `weak_odr` is the control, which LLVM folds into `main`, so the
+    pin would fail if `weak` were the weaker word (SL-1159)."""
+    where = "run weak export call"
+    src = os.path.join(PROBES, WEAK_CALL_PROBE)
+    triple = TARGET or build.host_triple()
+    clang = manifest_clang(triple)
+    if clang is None:
+        failures.append("%s: %s names no clang" % (where, rel(build.runtime_manifest(triple))))
+        return
+    r = subprocess.run([build.SAWC, "build", "-O2", "-g0", "--std-root", "std"] + target_flags()
+                       + ["--emit-ll", rel(src)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0 or r.stderr.strip():
+        failures.append("%s: sawc does not emit the .ll: %s" % (where, (r.stderr or r.stdout).strip()[:300]))
+        return
+    work = os.path.join(OUT, "weak-export-call")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    if 'define weak ' not in r.stdout or "weak_odr" in r.stdout:
+        failures.append("%s: the .ll does not define the export `weak`" % where)
+        return
+    for name, text, folded in (("weak", r.stdout, False),
+                               ("weak_odr", r.stdout.replace("define weak ", "define weak_odr "), True)):
+        path = os.path.join(work, name + ".ll")
+        optimized = os.path.join(work, name + ".opt.ll")
+        with open(path, "w") as fh:
+            fh.write(text)
+        c = subprocess.run([clang, "-target", build.clang_triple(triple), "-O2", "-S", "-emit-llvm", "-x", "ir", path,
+                            "-o", optimized], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if c.returncode != 0 or (c.stdout + c.stderr).strip():
+            failures.append("%s: clang -O2 does not optimize the %s .ll: %s" % (where, name, (c.stdout + c.stderr).strip()[:300]))
+            continue
+        with open(optimized) as fh:
+            body = fh.read()
+        called = _WEAK_CALL.search(body) is not None
+        if folded and called:
+            failures.append("%s: the weak_odr control keeps its call at -O2, so this pin proves nothing" % where)
+        elif not folded and not called:
+            failures.append("%s: -O2 folds a weak export into its caller, so a replacement at the link would not "
+                            "reach it" % where)
+        elif not folded and 'define weak ' not in body:
+            failures.append("%s: the optimized .ll no longer defines `weak_call_hook` weak" % where)
+        else:
+            counts["run weak export calls held at -O2"] = counts.get("run weak export calls held at -O2", 0) + 1
+
+
 CUSTOM_PROBES = {
+    WEAK_CALL_PROBE: check_weak_export_call,
     "main_error_bounded_no_hidden_alloc.saw": check_main_error_bounded,
     "main_error_whole_to_nonblocking_pipe.saw": check_main_error_whole_to_nonblocking_pipe,
     OBJECT_PROBE: check_object_output,

@@ -196,6 +196,7 @@ func attribute_bit(alt: Alt) -> Int {
         case Attr_Attribute_Synthesize -> 4,
         case Attr_Attribute_Align -> 8,
         case Attr_Attribute_SynthesizeShared -> 16,
+        case Attr_Attribute_Weak -> 32,
         case _ -> 1
     }
 }
@@ -204,7 +205,7 @@ func attribute_bit(alt: Alt) -> Int {
 // for one that takes no attribute list (syntax.rule.attribute-position).
 func attribute_hosts(host: Alt) -> Int {
     match host {
-        case Decl_Item_Func -> 3,
+        case Decl_Item_Func -> 35,
         case Decl_Item_Static -> 11,
         case Decl_Item_Extension -> 4,
         case Stmt_AttributedLocal -> 8,
@@ -2245,7 +2246,7 @@ extension Parser {
             if (allowed / bit) % 2 == 0 || (seen / bit) % 2 == 1 {
                 return self.refuse(Rule.Rule_AttributePosition, at,
                                    "this attribute does not stand here, or stands here twice",
-                                   "`@export` and `@section` go on a function or a static, `@align` on a static or a local, `@synthesize` on an extension")
+                                   "`@export` and `@section` go on a function or a static, `@weak` on a function beside `@export`, `@align` on a static or a local, `@synthesize` on an extension")
             }
             seen = seen + bit
         }
@@ -2259,7 +2260,7 @@ extension Parser {
     }
 
     // `attribute ::= "@" 'export' | "@" 'export' "(" STRING ")" | "@" 'section' "(" STRING ")"
-    //     | "@" 'synthesize' | "@" 'align' "(" expr ")" | synthesize-shared-attr`,
+    //     | "@" 'synthesize' | "@" 'align' "(" expr ")" | "@" 'weak' | synthesize-shared-attr`,
     // each followed by any line breaks.
     func parse_attribute(&var self) -> Bool {
         let start = self.here()
@@ -2283,12 +2284,14 @@ extension Parser {
             alt = Alt.Attr_Attribute_Synthesize
         } else if self.word_at(0, "align") && argument {
             alt = Alt.Attr_Attribute_Align
+        } else if self.word_at(0, "weak") && not argument {
+            alt = Alt.Attr_Attribute_Weak
         } else if self.word_at(0, "test") {
             return self.refuse_misplaced_test()
         } else if self.kind() == TokenKind.Ident {
             return self.refuse_attribute_shape()
         } else {
-            return self.error("expected `export`, `section`, `synthesize` or `align` after `@`")
+            return self.error("expected `export`, `section`, `synthesize`, `align` or `weak` after `@`")
         }
         self.advance()
         if argument {
@@ -2325,7 +2328,7 @@ extension Parser {
     // (syntax.rule.attribute-position).
     func refuse_attribute_shape(&var self) -> Bool {
         self.error_by(Rule.Rule_AttributePosition,
-                      "an attribute is `@export`, `@export(\"name\")`, `@section(\"name\")`, `@synthesize`, `@synthesize(shared)` or `@align(n)`",
+                      "an attribute is `@export`, `@export(\"name\")`, `@section(\"name\")`, `@synthesize`, `@synthesize(shared)`, `@align(n)` or `@weak`",
                       "")
     }
 

@@ -1,0 +1,7 @@
+// refuses: syntax.rule.attribute-position
+// verdict: FAIL 4:1 refused by syntax.rule.attribute-position
+@weak
+@weak
+@export
+func g() {
+}

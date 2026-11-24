@@ -25,6 +25,7 @@ public func tc_export_rules() -> Vector<String> {
     try! out.push("export.signature-disagree")
     try! out.push("export.suspends")
     try! out.push("export.unknown-seam")
+    try! out.push("export.weak-alone")
     move out
 }
 
@@ -65,6 +66,8 @@ public func tc_check_exports(p: &var TcProgram, layer: &FrontLayer) {
                 let attr = p.export_attribute(d)
                 if attr >= 0 {
                     p.record_export(d, attr, &table)
+                } else if p.export_weak(d) {
+                    p.refuse_weak_alone(d)
                 }
             }
         }
@@ -140,6 +143,24 @@ extension TcProgram {
     // too only where `seam_export_conforms`.
     public func is_seam_symbol(&self, symbol: String) -> Bool {
         symbol.starts_with("__saw_rt_")
+    }
+
+    // Whether function `d` is written `@weak`: its definition is a default
+    // that another definition of the same C symbol replaces. The backend reads
+    // it for the linkage (`ll_weak_definition`).
+    public func export_weak(&self, d: Int) -> Bool {
+        self.res.decl_attribute(d, Alt.Attr_Attribute_Weak) >= 0
+    }
+
+    // `@weak` on a declaration with no `@export`: a symbol that is not
+    // exported has internal linkage, so weakness would mean nothing there.
+    func refuse_weak_alone(&var self, d: Int) {
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("`@weak` on `")
+        try! msg.append(self.name_text(info.name))
+        try! msg.append("` without `@export`: only an exported function has a C symbol for the linker to replace; write `@export` beside it")
+        self.refuse_in(info.module, self.res.decl_attribute(d, Alt.Attr_Attribute_Weak), "export.weak-alone", msg.build())
     }
 
     func record_export(&var self, d: Int, attr: Int, table: &TcAbiTable) {
@@ -419,40 +440,75 @@ extension TcProgram {
         false
     }
 
-    // Whether no earlier declaration exports `symbol`: an unmangled C symbol
-    // is unique across the program. THE BUILTIN YIELD: where one of the two is
-    // a routine of std's builtins modules and the other the program's own
-    // export, std's routine yields, its symbol dropped from the record so mono
-    // roots and the backend defines only the program's; two program exports
-    // of one symbol, or two of std's, stay a duplicate (SL-948).
+    // Whether no earlier declaration exports `symbol` at the same rank: an
+    // unmangled C symbol is unique across the program. THE LINK RULE, held in
+    // one compile: a strong export beats a program's `@weak` one, which beats
+    // std's (`export_rank`), as a linker resolves them. The loser's symbol is
+    // dropped from the record, so mono roots and the backend define only the
+    // winner, and it records `export_yields_to`, so a call by the loser's Saw
+    // name reaches the winner (mono's function funnel). The pair must agree on
+    // its signature (`export.signature-disagree`, judged by the extern funnel
+    // before this runs). Two exports of one rank are a
+    // duplicate: no link order inside one module breaks the tie. A test-only
+    // export neither yields nor wins, since a normal build emits none (SL-1159).
     // ENTRY POINTS:
     //     TcProgram.record_export
     func export_unique(&var self, d: Int, attr: Int, symbol: String) -> Bool {
         var e = 0
         while e < d {
             let other = self.export_symbols.get(e) ?? ""
-            let std_yields = self.builtin_routine(e) && self.program_declaration(d)
-            if other.equals(symbol) && (std_yields || (self.builtin_routine(d) && self.program_declaration(e))) {
-                let yielding = if std_yields { e } else { d }
-                self.export_symbols[yielding] = ""
-                self.export_nodes[yielding] = -1
-                return yielding == e
-            }
             if other.equals(symbol) {
-                let first = self.res.decls[e]
-                let m = self.res.decls[d].module
-                var msg = StringBuilder()
-                try! msg.append("duplicate `@export` symbol `")
-                try! msg.append(symbol)
-                try! msg.append("`, already exported by `")
-                try! msg.append(self.name_text(first.name))
-                try! msg.append("`: an unmangled C symbol is unique across the program")
-                self.refuse_in(m, attr, "export.duplicate", msg.build())
-                return false
+                let mine = self.export_rank(d)
+                let theirs = self.export_rank(e)
+                let test = self.res.decls[d].test_only || self.res.decls[e].test_only
+                if mine != theirs && not test {
+                    return self.export_yield(d, e, mine < theirs)
+                }
+                if mine == theirs {
+                    let first = self.res.decls[e]
+                    let m = self.res.decls[d].module
+                    var msg = StringBuilder()
+                    try! msg.append("duplicate `@export` symbol `")
+                    try! msg.append(symbol)
+                    try! msg.append("`, already exported by `")
+                    try! msg.append(self.name_text(first.name))
+                    try! msg.append("`: an unmangled C symbol is unique across the program")
+                    self.refuse_in(m, attr, "export.duplicate", msg.build())
+                    return false
+                }
             }
             e = e + 1
         }
         true
+    }
+
+    // The precedence of `d`'s definition of its symbol: 0 for std's `@weak`
+    // default, 1 for a program's, 2 for an ordinary one.
+    public func export_rank(&self, d: Int) -> Int {
+        if not self.export_weak(d) {
+            return 2
+        }
+        if self.program_declaration(d) { 1 } else { 0 }
+    }
+
+    // Declaration `d` and the earlier `e` export one symbol at different
+    // ranks: the lower one yields to the higher. False when `d` yields, true
+    // when `e` does. The extern funnel has judged the pair's signatures
+    // (`check_yield_agreement`).
+    func export_yield(&var self, d: Int, e: Int, d_yields: Bool) -> Bool {
+        let loser = if d_yields { d } else { e }
+        let winner = if d_yields { e } else { d }
+        self.export_symbols[loser] = ""
+        self.export_nodes[loser] = -1
+        self.export_yields_to[loser] = winner
+        var x = 0
+        while x < self.export_yields_to.len() {
+            if self.export_yields_to[x] == loser {
+                self.export_yields_to[x] = winner
+            }
+            x = x + 1
+        }
+        not d_yields
     }
 }
 

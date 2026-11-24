@@ -1,0 +1,11 @@
+// refuses: export.weak-alone at 4:1
+// `@weak` on a function with no `@export`: an unexported function has no C symbol for a linker to replace
+
+@weak
+func hook() -> Int {
+    1
+}
+
+func main() {
+    print(hook())
+}

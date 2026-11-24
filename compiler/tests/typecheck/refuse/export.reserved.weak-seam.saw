@@ -1,0 +1,11 @@
+// refuses: export.reserved at 5:1
+// a program's weak export of a runtime seam: only a runtime built by `sawc runtime` defines the seams, weakly or not
+
+@weak
+@export("__saw_rt_thread_yield")
+func yield_default() {
+}
+
+func main() {
+    yield_default()
+}

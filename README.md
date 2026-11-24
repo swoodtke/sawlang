@@ -633,7 +633,9 @@ memory at a fixed address (a `Device` view's reads and writes are volatile),
 and `Atomic<Int>`, `SpinLock<T>`, `Mutex<T>` and `Once<T>` declare as a bare
 `static`. `static_assert` fails the build when a register block's layout
 drifts, and `@export("name")` gives a function an unmangled C symbol.
-`@section("name")` places a definition in a named section, and `@align(N)`
+`@section("name")` places a definition in a named section, `@weak` beside
+`@export` makes the definition a default that another one of the symbol
+replaces, and `@align(N)`
 sets the alignment of a local or a `static`. A generic parameter can carry a
 value (`FixedBuf<const N: Int>`), and `[0; N]`
 spells a zeroed buffer.

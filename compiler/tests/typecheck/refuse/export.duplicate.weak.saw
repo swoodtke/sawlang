@@ -1,0 +1,18 @@
+// refuses: export.duplicate at 11:1
+// two weak exports of one C symbol in one compile: no link order inside a module breaks the tie
+
+@weak
+@export("tick")
+func tick_a() -> Int {
+    1
+}
+
+@weak
+@export("tick")
+func tick_b() -> Int {
+    2
+}
+
+func main() {
+    print(tick_a() + tick_b())
+}

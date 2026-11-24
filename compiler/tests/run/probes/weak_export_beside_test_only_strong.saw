@@ -1,0 +1,21 @@
+// probe: stated
+// about: a weak export beside a test-only strong export of its symbol: a normal build emits no test-only declaration, so the weak default stays the symbol's definition (SL-1159)
+// stage 0: has no `@weak`, so it is no oracle
+// speeds: -O0 -O2
+// prints: t: 5
+// ll defines: sl1159_t
+
+@weak @export("sl1159_t")
+func default_t(x: Int) -> Int {
+    x + 1
+}
+
+@test
+@export("sl1159_t")
+func test_t(x: Int) -> Int {
+    x * 100
+}
+
+func main() {
+    print("t: {}", default_t(4))
+}

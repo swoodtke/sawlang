@@ -1,0 +1,20 @@
+// A weak export and the strong one that replaces it in the same compile
+// disagree on the signature: a C caller of the symbol reads the strong body's
+// 32-bit answer as a word, with no `unsafe` in sight.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: and again, by
+
+@weak
+@export("hook")
+func default_hook(x: Int) -> Int {
+    x
+}
+
+@export("hook")
+func strong_hook(x: Int32) -> Int32 {
+    x - 1
+}
+
+func main() {
+    print(default_hook(0))
+}

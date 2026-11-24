@@ -16074,7 +16074,7 @@ target, and on a 32-bit word the 64-bit integer helpers `__divdi3`,
 `__ashldi3`, `__ashrdi3` and `__lshrdi3` (64-bit shifts by a variable count,
 which LLVM calls at `-Oz`). std writes them in Saw, and only a freestanding
 compile includes them, so a hosted program takes them from the C library as
-before; no program can import them. Each is a weak definition, so an
+before; no program can import them. Each is declared `@weak`, so an
 environment that links its own definition of one of these names wins, and a
 program that `@export`s one of the names itself replaces std's in its object.
 Such a routine, and every function of its module it calls, is compiled so
@@ -16544,7 +16544,7 @@ but the message does not name the position yet, and a method, field or
 parameter gets a generic parse error, SL-1020); an attribute in the wrong one of
 the accepting positions names what is legal there instead. An unknown attribute
 name, a repeated attribute, or the wrong argument shape is a compile error. The
-set is `@export`, `@section`, `@synthesize` and `@align`; `@inline` is reserved
+set is `@export`, `@section`, `@synthesize`, `@align` and `@weak`; `@inline` is reserved
 for a later design.
 
 **`@export` / `@export("sym")`** makes a function or static callable from C. It
@@ -16595,7 +16595,9 @@ SL-722). Statics are already immortal and `Sync`-only
 it in the object.
 
 **Symbol hygiene.** Two exports resolving to the same symbol are an error (an
-unmangled C symbol must be unique); colliding with a reserved runtime symbol
+unmangled C symbol must be unique), unless one is `@weak` and the other ranks
+above it (see `@weak` below); every declaration of one C symbol in a compile,
+whether `extern` or `@export`, agrees on its parameters and result; colliding with a reserved runtime symbol
 (`main`, `saw_*`, `__saw_*`) is an error. **Exception — the runtime-build mode
 (design 113b):** the per-host Saw runtime under `runtime/` implements the
 `__saw_rt_*` ABI (`runtime/ABI.md`). Compiling it with `sawc runtime`
@@ -16609,6 +16611,26 @@ Saw-side, but only **one** overload may carry `@export` without an explicit
 symbol name — otherwise both would claim the same unmangled symbol. `public` is
 not required (export is its own visibility to the linker), but module visibility
 still governs Saw-side callers.
+
+**`@weak`**, written beside `@export`, makes the exported definition a default: it
+defines the C symbol unless the image holds another, ordinary definition of it,
+which then replaces it. That definition may come from the same compile or from
+another object at the link. A definition in a static archive does not replace
+it, since the weak one already satisfies the symbol and the linker never looks
+there; link such a replacement as an object, or with `--whole-archive`. In one
+compile the replacement is silent, as it is at the link: the weak definition is
+not emitted, and a call to it by its Saw name reaches the replacement, which
+must agree with it on every parameter type and the result
+(`export.signature-disagree`). An ordinary export beats a program's `@weak`
+one, which beats std's; two definitions of one symbol at the same rank are
+`export.duplicate`. A weak definition is a call target at every optimization
+level (it is emitted as LLVM `weak`, never `weak_odr`), so the compiler never
+inlines it. `@weak` goes only on a top-level function that carries `@export`
+(`export.weak-alone` otherwise); a method, an extern function, an extension, a
+local and a `static` take none, because a static is a constant the compiler
+folds. It does not unreserve a name: a program's weak export of `main` or a
+`__saw_rt_*` seam is refused as any export is. On Mach-O a weak definition that
+survives the link marks the executable for weak-definition coalescing at launch.
 
 **`@section("name")`** places a top-level function or static in the named
 object-file section (the LLVM section attribute). It composes with `@export` and

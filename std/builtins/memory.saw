@@ -15,6 +15,7 @@
 
 // Copies `n` bytes from `src` to `dst`, which do not overlap, and returns
 // `dst`.
+@weak
 @export("memcpy")
 func memcpy(dst: UnsafePointer<UInt8>, src: UnsafePointer<UInt8>, n: UInt) unsafe -> UnsafePointer<UInt8> {
     let count = Int.from(truncating: n)
@@ -28,6 +29,7 @@ func memcpy(dst: UnsafePointer<UInt8>, src: UnsafePointer<UInt8>, n: UInt) unsaf
 
 // Writes the low byte of `c` into each of the `n` bytes at `dst`, and returns
 // `dst`.
+@weak
 @export("memset")
 func memset(dst: UnsafePointer<UInt8>, c: Int32, n: UInt) unsafe -> UnsafePointer<UInt8> {
     let count = Int.from(truncating: n)
@@ -43,6 +45,7 @@ func memset(dst: UnsafePointer<UInt8>, c: Int32, n: UInt) unsafe -> UnsafePointe
 // Copies `n` bytes from `src` to `dst`, which may overlap, and returns `dst`.
 // A destination below the source is copied upward and any other downward, so
 // no byte is read after the copy has written over it.
+@weak
 @export("memmove")
 func memmove(dst: UnsafePointer<UInt8>, src: UnsafePointer<UInt8>, n: UInt) unsafe -> UnsafePointer<UInt8> {
     let count = Int.from(truncating: n)

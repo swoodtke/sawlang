@@ -1,0 +1,17 @@
+// refuses: export.signature-disagree at 11:6
+// the weak definition written after the strong one: refused at the later of the two
+
+@export("hook")
+func strong_hook(x: Int32) -> Int32 {
+    x
+}
+
+@weak
+@export("hook")
+func default_hook(x: Int) -> Int {
+    x
+}
+
+func main() {
+    print(strong_hook(1))
+}

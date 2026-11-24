@@ -118,6 +118,27 @@ refuses syntax.rule.attribute-position at 1:9
 // case: syntax.rule.attribute-position/align-on-a-destructuring-local
 refuses syntax.rule.attribute-position at 2:19
 
+// case: syntax.rule.attribute-position/weak-on-a-static
+refuses syntax.rule.attribute-position at 1:1
+
+// case: syntax.rule.attribute-position/weak-on-an-extension
+refuses syntax.rule.attribute-position at 1:1
+
+// case: syntax.rule.attribute-position/weak-on-a-local
+refuses syntax.rule.attribute-position at 2:5
+
+// case: syntax.rule.attribute-position/repeated-weak
+refuses syntax.rule.attribute-position at 2:1
+
+// case: syntax.rule.attribute-position/weak-with-an-argument
+refuses parse-error at 1:6
+
+// case: syntax.rule.attribute-position/weak-on-a-method
+refuses syntax.rule.attribute-position at 2:6
+
+// case: syntax.rule.attribute-position/weak-on-an-extern-function
+refuses parse-error at 2:5
+
 // case: syntax.rule.receiver-and-static/method-without-a-receiver
 refuses syntax.rule.receiver-and-static at 2:5
 

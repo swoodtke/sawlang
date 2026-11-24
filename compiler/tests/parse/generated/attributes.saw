@@ -87,6 +87,22 @@ static b: c
 
 static b: c
 
+// case: syntax.attr.attribute.weak/alt
+@weak func a() { }
+
+// case: syntax.attr.attribute.weak/rep:2:NEWLINE*=0
+@weak func a() { }
+
+// case: syntax.attr.attribute.weak/rep:2:NEWLINE*=1
+@weak
+func a() { }
+
+// case: syntax.attr.attribute.weak/rep:2:NEWLINE*=many
+@weak
+
+
+func a() { }
+
 // case: syntax.attr.synthesize-shared/alt
 extension a { @synthesize (shared) static func b() { } }
 

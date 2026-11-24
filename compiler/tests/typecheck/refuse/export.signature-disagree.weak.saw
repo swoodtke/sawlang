@@ -1,0 +1,17 @@
+// refuses: export.signature-disagree at 11:6
+// a weak export and the strong one that replaces it, with another result: a C caller of the symbol and a Saw caller of the weak one's name would read different widths
+
+@weak
+@export("hook")
+func default_hook() -> Int {
+    1
+}
+
+@export("hook")
+func strong_hook() -> Int32 {
+    2
+}
+
+func main() {
+    print(default_hook())
+}

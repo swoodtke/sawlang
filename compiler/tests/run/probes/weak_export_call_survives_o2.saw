@@ -1,0 +1,14 @@
+// probe: custom
+// about: a weak export with no replacement is defined `weak` and stays a call at -O2, so a replacement at the link reaches its caller (SL-1159)
+// The run lane optimizes the `.ll` at -O2 and holds the call to `weak_call_hook`
+// in `main`; the same text with `weak_odr` is the control that LLVM folds.
+
+@weak
+@export("weak_call_hook")
+func call_hook() -> Int {
+    7
+}
+
+func main() {
+    print(call_hook())
+}

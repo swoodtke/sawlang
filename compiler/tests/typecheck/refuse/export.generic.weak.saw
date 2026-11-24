@@ -1,0 +1,12 @@
+// refuses: export.generic at 6:6
+// a weak generic export: the generic refusal fires, as it does without `@weak`
+
+@weak
+@export("first_of")
+func first_of<T>(value: T) -> T {
+    value
+}
+
+func main() {
+    print(first_of(3))
+}

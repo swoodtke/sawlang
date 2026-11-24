@@ -936,7 +936,7 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are twenty-one.
+says why the check cannot be header lines. There are twenty-two.
 `main_error_bounded_no_hidden_alloc.saw` returns a 5,000-byte `Err` from
 `main`: built without a flag its standard error is `error: ` and the whole
 error, and built with `--no-hidden-alloc` it is `error: ` and the error cut
@@ -1019,6 +1019,15 @@ in sawc's own link, which does not collect; in a link with `-Wl,-dead_strip`
 the unreferenced unplaced ones are gone, and so is the referenced function at
 -O1, where the optimizer inlines its only call and no reference reaches the
 link (SL-1083). The ELF half is `check_exported_placed_link`.
+`weak_export_call_survives_o2.saw` exports one `@weak` function that its
+`main` calls: the `.ll` sawc writes defines it `weak`, and run through the
+target clang's -O2 `main` still calls it; the same text with `weak_odr` is the
+control, which LLVM folds into `main`, so the pin fails if the linkage were the
+weaker word (SL-1159, row N15). The stated probes `weak_export_default_runs`,
+`weak_export_replaced_in_one_compile`, `weak_export_overridden_across_modules`,
+`weak_export_beside_test_only_strong` (a test-only strong export neither wins nor
+makes the weak one yield) and `weak_export_replaced_at_link` (its C helper defines the strong symbol) run
+the weak-only, same-compile, cross-module and link-time cases.
 `leaks_check_sees_a_leak.saw` drops its only pointer to a block it got from
 C's `malloc`, and the leak check must report exactly that one block: a
 checker that sees nothing would pass every `// leaks: none` probe, and the

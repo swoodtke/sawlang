@@ -1193,6 +1193,58 @@ extension TcProgram {
             d = d + 1
         }
         self.check_export_agreement(&layer, &symbols, &references)
+        self.check_yield_agreement(&layer)
+    }
+
+    // Two exported functions of one C symbol at different ranks, where the
+    // export funnel keeps one and drops the other (`export_rank`), agree on
+    // their parameters and result, by the same comparison, at the later of the
+    // two: a Saw call of the dropped one reaches the kept one, and a C caller
+    // of the symbol cannot tell them apart. Two of one rank are a duplicate,
+    // refused by the export funnel.
+    func check_yield_agreement(&var self, layer: &FrontLayer) {
+        var exported = Vector<Int>()
+        var d = 0
+        while d < self.res.decls.len() {
+            if self.exported_function_symbol(d).len() > 0 {
+                try! exported.push(d)
+            }
+            d = d + 1
+        }
+        var j = 0
+        while j < exported.len() {
+            let later = exported[j]
+            let symbol = self.exported_function_symbol(later)
+            var k = 0
+            while k < j && later >= layer.decl_first {
+                let earlier = exported[k]
+                let same = self.exported_function_symbol(earlier).equals(symbol)
+                if same && self.export_rank(earlier) != self.export_rank(later) && not self.same_export_types(earlier, later) {
+                    self.refuse_yield_disagreement(later, earlier, symbol)
+                }
+                k = k + 1
+            }
+            j = j + 1
+        }
+    }
+
+    // Export `later`, refused for the signature of `earlier`, which exports
+    // the same symbol.
+    func refuse_yield_disagreement(&var self, later: Int, earlier: Int, symbol: String) {
+        let first = self.res.decls[earlier]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(symbol)
+        try! msg.append("` is exported here as `")
+        try! msg.append(self.extern_signature_text(later))
+        try! msg.append("`, and again, by `")
+        try! msg.append(self.name_text(first.name))
+        try! msg.append("` in `")
+        try! msg.append(self.res.module_name(first.module))
+        try! msg.append("`, as `")
+        try! msg.append(self.extern_signature_text(earlier))
+        try! msg.append("`: a weak definition and the one that replaces it are one C function, so they must agree on its parameters and its result")
+        self.refuse_blocking_decl(later, "export.signature-disagree", msg.build())
     }
 
     // Each exported function against the extern declarations of its C symbol,

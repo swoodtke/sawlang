@@ -6,6 +6,10 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
+**888 rows**, counted from the table when SL-1159 added N16-N20, the `@weak` attribute's
+signature agreement, same-compile replacement, position matrix, precedence and reserved
+names, and gave N15 its pin, each covered outside this directory by the run lane and the
+typecheck fixtures, with one error program here; previously
 **883 rows**, counted from the table when SL-1176 added N21, a runtime's seam export
 agreeing with std's extern of it, covered by typecheck fixtures outside this
 directory; previously
@@ -1196,8 +1200,13 @@ Claim source: spec 10 *No hidden allocations* + 8 *Profiles*; designs 113, 135, 
 | N12 | `--no-hidden-alloc` accepts a capturing closure literal called where it is written: its environment is a local of its builder | `tests/corpus/conformance/N12_no_hidden_alloc_closure_called_in_place.saw` | SL-1137 |
 | N13 | two `extern` declarations of one C symbol agree on the signature (SL-1159's "one C symbol, one signature per compile" family, S-a) | for the self-hosted compiler `compiler/tests/typecheck/refuse/extern.signature-disagree.saw`, `.parameter.saw` and `.arity.saw`, covered outside this directory | SL-1175 |
 | N14 | an `extern` declaration and an `@export` of one C symbol agree on the signature, a pointer and its optional agreeing (S-b) | `tests/corpus/errors/extern_export_signature_disagree.saw`; for the self-hosted compiler also `compiler/tests/typecheck/refuse/export.signature-disagree.*` and the agreeing side `compiler/tests/run/probes/export_agrees_with_nullable_extern.saw` | SL-1175 |
-| N15 | a weak export with no replacement is a real call at -O2, never folded (S-e) | owed to SL-1159 (the `@weak` attribute, its unit U2), an IR pin in the run lane | SL-1159 |
 | N21 | a runtime's `__saw_rt_*` seam export agrees with std's `extern` of the seam as N14 states, beyond ABI.md's width classes (a word against a pointer) | for the self-hosted compiler `compiler/tests/typecheck/refuse/export.signature-disagree.seam-word.saw` `export.reserved.seam-word.saw` and `export.reserved.program-seam-word.saw` (the reserved name stays the first error), and the agreeing side `compiler/tests/typecheck/golden/export_seam_agrees_with_extern.saw`, covered outside this directory | SL-1176 |
+| N15 | a weak export with no replacement is a real call at -O2, never folded (S-e) | `compiler/tests/run/probes/weak_export_call_survives_o2.saw`, a custom run-lane pin: the `.ll` through the target clang's -O2 keeps `main`'s call, and the `weak_odr` control folds; the stated probes `weak_export_default_runs.saw` (also placed by `@section`) and `weak_export_replaced_at_link.saw` (a C object's strong definition, reached by the weak one's own Saw callers at -O0 and -O2) run it | SL-1159 |
+| N16 | a weak export and the strong one that replaces it in one compile agree on the signature (S-c) | `tests/corpus/errors/weak_export_signature_disagree.saw`; for the self-hosted compiler also `compiler/tests/typecheck/refuse/export.signature-disagree.weak.saw`, `.weak-after.saw` (the weak one written second) and `.builtin.saw` (a program's `memcpy` against std's weak one) | SL-1159 |
+| N17 | a Saw call of a weak export replaced in the same compile runs the replacement, in either declaration order and across modules (S-d) | `compiler/tests/run/probes/weak_export_replaced_in_one_compile.saw` and `weak_export_overridden_across_modules.saw` (with `weak_hook_library.saw`), at -O0 and -O2 | SL-1159 |
+| N18 | `@weak` stands only on a top-level function beside `@export`: a static, an extension, a local, a method, an extern function, a repeat and an argument are refused by the parser, a function without `@export` by `export.weak-alone`, a generic by `export.generic` | for the self-hosted compiler `compiler/tests/parse/negative/declarations.saw` (the `weak-` cases), `compiler/tests/grammar/fixtures/refusals/attribute_weak_on_a_static.saw` and `attribute_weak_repeated.saw`, `compiler/tests/typecheck/refuse/export.weak-alone.saw`, `.weak-alone.section.saw` and `export.generic.weak.saw` | SL-1159 |
+| N19 | one C symbol has one definition at the highest rank in a compile: strong over a program's weak over std's weak, and two at one rank are `export.duplicate` | `compiler/tests/run/probes/weak_export_replaced_in_one_compile.saw` (the winner), for the self-hosted compiler `compiler/tests/typecheck/refuse/export.duplicate.weak.saw` and `export.duplicate.weak-and-two-strong.saw` | SL-1159 |
+| N20 | `@weak` does not unreserve a runtime symbol: a program's weak export of `main` or a `__saw_rt_*` seam is refused | for the self-hosted compiler `compiler/tests/typecheck/refuse/export.reserved.weak-main.saw` and `export.reserved.weak-seam.saw` | SL-1159 |
 
 ## Divergence — a `Never` expression never falls through
 

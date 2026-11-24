@@ -1,0 +1,19 @@
+// probe: stated
+// about: a weak hook in a dependency and a strong export of its symbol in the entry module: the entry's body is the symbol's, and the library's own call of the hook reaches it (SL-1159)
+// stage 0: has no `@weak`, so it is no oracle
+// speeds: -O0 -O2
+// prints: 3
+// prints: 103
+// ll defines: weak_library_hook
+
+import weak_hook_library.{library_hook, library_total}
+
+@export("weak_library_hook")
+func override_hook() -> Int {
+    3
+}
+
+func main() {
+    print(library_hook())
+    print(library_total())
+}

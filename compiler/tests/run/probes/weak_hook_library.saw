@@ -1,0 +1,12 @@
+// probe: module
+// about: the library half of `weak_export_overridden_across_modules.saw`: an overridable hook exported weakly (SL-1159)
+
+@weak
+@export("weak_library_hook")
+public func library_hook() -> Int {
+    1
+}
+
+public func library_total() -> Int {
+    library_hook() + 100
+}

@@ -87,16 +87,16 @@ async_main_nested_sleep.saw	pass	-	-
 async_main_sleep_yield.saw	pass	-	-
 atomic_field_self_method.saw	pass	-	-
 atomic_nocopy_cell_clause.saw	pass	-	-
-attr_bad_arity_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)` or `@align(n)` (syntax.rule.attribute-position); the parser refuses `tests
-attr_duplicate_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
-attr_export_on_extension_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
-attr_on_local_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+attr_bad_arity_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)`, `@align(n)` or `@weak` (syntax.rule.attribute-position); the parser refus
+attr_duplicate_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@weak` on a function beside `@
+attr_export_on_extension_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@weak` on a function beside `@
+attr_on_local_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@weak` on a function beside `@
 attr_on_method_error.saw	pass	-	resolve.parse-refused: a member takes no attribute but `@synthesize(shared)` (parse-error); the parser refuses `tests/corpus/attr_on_method_error.saw`, so its declarations are not available
 attr_on_struct_error.saw	pass	-	resolve.parse-refused: this declaration takes no attribute (parse-error); the parser refuses `tests/corpus/attr_on_struct_error.saw`, so its declarations are not available
-attr_synthesize_arg_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)` or `@align(n)` (syntax.rule.attribute-position); the parser refuses `tests
-attr_synthesize_on_func_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+attr_synthesize_arg_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)`, `@align(n)` or `@weak` (syntax.rule.attribute-position); the parser refus
+attr_synthesize_on_func_error.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@weak` on a function beside `@
 attr_synthesize_parses.saw	pass	-	-
-attr_unknown_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)` or `@align(n)` (syntax.rule.attribute-position); the parser refuses `tests
+attr_unknown_error.saw	pass	-	resolve.parse-refused: an attribute is `@export`, `@export("name")`, `@section("name")`, `@synthesize`, `@synthesize(shared)`, `@align(n)` or `@weak` (syntax.rule.attribute-position); the parser refus
 autowrap_diverging_arm.saw	pass	-	-
 autowrap_err_no_premature_free.saw	pass	-	-
 autowrap_ok_no_premature_free.saw	pass	-	-
@@ -1032,7 +1032,7 @@ error_any_box.saw	pass	-	-
 error_split_conformance.saw	pass	-	-
 errors/align_above_cap.saw	pass	-	constant.align: `@align` on the local `body` is `8192`, above the largest alignment Saw will request (`4096`): `4096` is one page on every target Saw builds for, and a stack slot or an ordinary global
 errors/align_non_constant.saw	pass	-	static.not-constant: `width` is not a constant, and an `@align` argument is a constant expression: it names a binding whose value is known only at run time
-errors/align_on_function.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@align` on a static or a local
+errors/align_on_function.saw	pass	-	resolve.parse-refused: this attribute does not stand here, or stands here twice (syntax.rule.attribute-position): `@export` and `@section` go on a function or a static, `@weak` on a function beside `@
 errors/align_on_struct_field.saw	pass	-	resolve.parse-refused: expected a field's name (parse-error); the parser refuses `tests/corpus/errors/align_on_struct_field.saw`, so its declarations are not available
 errors/alloc_try_twins_are_retired.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `try_push` this module can see
 errors/alloc_type_distinct.saw	pass	-	conformance.signature: `LoudAlloc.alloc` does not meet `Allocator.alloc`, as `LoudAlloc` conforms to `Allocator` needs: the requirement declares `unsafe`, so the implementation must too
@@ -1452,6 +1452,7 @@ errors/vector_copy_nocopy_elem.saw	pass	-	name.not-in-prelude: `File` is not in 
 errors/vector_get_nocopy_alias.saw	pass	-	type.bound: `std.vector.Vector<vector_get_nocopy_alias.Item, std.alloc.GlobalAllocator>` has no member `get`: it is declared where `T: Copy`, and `vector_get_nocopy_alias.Item` does not satisfy `Copy`
 errors/vector_iter_requires_copy.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/vector_ref_at_removed.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `ref_at` this module can see
+errors/weak_export_signature_disagree.saw	pass	judged by its own directives (no oracle)	export.signature-disagree: `hook` is exported here as `(Int32) -> Int32`, and again, by `default_hook` in `weak_export_signature_disagree`, as `(Int) -> Int`: a weak definition and the one that replac
 errors/while_break_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/while_break_outside_loop.saw	wrong	accepts a refusal test	`break` can only be used inside a loop
 errors/while_continue_outside_loop.saw	wrong	accepts a refusal test	`continue` can only be used inside a loop

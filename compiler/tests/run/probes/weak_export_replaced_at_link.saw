@@ -1,0 +1,27 @@
+// probe: stated
+// about: a weak export and a strong definition of its symbol in another object: the link keeps the C definition, and the Saw caller in the weak one's own module reaches it, at -O0 and -O2 (SL-1159)
+// stage 0: has no `@weak`, so it is no oracle
+// speeds: -O0 -O2
+// prints: 7
+// prints: 7
+// c helper: weak_export_replaced_at_link.c
+// ll defines: weak_linked_hook
+//
+// Weak beside strong resolves to the strong one on every linker the design
+// probed; a definition in an archive member would not replace it, and this
+// probe links an object.
+
+@weak
+@export("weak_linked_hook")
+func default_hook() -> Int {
+    1
+}
+
+func through_default() -> Int {
+    default_hook()
+}
+
+func main() {
+    print(default_hook())
+    print(through_default())
+}

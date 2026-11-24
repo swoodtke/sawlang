@@ -194,6 +194,47 @@ func f() {
     @align(8) let (a, b) = t
 }
 
+// case: syntax.rule.attribute-position/weak-on-a-static
+@weak
+@export
+static S: Int = 0
+
+// case: syntax.rule.attribute-position/weak-on-an-extension
+@weak
+extension P {
+}
+
+// case: syntax.rule.attribute-position/weak-on-a-local
+func f() {
+    @weak let x = 1
+}
+
+// case: syntax.rule.attribute-position/repeated-weak
+@weak
+@weak
+@export
+func g() {
+}
+
+// case: syntax.rule.attribute-position/weak-with-an-argument
+@weak(1)
+@export
+func g() {
+}
+
+// case: syntax.rule.attribute-position/weak-on-a-method
+extension P {
+    @weak
+    func m(&self) {
+    }
+}
+
+// case: syntax.rule.attribute-position/weak-on-an-extern-function
+extern "C" {
+    @weak
+    func c_hook()
+}
+
 // case: syntax.rule.receiver-and-static/method-without-a-receiver
 extension P {
     func m(x: Int) {

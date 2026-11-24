@@ -431,6 +431,18 @@
     (Visibility.public)
     (Func f (Block))))
 
+// case: syntax.rule.attribute-position/weak-beside-export-on-a-function
+(File
+  (Declaration.func
+    (Attribute.weak)
+    (Attribute.export-symbol "hook")
+    (Func hook (Block)))
+  (Declaration.func
+    (Attribute.export)
+    (Attribute.weak)
+    (Attribute.section ".text")
+    (Func other (Block))))
+
 // case: syntax.rule.receiver-and-static/receiver-first-on-a-method
 (File
   (Declaration.extension

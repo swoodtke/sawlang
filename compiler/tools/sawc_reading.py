@@ -447,7 +447,7 @@ def _leaf_matches(leaf, tok):
 # the contextual words a node's kind implies, which the lexer reads as names.
 LEAF_BEARING =("IDENT", "INT", "FLOAT", "STRING", "INTERP_STRING", "DOLLAR_PARAM")
 IMPLIED_WORDS = ("import", "module", "type", "static_assert", "blocking", "lends", "copy",
-                 "const", "_", "export", "section", "synthesize", "align", "test", "package",
+                 "const", "_", "export", "section", "synthesize", "align", "weak", "test", "package",
                  "parent", "any", "constexpr", "private", "shared", "sizeof", "alignof")
 
 

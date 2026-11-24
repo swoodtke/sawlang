@@ -645,6 +645,9 @@ public struct TcProgram {
     // the attribute that says so, or -1 (`check_exports`).
     export_symbols: Vector<String>  // front: rewritten in place
     export_nodes: Vector<Int>  // front: rewritten in place
+    // By declaration: the exported function whose definition replaces this
+    // one's of the same C symbol in this compile, or -1 (`export_unique`).
+    export_yields_to: Vector<Int>  // front: rewritten in place
     // Every written `any Trait` node, in the order `mk_any` formed it, which
     // the object-safety funnel judges once requirements are known.
     erased_nodes: Vector<Int>
@@ -815,7 +818,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       static_values: Vector<Int>(), static_reasons: Vector<String>(),
                       length_param_owners: Vector<Int>(), length_param_indexes: Vector<Int>(),
                       profile: tc_profile(false, false, false), no_hidden_alloc: false, target: target,
-                      export_symbols: Vector<String>(), export_nodes: Vector<Int>(),
+                      export_symbols: Vector<String>(), export_nodes: Vector<Int>(), export_yields_to: Vector<Int>(),
                       erased_nodes: Vector<Int>(), blocking_twins: Vector<Int>(), pair_defaults: Vector<Int>(),
                       instance_checks: Vector<Int>(), instance_check_types: Vector<Int>(),
                       instance_check_holders: Vector<Int>(), instance_check_owners: Vector<Int>(),
@@ -872,6 +875,7 @@ extension TcProgram {
             try! self.member_count.push(0)
             try! self.export_symbols.push("")
             try! self.export_nodes.push(-1)
+            try! self.export_yields_to.push(-1)
             try! self.blocking_twins.push(-1)
             try! self.pair_defaults.push(-1)
             k = k + 1

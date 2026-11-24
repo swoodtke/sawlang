@@ -1,0 +1,48 @@
+// probe: stated
+// about: a weak export and a strong one of one C symbol in one compile, in either declaration order: the strong body is the symbol's, and a Saw call of the weak one by its name runs it (SL-1159)
+// stage 0: has no `@weak`, so it is no oracle
+// speeds: -O0 -O2
+// prints: 2
+// prints: 2
+// prints: 2
+// prints: 20
+// prints: 20
+// ll defines: weak_replaced_a
+// ll defines: weak_replaced_b
+//
+// One symbol, one definition: LLVM refuses two `define`s of a name, so the
+// compile keeps the strong one, as a linker would.
+
+@weak
+@export("weak_replaced_a")
+func default_a() -> Int {
+    1
+}
+
+@export("weak_replaced_a")
+func strong_a() -> Int {
+    2
+}
+
+@export("weak_replaced_b")
+func strong_b() -> Int {
+    20
+}
+
+@weak
+@export("weak_replaced_b")
+func default_b() -> Int {
+    10
+}
+
+func through_default_a() -> Int {
+    default_a()
+}
+
+func main() {
+    print(default_a())
+    print(strong_a())
+    print(through_default_a())
+    print(default_b())
+    print(strong_b())
+}

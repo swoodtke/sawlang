@@ -1,0 +1,12 @@
+// refuses: export.weak-alone at 5:1
+// `@weak` beside `@section` alone is no export either
+
+@section("__TEXT,__sawfn,regular,pure_instructions")
+@weak
+func placed() -> Int {
+    1
+}
+
+func main() {
+    print(placed())
+}

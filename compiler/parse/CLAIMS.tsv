@@ -514,6 +514,7 @@ syntax.attr.attribute.export-symbol	U4g
 syntax.attr.attribute.section	U4g
 syntax.attr.attribute.synthesize	U4g
 syntax.attr.attribute.align	U4g
+syntax.attr.attribute.weak	U4g
 syntax.attr.attribute.synthesize-shared	U4g
 syntax.attr.synthesize-shared	U4g
 syntax.stmt.non-expr.attributed-local	U4g

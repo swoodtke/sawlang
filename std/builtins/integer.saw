@@ -53,17 +53,20 @@ func magnitude(v: Int64) -> UInt64 {
     if v < 0 { 0 &- bits } else { bits }
 }
 
+@weak
 @export("__udivdi3")
 func __udivdi3(n: UInt64, d: UInt64) -> UInt64 {
     divided(n, d, false)
 }
 
+@weak
 @export("__umoddi3")
 func __umoddi3(n: UInt64, d: UInt64) -> UInt64 {
     divided(n, d, true)
 }
 
 // The quotient truncates toward zero, as C's does.
+@weak
 @export("__divdi3")
 func __divdi3(n: Int64, d: Int64) -> Int64 {
     let q = divided(magnitude(n), magnitude(d), false)
@@ -72,6 +75,7 @@ func __divdi3(n: Int64, d: Int64) -> Int64 {
 }
 
 // The remainder takes the dividend's sign, as C's does.
+@weak
 @export("__moddi3")
 func __moddi3(n: Int64, d: Int64) -> Int64 {
     let r = divided(magnitude(n), magnitude(d), true)
@@ -124,6 +128,7 @@ func shifted_right_signed(v: Int32, n: Int32) -> Int32 {
 }
 
 // `a << b`, for `b` in 0...63.
+@weak
 @export("__ashldi3")
 func __ashldi3(a: UInt64, b: Int32) -> UInt64 {
     let n = b & 63
@@ -139,6 +144,7 @@ func __ashldi3(a: UInt64, b: Int32) -> UInt64 {
 }
 
 // `a >> b`, zero-filling, for `b` in 0...63.
+@weak
 @export("__lshrdi3")
 func __lshrdi3(a: UInt64, b: Int32) -> UInt64 {
     let n = b & 63
@@ -154,6 +160,7 @@ func __lshrdi3(a: UInt64, b: Int32) -> UInt64 {
 }
 
 // `a >> b`, copying the sign bit, for `b` in 0...63.
+@weak
 @export("__ashrdi3")
 func __ashrdi3(a: Int64, b: Int32) -> Int64 {
     let n = b & 63

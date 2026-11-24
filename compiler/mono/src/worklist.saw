@@ -214,7 +214,8 @@ extension MonoProgram {
             // section and nothing in the program need call it. A generic one
             // is rooted at no instance of its own: each instance a call
             // reaches is placed, and the backend keeps it.
-            let top_function = self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Func && self.dp.bc.mir.tc.res.decls[d].parent < 0
+            let top_function = (self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Func && self.dp.bc.mir.tc.res.decls[d].parent < 0
+                                && self.dp.bc.mir.tc.export_yields_to[d] < 0)
             if top_function && self.dp.bc.mir.tc.sigs[d].generic_count == 0 && self.dp.bc.mir.tc.res.decl_attribute(d, Alt.Attr_Attribute_Section) >= 0 {
                 let k = self.root_item(d, &none)
                 if k >= 0 {
@@ -316,14 +317,24 @@ extension MonoProgram {
     // arguments `inst` (for `func_decl`'s) and `self_type`, made when new.
     // `key` is MONO_KEY_FUNCTION for the ordinary item, MONO_KEY_TASK_ROOT
     // for a task root and MONO_KEY_THREAD for a thread-context item, so the
-    // specializations of one function are separate items.
+    // specializations of one function are separate items. An exported
+    // function that yielded its C symbol to another definition in this
+    // compile (`export_yields_to`) has the winner's item, so a call by its
+    // Saw name runs what the symbol runs.
     // ENTRY POINTS:
     //     root_item
     //     role_item
     //     call_item_of
     //     closure_body_item
-    func function_item(&var self, source: Int, type_decl: Int, args: &Vector<Int>, func_decl: Int, inst: &Vector<Int>,
+    func function_item(&var self, source_body: Int, type_decl: Int, args: &Vector<Int>, func_decl_asked: Int, inst: &Vector<Int>,
                        self_type: Int, origin: Int, node: Int, key: Int) -> Int {
+        var source = source_body
+        var func_decl = func_decl_asked
+        let winner = self.export_winner(source)
+        if winner >= 0 {
+            source = self.body_of[winner]
+            func_decl = winner
+        }
         var at = self.by_key.first(source, key)
         while at >= 0 {
             let k = self.by_key.value(at)
@@ -372,6 +383,20 @@ extension MonoProgram {
                                       glue_type: -1, decl: decl, body: -1, origin: origin, origin_node: node))
         self.by_key.add(source, key, k)
         k
+    }
+
+    // The exported function whose definition replaces body `source`'s in
+    // this compile, or -1.
+    func export_winner(&self, source: Int) -> Int {
+        let info = self.dp.bc.mir.funcs[source]
+        if info.kind != MirFuncKind.Body || info.decl < 0 {
+            return -1
+        }
+        let winner = self.dp.bc.mir.tc.export_yields_to[info.decl]
+        if winner < 0 || self.body_of[winner] < 0 {
+            return -1
+        }
+        winner
     }
 
     func same_arguments(&self, k: Int, args: &Vector<Int>, inst: &Vector<Int>, self_type: Int) -> Bool {

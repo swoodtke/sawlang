@@ -3,6 +3,7 @@
 // what the target asks of every function, written after the parameter list.
 
 import sawmir.model.{MirFuncKind, MirTermKind}
+import sawparse.grammar.{Alt}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.model.{ResModuleKind}
 import sawtarget.layout.{Target, target_cpu}
@@ -102,8 +103,8 @@ public func ll_any_builtin(items: &Vector<Bool>) -> Bool {
 
 // Whether item `k` is a builtin export: exported from a builtins module, or
 // exported under a name LLVM's own libcalls use (`ll_builtin_symbol`), whatever
-// module declares it. A builtin export is defined `weak`, so an environment's
-// own definition of the name wins at the link.
+// module declares it. Builtins are compiled with LLVM's "no-builtins"; their
+// linkage is `ll_weak_definition`'s.
 public func ll_builtin_export(mono: &MonoProgram, k: Int) -> Bool {
     let it = mono.items[k]
     if it.kind != MonoItemKind.Function || it.decl < 0 {
@@ -114,6 +115,26 @@ public func ll_builtin_export(mono: &MonoProgram, k: Int) -> Bool {
         return false
     }
     ll_builtin_symbol(&symbol) || ll_builtins_module(&mono.dp.bc.mir.tc, ll_function_module(&mono, k))
+}
+
+// THE LINKAGE FUNNEL: whether item `k`, an exported function, is defined
+// `weak`, so that another definition of its symbol at the link wins. That is
+// a function written `@weak`, and a function exported under a name LLVM's
+// own libcalls use (`ll_builtin_symbol`), whatever module declares it: an
+// environment's `memcpy` replaces a program's. It is `weak`, never `weak_odr`,
+// which LLVM folds into a caller, so the default stays a real call (SL-1159).
+// ENTRY POINTS:
+//   LlEmitter.emit_function
+public func ll_weak_definition(mono: &MonoProgram, k: Int) -> Bool {
+    let it = mono.items[k]
+    if it.kind != MonoItemKind.Function || it.decl < 0 {
+        return false
+    }
+    let symbol = mono.dp.bc.mir.tc.export_symbols.get(it.decl) ?? ""
+    if symbol.len() == 0 {
+        return false
+    }
+    mono.dp.bc.mir.tc.res.decl_attribute(it.decl, Alt.Attr_Attribute_Weak) >= 0 || ll_builtin_symbol(&symbol)
 }
 
 // The module whose source item `k`'s function is, or -1 for an item with no

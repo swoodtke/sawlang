@@ -1,0 +1,12 @@
+// refuses: export.signature-disagree at 6:6
+// flags: --std-root std --freestanding
+// a program's `memcpy` replaces std's weak one in the compile, so it has std's signature: a caller the compiler or LLVM emits reads this one's result as a pointer
+
+@export("memcpy")
+func my_memcpy() -> Int {
+    0
+}
+
+func main() -> Int {
+    my_memcpy()
+}

@@ -1,0 +1,29 @@
+// probe: stated
+// about: an `@weak @export` that nothing replaces is the C symbol's definition, and a Saw call of it runs the default, at -O0 and -O2, also placed by `@section` (SL-1159)
+// stage 0: has no `@weak`, so it is no oracle
+// speeds: -O0 -O2
+// prints: 1
+// prints: 5
+// ll defines: weak_default_hook
+// ll defines: weak_default_placed
+//
+// The default stays a call at every level: a replacement at the link must
+// reach this caller (`weak_export_call_survives_o2.saw` holds the IR).
+
+@weak
+@export("weak_default_hook")
+func default_hook() -> Int {
+    1
+}
+
+@weak
+@export("weak_default_placed")
+@section("__TEXT,__sawfn,regular,pure_instructions")
+func default_placed() -> Int {
+    5
+}
+
+func main() {
+    print(default_hook())
+    print(default_placed())
+}

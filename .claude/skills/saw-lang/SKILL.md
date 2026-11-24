@@ -4148,6 +4148,7 @@ let n = borrow var c = shared.value().lock() { c = c + 5; c }   // shared: Arc<M
 ```
 
 ## Systems/embedded corner
+`@weak` beside `@export` (top-level functions only; alone it is `export.weak-alone`) makes the export a default that an ordinary export of the same C symbol replaces, in the same compile or from another object at the link (never from an archive member, unless `--whole-archive`); a Saw call of the replaced one runs the replacement, and the two must agree on the signature (SL-1159).
 `static NAME: T = const_init` (Sync-only, immortal, and NEVER OPTIONAL —
 DF-226f, Aug 17: `static SLOT: Int? = 7` is refused by the rule, since a
 static is fixed at compile time and so always present; only the static's

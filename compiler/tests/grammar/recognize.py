@@ -210,10 +210,11 @@ ATTRIBUTE_NAMES = {
     "syntax.attr.attribute.section": "section",
     "syntax.attr.attribute.synthesize": "synthesize",
     "syntax.attr.attribute.align": "align",
+    "syntax.attr.attribute.weak": "weak",
     "syntax.attr.attribute.synthesize-shared": "synthesize-shared",
 }
 ATTRIBUTE_HOSTS = {
-    "syntax.decl.item.func": ("export", "section"),
+    "syntax.decl.item.func": ("export", "section", "weak"),
     "syntax.decl.item.static": ("export", "section", "align"),
     "syntax.decl.item.extension": ("synthesize",),
     "syntax.stmt.attributed-local": ("align",),
