@@ -5,14 +5,14 @@
     (requirement Source.pull 8:10 (signature (receiver exclusive) (params) -> Self.Item?))
     (trait Pipe 11:7 private (parents inherited_associated_types.Source))
     (requirement Pipe.push 12:10 (signature (receiver exclusive) (params (item Self.Item owned)) -> Void))
-    (requirement Pipe.relay 13:10 (signature (receiver exclusive) (params) -> Self.Item? default-body) (summary body (suspends when Self.Source.pull) (sync-callable unless Self.Source.pull)))
+    (requirement Pipe.relay 13:10 (signature (receiver exclusive) (params) -> Self.Item? default-body) (summary body (suspends when Self.Source.pull) (sync-callable unless Self.Source.pull) (roots-when Self.Source.pull)))
     (struct Counter 19:8 private)
     (field Counter.n 20:5 private Int)
     (extension 23:1 (target inherited_associated_types.Counter) (conforms inherited_associated_types.Pipe))
     (type-assign Counter.Item 24:10 Int)
     (method Counter.pull 25:10 private (signature (receiver exclusive) (params) -> Int?) (summary body (suspends no) (sync-callable yes)))
     (method Counter.push 28:10 private (signature (receiver exclusive) (params (item Int owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (func cycle 33:6 private (signature (generics (P (bounds inherited_associated_types.Pipe))) (params (p &var P exclusive)) -> P.Item?) (summary body (suspends when P.Pipe.relay) (sync-callable unless P.Pipe.relay)))
+    (func cycle 33:6 private (signature (generics (P (bounds inherited_associated_types.Pipe))) (params (p &var P exclusive)) -> P.Item?) (summary body (suspends when P.Pipe.relay) (sync-callable unless P.Pipe.relay) (roots-when P.Pipe.relay)))
     (func main 37:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
   (members
     (inherited_associated_types.Counter

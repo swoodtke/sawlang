@@ -25,7 +25,7 @@
     (extension 80:1 (target escaping_values.Holder) (conforms escaping_values.Keeper))
     (method Holder.keep 81:10 private (signature (receiver exclusive) (params (g () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
     (method Holder.peek 85:10 private (signature (receiver shared) (params (g () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
-    (func through 90:6 private (signature (generics (K (bounds escaping_values.Keeper))) (params (k &var K exclusive) (f () -> Int owned escaping)) -> Int) (summary body (suspends when K.Keeper.keep) (sync-callable unless K.Keeper.keep)))
+    (func through 90:6 private (signature (generics (K (bounds escaping_values.Keeper))) (params (k &var K exclusive) (f () -> Int owned escaping)) -> Int) (summary body (suspends when K.Keeper.keep) (sync-callable unless K.Keeper.keep) (roots-when K.Keeper.keep)))
     (func main 94:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (escaping_values.Holder

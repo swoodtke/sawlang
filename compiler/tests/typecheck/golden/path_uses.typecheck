@@ -17,7 +17,7 @@ ERROR	copy.requirement	compiler/tests/typecheck/golden/path_uses.saw:131:11	`cap
     (init Wrap.init 21:5 private (signature (params (from T owned)) -> path_uses.Wrap<T>) (summary body (suspends no) (sync-callable yes)))
     (func sink 24:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func look 26:6 private (signature (generics (T)) (params (x &T shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func larger 29:6 private (signature (generics (T (bounds Comparable))) (params (a T owned) (b T owned)) -> T) (summary body (suspends when T.Comparable.compare) (sync-callable unless T.Comparable.compare)))
+    (func larger 29:6 private (signature (generics (T (bounds Comparable))) (params (a T owned) (b T owned)) -> T) (summary body (suspends when T.Comparable.compare) (sync-callable unless T.Comparable.compare) (roots-when T.Comparable.compare)))
     (func twice 33:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (func repeated 39:6 private (signature (generics (T)) (params (x T owned) (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (func moved 48:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))

@@ -5,7 +5,7 @@
     (trait Counter 13:7 private (parents dispatch.Named))
     (requirement Counter.value 14:10 (signature (receiver shared) (params) -> Int))
     (requirement Counter.bump 15:10 (signature (receiver exclusive) (params (by Int owned)) -> Void))
-    (requirement Counter.doubled 16:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Counter.value) (sync-callable unless Self.Counter.value)))
+    (requirement Counter.doubled 16:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Counter.value) (sync-callable unless Self.Counter.value) (roots-when Self.Counter.value)))
     (struct Tally 21:8 private)
     (field Tally.n 22:5 private Int)
     (extension 25:1 (target dispatch.Tally) (conforms dispatch.Named))

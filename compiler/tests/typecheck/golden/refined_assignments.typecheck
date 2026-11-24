@@ -24,7 +24,7 @@
     (extension 62:1 (target refined_assignments.Echo) (conforms refined_assignments.Pipe))
     (type-assign Echo.Item 63:10 String)
     (method Echo.first 64:10 private (signature (receiver exclusive) (params) -> String?) (summary body (suspends no) (sync-callable yes)))
-    (func drain 69:6 private (signature (generics (T (bounds refined_assignments.Pipe))) (params (p &var T exclusive)) -> Int) (summary body (suspends when T.Pipe.first) (sync-callable unless T.Pipe.first)))
+    (func drain 69:6 private (signature (generics (T (bounds refined_assignments.Pipe))) (params (p &var T exclusive)) -> Int) (summary body (suspends when T.Pipe.first) (sync-callable unless T.Pipe.first) (roots-when T.Pipe.first)))
     (func main 77:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (refined_assignments.Maker

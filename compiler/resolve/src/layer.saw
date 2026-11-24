@@ -58,6 +58,7 @@ public enum FrontLayerKind: UInt8 {
 //     tc_check_reference_positions
 //     tc_check_exhaustive
 //     tc_settle_path_uses
+//     tc_record_root_paths
 //     tc_solve_summaries
 //     tc_check_effects
 //     tc_check_body_rules

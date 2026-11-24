@@ -12,22 +12,25 @@
 // function's summary as a condition phase 3 refuses at the call.
 
 import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.layer.{FrontLayer}
-import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResVis}
 import sawresolve.lang.{res_is_park_point}
 import sawresolve.names.{ResIndex}
 import sawresolve.prelude.{res_is_test_intrinsic}
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKING, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_CLOSURE_CALL,
                                TC_CAUSE_COOPERATIVE, TC_CAUSE_DISPATCH, TC_CAUSE_PAIRED, TC_CAUSE_TEST_SUSPEND,
                                TC_CAUSE_UNCLASSIFIED,
-                               TC_COPY_COVERED, TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC,TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
+                               TC_COPY_COVERED, TC_EFFECT_CONSTEXPR, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
                                TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD,
                                TC_ITEM_CALL, TC_ITEM_CAPTURE, TC_ITEM_COPY,
                                TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
-                               TcCall, TcConformance, TcDefault, TcItem, TcParam, TcRole, TcSig, TcStatus,
+                               TcCall, TcConformance, TcDefault, TcItem, TcParam, TcReceiver, TcRole, TcRootKey, TcSig, TcStatus,
                                TcStatusKind, TcSummary, TcTier, TcUnit, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
@@ -62,6 +65,22 @@ public struct TcAcc {
     // Copy requirements and forbidden conditions the copy site meets.
     hooks: Vector<Int>
     hook_types: Vector<Int>
+    // The static roots the gathered calls may open: key ids, the conditions
+    // over the owner's parameters, and the closure units run or passed at a
+    // call, whose sets join where it stands (SL-1156).
+    roots: Vector<Int>
+    root_when: Vector<TcAtom>
+    root_units: Vector<Int>
+    // Whether a call goes through, or hands on, the owner's own non-escaping
+    // function parameter, whose argument the owner cannot see. It belongs to
+    // the one call evaluated and is never stored in a summary.
+    root_opaque: Bool
+    // What the items of closure units gather before their sets resolve:
+    // (unit, key) and (unit, child unit) pairs, and conditions with their
+    // unit in `site`.
+    closure_keys: Vector<Int>
+    closure_edges: Vector<Int>
+    closure_when: Vector<TcAtom>
 }
 
 extension TcAcc: NoCopy {}
@@ -70,7 +89,9 @@ extension TcAcc {
     public init(owner: Int, unit: Int) -> TcAcc {
         TcAcc(suspends: false, nonsync: false, causes: 0, thread_causes: 0, suspend_atoms: Vector<TcAtom>(),
               nonsync_atoms: Vector<TcAtom>(), copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner,
-              unit: unit, blocked_hook: -1, blocked_type: -1, hooks: Vector<Int>(), hook_types: Vector<Int>())
+              unit: unit, blocked_hook: -1, blocked_type: -1, hooks: Vector<Int>(), hook_types: Vector<Int>(),
+              roots: Vector<Int>(), root_when: Vector<TcAtom>(), root_units: Vector<Int>(), root_opaque: false,
+              closure_keys: Vector<Int>(), closure_edges: Vector<Int>(), closure_when: Vector<TcAtom>())
     }
 
     // A cause a call has in every context alike.
@@ -128,8 +149,10 @@ extension TcProgram {
         while k < total {
             try! self.summaries.push(TcSummary.blank())
             try! self.decl_unit.push(-1)
+            try! self.sig_key.push(-1)
             k = k + 1
         }
+        self.intern_root_keys(&layer)
         self.collect_units(&layer)
         k = layer.decl_first
         while k < total {
@@ -297,7 +320,8 @@ extension TcProgram {
                 let thread = self.declares_blocking(d)
                 let first = self.items.len()
                 try! self.units.push(TcUnit(decl: d, node: -1, top: u, sync: sync, thread: thread,
-                                            item_first: first, item_end: first))
+                                            item_first: first, item_end: first, root_first: 0, root_count: 0,
+                                            root_when_first: 0, root_when_count: 0))
                 if d >= 0 {
                     self.decl_unit[d] = u
                 }
@@ -401,7 +425,9 @@ extension TcProgram {
                 }
                 let thread = self.is_thread_brace(id)
                 try! self.units.push(TcUnit(decl: d, node: id, top: top, sync: sync, thread: thread,
-                                            item_first: first, item_end: first))
+                                            item_first: first, item_end: first, root_first: 0, root_count: 0,
+                                            root_when_first: 0, root_when_count: 0))
+                self.closure_units.add(id, 0, here)
             }
             self.note_items(id, here)
             var c = self.child_count(id) - 1
@@ -760,6 +786,7 @@ extension TcProgram {
                     } else {
                         self.join_closure(&var acc, &var inner, item.node)
                     }
+                    self.route_roots(&var acc, &inner, item.unit, u)
                 }
             } else if item.kind == TC_ITEM_COPY || item.kind == TC_ITEM_CAPTURE {
                 if item.kind == TC_ITEM_COPY {
@@ -779,10 +806,12 @@ extension TcProgram {
                 } else {
                     self.join_closure(&var acc, &var inner, site)
                 }
+                self.route_roots(&var acc, &inner, item.unit, u)
             } else if item.kind == TC_ITEM_ERASE {
                 self.erase_conditions(item.node, &var acc)
             }
         }
+        self.resolve_closure_roots(u, &var acc)
     }
 
     // A call in a `sync` body, evaluated into `inner`: what would make it
@@ -896,6 +925,7 @@ extension TcProgram {
             acc.suspend_atoms = Vector<TcAtom>()
             acc.nonsync_atoms = Vector<TcAtom>()
         }
+        self.join_twin_roots(d, &var acc)
         var s = self.summary_from(d, &var acc)
         let twin = self.blocking_twin_of(d)
         if twin >= 0 {
@@ -933,6 +963,7 @@ extension TcProgram {
         s.forbid_first = self.atoms.len()
         self.push_unique(&acc.forbids, true)
         s.forbid_count = self.atoms.len() - s.forbid_first
+        self.store_roots(&acc, &var s)
         s
     }
 
@@ -972,7 +1003,7 @@ extension TcProgram {
         if a.thread_causes != b.thread_causes {
             return false
         }
-        self.same_run(a.suspend_first, a.suspend_count, b.suspend_first, b.suspend_count, true) && self.same_run(a.nonsync_first, a.nonsync_count, b.nonsync_first, b.nonsync_count, true) && self.same_run(a.copy_first, a.copy_count, b.copy_first, b.copy_count, false) && self.same_run(a.forbid_first, a.forbid_count, b.forbid_first, b.forbid_count, true)
+        self.same_run(a.suspend_first, a.suspend_count, b.suspend_first, b.suspend_count, true) && self.same_run(a.nonsync_first, a.nonsync_count, b.nonsync_first, b.nonsync_count, true) && self.same_run(a.copy_first, a.copy_count, b.copy_first, b.copy_count, false) && self.same_run(a.forbid_first, a.forbid_count, b.forbid_first, b.forbid_count, true) && self.same_roots(&a, &b)
     }
 
     func same_run(&self, af: Int, an: Int, bf: Int, bn: Int, by_requirement: Bool) -> Bool {
@@ -1056,9 +1087,16 @@ extension TcProgram {
             var task = TcAcc(owner: acc.owner, unit: acc.unit)
             self.eval_made_call(e, &var task)
             self.join_spawned(&var acc, &var task)
+            // A drive runs its call to the end inside this one, so its roots
+            // are the caller's; a task's are its own turn's (SL-1156).
+            if self.drive_roots[e] {
+                self.eval_function_arguments(e, &var task)
+                self.join_roots(&var acc, &task)
+            }
             return
         }
         self.eval_made_call(e, &var acc)
+        self.eval_function_arguments(e, &var acc)
     }
 
     // Each default the call at node `e` fills, evaluated into `acc`.
@@ -1160,6 +1198,7 @@ extension TcProgram {
     // over `d`'s parameters rewritten at the call's type arguments.
     func eval_instance(&var self, d: Int, c: &TcCall, e: Int, acc: &var TcAcc) {
         let s = self.summary_for(d, &acc)
+        self.note_root_key(d, &var acc)
         self.eval_summary(&s, d, &c, e, &var acc)
     }
 
@@ -1208,6 +1247,7 @@ extension TcProgram {
             acc.nonsync = true
         }
         acc.add_causes_of(&s)
+        self.note_summary_roots(&s, d, &c, e, &var acc)
         if s.suspend_count == 0 && s.nonsync_count == 0 && s.copy_count == 0 && s.forbid_count == 0 {
             return
         }
@@ -1247,6 +1287,7 @@ extension TcProgram {
     // caller's own parameter, nothing through an existential but a lost
     // guarantee, or a concrete implementation's summary.
     func eval_requirement(&var self, req: Int, owner: Int, e: Int, acc: &var TcAcc) {
+        self.eval_root_requirement(req, owner, e, &var acc)
         if self.declares_sync(req) {
             return
         }
@@ -1609,6 +1650,7 @@ extension TcProgram {
     // ones (`check_hook_at`), which `acc.hooks` names it for.
     public func eval_hook(&var self, hook: Int, t: Int, e: Int, acc: &var TcAcc) {
         let s = self.summary_for(hook, &acc)
+        self.note_hook_roots(&s, hook, t, e, &var acc)
         try! acc.hooks.push(hook)
         try! acc.hook_types.push(t)
         var j = 0
@@ -1701,6 +1743,7 @@ extension TcProgram {
                 try! acc.forbids.push(TcAtom(ty: a.ty, req: a.req, site: e, origin: e, kind: TC_FORBID_COPY))
             }
             self.join_hook_conditions(&var acc, &inner)
+            self.join_roots(&var acc, &inner)
             return
         }
         var args = Vector<Int>()
@@ -1905,6 +1948,646 @@ extension TcProgram {
     }
 }
 
+// The static roots a call may open. A root function's declared root is a key
+// (static, field path, exclusive); a summary holds the keys its body's calls
+// may open a window on, through any chain, and the conditions "plus whatever
+// `T`'s `req` reaches" a generic body keeps. The join is a union, so the
+// worklist reaches the least fixpoint as it does for suspension. Nothing here
+// runs in a program whose layers intern no key (SL-1156).
+extension TcProgram {
+    // Whether `d` is a root function: a free function or a static method
+    // declaring `borrows(ROOT)` over a module-private static of its module.
+    func is_root_function(&self, d: Int) -> Bool {
+        let s = self.sigs[d]
+        if s.root_decl < 0 || s.receiver != TcReceiver.Absent {
+            return false
+        }
+        let kind = self.res.decls[d].kind
+        let st = self.res.decls[s.root_decl]
+        (kind == ResDeclKind.Func || kind == ResDeclKind.Method) && st.kind == ResDeclKind.Static && st.vis == ResVis.Private
+    }
+
+    // THE ROOT-KEY FUNNEL: gives each root function of `layer` its key. A
+    // static no root function lends exclusively can never conflict, so its
+    // functions get none and a call of one adds nothing. All root functions
+    // of a static are in its module, so one layer sees them all.
+    // ENTRY POINTS:
+    //     solve_summaries
+    func intern_root_keys(&var self, layer: &FrontLayer) {
+        var exclusive = Vector<Int>()
+        var d = layer.decl_first
+        while d < self.res.decls.len() {
+            let decl = d
+            d = d + 1
+            let s = self.sigs[decl]
+            if s.lending_exclusive && self.is_root_function(decl) && not tc_contains(&exclusive, s.root_decl) {
+                try! exclusive.push(s.root_decl)
+            }
+        }
+        if exclusive.len() == 0 {
+            return
+        }
+        d = layer.decl_first
+        while d < self.res.decls.len() {
+            let decl = d
+            d = d + 1
+            let s = self.sigs[decl]
+            if self.is_root_function(decl) && tc_contains(&exclusive, s.root_decl) {
+                self.sig_key[decl] = self.intern_root_key(&s)
+            }
+        }
+    }
+
+    // The id of `s`'s root key, made when no key has its static, path and mode.
+    func intern_root_key(&var self, s: &TcSig) -> Int {
+        var k = 0
+        while k < self.root_keys.len() {
+            let key = self.root_keys[k]
+            if key.static_decl == s.root_decl && key.exclusive == s.lending_exclusive && key.field_count == s.root_count {
+                var same = true
+                var j = 0
+                while j < key.field_count {
+                    if self.root_fields[key.field_first + j] != self.root_fields[s.root_first + j] {
+                        same = false
+                    }
+                    j = j + 1
+                }
+                if same {
+                    return k
+                }
+            }
+            k = k + 1
+        }
+        try! self.root_keys.push(TcRootKey(static_decl: s.root_decl, field_first: s.root_first,
+                                           field_count: s.root_count, exclusive: s.lending_exclusive))
+        self.root_keys.len() - 1
+    }
+
+    // Root function `d`'s own key, added to `acc` when it has one.
+    func note_root_key(&var self, d: Int, acc: &var TcAcc) {
+        if self.root_keys.len() > 0 && d >= 0 && d < self.sig_key.len() && self.sig_key[d] >= 0 {
+            try! acc.roots.push(self.sig_key[d])
+        }
+    }
+
+    // What the summary `s` of function `d` adds to a call at `c`: its keys,
+    // and its conditions rewritten at the call's type arguments.
+    func note_summary_roots(&var self, s: &TcSummary, d: Int, c: &TcCall, e: Int, acc: &var TcAcc) {
+        if s.root_count == 0 && s.root_when_count == 0 {
+            return
+        }
+        var k = 0
+        while k < s.root_count {
+            try! acc.roots.push(self.root_sets[s.root_first + k])
+            k = k + 1
+        }
+        k = 0
+        while k < s.root_when_count {
+            let a = self.atoms[s.root_when_first + k]
+            k = k + 1
+            let t = self.call_subst(a.ty, d, &c)
+            self.eval_root_condition(t, a.req, e, &var acc)
+        }
+    }
+
+    // The same for copy hook `hook` run on a value of type `t`.
+    func note_hook_roots(&var self, s: &TcSummary, hook: Int, t: Int, e: Int, acc: &var TcAcc) {
+        self.note_root_key(hook, &var acc)
+        var k = 0
+        while k < s.root_count {
+            try! acc.roots.push(self.root_sets[s.root_first + k])
+            k = k + 1
+        }
+        k = 0
+        while k < s.root_when_count {
+            let a = self.atoms[s.root_when_first + k]
+            k = k + 1
+            let inner = self.impl_subst(a.ty, hook, t)
+            self.eval_root_condition(inner, a.req, e, &var acc)
+        }
+    }
+
+    // A requirement `req` called through `owner`: what its implementation
+    // opens, or a condition over the caller's own parameter. Unlike
+    // suspension, a `sync` requirement counts, since a root function is `sync`.
+    func eval_root_requirement(&var self, req: Int, owner: Int, e: Int, acc: &var TcAcc) {
+        if owner < 0 {
+            return
+        }
+        self.eval_root_condition(self.strip_refs(owner), req, e, &var acc)
+    }
+
+    func eval_root_condition(&var self, t: Int, req: Int, e: Int, acc: &var TcAcc) {
+        var followed = tc_memo()
+        self.eval_root_condition_in(t, req, e, &var acc, &var followed)
+    }
+
+    // One condition of an evaluation, as `eval_condition_in` follows one: a
+    // receiver that is the caller's own parameter keeps it, any other is the
+    // implementation's summary, its conditions rewritten at the receiver.
+    // A call through `any` adds nothing; it is made root-free where the value
+    // is erased.
+    func eval_root_condition_in(&var self, t: Int, req: Int, e: Int, acc: &var TcAcc, followed: &var TcMemo) {
+        let recv = self.strip_refs(t)
+        let kind = self.kind_of(recv)
+        if kind == TcKind.Param || kind == TcKind.SelfType {
+            if self.is_own_condition(recv, acc.owner) {
+                try! acc.root_when.push(TcAtom(ty: recv, req: req, site: e, origin: e, kind: 0))
+            }
+            return
+        }
+        if kind == TcKind.Any || kind == TcKind.Error || self.is_copy_requirement(req) {
+            return
+        }
+        if not followed.mark(recv, req) {
+            return
+        }
+        let impl = self.impl_of(recv, req)
+        if impl < 0 {
+            if self.is_synthesized(recv, req) {
+                self.eval_synthesized_parts(recv, req, e, &var acc, &var followed)
+            }
+            return
+        }
+        let s = self.summary_for(impl, &acc)
+        self.note_root_key(impl, &var acc)
+        var k = 0
+        while k < s.root_count {
+            try! acc.roots.push(self.root_sets[s.root_first + k])
+            k = k + 1
+        }
+        k = 0
+        while k < s.root_when_count {
+            let a = self.atoms[s.root_when_first + k]
+            k = k + 1
+            let inner = self.impl_subst(a.ty, impl, recv)
+            self.eval_root_condition_in(inner, a.req, e, &var acc, &var followed)
+        }
+    }
+
+    // Whether concrete type `t` meets requirement `req` by `@synthesize`.
+    func is_synthesized(&self, t: Int, req: Int) -> Bool {
+        if self.kind_of(t) != TcKind.Nominal {
+            return false
+        }
+        let d = self.nominal_decl(t)
+        let tr = self.res.decls[req].parent
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != d || not self.trait_refines(c.trait_decl, tr) {
+                continue
+            }
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.requirement == req {
+                    return st.kind == TcStatusKind.Synthesized
+                }
+            }
+        }
+        false
+    }
+
+    // A synthesized body calls the same requirement on each part of the
+    // type, a struct's fields or an enum case's payloads, so it opens what
+    // they do.
+    func eval_synthesized_parts(&var self, t: Int, req: Int, e: Int, acc: &var TcAcc, followed: &var TcMemo) {
+        let info = self.types.ty(t)
+        let d = info.decl
+        var args = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            try! args.push(self.types.arg(t, k))
+            k = k + 1
+        }
+        let s = TcSubst(owner: d, args: move args)
+        let kind = self.res.decls[d].kind
+        let members = self.members_of(d)
+        k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mk = self.res.decls[m].kind
+            if mk == ResDeclKind.Field && kind == ResDeclKind.Struct {
+                let part = self.subst(self.sigs[m].result, &s)
+                self.eval_root_condition_in(part, req, e, &var acc, &var followed)
+            } else if mk == ResDeclKind.Case && kind == ResDeclKind.Enum {
+                let cs = self.sigs[m]
+                var p = 0
+                while p < cs.param_count {
+                    let part = self.subst(self.params[cs.param_first + p].ty, &s)
+                    self.eval_root_condition_in(part, req, e, &var acc, &var followed)
+                    p = p + 1
+                }
+            }
+        }
+    }
+
+    // The function values the call at node `e` runs or is handed, counted at
+    // the call as if called: a closure literal run in place or passed to a
+    // non-escaping parameter joins its unit's set, a named function its
+    // summary's, and the owner's own non-escaping parameter, which the call
+    // cannot see into, marks the call opaque. A spawned task's call counts
+    // nothing.
+    // ENTRY POINTS:
+    //     eval_target
+    func eval_function_arguments(&var self, e: Int, acc: &var TcAcc) {
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        if c.role == TcRole.Spawn {
+            return
+        }
+        let callee = self.res.first_node_child(e)
+        if c.role == TcRole.Value && c.owner >= 0 && callee >= 0 {
+            self.root_function_value(callee, &var acc)
+        }
+        let n = self.child_count(e)
+        var index = 0
+        var k = 0
+        while k < n {
+            var arg = self.child(e, k)
+            k = k + 1
+            if arg == callee || self.is_leaf(arg) {
+                continue
+            }
+            let position = index
+            index = index + 1
+            if not self.takes_function_argument(&c, position) {
+                continue
+            }
+            if self.has_alt(arg, Alt.Expr_Argument_Positional) {
+                arg = self.res.first_node_child(arg)
+            } else if self.has_alt(arg, Alt.Expr_Argument_Labelled) {
+                arg = self.res.last_node_child(arg)
+            }
+            self.root_function_value(arg, &var acc)
+        }
+    }
+
+    // Whether written argument `found` of call `c` binds a function-typed
+    // parameter that does not say `escaping`.
+    func takes_function_argument(&self, c: &TcCall, found: Int) -> Bool {
+        if c.role == TcRole.Value {
+            if c.owner < 0 || self.kind_of(c.owner) != TcKind.Func || found >= self.types.ty(c.owner).count {
+                return false
+            }
+            let pt = self.types.arg(c.owner, found)
+            return self.kind_of(pt) == TcKind.Func && (self.types.ty(pt).a & TC_EFFECT_ESCAPING) == 0
+        }
+        if c.role != TcRole.Call || c.bind_first < 0 || c.target < 0 {
+            return false
+        }
+        var j = 0
+        while j < c.bind_count {
+            if self.binds[c.bind_first + j] == found {
+                let p = self.params[self.sigs[c.target].param_first + j]
+                return self.kind_of(p.ty) == TcKind.Func && not p.escaping
+            }
+            j = j + 1
+        }
+        false
+    }
+
+    // What function value `node` adds where it is called or passed on.
+    func root_function_value(&var self, node: Int, acc: &var TcAcc) {
+        let at = self.unparen(node)
+        if at < 0 {
+            return
+        }
+        if self.has_alt(at, Alt.Expr_Closure) {
+            let found = self.closure_units.first(at, 0)
+            if found >= 0 {
+                try! acc.root_units.push(self.closure_units.value(found))
+            }
+            return
+        }
+        if self.nonescaping_value(at) {
+            acc.root_opaque = true
+            return
+        }
+        if at >= self.call_at.len() || self.call_at[at] < 0 {
+            return
+        }
+        let c = self.calls[self.call_at[at]]
+        if c.role != TcRole.Value || c.owner >= 0 || c.target < 0 || not self.is_function_decl(c.target) {
+            return
+        }
+        let s = self.summary_for(c.target, &acc)
+        self.note_root_key(c.target, &var acc)
+        var k = 0
+        while k < s.root_count {
+            try! acc.roots.push(self.root_sets[s.root_first + k])
+            k = k + 1
+        }
+    }
+
+    // A pair's default also runs its `blocking` twin, in thread context, so
+    // its sets join the default's, the twin's conditions rewritten over the
+    // default's own type parameters.
+    func join_twin_roots(&var self, d: Int, acc: &var TcAcc) {
+        let twin = self.blocking_twin_of(d)
+        if twin < 0 {
+            return
+        }
+        let s = self.summary_for(twin, &acc)
+        var k = 0
+        while k < s.root_count {
+            try! acc.roots.push(self.root_sets[s.root_first + k])
+            k = k + 1
+        }
+        var args = Vector<Int>()
+        var g = 0
+        while g < self.sigs[d].generic_count {
+            try! args.push(self.mk_param(d, g))
+            g = g + 1
+        }
+        let own = TcSubst(owner: twin, args: move args)
+        k = 0
+        while k < s.root_when_count {
+            let a = self.atoms[s.root_when_first + k]
+            k = k + 1
+            let t = self.subst(a.ty, &own)
+            if self.is_own_condition(t, acc.owner) {
+                try! acc.root_when.push(TcAtom(ty: t, req: a.req, site: a.site, origin: a.origin, kind: 0))
+            }
+        }
+    }
+
+    // `from`'s roots, joined into `acc`.
+    func join_roots(&var self, acc: &var TcAcc, from: &TcAcc) {
+        var k = 0
+        while k < from.roots.len() {
+            try! acc.roots.push(from.roots[k])
+            k = k + 1
+        }
+        k = 0
+        while k < from.root_when.len() {
+            try! acc.root_when.push(from.root_when[k])
+            k = k + 1
+        }
+        k = 0
+        while k < from.root_units.len() {
+            try! acc.root_units.push(from.root_units[k])
+            k = k + 1
+        }
+        if from.root_opaque {
+            acc.root_opaque = true
+        }
+    }
+
+    // The roots a call or copy of unit `owner` gathered into `inner`: the top
+    // unit `top`'s own, or a closure's, which wait in `acc` for the unit's
+    // set to resolve (`resolve_closure_roots`).
+    func route_roots(&var self, acc: &var TcAcc, inner: &TcAcc, owner: Int, top: Int) {
+        if inner.roots.len() == 0 && inner.root_when.len() == 0 && inner.root_units.len() == 0 && not inner.root_opaque {
+            return
+        }
+        if owner == top {
+            self.join_roots(&var acc, &inner)
+            return
+        }
+        var k = 0
+        while k < inner.roots.len() {
+            try! acc.closure_keys.push(owner)
+            try! acc.closure_keys.push(inner.roots[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.root_units.len() {
+            try! acc.closure_edges.push(owner)
+            try! acc.closure_edges.push(inner.root_units[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.root_when.len() {
+            let a = inner.root_when[k]
+            try! acc.closure_when.push(TcAtom(ty: a.ty, req: a.req, site: owner, origin: a.origin, kind: 0))
+            k = k + 1
+        }
+    }
+
+    // Resolves the closure units `acc` gathered for top unit `u`, the last of
+    // them first, since a closure unit is made after the unit it is written
+    // in: each one's set is its own calls' keys and conditions with those of
+    // the closures it runs. The sets of the closures `u` runs join `acc`.
+    func resolve_closure_roots(&var self, u: Int, acc: &var TcAcc) {
+        if acc.closure_keys.len() == 0 && acc.closure_edges.len() == 0 && acc.closure_when.len() == 0 && acc.root_units.len() == 0 {
+            return
+        }
+        var seen = Vector<Int>()
+        var k = 0
+        while k < acc.closure_keys.len() {
+            self.note_unit(&var seen, u, acc.closure_keys[k])
+            k = k + 2
+        }
+        k = 0
+        while k < acc.closure_edges.len() {
+            self.note_unit(&var seen, u, acc.closure_edges[k])
+            self.note_unit(&var seen, u, acc.closure_edges[k + 1])
+            k = k + 2
+        }
+        k = 0
+        while k < acc.closure_when.len() {
+            self.note_unit(&var seen, u, acc.closure_when[k].site)
+            k = k + 1
+        }
+        k = 0
+        while k < acc.root_units.len() {
+            self.note_unit(&var seen, u, acc.root_units[k])
+            k = k + 1
+        }
+        var i = 0
+        while i < seen.len() {
+            let y = seen[i]
+            i = i + 1
+            var keys = Vector<Int>()
+            var whens = Vector<TcAtom>()
+            var j = 0
+            while j < acc.closure_keys.len() {
+                if acc.closure_keys[j] == y {
+                    try! keys.push(acc.closure_keys[j + 1])
+                }
+                j = j + 2
+            }
+            j = 0
+            while j < acc.closure_edges.len() {
+                if acc.closure_edges[j] == y {
+                    self.unit_keys_into(acc.closure_edges[j + 1], &var keys)
+                    self.unit_whens_into(acc.closure_edges[j + 1], &var whens)
+                }
+                j = j + 2
+            }
+            j = 0
+            while j < acc.closure_when.len() {
+                if acc.closure_when[j].site == y {
+                    try! whens.push(acc.closure_when[j])
+                }
+                j = j + 1
+            }
+            var unit = self.units[y]
+            let ids = tc_sorted_unique(&keys)
+            unit.root_first = self.root_sets.len()
+            unit.root_count = ids.len()
+            j = 0
+            while j < ids.len() {
+                try! self.root_sets.push(ids[j])
+                j = j + 1
+            }
+            unit.root_when_first = self.atoms.len()
+            self.push_unique(&whens, true)
+            unit.root_when_count = self.atoms.len() - unit.root_when_first
+            self.units[y] = unit
+        }
+        k = 0
+        while k < acc.root_units.len() {
+            self.unit_keys_into(acc.root_units[k], &var acc.roots)
+            self.unit_whens_into(acc.root_units[k], &var acc.root_when)
+            k = k + 1
+        }
+        acc.root_units = Vector<Int>()
+        acc.closure_keys = Vector<Int>()
+        acc.closure_edges = Vector<Int>()
+        acc.closure_when = Vector<TcAtom>()
+    }
+
+    // Unit `x`, when it is not the top unit `u`, added to `seen`, which is
+    // kept largest first and without repeats.
+    func note_unit(&self, seen: &var Vector<Int>, u: Int, x: Int) {
+        if x < 0 || x == u {
+            return
+        }
+        var at = 0
+        while at < seen.len() && seen[at] > x {
+            at = at + 1
+        }
+        if at < seen.len() && seen[at] == x {
+            return
+        }
+        tc_insert_at(&var seen, x, at)
+    }
+
+    func unit_keys_into(&self, z: Int, out: &var Vector<Int>) {
+        let unit = self.units[z]
+        var k = 0
+        while k < unit.root_count {
+            try! out.push(self.root_sets[unit.root_first + k])
+            k = k + 1
+        }
+    }
+
+    func unit_whens_into(&self, z: Int, out: &var Vector<TcAtom>) {
+        let unit = self.units[z]
+        var k = 0
+        while k < unit.root_when_count {
+            try! out.push(self.atoms[unit.root_when_first + k])
+            k = k + 1
+        }
+    }
+
+    // Writes `acc`'s roots into summary `s`: its keys a sorted run of the
+    // pool, its conditions a run of the atoms.
+    func store_roots(&var self, acc: &TcAcc, s: &var TcSummary) {
+        s.root_first = self.root_sets.len()
+        s.root_when_first = self.atoms.len()
+        let ids = tc_sorted_unique(&acc.roots)
+        var k = 0
+        while k < ids.len() {
+            try! self.root_sets.push(ids[k])
+            k = k + 1
+        }
+        s.root_count = ids.len()
+        self.push_unique(&acc.root_when, true)
+        s.root_when_count = self.atoms.len() - s.root_when_first
+    }
+
+    // Whether summaries `a` and `b` hold the same roots.
+    func same_roots(&self, a: &TcSummary, b: &TcSummary) -> Bool {
+        if a.root_count != b.root_count {
+            return false
+        }
+        var k = 0
+        while k < a.root_count {
+            if self.root_sets[a.root_first + k] != self.root_sets[b.root_first + k] {
+                return false
+            }
+            k = k + 1
+        }
+        self.same_run(a.root_when_first, a.root_when_count, b.root_when_first, b.root_when_count, true)
+    }
+
+    // Key `id`'s text, `module.STATIC.field`.
+    func root_key_text(&self, id: Int) -> String {
+        let key = self.root_keys[id]
+        var out = StringBuilder()
+        try! out.append(self.res.decl_identity(key.static_decl))
+        var k = 0
+        while k < key.field_count {
+            try! out.append(".")
+            try! out.append(self.res.name_text(self.res.decls[self.root_fields[key.field_first + k]].name))
+            k = k + 1
+        }
+        out.build()
+    }
+
+    // ` (roots (exclusive KEY) (shared KEY))`, sorted, for `s`'s keys.
+    func append_root_keys(&self, out: &var StringBuilder, s: &TcSummary) {
+        var texts = Vector<String>()
+        var k = 0
+        while k < s.root_count {
+            let id = self.root_sets[s.root_first + k]
+            k = k + 1
+            var one = StringBuilder()
+            try! one.append(if self.root_keys[id].exclusive { "(exclusive " } else { "(shared " })
+            try! one.append(self.root_key_text(id))
+            try! one.append(")")
+            try! texts.push(one.build())
+        }
+        res_sort_strings(&var texts)
+        k = 0
+        while k < texts.len() {
+            try! out.append(" ")
+            let text = texts.get(k) ?? ""
+            try! out.append(text)
+            k = k + 1
+        }
+    }
+}
+
+// The ids of `list` in ascending order, each once.
+public func tc_sorted_unique(list: &Vector<Int>) -> Vector<Int> {
+    var out = Vector<Int>()
+    var k = 0
+    while k < list.len() {
+        let x = list[k]
+        k = k + 1
+        var at = 0
+        while at < out.len() && out[at] < x {
+            at = at + 1
+        }
+        if at < out.len() && out[at] == x {
+            continue
+        }
+        tc_insert_at(&var out, x, at)
+    }
+    move out
+}
+
+// `x` inserted into `list` at index `at`.
+func tc_insert_at(list: &var Vector<Int>, x: Int, at: Int) {
+    try! list.push(x)
+    var k = list.len() - 1
+    while k > at {
+        list.swap(k, k - 1)
+        k = k - 1
+    }
+}
+
 // The summaries as the dump writes them (compiler/tests/typecheck/README.md).
 extension TcProgram {
     // ` (summary SOURCE (suspends ...) (sync-callable ...) [(copy ...)]
@@ -1958,6 +2641,16 @@ extension TcProgram {
         if s.forbid_count > 0 {
             try! out.append(" (refuses-when")
             self.append_atoms(&var out, s.forbid_first, s.forbid_count)
+            try! out.append(")")
+        }
+        if s.root_count > 0 {
+            try! out.append(" (roots")
+            self.append_root_keys(&var out, &s)
+            try! out.append(")")
+        }
+        if s.root_when_count > 0 {
+            try! out.append(" (roots-when")
+            self.append_atoms(&var out, s.root_when_first, s.root_when_count)
             try! out.append(")")
         }
         try! out.append(")")
@@ -2105,8 +2798,10 @@ extension TcProgram {
     }
 
     func verify_conditions(&self, d: Int, s: &TcSummary, out: &var Vector<String>) {
-        let total = s.suspend_count + s.nonsync_count + s.copy_count + s.forbid_count
+        let total = s.suspend_count + s.nonsync_count + s.copy_count + s.forbid_count + s.root_when_count
         var runs = Vector<Int>()
+        try! runs.push(s.root_when_first)
+        try! runs.push(s.root_when_count)
         try! runs.push(s.suspend_first)
         try! runs.push(s.suspend_count)
         try! runs.push(s.nonsync_first)
@@ -2119,7 +2814,7 @@ extension TcProgram {
             return
         }
         var r = 0
-        while r < 8 {
+        while r < 10 {
             let first = runs[r]
             let count = runs[r + 1]
             r = r + 2

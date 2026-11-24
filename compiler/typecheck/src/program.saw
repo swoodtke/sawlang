@@ -10,7 +10,7 @@ import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram, res_twin_message}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig,
-                               TcConstPosition, TcStaticTyping, TcStaticVerdict, TcStatus, TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
+                               TcConstPosition, TcStaticTyping, TcStaticVerdict, TcStatus, TcSummary, TcRelocation, TcRootKey, TcTier, TcUnit, TcUse, TcWarning}
 import sawtypecheck.stdsuspension.{TcStdRows}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
@@ -476,6 +476,13 @@ public struct TcProgram {
     // Each checked default value, and (function, parameter) -> its index.
     defaults: Vector<TcDefault>
     default_at: ResIndex
+    // The static roots: each distinct key, the key a root function stands for
+    // by declaration (-1 for none), the pool the summaries' and closure units'
+    // sets are runs of, and (closure node, 0) -> its unit (SL-1156).
+    root_keys: Vector<TcRootKey>
+    sig_key: Vector<Int>
+    root_sets: Vector<Int>
+    closure_units: ResIndex
     // The std suspension table: (key's name id, 0) -> its row, the keys in
     // row order, and the rows' columns.
     std_verdicts: ResIndex
@@ -777,6 +784,8 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: ResIndex(),
                       defaults: Vector<TcDefault>(), default_at: ResIndex(),
+                      root_keys: Vector<TcRootKey>(), sig_key: Vector<Int>(), root_sets: Vector<Int>(),
+                      closure_units: ResIndex(),
                       std_verdicts: ResIndex(), std_keys: Vector<Int>(),
                       std_rows: TcStdRows(keys: Vector<String>(), verdicts: Vector<Int>(), causes: Vector<Int>(),
                                           labels: Vector<String>()),

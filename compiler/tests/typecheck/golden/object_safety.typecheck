@@ -3,7 +3,7 @@
     (trait Shape 8:7 private)
     (requirement Shape.area 9:10 (signature (receiver shared) (params) -> Int))
     (requirement Shape.grow 10:10 (signature (receiver exclusive) (params (by Int owned)) -> Void))
-    (requirement Shape.twice 11:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Shape.area) (sync-callable unless Self.Shape.area)))
+    (requirement Shape.twice 11:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Shape.area) (sync-callable unless Self.Shape.area) (roots-when Self.Shape.area)))
     (trait Solid 16:7 private (parents object_safety.Shape))
     (requirement Solid.depth 17:10 (signature (receiver shared) (params) -> Int))
     (struct Square 20:8 private)

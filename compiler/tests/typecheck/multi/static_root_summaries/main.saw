@@ -1,0 +1,29 @@
+// A caller in another module reads the keys of `boot`'s root without naming
+// the private static: through a call, a call two hops away, and a closure
+// literal handed to `boot.run` (SL-1156).
+import boot
+
+func relay(n: Int) sync {
+    boot.install(n)
+}
+
+func relay_twice(n: Int) sync {
+    relay(n)
+    relay(n + 1)
+}
+
+func peek() -> Int {
+    borrow let c = boot.count() {
+        c
+    }
+}
+
+func via_literal() -> Int {
+    boot.run({ relay(2)
+               3 })
+}
+
+func main() {
+    relay_twice(1)
+    print(peek() + via_literal())
+}

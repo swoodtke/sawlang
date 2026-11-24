@@ -34,7 +34,7 @@ ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints
     (func payload 46:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func field_payload 51:6 private (signature (params (h implicit_copy_hints.Holder owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func through 55:6 private (signature (params (r &implicit_copy_hints.Res shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func projected 60:6 private (signature (generics (S (bounds implicit_copy_hints.Source))) (params (s &var S exclusive)) -> Int) (summary body (suspends when S.Source.next) (sync-callable unless S.Source.next)))
+    (func projected 60:6 private (signature (generics (S (bounds implicit_copy_hints.Source))) (params (s &var S exclusive)) -> Int) (summary body (suspends when S.Source.next) (sync-callable unless S.Source.next) (roots-when S.Source.next)))
     (func pattern 67:6 private (signature (params (h &implicit_copy_hints.Holder shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func var_field 74:6 private (signature (params (seed implicit_copy_hints.Res owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func let_payload 80:6 private (signature (params (seed implicit_copy_hints.Res owned)) -> Int) (summary body (suspends no) (sync-callable yes)))

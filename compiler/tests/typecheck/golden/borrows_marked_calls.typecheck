@@ -36,7 +36,7 @@
     (func take 85:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func run 87:6 private (signature (params (f () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
     (func first 89:6 private (signature (params (st &var borrows_marked_calls.Store exclusive)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func via 93:6 private (signature (generics (T (bounds borrows_marked_calls.Lens))) (params (t &var T exclusive)) -> Int) (summary body (suspends when T.Lens.get) (sync-callable unless T.Lens.get)))
+    (func via 93:6 private (signature (generics (T (bounds borrows_marked_calls.Lens))) (params (t &var T exclusive)) -> Int) (summary body (suspends when T.Lens.get) (sync-callable unless T.Lens.get) (roots-when T.Lens.get)))
     (func main 97:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members
     (borrows_marked_calls.Entry

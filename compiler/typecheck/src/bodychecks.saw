@@ -32,6 +32,10 @@ import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 
 // Runs every check of this file over `layer`'s part.
+public func tc_record_root_paths(p: &var TcProgram, layer: &FrontLayer) {
+    p.record_root_paths(&layer)
+}
+
 public func tc_check_body_rules(p: &var TcProgram, layer: &FrontLayer) {
     p.check_containment_signatures(&layer)
     p.mark_lend_refused_uses(&layer)
@@ -177,9 +181,81 @@ extension TcProgram {
         }
     }
 
+    // Each root function's field path, recorded in its signature before the
+    // summaries key a static root on it. A declaration the funnel below
+    // refuses records nothing; the funnel states why (SL-1156).
+    func record_root_paths(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
+        while d < self.res.decls.len() {
+            let decl = d
+            d = d + 1
+            let s = self.sigs[decl]
+            let info = self.res.decls[decl]
+            if s.root_decl < 0 || (info.kind != ResDeclKind.Func && info.kind != ResDeclKind.Method) {
+                continue
+            }
+            let st = self.res.decls[s.root_decl]
+            if st.kind != ResDeclKind.Static || st.vis != ResVis.Private {
+                continue
+            }
+            var hops = Vector<Int>()
+            if not self.root_hops(decl, &var hops) {
+                continue
+            }
+            var written = self.sigs[decl]
+            written.root_first = self.root_fields.len()
+            written.root_count = hops.len()
+            var h = 0
+            while h < hops.len() {
+                try! self.root_fields.push(hops[h])
+                h = h + 1
+            }
+            self.sigs[decl] = written
+        }
+    }
+
+    // The fields `d`'s root path names after its static, each the field of
+    // the type before it; false when one is not.
+    func root_hops(&var self, d: Int, hops: &var Vector<Int>) -> Bool {
+        let info = self.res.decls[d]
+        let m = info.module
+        var root = -1
+        let n = self.res.child_count(info.node)
+        var k = 0
+        while k < n {
+            let c = self.res.child(info.node, k)
+            if self.has_alt(c, Alt.Decl_BorrowsRoot) {
+                root = c
+            }
+            k = k + 1
+        }
+        if root < 0 {
+            return false
+        }
+        let path = self.res.last_node_child(root)
+        let first = self.res.first_leaf(path)
+        var t = self.sigs[self.sigs[d].root_decl].result
+        var j = self.leaf_index_after(path, first)
+        let leaves = self.res.child_count(path)
+        while j < leaves {
+            let leaf = self.res.child(path, j)
+            j = j + 1
+            let name = self.res.intern(self.text(m, leaf))
+            let sd = self.nominal_decl(t)
+            let f = if sd >= 0 { self.field_named(sd, name) } else { -1 }
+            if f < 0 || self.has_error(t) {
+                return false
+            }
+            try! hops.push(f)
+            let arguments = self.nominal_args(t)
+            let subst = TcSubst(owner: sd, args: move arguments)
+            t = self.subst(self.sigs[f].result, &subst)
+        }
+        true
+    }
+
     // THE ROOT FUNNEL: every rule on the `borrows(ROOT)` a function declares,
-    // each refused at the declaration, and the root's field path recorded in
-    // the signature once it names fields. A root is a module-private static
+    // each refused at the declaration. A root is a module-private static
     // of the declaring module (SL-1156).
     // ENTRY POINTS:
     //     check_containment_signatures
@@ -234,7 +310,6 @@ extension TcProgram {
             return
         }
         var t = self.sigs[target].result
-        var hops = Vector<Int>()
         var j = self.leaf_index_after(path, first)
         let leaves = self.res.child_count(path)
         while j < leaves {
@@ -253,20 +328,10 @@ extension TcProgram {
                 self.refuse_in(m, leaf, "member.unknown", msg.build())
                 return
             }
-            try! hops.push(f)
             let arguments = self.nominal_args(t)
             let subst = TcSubst(owner: sd, args: move arguments)
             t = self.subst(self.sigs[f].result, &subst)
         }
-        var written = self.sigs[d]
-        written.root_first = self.root_fields.len()
-        written.root_count = hops.len()
-        var h = 0
-        while h < hops.len() {
-            try! self.root_fields.push(hops[h])
-            h = h + 1
-        }
-        self.sigs[d] = written
         if s.receiver != TcReceiver.Absent {
             self.refuse_in(m, root, "borrows.root-with-receiver",
                            "a method with a receiver is rooted in its receiver, so it declares no `borrows(ROOT)`: lend a field of `self`, or make this a free function or a `static func` that names the static")

@@ -27,12 +27,12 @@
     (type-assign Countdown.Item 48:10 Int)
     (method Countdown.next 49:10 private (signature (receiver exclusive) (params) -> Int?) (summary body (suspends no) (sync-callable yes)))
     (method Countdown.count 56:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func first 59:6 private (signature (generics (T (bounds associated_types.Source))) (params (box &T shared)) -> T.Item) (summary body (suspends when T.Source.get) (sync-callable unless T.Source.get)))
-    (func give_back 63:6 private (signature (generics (S (bounds associated_types.Source))) (params (s &S shared)) -> Int) (summary body (suspends when S.Source.get S.Source.take) (sync-callable unless S.Source.get S.Source.take)))
-    (func again 68:6 private (signature (generics (U (bounds associated_types.Source))) (params (box &U shared)) -> U.Item) (summary body (suspends when U.Source.get) (sync-callable unless U.Source.get)))
-    (func pair 72:6 private (signature (generics (T (bounds associated_types.Source)) (U (bounds associated_types.Source))) (params (a &T shared) (b &U shared)) -> (T.Item, U.Item)) (summary body (suspends when T.Source.get U.Source.get) (sync-callable unless T.Source.get U.Source.get)))
-    (func pull 76:6 private (signature (generics (C (bounds associated_types.Collection))) (params (c &var C exclusive)) -> C.Item?) (summary body (suspends when C.Sequence.next) (sync-callable unless C.Sequence.next)))
-    (func both 80:6 private (signature (generics (C (bounds associated_types.Collection associated_types.Sequence))) (params (c &var C exclusive)) -> C.Item?) (summary body (suspends when C.Sequence.next) (sync-callable unless C.Sequence.next)))
+    (func first 59:6 private (signature (generics (T (bounds associated_types.Source))) (params (box &T shared)) -> T.Item) (summary body (suspends when T.Source.get) (sync-callable unless T.Source.get) (roots-when T.Source.get)))
+    (func give_back 63:6 private (signature (generics (S (bounds associated_types.Source))) (params (s &S shared)) -> Int) (summary body (suspends when S.Source.get S.Source.take) (sync-callable unless S.Source.get S.Source.take) (roots-when S.Source.get S.Source.take)))
+    (func again 68:6 private (signature (generics (U (bounds associated_types.Source))) (params (box &U shared)) -> U.Item) (summary body (suspends when U.Source.get) (sync-callable unless U.Source.get) (roots-when U.Source.get)))
+    (func pair 72:6 private (signature (generics (T (bounds associated_types.Source)) (U (bounds associated_types.Source))) (params (a &T shared) (b &U shared)) -> (T.Item, U.Item)) (summary body (suspends when T.Source.get U.Source.get) (sync-callable unless T.Source.get U.Source.get) (roots-when T.Source.get U.Source.get)))
+    (func pull 76:6 private (signature (generics (C (bounds associated_types.Collection))) (params (c &var C exclusive)) -> C.Item?) (summary body (suspends when C.Sequence.next) (sync-callable unless C.Sequence.next) (roots-when C.Sequence.next)))
+    (func both 80:6 private (signature (generics (C (bounds associated_types.Collection associated_types.Sequence))) (params (c &var C exclusive)) -> C.Item?) (summary body (suspends when C.Sequence.next) (sync-callable unless C.Sequence.next) (roots-when C.Sequence.next)))
     (func main 84:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (associated_types.IntBox

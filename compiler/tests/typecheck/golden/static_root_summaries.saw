@@ -1,0 +1,395 @@
+// flags: --std-root std
+// The static roots a function's calls may open a window on (SL-1156), in each
+// position a call reaches one: direct and transitive calls, an operator, a
+// `for`'s `next`, a default, a method and a static method, a pair's twin, a
+// generic per instance, a closure literal or named function passed to a
+// non-escaping parameter, and a closure nested in one. A function's set leaves
+// out its own root; a spawned task's, a let-bound closure's and a shared-only
+// or plain static's add nothing.
+import std.task.*
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+struct Pool {
+    slots: Int
+}
+
+static LIMIT: Int = 4
+
+unsafe static var BOOT: Boot
+
+unsafe static var TABLE: Pool
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func tag_slot() unsafe sync borrows(sync, BOOT.tag) -> &var Int {
+    lend BOOT.tag
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func table() unsafe borrows(TABLE.slots) -> &Int {
+    lend TABLE.slots
+}
+
+func limit() borrows(LIMIT) -> &Int {
+    lend LIMIT
+}
+
+// A root function's set excludes its own key; a plain function reaching one
+// carries it, through each hop.
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func reset() sync {
+    install(99)
+}
+
+func rebase() sync {
+    reset()
+}
+
+// Two disjoint fields, two keys, and a shared window's key.
+func bump() sync {
+    count_slot() = 1
+}
+
+func retag(n: Int) sync {
+    tag_slot() = n
+}
+
+func both() sync {
+    bump()
+    retag(2)
+}
+
+func read_count() -> Int {
+    borrow let c = count() {
+        c
+    }
+}
+
+// A shared-only static and a plain one never conflict, so their root
+// functions have no keys.
+func read_table() -> Int {
+    borrow let t = table() {
+        t
+    }
+}
+
+func read_limit() -> Int {
+    borrow let l = limit() {
+        l
+    }
+}
+
+// A generic body keeps the condition, and a concrete caller resolves it.
+trait Probe {
+    func look(&self) -> Int
+}
+
+struct Looker {
+    k: Int
+}
+
+extension Looker: Probe {
+    func look(&self) -> Int {
+        install(1)
+        self.k
+    }
+}
+
+func look_at<T: Probe>(p: &T) -> Int {
+    p.look()
+}
+
+func look_concrete(l: &Looker) -> Int {
+    look_at(&l)
+}
+
+// An operator, a `for`'s `next`, a default and a method are calls.
+struct Key {
+    n: Int
+}
+
+extension Key: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+func by_operator(a: &Key, b: &Key) -> Bool {
+    a == b
+}
+
+struct Counter {
+    left: Int
+}
+
+extension Counter: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        retag(self.left)
+        if self.left == 0 {
+            return None
+        }
+        self.left = self.left - 1
+        self.left
+    }
+}
+
+func by_for() -> Int {
+    var total = 0
+    for x in Counter(left: 3) {
+        total = total + x
+    }
+    total
+}
+
+func fresh() -> Int {
+    install(0)
+    0
+}
+
+func with_default(n: Int = fresh()) -> Int {
+    n
+}
+
+func use_default() -> Int {
+    with_default()
+}
+
+func give_argument() -> Int {
+    with_default(n: 1)
+}
+
+struct Handle {
+    id: Int
+}
+
+extension Handle {
+    func poke(&self) {
+        install(self.id)
+    }
+
+    static func make() -> Handle {
+        reset()
+        Handle(id: 1)
+    }
+}
+
+func via_method(h: &Handle) {
+    h.poke()
+}
+
+func via_static() -> Handle {
+    Handle.make()
+}
+
+// A pair's default also runs its twin, so each body's roots count.
+struct Mailbox {
+    id: Int
+}
+
+extension Mailbox {
+    func tick(&self) -> Int {
+        yield_now()
+        install(self.id)
+        self.id
+    }
+
+    func tick(&self) blocking -> Int {
+        retag(self.id)
+        self.id
+    }
+}
+
+func via_pair(m: &Mailbox) -> Int {
+    m.tick()
+}
+
+// A `@synthesize`d body calls the requirement on each part, so it opens what
+// the parts' implementations do: a struct's fields, an enum's payloads, and
+// Comparable and Hashable as well as Equatable.
+struct Rank {
+    n: Int
+}
+
+extension Rank: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+extension Rank: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        retag(self.n)
+        Ordering.Equal
+    }
+}
+
+struct HKey {
+    n: Int
+}
+
+extension HKey: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+extension HKey: Hashable {
+    func hash(&self, h: &var Hasher) {
+        bump()
+        h.write_int(self.n)
+    }
+}
+
+struct Pair {
+    k: Key
+}
+
+@synthesize
+extension Pair: Equatable {}
+
+enum Choice {
+    case Left(key: Key),
+    case Right
+}
+
+@synthesize
+extension Choice: Equatable {}
+
+struct Order {
+    r: Rank
+}
+
+@synthesize
+extension Order: Equatable {}
+
+@synthesize
+extension Order: Comparable {}
+
+struct HPair {
+    h: HKey
+}
+
+@synthesize
+extension HPair: Equatable {}
+
+@synthesize
+extension HPair: Hashable {}
+
+func via_synthesized_eq(a: &Pair, b: &Pair) -> Bool {
+    a == b
+}
+
+func via_synthesized_enum_eq(a: &Choice, b: &Choice) -> Bool {
+    a == b
+}
+
+func via_synthesized_compare(a: &Order, b: &Order) -> Bool {
+    a < b
+}
+
+func via_synthesized_hash(p: &HPair) -> Int {
+    var h = Hasher()
+    p.hash(&var h)
+    0
+}
+
+// A std generic records the requirements it calls, so a concrete caller
+// resolves them: `Map.insert` hashes and compares its key.
+func via_map_insert() -> Int {
+    var m: Map<HKey, Int> = Map()
+    let _ = m.insert(HKey(n: 1), 2)
+    m.len()
+}
+
+// A recursive pair reaches the root once, and each holds it.
+func ping(n: Int) sync {
+    if n > 0 {
+        install(n)
+        pong(n - 1)
+    }
+}
+
+func pong(n: Int) sync {
+    if n > 0 {
+        ping(n - 1)
+    }
+}
+
+// A closure literal or a named function handed to a non-escaping parameter
+// counts at that call, as if called; one nested in another, in the outer's
+// set; one a local holds adds nothing, and nor does a call through a
+// parameter the body cannot see into.
+func run(body: () sync -> Int) sync -> Int {
+    body()
+}
+
+func with_literal() -> Int {
+    run({ install(2)
+          1 })
+}
+
+func with_nested() -> Int {
+    run({ run({ install(5)
+                5 }) })
+}
+
+func each_literal(v: &Vector<Int>) {
+    v.each({ x in install(x + 1) })
+}
+
+func sync_install() sync -> Int {
+    retag(3)
+    3
+}
+
+func with_named() -> Int {
+    run(sync_install)
+}
+
+func stored_call() -> Int {
+    let f = { install(4)
+              4 }
+    f()
+}
+
+func hand_on(body: () sync -> Int) sync -> Int {
+    run(body)
+}
+
+// A spawned task's roots are its own turn's: the spawner holds none.
+func writer() -> Int {
+    borrow var c = count_slot() {
+        c = 42
+    }
+    0
+}
+
+func spawner() -> Int {
+    let h = Task.spawn(writer())
+    h.join()
+}
+
+func main() {
+    print(by_operator(&Key(n: 1), &Key(n: 2)))
+    print(by_for())
+    print(use_default() + give_argument() + with_literal() + with_nested() + with_named() + stored_call())
+    print(read_count() + read_table() + read_limit() + spawner())
+}

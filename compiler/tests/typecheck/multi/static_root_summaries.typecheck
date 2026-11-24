@@ -1,0 +1,72 @@
+(Module main
+  (declarations
+    (func relay 6:6 private (signature (params (n Int owned)) (effects sync) -> Void) (summary body (suspends no) (sync-callable yes) (roots (exclusive boot.BOOT))))
+    (func relay_twice 10:6 private (signature (params (n Int owned)) (effects sync) -> Void) (summary body (suspends no) (sync-callable yes) (roots (exclusive boot.BOOT))))
+    (func peek 15:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes) (roots (shared boot.BOOT.count))))
+    (func via_literal 21:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes) (roots (exclusive boot.BOOT))))
+    (func main 26:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes) (roots (exclusive boot.BOOT) (shared boot.BOOT.count)))))
+  (members)
+  (views
+    (boot.Boot count))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (relay 6:6
+      (7:5-7:20 Call.paren Void value temp (call boot.install(n: Int)))
+      (7:18-7:19 Name Int place copy))
+    (relay_twice 10:6
+      (11:5-11:13 Call.paren Void value temp (call main.relay(n: Int)))
+      (11:11-11:12 Name Int place copy)
+      (12:5-12:17 Call.paren Void value temp (call main.relay(n: Int)))
+      (12:11-12:16 Binary Int value temp (op +))
+      (12:11-12:12 Name Int place copy)
+      (12:15-12:16 IntLit Int value temp))
+    (peek 15:6
+      (16:5-18:6 BorrowBlock Int value temp)
+      (16:16-16:17 BindingName Int place borrow)
+      (16:20-16:32 Call.paren Int place borrow (call boot.count()))
+      (17:9-17:10 Name Int place copy))
+    (via_literal 21:6
+      (22:5-23:20 Call.paren Int value temp (call boot.run(body: () sync -> Int)))
+      (22:14-23:19 Closure () sync -> Int value temp)
+      (22:16-22:24 Call.paren Void value temp (call main.relay(n: Int)))
+      (22:22-22:23 IntLit Int value temp)
+      (23:16-23:17 IntLit Int value temp))
+    (main 26:6
+      (27:5-27:19 Call.paren Void value temp (call main.relay_twice(n: Int)))
+      (27:17-27:18 IntLit Int value temp)
+      (28:5-28:34 Call.paren Void value temp (builtin print))
+      (28:11-28:33 Binary Int value borrow (op +))
+      (28:11-28:17 Call.paren Int value temp (call main.peek()))
+      (28:20-28:33 Call.paren Int value temp (call main.via_literal())))))
+
+(Module boot
+  (declarations
+    (struct Boot 4:15 public)
+    (field Boot.count 5:5 public Int)
+    (static BOOT 8:19 private boot.Boot unsafe-var)
+    (func boot_slot 10:6 private (signature (params) (effects unsafe sync borrows(sync)) (lend place exclusive) (root BOOT) -> &var boot.Boot) (summary body (suspends no) (sync-callable yes)))
+    (func count 14:13 public (signature (params) (effects unsafe borrows) (lend place shared) (root BOOT.count) -> &Int) (summary body (suspends no) (sync-callable yes)))
+    (func install 18:13 public (signature (params (n Int owned)) (effects sync) -> Void) (summary body (suspends no) (sync-callable yes) (roots (exclusive boot.BOOT))))
+    (func run 22:13 public (signature (params (body () sync -> Int owned)) (effects sync) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (boot.Boot
+      (field count Int public declared)))
+  (views
+    (boot.Boot count))
+  (conformances)
+  (copy-tier
+    (boot.Boot Copy))
+  (bodies
+    (boot_slot 10:6
+      (11:10-11:14 Name boot.Boot place borrow-var))
+    (count 14:13
+      (15:10-15:20 Member Int place borrow)
+      (15:10-15:14 Name boot.Boot place project))
+    (install 18:13
+      (19:5-19:16 Call.paren boot.Boot place write (call boot.boot_slot()))
+      (19:19-19:33 Call.paren boot.Boot value temp (memberwise boot.Boot (owner boot.Boot)))
+      (19:31-19:32 Name Int place copy))
+    (run 22:13
+      (23:5-23:11 Call.paren Int value temp (value (owner () sync -> Int)))
+      (23:5-23:9 Name () sync -> Int place borrow))))

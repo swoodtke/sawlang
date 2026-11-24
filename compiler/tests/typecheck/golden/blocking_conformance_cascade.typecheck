@@ -10,7 +10,7 @@ ERROR	effect.blocking-conformance	compiler/tests/typecheck/golden/blocking_confo
     (method Key.equals 18:10 private (signature (receiver shared) (params (other &blocking_conformance_cascade.Key shared)) -> Bool) (summary body (suspends no) (sync-callable yes)))
     (extension 23:1 (target blocking_conformance_cascade.Key) (conforms Hashable))
     (method Key.hash 24:10 private (signature (receiver shared) (params (h &var Hasher exclusive)) -> Void) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
-    (func via_bound 30:6 private (signature (generics (K (bounds Hashable))) (params (k &K shared)) -> Int) (summary body (suspends when K.Hashable.hash) (sync-callable unless K.Hashable.hash)))
+    (func via_bound 30:6 private (signature (generics (K (bounds Hashable))) (params (k &K shared)) -> Int) (summary body (suspends when K.Hashable.hash) (sync-callable unless K.Hashable.hash) (roots-when K.Hashable.hash)))
     (func fill 36:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func work 42:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func direct 46:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))

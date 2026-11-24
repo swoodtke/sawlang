@@ -12,7 +12,7 @@
     (func optional_out 43:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func identity 49:6 private (signature (generics (T)) (params (x T owned)) -> T) (summary body (suspends no) (sync-callable yes)))
     (func inferred 51:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (func bigger 57:6 private (signature (generics (T (bounds Comparable))) (params (a T owned) (b T owned)) -> T) (summary body (suspends when T.Comparable.compare) (sync-callable unless T.Comparable.compare)))
+    (func bigger 57:6 private (signature (generics (T (bounds Comparable))) (params (a T owned) (b T owned)) -> T) (summary body (suspends when T.Comparable.compare) (sync-callable unless T.Comparable.compare) (roots-when T.Comparable.compare)))
     (func bounded 61:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func sorted 66:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func literal_pattern 72:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))

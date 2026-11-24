@@ -9,7 +9,7 @@ import sawresolve.model.{ResDiag, ResModule}
 import sawresolve.program.{ResProgram, res_program}
 import sawresolve.verify.{res_verify_module}
 import sawtypecheck.bodies.{tc_check_bodies}
-import sawtypecheck.bodychecks.{tc_check_body_rules}
+import sawtypecheck.bodychecks.{tc_check_body_rules, tc_record_root_paths}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
 import sawtypecheck.captures.{tc_check_closure_traits, tc_check_escaping_consumes}
 import sawtypecheck.checks.{tc_check_atomic_widths, tc_check_derivations, tc_check_derived_conformances,
@@ -142,6 +142,7 @@ public func tc_run_layer(p: &var TcProgram, layer: &var FrontLayer, inputs: &Fro
     tc_check_reference_positions(&var p, &layer)
     tc_check_exhaustive(&var p, &layer)
     tc_settle_path_uses(&var p, &layer)
+    tc_record_root_paths(&var p, &layer)
     tc_solve_summaries(&var p, &layer)
     tc_check_effects(&var p, &layer)
     tc_check_body_rules(&var p, &layer)

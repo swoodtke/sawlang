@@ -8,7 +8,7 @@
     (method P.size 7:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (extension 10:1 (target generic_methods.P))
     (method P.feed 11:10 private (signature (generics (T)) (receiver shared) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func via 17:6 private (signature (generics (F (bounds generic_methods.Feeder))) (params (f &F shared)) -> Int) (summary body (suspends when F.Feeder.size) (sync-callable unless F.Feeder.size)))
+    (func via 17:6 private (signature (generics (F (bounds generic_methods.Feeder))) (params (f &F shared)) -> Int) (summary body (suspends when F.Feeder.size) (sync-callable unless F.Feeder.size) (roots-when F.Feeder.size)))
     (func main 21:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (generic_methods.P

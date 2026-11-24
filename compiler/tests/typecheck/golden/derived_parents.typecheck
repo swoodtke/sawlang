@@ -15,7 +15,7 @@
     (struct Relay 35:8 private (generics (T)))
     (field Relay.inner 36:5 private T)
     (extension 39:1 (target derived_parents.Relay<T>) (where (T derived_parents.Shippable)) (conforms derived_parents.Shippable))
-    (method Relay.tag 40:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends when T.Shippable.tag) (sync-callable unless T.Shippable.tag)))
+    (method Relay.tag 40:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends when T.Shippable.tag) (sync-callable unless T.Shippable.tag) (roots-when T.Shippable.tag)))
     (enum Signal 45:6 private)
     (case Signal.Go 46:10 (payload (n Int)))
     (case Signal.Stop 47:10)
@@ -28,8 +28,8 @@
     (method Buf.tag 63:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func need_send 68:6 private (signature (generics (T (bounds Send))) (params (x &T shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func need_sync 70:6 private (signature (generics (T (bounds Sync))) (params (x &T shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (func ship 72:6 private (signature (generics (T (bounds derived_parents.Shippable))) (params (x &T shared)) -> Int) (summary body (suspends when T.Shippable.tag) (sync-callable unless T.Shippable.tag)))
-    (func carry 77:6 private (signature (generics (T (bounds derived_parents.Courier))) (params (x &T shared)) -> Int) (summary body (suspends when T.Shippable.tag) (sync-callable unless T.Shippable.tag)))
+    (func ship 72:6 private (signature (generics (T (bounds derived_parents.Shippable))) (params (x &T shared)) -> Int) (summary body (suspends when T.Shippable.tag) (sync-callable unless T.Shippable.tag) (roots-when T.Shippable.tag)))
+    (func carry 77:6 private (signature (generics (T (bounds derived_parents.Courier))) (params (x &T shared)) -> Int) (summary body (suspends when T.Shippable.tag) (sync-callable unless T.Shippable.tag) (roots-when T.Shippable.tag)))
     (func main 83:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (derived_parents.Point

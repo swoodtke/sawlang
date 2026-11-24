@@ -528,14 +528,33 @@ public struct TcSummary {
     copy_count: Int
     forbid_first: Int
     forbid_count: Int
+    // The static roots the body may open a window on: a sorted run of key ids
+    // in the `root_sets` pool, and the conditions "plus whatever `T`'s `req`
+    // reaches" in the `atoms` pool (SL-1156).
+    root_first: Int
+    root_count: Int
+    root_when_first: Int
+    root_when_count: Int
 }
 
 extension TcSummary {
     public static func blank() -> TcSummary {
         TcSummary(state: TC_SUMMARY_NONE, causes: 0, thread_causes: 0, suspends: false, suspend_first: 0, suspend_count: 0,
                   nonsync: false, nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0,
-                  forbid_first: 0, forbid_count: 0)
+                  forbid_first: 0, forbid_count: 0, root_first: 0, root_count: 0, root_when_first: 0,
+                  root_when_count: 0)
     }
+}
+
+// A static root a window may be opened on: the static, the field path of a
+// root function's declaration (a run of `root_fields`), and whether the
+// function lends it exclusively. Each distinct triple has one id, so a
+// summary's set is a set of ids.
+public struct TcRootKey {
+    static_decl: Int
+    field_first: Int
+    field_count: Int
+    exclusive: Bool
 }
 
 // The kinds of suspension source a summary's `causes` holds, bit for bit as
@@ -570,6 +589,12 @@ public struct TcUnit {
     thread: Bool
     item_first: Int
     item_end: Int
+    // A closure unit's roots, as `TcSummary` holds a function's: its own
+    // calls' and those of the closures it runs (`resolve_closure_roots`).
+    root_first: Int
+    root_count: Int
+    root_when_first: Int
+    root_when_count: Int
 }
 
 // Parameter `param`'s default value of function or requirement `decl`: its
@@ -763,6 +788,11 @@ extension TcSummary: Deserialize {}
 extension TcAtom: Serialize {}
 @synthesize
 extension TcAtom: Deserialize {}
+
+@synthesize
+extension TcRootKey: Serialize {}
+@synthesize
+extension TcRootKey: Deserialize {}
 
 @synthesize
 extension TcUnit: Serialize {}

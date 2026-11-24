@@ -3157,7 +3157,7 @@ extension TcProgram {
     // over one whose type is a non-escaping function type, which carries its
     // argument's value (`alias_argument`). A `move`'s operand is a name
     // reference, not a name expression.
-    func nonescaping_value(&self, e: Int) -> Bool {
+    public func nonescaping_value(&self, e: Int) -> Bool {
         var at = self.unparen(e)
         let carried = self.alias_argument(at)
         if carried >= 0 {
