@@ -136,8 +136,8 @@ extension TcProgram {
 
     // Whether `symbol` is a runtime seam name. An export of one is judged by
     // the export funnel (`export_name_ok`: reserved outside a runtime, held to
-    // runtime/ABI.md's width classes inside one), so the extern funnel leaves
-    // it to that.
+    // runtime/ABI.md's width classes inside one); the extern funnel judges it
+    // too only where `seam_export_conforms`.
     public func is_seam_symbol(&self, symbol: String) -> Bool {
         symbol.starts_with("__saw_rt_")
     }
@@ -351,13 +351,9 @@ extension TcProgram {
         false
     }
 
-    // Seam `symbol`'s arity and each width class against ABI table row `row`.
-    // A pointer and a word share the class `word`, which is all the C
-    // convention distinguishes at that width.
-    func export_seam_ok(&var self, d: Int, attr: Int, symbol: String, table: &TcAbiTable, row: Int) -> Bool {
+    // The width classes of `d`'s parameters, comma-joined as ABI.md writes them.
+    func export_param_classes(&self, d: Int) -> String {
         let s = self.sigs[d]
-        let want_params = table.params.get(row) ?? ""
-        let want_result = table.results.get(row) ?? ""
         var got = StringBuilder()
         var k = 0
         while k < s.param_count {
@@ -365,12 +361,44 @@ extension TcProgram {
                 try! got.append(", ")
             }
             let prm = self.params[s.param_first + k]
-            let machine = self.export_class(prm.ty, false)
-            try! got.append(machine)
+            try! got.append(self.export_class(prm.ty, false))
             k = k + 1
         }
-        let got_params = got.build()
-        let got_result = self.export_class(s.result, true)
+        got.build()
+    }
+
+    // Whether `d`, exporting `symbol`, is a seam of this compile's runtime
+    // that holds ABI.md's width classes: the one `__saw_rt_*` export the
+    // export funnel accepts. The extern funnel judges only such an export
+    // against std's extern of it, so a bad one keeps the funnel's own error
+    // first.
+    public func seam_export_conforms(&self, d: Int, symbol: String) -> Bool {
+        if self.profile.seams() != TcSeams.Exported {
+            return false
+        }
+        var names = Vector<String>()
+        var params = Vector<String>()
+        var results = Vector<String>()
+        var owners = Vector<String>()
+        tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
+        let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners)
+        let row = tc_abi_row_of(&table, symbol)
+        if row < 0 || not (table.owners.get(row) ?? "").equals("runtime") {
+            return false
+        }
+        let want_params = table.params.get(row) ?? ""
+        let want_result = table.results.get(row) ?? ""
+        self.export_param_classes(d).equals(want_params) && self.export_class(self.sigs[d].result, true).equals(want_result)
+    }
+
+    // Seam `symbol`'s arity and each width class against ABI table row `row`.
+    // A pointer and a word share the class `word`, which is all the C
+    // convention distinguishes at that width.
+    func export_seam_ok(&var self, d: Int, attr: Int, symbol: String, table: &TcAbiTable, row: Int) -> Bool {
+        let want_params = table.params.get(row) ?? ""
+        let want_result = table.results.get(row) ?? ""
+        let got_params = self.export_param_classes(d)
+        let got_result = self.export_class(self.sigs[d].result, true)
         if got_params.equals(want_params) && got_result.equals(want_result) {
             return true
         }

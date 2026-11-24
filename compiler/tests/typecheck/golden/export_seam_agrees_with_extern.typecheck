@@ -1,0 +1,13 @@
+(Module export_seam_agrees_with_extern
+  (declarations
+    (func provided_alloc 6:6 private (signature (params (size UInt owned) (align UInt owned)) (effects unsafe) -> UnsafePointer<Int8>) (summary body (suspends no) (sync-callable yes)))
+    (func provided_dealloc 11:6 private (signature (params (block UnsafePointer<Int8> owned) (size UInt owned) (align UInt owned)) (effects unsafe) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (provided_alloc 6:6
+      (7:5-7:29 Cast UnsafePointer<Int8> value temp)
+      (7:5-7:6 IntLit Int value temp))
+    (provided_dealloc 11:6)))

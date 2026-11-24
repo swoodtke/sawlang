@@ -6,6 +6,9 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
+**883 rows**, counted from the table when SL-1176 added N21, a runtime's seam export
+agreeing with std's extern of it, covered by typecheck fixtures outside this
+directory; previously
 **882 rows**, counted from the table when SL-1175 added N13-N15, an extern and an
 export of one C symbol agreeing on the signature (N15 owed to SL-1159, covered outside
 this directory); previously
@@ -1194,6 +1197,7 @@ Claim source: spec 10 *No hidden allocations* + 8 *Profiles*; designs 113, 135, 
 | N13 | two `extern` declarations of one C symbol agree on the signature (SL-1159's "one C symbol, one signature per compile" family, S-a) | for the self-hosted compiler `compiler/tests/typecheck/refuse/extern.signature-disagree.saw`, `.parameter.saw` and `.arity.saw`, covered outside this directory | SL-1175 |
 | N14 | an `extern` declaration and an `@export` of one C symbol agree on the signature, a pointer and its optional agreeing (S-b) | `tests/corpus/errors/extern_export_signature_disagree.saw`; for the self-hosted compiler also `compiler/tests/typecheck/refuse/export.signature-disagree.*` and the agreeing side `compiler/tests/run/probes/export_agrees_with_nullable_extern.saw` | SL-1175 |
 | N15 | a weak export with no replacement is a real call at -O2, never folded (S-e) | owed to SL-1159 (the `@weak` attribute, its unit U2), an IR pin in the run lane | SL-1159 |
+| N21 | a runtime's `__saw_rt_*` seam export agrees with std's `extern` of the seam as N14 states, beyond ABI.md's width classes (a word against a pointer) | for the self-hosted compiler `compiler/tests/typecheck/refuse/export.signature-disagree.seam-word.saw` `export.reserved.seam-word.saw` and `export.reserved.program-seam-word.saw` (the reserved name stays the first error), and the agreeing side `compiler/tests/typecheck/golden/export_seam_agrees_with_extern.saw`, covered outside this directory | SL-1176 |
 
 ## Divergence — a `Never` expression never falls through
 

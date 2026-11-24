@@ -1,0 +1,9 @@
+// refuses: export.signature-disagree at 7:6
+// flags: --runtime
+// a seam exported as a word where std declares a pointer: ABI.md's width class
+// is `word` for both, but the program calls the seam through std's extern
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) -> Int {
+    0
+}

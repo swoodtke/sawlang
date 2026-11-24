@@ -1,0 +1,12 @@
+// flags: --runtime
+// a seam export agrees with std's extern of it when it is the plain pointer of
+// std's optional one, and an integer of the same width in the other signedness
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
+    0 as UnsafePointer<Int8>
+}
+
+@export("__saw_rt_dealloc")
+func provided_dealloc(block: UnsafePointer<Int8>, size: UInt, align: UInt) unsafe {
+}

@@ -1,0 +1,12 @@
+// refuses: export.reserved at 9:1
+// flags: --runtime
+// errors: 1
+// a runtime exporting a program-owned seam as a word where std.env declares a
+// pointer: the reserved name is the one error, never a signature disagreement
+
+import std.env
+
+@export("__saw_rt_get_argv")
+func argv_word() -> Int {
+    0
+}

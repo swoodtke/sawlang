@@ -1201,13 +1201,15 @@ extension TcProgram {
     // so an export of another signature is read at the wrong width, with no
     // `unsafe` in sight. Only the types are compared, a nullable pointer
     // agreeing with its payload: the spec decides the effects of two externs,
-    // and an export's govern its own body. A runtime seam's export is judged by
-    // the export funnel (`is_seam_symbol`).
+    // and an export's govern its own body. A runtime seam's export is judged
+    // first by the export funnel (`seam_export_conforms`), and here against
+    // std's extern of the seam only once it holds ABI.md's width classes.
     func check_export_agreement(&var self, layer: &FrontLayer, symbols: &Vector<String>, references: &Vector<Int>) {
         var d = 0
         while d < self.res.decls.len() {
             let symbol = self.exported_function_symbol(d)
-            let at = if symbol.len() > 0 && not self.is_seam_symbol(symbol) { tc_symbol_index(&symbols, symbol) } else { -1 }
+            let judged = symbol.len() > 0 && (not self.is_seam_symbol(symbol) || self.seam_export_conforms(d, symbol))
+            let at = if judged { tc_symbol_index(&symbols, symbol) } else { -1 }
             if at >= 0 {
                 let reference = references[at]
                 let later = if d > reference { d } else { reference }

@@ -1,0 +1,11 @@
+// refuses: export.reserved at 6:1
+// errors: 1
+// a seam exported as a word where std declares a pointer, in an ordinary
+// program: the reserved name is the one error, never a signature disagreement
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) -> Int {
+    0
+}
+
+func main() {}
