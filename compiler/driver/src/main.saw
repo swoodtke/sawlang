@@ -37,11 +37,14 @@
 //   sawc build --codegen-units=module FILE  the build with one module per Saw module, compiled in parallel
 //                                  and linked with ThinLTO, or as `--lto=full|none` says, each unit's
 //                                  object reused from the object cache unless `--no-object-cache`
+//   sawc build --link-object FILE --link-archive FILE --link-library NAME --link-library-path DIR --link-framework NAME FILE
+//                                  the executable linked with those C objects, archives and libraries
 //   sawc build --freestanding FILE the entry file's program compiled under the freestanding profile to an ELF object
 //   sawc build --runtime FILE      the entry file built as its own runtime, linked with none of sawc's
 //   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
 //   sawc runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
-//   sawc tools [--target TRIPLE]   the clang, ld.lld and objcopy the records beside the binary name for the target, as `NAME PATH` lines
+//   sawc tools [--target TRIPLE]   the clang, ld.lld and objcopy the records beside the binary name for the target, as `NAME PATH` lines,
+//                                  and a `triple CLANG_TRIPLE` line, the triple sawc compiles that target's module for
 //   sawc [FLAG]... FILE.saw        `sawc build` with the subcommand left out, Stage 0's command line
 //   sawc --version                 `sawc VERSION`, the release a toolchain pin names
 //   sawc --build-id [--std-root DIR]  one line of 64 hex digits that changes with the binary, the std it
@@ -90,7 +93,8 @@ import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, ResolveStart, resolve_record_from}
 import sawtarget.layout.{TargetFeatureState, target_bare_metal, target_clang_triple, target_effective_features,
-                         target_feature_state, target_front_end, target_known, target_mach_o, target_triples}
+                         target_feature_state, target_front_end, target_known, target_mach_o, target_object_machine,
+                         target_triples, target_word_bytes}
 import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record_from}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
@@ -142,7 +146,12 @@ func driver_usage() -> Int {
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
     print("                  [-W borrow-prefix] [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]")
     print("                  [--no-object-cache] [--no-front-cache] [--max-task-frame=SIZE] [--module-path NAME=DIR]...")
+    print("                  [--link-object FILE]... [--link-archive FILE]... [--link-library NAME]...")
+    print("                  [--link-library-path DIR]... [--link-framework NAME]...")
     print("                  (FILE [-o OUT] | --emit-ll FILE)")
+    print("       --link-object FILE      a C object the executable links, after the runtime's; --link-archive FILE a static")
+    print("                               archive, after every object; --link-library NAME and --link-library-path DIR are")
+    print("                               `-lNAME` and `-LDIR`; --link-framework NAME is a Mach-O framework")
     print("       --max-task-frame=SIZE   the most bytes a task's frame may take, in bytes or with a `KiB`, `MiB` or")
     print("                               `GiB` suffix; the default is 1MiB hosted and 4KiB freestanding")
     print("       (resolve through coro, and fix, each also take --no-front-cache)")
@@ -196,7 +205,11 @@ func driver_speed_level(flag: String) -> String {
 // (`driver_codegen_choice`), reusing the object of every unit whose key the
 // object cache holds unless `--no-object-cache` says otherwise
 // (`driver_object_key`); `--codegen-units=1`, the default, compiles the
-// whole program as one module. Its
+// whole program as one module. `--link-object`, `--link-archive`,
+// `--link-library`, `--link-library-path` and `--link-framework` add C objects,
+// static archives and libraries to the executable's link, in `driver_link_tail`'s
+// order; each takes the next word, repeats, and is checked before anything
+// compiles (`driver_check_link_inputs`). Its
 // arguments start at `args[first]`: 2 after `build`, and 1 for the implicit
 // form `sawc [FLAG]... FILE.saw`, the command line a Stage 0 consumer already
 // writes.
@@ -223,6 +236,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var no_cache = false
     var no_front = false
     var task_frame = 0
+    var inputs = driver_link_inputs()
+    var link_flag = ""
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -270,6 +285,18 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         } else if arg.equals("--runtime-build") {
             print("sawc build: takes no --runtime-build, v0.18.0's build of its own runtime: `sawc runtime` builds runtime/, each seam checked against runtime/ABI.md, and `--runtime` builds a program that is its own runtime")
             return DRIVER_EXIT_USAGE
+        } else if driver_link_flag(arg) {
+            let value = args.get(i + 1) ?? ""
+            if value.len() == 0 {
+                return driver_usage()
+            }
+            if not driver_add_link_input(&var inputs, arg, value) {
+                return DRIVER_EXIT_USAGE
+            }
+            if link_flag.len() == 0 {
+                link_flag = arg
+            }
+            i = i + 1
         } else if valued || arg.equals("-o") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -324,6 +351,13 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
+    if link_flag.len() > 0 {
+        let clause = driver_link_stops(object, emit, freestanding, triple)
+        if clause.len() > 0 {
+            print("sawc build: {link_flag} is an input to the executable's link, but {clause}: drop {link_flag}, or link the files yourself")
+            return DRIVER_EXIT_USAGE
+        }
+    }
     if target_bare_metal(triple) && not (object || emit || freestanding) {
         print("sawc build: {} is a bare-metal target, with no C library or runtime for sawc to link a program against: `-c` writes an object to link yourself, and `--freestanding` checks a program against the profile a kernel builds under", triple)
         return DRIVER_EXIT_USAGE
@@ -358,6 +392,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     if freestanding && target_mach_o(triple) {
         return driver_refuse_mach_o(path, triple)
+    }
+    if not driver_check_link_inputs(triple, &inputs) {
+        return DRIVER_EXIT_USAGE
     }
     let written_features = features
     features = target_effective_features(triple, features, freestanding)
@@ -458,12 +495,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         let text = ir.build()
         if provider {
             let none = Vector<String>()
-            return driver_split_build(&job, &unit_plan, &text, &none)
+            return driver_split_build(&job, &unit_plan, &text, &none, &inputs)
         }
         if cross {
-            return driver_split_build(&job, &unit_plan, &text, &foreign)
+            return driver_split_build(&job, &unit_plan, &text, &foreign, &inputs)
         }
-        return driver_split_build(&job, &unit_plan, &text, &objects)
+        return driver_split_build(&job, &unit_plan, &text, &objects, &inputs)
     }
     if built != 0 {
         driver_print_refusal(path, &var record)
@@ -494,12 +531,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     // A provider is its own runtime: none of sawc's objects join its link.
     if provider {
         let none = Vector<String>()
-        return driver_link(&link, &none)
+        return driver_link(&link, &none, &inputs)
     }
     if cross {
-        return driver_link(&link, &foreign)
+        return driver_link(&link, &foreign, &inputs)
     }
-    driver_link(&link, &objects)
+    driver_link(&link, &objects, &inputs)
 }
 
 // `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
@@ -935,13 +972,13 @@ struct DriverLink {
 // keeps only a debug map naming the object its DWARF is in, so a module with
 // line tables links there through `driver_link_mach_o`. compiler/tools/
 // build.py's `link_module` links as this does, and must agree with it.
-func driver_link(link: &DriverLink, objects: &Vector<String>) -> Int {
+func driver_link(link: &DriverLink, objects: &Vector<String>, inputs: &DriverLinkInputs) -> Int {
     if link.debug && driver_mach_o(link.triple) {
-        return driver_link_mach_o(&link, &objects)
+        return driver_link_mach_o(&link, &objects, &inputs)
     }
     var arguments = driver_link_head(&link)
-    driver_link_module(&var arguments, link.ll, &objects)
-    driver_link_tail(&var arguments, &link, &objects)
+    driver_link_module(&var arguments, link.ll, &objects, &inputs)
+    driver_link_tail(&var arguments, &link, &objects, &inputs)
     stagetime_begin(StageTime.ClangLink)
     let status = driver_clang("sawc build", link.clang, &arguments)
     stagetime_end(StageTime.ClangLink)
@@ -949,15 +986,18 @@ func driver_link(link: &DriverLink, objects: &Vector<String>) -> Int {
 }
 
 // The module's part of a one-run link: `-x ir LL`, then `-x none` to end the
-// IR language for the objects that follow. clang warns about a `-x none` with
-// no input file after it, and a provider's link has no objects.
+// IR language for the files that follow, the runtime's objects and the
+// link inputs' objects and archives, which clang would otherwise read as IR.
+// clang warns about a `-x none` with no input file after it, and a provider's
+// link has neither.
 // ENTRY POINTS:
 //     driver_link
-func driver_link_module(arguments: &var Vector<String>, ll: String, objects: &Vector<String>) {
+func driver_link_module(arguments: &var Vector<String>, ll: String, objects: &Vector<String>,
+                        inputs: &DriverLinkInputs) {
     try! arguments.push("-x")
     try! arguments.push("ir")
     try! arguments.push(ll)
-    if objects.len() > 0 {
+    if objects.len() > 0 || inputs.files.len() > 0 {
         try! arguments.push("-x")
         try! arguments.push("none")
     }
@@ -971,7 +1011,7 @@ func driver_link_module(arguments: &var Vector<String>, ll: String, objects: &Ve
 // dsymutil writes `OUT.dSYM`, which a debugger and the crash reporter read,
 // and the object is removed. A step that fails fails the build, since a
 // binary whose line tables were lost is not what was asked for.
-func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
+func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>, inputs: &DriverLinkInputs) -> Int {
     let dir = driver_output_directory(link.out)
     if dir.len() == 0 {
         return 1
@@ -998,7 +1038,7 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     try! prefix.append(dir)
     try! prefix.append("/")
     try! arguments.push(prefix.build())
-    driver_link_tail(&var arguments, &link, &objects)
+    driver_link_tail(&var arguments, &link, &objects, &inputs)
     stagetime_begin(StageTime.Link)
     let linked = driver_clang("sawc build", link.clang, &arguments)
     stagetime_end(StageTime.Link)
@@ -1188,7 +1228,8 @@ extern "C" {
 // build with its exit status; with `--time-stages` each unit's compile time,
 // or `cached` and its fetch time, is a line of its own, in unit order, and
 // the cache's own work one more.
-func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, objects: &Vector<String>) -> Int {
+func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, objects: &Vector<String>,
+                       inputs: &DriverLinkInputs) -> Int {
     var whole = StringBuilder()
     try! whole.append(split.out)
     try! whole.append(".ll")
@@ -1323,7 +1364,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     if split.timed && cache.dir.len() > 0 {
         driver_time_line("object cache", cache_nanos)
     }
-    let linked = driver_split_link(&split, dir, &compiled, &objects, &plan.exports, cache.thinlto)
+    let linked = driver_split_link(&split, dir, &compiled, &objects, &inputs, &plan.exports, cache.thinlto)
     if linked != 0 {
         return linked
     }
@@ -1353,7 +1394,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
 // per-module results in `thinlto` when it names a directory
 // (`driver_thinlto_cache_arguments`).
 func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>,
-                       exports: &Vector<String>, thinlto: String) -> Int {
+                       inputs: &DriverLinkInputs, exports: &Vector<String>, thinlto: String) -> Int {
     let link = DriverLink(clang: split.clang, ll: "", out: split.out, speed: split.speed, sanitize: split.sanitize,
                           triple: split.triple, debug: split.debug, token: split.token)
     let mach_o = driver_mach_o(split.triple)
@@ -1447,7 +1488,7 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
             try! arguments.push(path.build())
         }
     }
-    driver_link_tail(&var arguments, &link, &objects)
+    driver_link_tail(&var arguments, &link, &objects, &inputs)
     stagetime_begin(StageTime.Link)
     let linked = driver_clang("sawc build", split.clang, &arguments)
     stagetime_end(StageTime.Link)
@@ -3463,12 +3504,49 @@ func driver_link_head(link: &DriverLink) -> Vector<String> {
     move arguments
 }
 
-// The arguments a link ends with: the runtime's objects, the target's
-// libraries and the output.
-func driver_link_tail(arguments: &var Vector<String>, link: &DriverLink, objects: &Vector<String>) {
+// THE LINK ORDER: the arguments a link ends with, after the module. The
+// runtime's objects, then the link inputs' objects and archives in the order
+// given (GNU ld resolves an archive against what precedes it), then `-L`,
+// `-l` and `-framework`, the target's libraries and the output. Every link
+// path ends here (`driver_link`, `driver_link_mach_o`, `driver_split_link`).
+// ENTRY POINTS:
+//     driver_link
+//     driver_link_mach_o
+//     driver_split_link
+func driver_link_tail(arguments: &var Vector<String>, link: &DriverLink, objects: &Vector<String>,
+                      inputs: &DriverLinkInputs) {
     var i = 0
     while i < objects.len() {
         try! arguments.push(objects.get(i) ?? "")
+        i = i + 1
+    }
+    i = 0
+    while i < inputs.files.len() {
+        let file = inputs.files.get(i) ?? ""
+        // A name that starts with `-` would be read as an option.
+        if file.starts_with("-") {
+            try! arguments.push(driver_path(".", file, ""))
+        } else {
+            try! arguments.push(file)
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < inputs.library_paths.len() {
+        try! arguments.push("-L")
+        try! arguments.push(inputs.library_paths.get(i) ?? "")
+        i = i + 1
+    }
+    i = 0
+    while i < inputs.libraries.len() {
+        try! arguments.push("-l")
+        try! arguments.push(inputs.libraries.get(i) ?? "")
+        i = i + 1
+    }
+    i = 0
+    while i < inputs.frameworks.len() {
+        try! arguments.push("-framework")
+        try! arguments.push(inputs.frameworks.get(i) ?? "")
         i = i + 1
     }
     let libraries = driver_link_libraries(link.triple)
@@ -3479,6 +3557,309 @@ func driver_link_tail(arguments: &var Vector<String>, link: &DriverLink, objects
     }
     try! arguments.push("-o")
     try! arguments.push(link.out)
+}
+
+// What the five `--link-*` flags of `sawc build` collected. `files` holds the
+// objects and the archives together, in the order given, which the link keeps;
+// `objects` and `archives` hold each kind alone for its check.
+struct DriverLinkInputs {
+    files: Vector<String>
+    objects: Vector<String>
+    archives: Vector<String>
+    library_paths: Vector<String>
+    libraries: Vector<String>
+    frameworks: Vector<String>
+}
+
+extension DriverLinkInputs: NoCopy {}
+
+// No link inputs.
+func driver_link_inputs() -> DriverLinkInputs {
+    DriverLinkInputs(files: Vector<String>(), objects: Vector<String>(), archives: Vector<String>(),
+                     library_paths: Vector<String>(), libraries: Vector<String>(), frameworks: Vector<String>())
+}
+
+// Whether `arg` is one of the five flags that add a link input.
+func driver_link_flag(arg: String) -> Bool {
+    if arg.equals("--link-object") || arg.equals("--link-archive") || arg.equals("--link-library") ||
+        arg.equals("--link-library-path") || arg.equals("--link-framework") {
+        return true
+    }
+    false
+}
+
+// Adds `value`, the operand of the link flag `flag`, to `inputs`; false once
+// the reason a library name is refused is printed.
+func driver_add_link_input(inputs: &var DriverLinkInputs, flag: String, value: String) -> Bool {
+    if flag.equals("--link-object") {
+        try! inputs.files.push(value)
+        try! inputs.objects.push(value)
+    } else if flag.equals("--link-archive") {
+        try! inputs.files.push(value)
+        try! inputs.archives.push(value)
+    } else if flag.equals("--link-library") {
+        let problem = driver_library_name_problem(value)
+        if problem.len() > 0 {
+            print("sawc build: --link-library {}: {}", value, problem)
+            return false
+        }
+        try! inputs.libraries.push(value)
+    } else if flag.equals("--link-library-path") {
+        try! inputs.library_paths.push(value)
+    } else {
+        try! inputs.frameworks.push(value)
+    }
+    true
+}
+
+// Why `name` is no `--link-library` name, or "": it is what follows `-l`, so
+// a path, a file name and a `lib` prefix are spelled the other ways.
+func driver_library_name_problem(name: String) -> String {
+    if name.starts_with("-") {
+        return "a library name is what follows `-l`, with no leading `-`"
+    }
+    if name.contains("/") {
+        return "a library is named, never given by path: `--link-archive` takes a static archive by path"
+    }
+    if name.ends_with(".a") || name.ends_with(".so") || name.ends_with(".dylib") {
+        return "a library is named without its extension: `--link-archive` takes a static archive by path"
+    }
+    if name.starts_with("lib") && name.len() > 3 {
+        return "a library is named without its `lib` prefix, as `-l` spells it"
+    }
+    ""
+}
+
+// The clause saying why a build links nothing, for the link flags to be
+// refused with, or "" when it links.
+func driver_link_stops(object: Bool, emit: Bool, freestanding: Bool, triple: String) -> String {
+    if object {
+        return "-c writes an object and links nothing"
+    }
+    if emit {
+        return "--emit-ll writes a .ll and links nothing"
+    }
+    if freestanding {
+        return "--freestanding writes an object and links nothing"
+    }
+    if target_bare_metal(triple) {
+        return "{triple} is a bare-metal target, and sawc links nothing for one"
+    }
+    ""
+}
+
+// THE LINK INPUT CHECK: every path a link flag names exists, is the kind the
+// flag takes, and holds what the flag says, for the build of `triple`; false
+// once the first refusal is printed. It runs before anything compiles.
+// ENTRY POINTS:
+//     driver_build
+func driver_check_link_inputs(triple: String, inputs: &DriverLinkInputs) -> Bool {
+    if inputs.frameworks.len() > 0 && not target_mach_o(triple) {
+        print("sawc build: --link-framework {} names a Mach-O framework, and {} links ELF", inputs.frameworks.get(0) ?? "", triple)
+        return false
+    }
+    var i = 0
+    while i < inputs.objects.len() {
+        let problem = driver_link_file_problem("--link-object", inputs.objects.get(i) ?? "", triple)
+        if problem.len() > 0 {
+            print("sawc build: {}", problem)
+            return false
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < inputs.archives.len() {
+        let problem = driver_link_file_problem("--link-archive", inputs.archives.get(i) ?? "", triple)
+        if problem.len() > 0 {
+            print("sawc build: {}", problem)
+            return false
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < inputs.library_paths.len() {
+        let dir = inputs.library_paths.get(i) ?? ""
+        if not File.exists(Path(s: dir)) {
+            print("sawc build: --link-library-path {}: no such directory", dir)
+            return false
+        }
+        match Directory.list(Path(s: dir)) {
+            case Ok(_) -> {},
+            case Err(_) -> {
+                print("sawc build: --link-library-path {}: a file, and --link-library-path takes a directory", dir)
+                return false
+            }
+        }
+        i = i + 1
+    }
+    true
+}
+
+// Why the file `path`, the operand of `flag` (`--link-object` or
+// `--link-archive`), cannot be linked into a build of `triple`, or "". A
+// directory and a missing path are told from each other by listing, which
+// only a directory answers. An object's header says what it is and for which
+// machine; an archive's first bytes say only that it is one.
+func driver_link_file_problem(flag: String, path: String, triple: String) unsafe -> String {
+    match Directory.list(Path(s: path)) {
+        case Ok(_) -> {
+            return "{flag} {path}: a directory, and {flag} takes a file"
+        },
+        case Err(_) -> {}
+    }
+    if not File.exists(Path(s: path)) {
+        return "{flag} {path}: no such file"
+    }
+    let head = match driver_read_head(path, 32) {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> {
+            return "{flag} {path}: cannot read it: {e}"
+        }
+    }
+    if flag.equals("--link-object") {
+        return driver_object_problem(flag, path, triple, &head)
+    }
+    if driver_head_starts(&head, "!<arch>\n") || driver_head_starts(&head, "!<thin>\n") {
+        return ""
+    }
+    if driver_head_is_object(&head) {
+        return "{flag} {path} is an object file: `--link-object` takes it"
+    }
+    "{flag} {path} is not a static archive: it does not start with `!<arch>`"
+}
+
+// The first `size` bytes of the file at `path`.
+func driver_read_head(path: String, size: Int) unsafe -> Result<Data, SystemError> {
+    var file = try File.open(Path(s: path))
+    let bytes = try file.read(size)
+    try file.close()
+    return bytes
+}
+
+// The byte at `at` of `head`, or 0 past its end.
+func driver_head_byte(head: &Data, at: Int) unsafe -> Int {
+    let byte = head.get(at) ?? 0
+    byte as Int
+}
+
+// The little-endian number of `width` bytes at `at`.
+func driver_head_number(head: &Data, at: Int, width: Int) unsafe -> Int {
+    var value = 0
+    var k = width
+    while k > 0 {
+        k = k - 1
+        value = value * 256 + driver_head_byte(&head, at + k)
+    }
+    value
+}
+
+// Whether `head` starts with the bytes of `text`.
+func driver_head_starts(head: &Data, text: String) unsafe -> Bool {
+    if head.len() < text.len() {
+        return false
+    }
+    var k = 0
+    while k < text.len() {
+        if driver_head_byte(&head, k) != (text.byte_at(k) as Int) {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
+// Whether `head` starts as a Mach-O or an ELF file does.
+func driver_head_is_object(head: &Data) unsafe -> Bool {
+    let first = driver_head_number(&head, 0, 4)
+    first == 0xFEEDFACF || first == 0x464C457F
+}
+
+// The machine `code` names in an object header: a Mach-O `cputype` when
+// `mach_o`, else an ELF `e_machine`.
+func driver_machine_name(mach_o: Bool, code: Int) -> String {
+    if mach_o {
+        if code == 16777228 {
+            return "arm64"
+        }
+        if code == 16777223 {
+            return "x86_64"
+        }
+        return "cputype {code}"
+    }
+    if code == 183 {
+        return "AArch64"
+    }
+    if code == 62 {
+        return "x86-64"
+    }
+    if code == 243 {
+        return "RISC-V"
+    }
+    if code == 94 {
+        return "Xtensa"
+    }
+    "machine {code}"
+}
+
+// Why the object whose header is `head` cannot join the link of `triple`, or
+// "": it is a shared library, LLVM bitcode, no object file, or for another
+// format or machine, each named with the file.
+func driver_object_problem(flag: String, path: String, triple: String, head: &Data) unsafe -> String {
+    let target = driver_target_description(triple)
+    let first = driver_head_number(&head, 0, 4)
+    if first == 0xFEEDFACF && head.len() >= 16 {
+        let machine = driver_head_number(&head, 4, 4)
+        let kind = driver_head_number(&head, 12, 4)
+        if kind == 6 || kind == 8 {
+            return driver_shared_library_problem(flag, path)
+        }
+        if kind != 1 {
+            return "{flag} {path} is a Mach-O file of type {kind}, not an object"
+        }
+        if not target_mach_o(triple) || machine != target_object_machine(triple) {
+            let name = driver_machine_name(true, machine)
+            return "{flag} {path} is a Mach-O object for {name}, and this build links {target}"
+        }
+        return ""
+    }
+    if first == 0x464C457F && head.len() >= 20 {
+        let class = driver_head_byte(&head, 4)
+        let kind = driver_head_number(&head, 16, 2)
+        let machine = driver_head_number(&head, 18, 2)
+        if kind == 3 {
+            return driver_shared_library_problem(flag, path)
+        }
+        if kind != 1 {
+            return "{flag} {path} is an ELF file of type {kind}, not an object"
+        }
+        let want_class = if target_word_bytes(triple) == 4 { 1 } else { 2 }
+        if target_mach_o(triple) || machine != target_object_machine(triple) || class != want_class {
+            let bits = if class == 1 { "32-bit " } else { "64-bit " }
+            let name = driver_machine_name(false, machine)
+            return "{flag} {path} is a {bits}ELF object for {name}, and this build links {target}"
+        }
+        return ""
+    }
+    if first == 0xDEC04342 || first == 0x0B17C0DE {
+        return "{flag} {path} is LLVM bitcode: compile it without -flto"
+    }
+    if driver_head_starts(&head, "!<arch>\n") || driver_head_starts(&head, "!<thin>\n") {
+        return "{flag} {path} is a static archive: `--link-archive` takes it"
+    }
+    "{flag} {path} is not an object file sawc can check: it starts as neither a Mach-O nor an ELF file does"
+}
+
+// The refusal of a shared library given as a file.
+func driver_shared_library_problem(flag: String, path: String) -> String {
+    "{flag} {path} is a shared library: link it by name with --link-library (and --link-library-path)"
+}
+
+// `triple`, and the object format and machine its objects carry.
+func driver_target_description(triple: String) -> String {
+    let mach_o = target_mach_o(triple)
+    let machine = driver_machine_name(mach_o, target_object_machine(triple))
+    let format = if mach_o { "Mach-O" } else { "ELF" }
+    "{triple} ({format} {machine})"
 }
 
 // Whether the clang triple `triple` names a Mach-O target.
@@ -3680,8 +4061,9 @@ func driver_tool(command: String, tool: String, program: String, arguments: &Vec
 // `sawc tools [--target TRIPLE]`: the tools the records beside this binary name
 // for the target (the host without `--target`), one `NAME PATH` line each:
 // `clang`, always; `ld.lld`, when one sits in that clang's directory; and
-// `objcopy`, when the record names one. A target with no record prints the
-// refusal `sawc build` prints for it and exits 1.
+// `objcopy`, when the record names one; then `triple CLANG_TRIPLE`, the triple sawc
+// compiles the target's module for, which a build tool compiles C for. A target
+// with no record prints the refusal `sawc build` prints for it and exits 1.
 func driver_tools(args: &Vector<String>) -> Int {
     var triple = ""
     var i = 2
@@ -3731,6 +4113,7 @@ func driver_tools(args: &Vector<String>) -> Int {
     if copier.len() > 0 {
         print("objcopy {}", copier)
     }
+    print("triple {}", target_clang_triple(if triple.len() > 0 { triple } else { host }))
     0
 }
 

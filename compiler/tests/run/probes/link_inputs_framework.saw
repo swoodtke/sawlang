@@ -1,0 +1,14 @@
+// probe: custom
+// about: `sawc build --link-framework` links a Mach-O framework (SL-1170)
+// Calls CoreFoundation's `CFStringGetTypeID`, which only a link with
+// `--link-framework CoreFoundation` resolves. The run lane builds it on a
+// Mach-O host alone, whole-module, with line tables off and on, and split, and
+// holds each binary to the line it prints: true.
+
+extern "C" {
+    func CFStringGetTypeID() -> UInt
+}
+
+func main() {
+    print("{}", CFStringGetTypeID() > 0)
+}

@@ -910,12 +910,10 @@ among its prose:
   function or a global, under its plain or quoted name;
 - `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere;
 - `// c helper: NAME.c`, a C file in `probes/` linked into each build, for a
-  probe that needs C on the other side of an `extern` or an `@export`. sawc
-  writes the `.ll` (`sawc build --emit-ll`), the clang the target's runtime
-  manifest names compiles the helper at -O2, so the helper reads the C
-  convention as strictly as optimized C does, and the same clang links the two
-  as `sawc build` would, at the probe's speed, with the manifest's runtime
-  objects and the target's libraries. A `.c` file no probe names fails the
+  probe that needs C on the other side of an `extern` or an `@export`. The
+  clang the target's runtime manifest names compiles the helper at -O2, so the
+  helper reads the C convention as strictly as optimized C does, and `sawc
+  build --link-object` links it in at the probe's speed. A `.c` file no probe names fails the
   lane;
 - `// leaks: none`, on a `stated` probe: each build, once it prints its
   lines, is run again under macOS's `leaks --atExit`, which must report

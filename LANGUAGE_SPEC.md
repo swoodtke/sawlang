@@ -17843,7 +17843,9 @@ sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR]
            [--freestanding] [--runtime] [--no-hidden-alloc] [-W borrow-prefix]
            [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]
            [--no-object-cache] [--no-front-cache] [--max-task-frame=SIZE]
-           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+           [--module-path NAME=DIR]... [--link-object FILE]... [--link-archive FILE]...
+           [--link-library NAME]... [--link-library-path DIR]... [--link-framework NAME]...
+           (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
@@ -17890,6 +17892,9 @@ sawc --build-id [--std-root DIR]
   Repeatable; this is how the package manager wires dependencies, and how a
   package names itself (DIR is the package's `src/`; see Package Structure).
 - `--sanitize address` builds under AddressSanitizer.
+- `--link-object FILE`, `--link-archive FILE`, `--link-library NAME`,
+  `--link-library-path DIR` and `--link-framework NAME` add native inputs to the
+  executable's link (see [Native inputs](#native-inputs-in-sawc)).
 - `--max-task-frame=SIZE` sets the most bytes a spawned task's frame may take
   (see Suspension and the coroutine transform). SIZE is a whole number of
   bytes, or a whole number then `KiB`, `MiB` or `GiB` (binary): `65536`,
@@ -17936,13 +17941,50 @@ sawc --build-id [--std-root DIR]
 - `sawc runtime` builds the hosted runtime from `runtime/`.
 - `sawc tools` prints the tools recorded for a target (the host without
   `--target`), one `NAME PATH` line each: `clang`, always; `ld.lld`, when a file
-  of that name sits in the clang's directory; and `objcopy`, when the record
-  names one. Blade runs it to find the tools of an image's target. A target with
+  of that name sits in the clang's directory; `objcopy`, when the record
+  names one; and `triple`, whose operand is the clang triple `sawc` compiles
+  that target's module for (a Darwin target's carries a deployment version, so
+  C compiled for any other spelling links with a warning). Blade runs it to find
+  the tools of an image's target. A target with
   no record gets the refusal `sawc build` prints for it, and exit 1.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`
   checks a file through every stage before code generation, with no `main`
   needed. `sawc --help` lists every form and flag.
+
+### Native inputs in `sawc`
+
+Five flags add C objects, static archives and libraries to the link of an
+executable. Each takes the next word as its operand and repeats.
+
+- `--link-object FILE` is an object file (`.o`).
+- `--link-archive FILE` is a static archive (`.a`).
+- `--link-library NAME` is `-lNAME`: a library the linker finds by name, linked
+  however the system ships it (a shared one stays shared). NAME has no leading
+  `-`, no `/`, no `.a`, `.so` or `.dylib` ending and no `lib` prefix.
+- `--link-library-path DIR` is `-LDIR`, a directory the names are searched in.
+- `--link-framework NAME` is a Mach-O framework, and a build for an ELF target
+  refuses it.
+
+The link line is the module, the runtime's objects, then the objects and
+archives in the order given (an archive resolves the symbols of what precedes
+it), then every `-L`, every `-l`, every `-framework`, the target's own
+libraries (`-lm` on Linux) and `-o`. Every way of linking a program takes the
+same order: whole-module, with line tables on a Mach-O host, and split.
+
+Everything is checked before anything compiles, and a failure exits with status
+2 and writes no `.ll`: a link flag beside `-c`, `--emit-ll`, `--freestanding` or
+a bare-metal target; a missing path; a file given as a directory or a directory
+as a file; an object file for another machine or format than the build's; a
+shared library, LLVM bitcode or a text file given as an object; and anything
+but an archive given as an archive. sawc reads an object's header for this (the
+Mach-O `cputype` and file type, the ELF class, `e_machine` and `e_type`) and
+names the file in the message. An archive's first bytes are checked and its
+members are left to the linker.
+
+The inputs are not part of `--build-id`, the object cache or the ThinLTO cache:
+none of them reaches a module's compile. A build tool that reuses an
+executable must watch the files itself.
 
 **Not yet in `sawc`.** The spec documents several flags of v0.18.0's compiler,
 `sawc0`, that `sawc` does not take yet: the design-150 warning categories

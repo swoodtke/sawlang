@@ -1,0 +1,19 @@
+// probe: custom
+// about: `sawc build` links the C object, the static archive and the system library its `--link-*` flags name (SL-1170)
+// Calls a function of each: a C object (`--link-object`), a static archive
+// (`--link-archive`, and again as `--link-library-path` with `--link-library`)
+// and the system's zlib (`--link-library z`). The run lane writes the C,
+// builds the program whole-module, with line tables off and on, and split, and
+// holds each binary to the three lines it prints: 5, 42 and true.
+
+extern "C" {
+    func link_object_add(a: Int32, b: Int32) -> Int32
+    func link_archive_twice(a: Int32) -> Int32
+    func zlibCompileFlags() -> UInt
+}
+
+func main() {
+    print("{}", link_object_add(2, 3))
+    print("{}", link_archive_twice(21))
+    print("{}", zlibCompileFlags() > 0)
+}

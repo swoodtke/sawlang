@@ -87,6 +87,12 @@ run of it, built against its own std.
 - `probes/xtensa_windowed_arguments.saw` built for Xtensa with `+windowed`
   has no frame pointer in its `.ll`, and where Espressif's clang is present no
   `movsp` and no write of a7 before its first read in its object;
+- `sawc build`'s five `--link-*` flags: `probes/link_inputs.saw` (and, on a
+  Mach-O host, `link_inputs_framework.saw`) links a C object, a static archive
+  by file and by `-L`/`-l`, the system's zlib and a framework, whole-module,
+  with line tables and split, and prints what each returns; a stub clang holds
+  the link order and the `-x none` before a provider's link object; each
+  refusal exits 2 and writes nothing (`check_link_refusals`);
 - `probes/executable_path.saw`, the custom probe, built by sawc and run
   through a renamed symbolic link on `PATH` from another directory, prints its
   binary's real path;
@@ -128,6 +134,7 @@ import os
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -289,38 +296,27 @@ def build_new(src, speed="-O0", helper=None):
 
 def build_with_helper(src, speed, helper, out):
     """sawc's build of `src` at `speed` with the C file `helper` linked in,
-    as `build_new` returns it. sawc writes the `.ll` (`--emit-ll`) into
-    `OUT.ll`, where `sawc build` would. The clang the target's runtime
-    manifest records (`choose_clang`'s choice) compiles the helper at -O2, so
-    it reads the C convention as strictly as optimized C does, and links the
-    two with the manifest's runtime objects and the libraries `sawc build`
-    links (`build.link_module`'s line, at `speed`)."""
+    as `build_new` returns it. The clang the target's runtime manifest records
+    (`choose_clang`'s choice) compiles the helper at -O2, so it reads the C
+    convention as strictly as optimized C does, and sawc links the object in
+    with `--link-object`."""
     triple = TARGET or build.host_triple()
-    r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags()
-                       + ["--emit-ll", rel(src)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    if r.returncode != 0 or r.stderr.strip():
-        return False, out, (r.stderr or r.stdout).strip()
-    with open(out + ".ll", "w") as fh:
-        fh.write(r.stdout)
-    clang, objects = None, []
+    clang = None
     with open(build.runtime_manifest(triple)) as fh:
         for line in fh.read().splitlines():
             if line.startswith("clang "):
                 clang = line[len("clang "):]
-            elif line.startswith("object "):
-                objects.append(line[len("object "):])
     if clang is None:
         return False, out, "%s names no clang" % build.runtime_manifest(triple)
-    clang_target = ["-target", build.clang_triple(triple)]
     helper_object = out + ".helper.o"
-    c = subprocess.run([clang] + clang_target + ["-O2", "-c", helper, "-o", helper_object],
+    c = subprocess.run([clang, "-target", build.clang_triple(triple), "-O2", "-c", helper, "-o", helper_object],
                        capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if c.returncode != 0 or (c.stdout + c.stderr).strip():
         return False, out, "the C helper %s: %s" % (rel(helper), (c.stdout + c.stderr).strip())
-    link = subprocess.run([clang] + clang_target + [speed, "-x", "ir", out + ".ll", "-x", "none"] + objects
-                          + [helper_object] + build.link_libraries(triple) + ["-o", out],
-                          capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    return link.returncode == 0, out, (link.stdout + link.stderr).strip()
+    r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags()
+                       + ["--link-object", helper_object, rel(src), "-o", out],
+                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
 
 def stage0_command(names=()):
@@ -1766,15 +1762,66 @@ def check_split_object(failures, counts):
     counts["run split objects bound as whole ones"] = 1
 
 
+# The headers a link input is read for (`driver_object_problem`): a made-up
+# file holds no more than the bytes sawc reads.
+ARCHIVE_MAGIC = b"!<arch>\n"
+MACH_O_ARM64 = 0x0100000C
+MACH_O_X86_64 = 0x01000007
+ELF_MACHINES = {"x86_64-unknown-linux-gnu": 62, "aarch64-unknown-linux-gnu": 183}
+ELF_RISCV = 243
+
+
+def fake_mach_o(cputype, filetype):
+    """The header of a 64-bit little-endian Mach-O file: 1 is an object, 6 a
+    shared library."""
+    return struct.pack("<IiiIIIII", 0xFEEDFACF, cputype, 0, filetype, 0, 0, 0, 0)
+
+
+def fake_elf(machine, etype, elf_class=2):
+    """The header of a little-endian ELF file: type 1 is an object, 3 a shared
+    library."""
+    return b"\x7fELF" + bytes([elf_class, 1, 1]) + bytes(9) + struct.pack("<HHI", etype, machine, 1) + bytes(40)
+
+
+def fake_object(triple):
+    """The header of an object file for the sawc target `triple`."""
+    if triple == "arm64-apple-darwin":
+        return fake_mach_o(MACH_O_ARM64, 1)
+    return fake_elf(ELF_MACHINES[triple], 1)
+
+
+def write_bytes(path, data):
+    with open(path, "wb") as fh:
+        fh.write(data)
+    return path
+
+
+def link_input_files(work, triple):
+    """{"object", "object2", "archive", "archive2"} of paths under `work`:
+    each the kind its name says, a header and nothing more, and valid in a
+    link for `triple`."""
+    directory = os.path.join(work, "inputs-" + triple)
+    os.makedirs(directory, exist_ok=True)
+    made = {}
+    for name in ("object", "object2", "archive", "archive2"):
+        made[name] = write_bytes(os.path.join(directory, name + (".o" if name.startswith("object") else ".a")),
+                                 fake_object(triple) if name.startswith("object") else ARCHIVE_MAGIC + b"\n")
+    return made
+
+
 def check_link_arguments(failures, counts):
     """In every clang run sawc makes, a `-x none` is followed by an input
     file: clang warns about one that ends the line, and a provider's link has
-    no object to follow it. A copy of sawc runs beside a made-up record for a
-    Linux target that is not this host's, whose clang is a stub that writes
-    each argument list down and creates the `-o` file. The provider's link
-    carries no `-x none`; a program's carries it right before the record's
-    one object. A twin has no records beside it, so the whole check is left
-    out under one (`NOT_UNDER_TWIN`)."""
+    no object to follow it unless a link input is one. A copy of sawc runs
+    beside a made-up record for a Linux target that is not this host's, whose
+    clang is a stub that writes each argument list down and creates the `-o`
+    file. The provider's link carries no `-x none`; a program's carries it
+    right before the record's one object, and a provider's with a
+    `--link-object` right before that. A link with every kind of input ends
+    with them as `driver_link_tail` orders them, objects and archives as
+    given, then `-L`, `-l` and, on a Mach-O host, `-framework`
+    (`check_link_order_mach_o`). A twin has no records beside it, so the whole
+    check is left out under one (`NOT_UNDER_TWIN`)."""
     work = os.path.join(OUT, "link-arguments")
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
@@ -1794,16 +1841,31 @@ def check_link_arguments(failures, counts):
     with open(part, "w") as fh:
         fh.write("not read\n")
     record = os.path.join(work, "sawc-runtime-%s.txt" % triple)
-    cases = (("provider", ["--runtime", rel(os.path.join(PROBES, "runtime_provider.saw"))], ""),
-             ("program", [rel(os.path.join(HERE, "hello.saw"))], "object %s\n" % part))
-    for name, args, objects in cases:
+    hello = rel(os.path.join(HERE, "hello.saw"))
+    # The link inputs of the last two cases, each of the kind its flag takes
+    # and for the record's target, since sawc reads their headers.
+    inputs = link_input_files(work, triple)
+    libdir = os.path.join(work, "lib")
+    os.makedirs(libdir)
+    order_args = [hello, "--link-archive", inputs["archive"], "--link-object", inputs["object"],
+                  "--link-object", inputs["object2"], "--link-archive", inputs["archive2"],
+                  "--link-library-path", libdir, "--link-library-path", work, "--link-library", "first",
+                  "--link-library", "second"]
+    order_tail = ["-x", "none", part, inputs["archive"], inputs["object"], inputs["object2"], inputs["archive2"],
+                  "-L", libdir, "-L", work, "-l", "first", "-l", "second", "-lm"]
+    cases = (("provider", ["--runtime", rel(os.path.join(PROBES, "runtime_provider.saw"))], "", None),
+             ("program", [hello], "object %s\n" % part, None),
+             ("provider_input", ["--runtime", rel(os.path.join(PROBES, "runtime_provider.saw")),
+                                 "--link-object", inputs["object"]], "", ["-x", "none", inputs["object"], "-lm"]),
+             ("order", order_args, "object %s\n" % part, order_tail))
+    for name, args, objects, tail in cases:
         with open(record, "w") as fh:
             fh.write("target %s\nclang %s\n%s" % (triple, stub, objects))
         if os.path.exists(log):
             os.remove(log)
+        out = os.path.join(work, name)
         r = subprocess.run([copied, "build", "--target", triple, "--codegen-units=1", "--std-root", "std"] + args
-                           + ["-o", os.path.join(work, name)], cwd=REPO, capture_output=True, text=True,
-                           timeout=BUILD_TIMEOUT)
+                           + ["-o", out], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
         if r.returncode != 0 or not os.path.exists(log):
             failures.append("run link arguments: the %s build exits %d with %s clang runs: %s"
                             % (name, r.returncode, "some" if os.path.exists(log) else "no",
@@ -1828,7 +1890,284 @@ def check_link_arguments(failures, counts):
             if ["-x", "none", part] not in [argv[k:k + 3] for k in range(len(argv))]:
                 failures.append("run link arguments: the program's link has no `-x none` right before its object: %s"
                                 % " ".join(argv))
+        elif tail is not None:
+            # The link's end: the inputs as `driver_link_tail` orders them,
+            # then the output, which is the last word.
+            argv = links[0]
+            want = tail + ["-o", out]
+            at = argv.index("-x", argv.index("ir")) if "ir" in argv else -1
+            if argv[at:] != want:
+                failures.append("run link arguments: the %s build's link ends %s, not %s"
+                                % (name, " ".join(argv[at:]), " ".join(want)))
     counts["run link argument lists checked"] = len(cases)
+    if "-apple-" in build.host_triple():
+        check_link_order_mach_o(failures, counts, work, stub, log, copied)
+
+
+def check_link_order_mach_o(failures, counts, work, stub, log, copied):
+    """The same stub clang links as this Mach-O host, with line tables off so
+    the link is one clang run: a framework follows the libraries, and nothing
+    but the output follows it. The host's record is rewritten in `work`."""
+    triple = build.host_triple()
+    hello = rel(os.path.join(HERE, "hello.saw"))
+    part = os.path.join(work, "host-part.o")
+    with open(part, "w") as fh:
+        fh.write("not read\n")
+    inputs = link_input_files(work, triple)
+    with open(os.path.join(work, "sawc-runtime.txt"), "w") as fh:
+        fh.write("target %s\nclang %s\nobject %s\n" % (triple, stub, part))
+    if os.path.exists(log):
+        os.remove(log)
+    out = os.path.join(work, "frameworks")
+    r = subprocess.run([copied, "build", "-g0", "--codegen-units=1", "--std-root", "std", hello,
+                        "--link-framework", "CoreFoundation", "--link-object", inputs["object"],
+                        "--link-library", "first", "--link-framework", "Security", "-o", out],
+                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0 or not os.path.exists(log):
+        failures.append("run link arguments: the Mach-O framework build exits %d: %s"
+                        % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
+        return
+    with open(log) as fh:
+        runs = [line.split() for line in fh.read().splitlines()]
+    want = ["-x", "none", part, inputs["object"], "-l", "first", "-framework", "CoreFoundation", "-framework",
+            "Security", "-o", out]
+    argv = runs[-1] if runs else []
+    at = argv.index("-x", argv.index("ir")) if "ir" in argv else -1
+    if len(runs) != 1 or argv[at:] != want:
+        failures.append("run link arguments: the Mach-O framework build's link ends %s, not %s"
+                        % (" ".join(argv[at:]), " ".join(want)))
+        return
+    counts["run link argument lists checked"] += 1
+
+
+LINK_INPUTS_PROBE = "link_inputs.saw"
+LINK_FRAMEWORK_PROBE = "link_inputs_framework.saw"
+LINK_OBJECT_C = "int link_object_add(int a, int b) { return a + b; }\n"
+LINK_ARCHIVE_C = "int link_archive_twice(int a) { return a * 2; }\n"
+LINK_PROVIDER_C = "int link_provider_unused(void) { return 0; }\n"
+LINK_LINES = b"5\n42\ntrue\n"
+LINK_LIBRARY = "linkprobe"
+# Each way a program is built: its label and its sawc flags.
+LINK_WAYS = (("whole-module, line tables off", ["-g0", "-O0"]), ("whole-module, line tables", ["-g", "-O2"]),
+             ("split", ["--codegen-units=module", "-O2"]))
+
+
+def compile_c(clang, triple, text, directory, name):
+    """(object path, why not): `text` compiled to `DIR/NAME.o` for `triple`."""
+    source = os.path.join(directory, name + ".c")
+    with open(source, "w") as fh:
+        fh.write(text)
+    obj = os.path.join(directory, name + ".o")
+    c = subprocess.run([clang, "-target", build.clang_triple(triple), "-O2", "-c", source, "-o", obj],
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if c.returncode != 0 or (c.stdout + c.stderr).strip():
+        return None, "clang does not compile %s: %s" % (name, (c.stdout + c.stderr).strip()[:300])
+    return obj, ""
+
+
+def link_input_objects(work, triple, failures, what):
+    """The real C inputs of a build for `triple` under `work`: (object,
+    archive path, library directory), or None once a failure says why not.
+    The archive is `lib` + LINK_LIBRARY + `.a` in the library directory."""
+    clang = manifest_clang(triple)
+    ar = shutil.which("ar")
+    if clang is None:
+        failures.append("run %s: %s names no clang" % (what, rel(build.runtime_manifest(triple))))
+        return None
+    if ar is None:
+        failures.append("run %s: no `ar` on PATH to make the static archive" % what)
+        return None
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    obj, why = compile_c(clang, triple, LINK_OBJECT_C, work, "object")
+    member, more = compile_c(clang, triple, LINK_ARCHIVE_C, work, "member") if obj else (None, "")
+    if obj is None or member is None:
+        failures.append("run %s: %s" % (what, why or more))
+        return None
+    archive = os.path.join(work, "lib%s.a" % LINK_LIBRARY)
+    made = subprocess.run([ar, "rcs", archive, member], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if made.returncode != 0 or not os.path.isfile(archive):
+        failures.append("run %s: ar exits %d: %s" % (what, made.returncode, (made.stdout + made.stderr).strip()[:300]))
+        return None
+    return obj, archive, work
+
+
+def check_link_inputs(failures, counts):
+    """`probes/link_inputs.saw`, which calls a C object, a static archive and
+    the system's zlib, built by sawc with the inputs the `--link-*` flags
+    name, each way a program is linked (whole-module with line tables off and
+    on, and split) and with the archive given by file and as
+    `--link-library-path` with `--link-library`: every binary prints 5, 42 and
+    true. The provider of `runtime_provider.saw` built with a link object
+    still links and prints its line, which holds the `-x none` before an
+    object that a provider's link, with no runtime objects, would otherwise
+    read as IR. A Linux host needs zlib's development files (`zlib1g-dev`,
+    which tools/lima/sawlang-linux.yaml names)."""
+    probe = os.path.join(PROBES, LINK_INPUTS_PROBE)
+    triple = TARGET or build.host_triple()
+    work = os.path.join(OUT, "link-inputs-real")
+    real = link_input_objects(work, triple, failures, "link inputs")
+    if real is None:
+        return
+    obj, archive, libdir = real
+    for label, flags in LINK_WAYS:
+        for how, given in (("--link-archive", ["--link-archive", archive]),
+                           ("--link-library-path and --link-library",
+                            ["--link-library-path", libdir, "--link-library", LINK_LIBRARY])):
+            where = "run %s (%s, %s)" % (rel(probe), label, how)
+            binary = os.path.join(work, "program-%s-%s" % (flags[0].strip("-").replace("=", "-"),
+                                                          "file" if how == "--link-archive" else "named"))
+            r = subprocess.run([build.SAWC, "build", "--std-root", "std"] + target_flags() + flags
+                               + ["--link-object", obj] + given + ["--link-library", "z", rel(probe), "-o", binary],
+                               cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+            said = (r.stdout + r.stderr).strip()
+            if r.returncode != 0 or said:
+                failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:400]))
+                continue
+            code, out, err = execute(binary)
+            if code != 0 or out != LINK_LINES:
+                failures.append("%s: the binary exits %s, not 0: %s%s"
+                                % (where, code, output_difference(out, LINK_LINES), stderr_tail(code, err)))
+                continue
+            counts["run link input programs built"] = counts.get("run link input programs built", 0) + 1
+    provider = os.path.join(PROBES, PROVIDER_PROBE)
+    where = "run %s --runtime --link-object" % rel(provider)
+    spare, why = compile_c(manifest_clang(triple), triple, LINK_PROVIDER_C, work, "spare")
+    if spare is None:
+        failures.append("run link inputs: %s" % why)
+        return
+    binary = os.path.join(work, "provider-with-object")
+    r = subprocess.run([build.SAWC, "build", "--runtime", "-O0", "--std-root", "std"] + target_flags()
+                       + ["--link-object", spare, rel(provider), "-o", binary],
+                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or said:
+        failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:400]))
+        return
+    code, out, err = execute(binary)
+    if code != 0 or out != PROVIDER_LINE:
+        failures.append("%s: the binary exits %s, not 0: %s%s"
+                        % (where, code, output_difference(out, PROVIDER_LINE), stderr_tail(code, err)))
+        return
+    counts["run link input programs built"] = counts.get("run link input programs built", 0) + 1
+
+
+def check_link_framework(failures, counts):
+    """`probes/link_inputs_framework.saw` built with `--link-framework
+    CoreFoundation` each way a program is linked, on a Mach-O host: every
+    binary prints true. Another host counts the check as left to Mach-O."""
+    probe = os.path.join(PROBES, LINK_FRAMEWORK_PROBE)
+    triple = TARGET or build.host_triple()
+    if "-apple-" not in build.clang_triple(triple):
+        counts["run framework link checks left to Mach-O hosts"] = 1
+        return
+    work = os.path.join(OUT, "link-framework")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    for label, flags in LINK_WAYS:
+        where = "run %s (%s)" % (rel(probe), label)
+        binary = os.path.join(work, "program-" + flags[0].strip("-").replace("=", "-"))
+        r = subprocess.run([build.SAWC, "build", "--std-root", "std"] + target_flags() + flags
+                           + ["--link-framework", "CoreFoundation", rel(probe), "-o", binary],
+                           cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said:
+            failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:400]))
+            continue
+        code, out, err = execute(binary)
+        if code != 0 or out != b"true\n":
+            failures.append("%s: the binary exits %s, not 0: %s%s"
+                            % (where, code, output_difference(out, b"true\n"), stderr_tail(code, err)))
+            continue
+        counts["run framework link programs built"] = counts.get("run framework link programs built", 0) + 1
+
+
+def check_link_refusals(failures, counts):
+    """Each way a link flag is refused: exit status 2, the text that says why,
+    and nothing written, not the `.ll` and not the binary, since the refusal
+    comes before anything compiles. The refusals: a flag beside `-c`,
+    `--emit-ll`, `--freestanding` and a bare-metal target; a framework for an
+    ELF target; a missing path, a directory given as a file and a file given as
+    a directory; a Mach-O or ELF object for another machine or format, a
+    shared library, LLVM bitcode, text and an archive where an object goes, and
+    an object where an archive goes; a library named as a path, a file or with
+    its `lib`; and a flag without its operand. The files are made up: a
+    header and nothing more, which is all sawc reads."""
+    work = os.path.join(OUT, "link-refusals")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    triple = TARGET or build.host_triple()
+    made = link_input_files(work, triple)
+    good, archive = made["object"], made["archive"]
+    text = write_bytes(os.path.join(work, "text.c"), b"int answer(void) { return 42; }\n")
+    macho_x86 = write_bytes(os.path.join(work, "x86.o"), fake_mach_o(MACH_O_X86_64, 1))
+    elf_riscv = write_bytes(os.path.join(work, "riscv.o"), fake_elf(ELF_RISCV, 1, 1))
+    dylib = write_bytes(os.path.join(work, "lib.dylib"), fake_mach_o(MACH_O_ARM64, 6))
+    shared = write_bytes(os.path.join(work, "lib.so"), fake_elf(ELF_MACHINES["x86_64-unknown-linux-gnu"], 3))
+    bitcode = write_bytes(os.path.join(work, "module.bc"), b"BC\xc0\xde" + bytes(28))
+    missing = os.path.join(work, "no-such-file")
+    rows = [
+        ("-c", ["-c", "--link-object", good], "-c writes an object and links nothing"),
+        ("--emit-ll", ["--emit-ll", "--link-archive", archive], "--emit-ll writes a .ll and links nothing"),
+        ("--freestanding", ["--freestanding", "--target", BARE_METAL_TARGET, "--link-library", "z"],
+         "--freestanding writes an object and links nothing"),
+        ("a bare-metal target", ["--target", BARE_METAL_TARGET, "--link-library-path", work],
+         "%s is a bare-metal target, and sawc links nothing for one" % BARE_METAL_TARGET),
+        ("a bare-metal target with -c", ["-c", "--target", BARE_METAL_TARGET, "--link-object", good],
+         "-c writes an object and links nothing"),
+        ("a framework for ELF", ["--target", "aarch64-unknown-linux-gnu", "--link-framework", "CoreFoundation"],
+         "--link-framework CoreFoundation names a Mach-O framework, and aarch64-unknown-linux-gnu links ELF"),
+        ("a missing object", ["--link-object", missing], "--link-object %s: no such file" % missing),
+        ("a missing archive", ["--link-archive", missing], "--link-archive %s: no such file" % missing),
+        ("a missing library path", ["--link-library-path", missing],
+         "--link-library-path %s: no such directory" % missing),
+        ("a directory as an object", ["--link-object", work], "--link-object %s: a directory" % work),
+        ("a directory as an archive", ["--link-archive", work], "--link-archive %s: a directory" % work),
+        ("a file as a library path", ["--link-library-path", good],
+         "--link-library-path %s: a file, and --link-library-path takes a directory" % good),
+        ("a Mach-O object for x86_64", ["--link-object", macho_x86], "%s is a Mach-O object for x86_64" % macho_x86),
+        ("a 32-bit ELF object for RISC-V", ["--link-object", elf_riscv],
+         "%s is a 32-bit ELF object for RISC-V" % elf_riscv),
+        ("a Mach-O shared library", ["--link-object", dylib], "%s is a shared library" % dylib),
+        ("an ELF shared library", ["--link-object", shared], "%s is a shared library" % shared),
+        ("LLVM bitcode", ["--link-object", bitcode], "%s is LLVM bitcode" % bitcode),
+        ("text as an object", ["--link-object", text], "%s is not an object file sawc can check" % text),
+        ("text as an archive", ["--link-archive", text], "%s is not a static archive" % text),
+        ("an archive as an object", ["--link-object", archive], "%s is a static archive" % archive),
+        ("an object as an archive", ["--link-archive", good], "%s is an object file" % good),
+        ("a library given with -l", ["--link-library", "-lz"], "--link-library -lz: a library name is what follows"),
+        ("a library given as lib", ["--link-library", "libz"], "--link-library libz: a library is named without"),
+        ("a library given as a file", ["--link-library", "z.a"], "--link-library z.a: a library is named without"),
+        ("a library given as a shared file", ["--link-library", "z.dylib"],
+         "--link-library z.dylib: a library is named without"),
+        ("a library given as a path", ["--link-library", "dir/z"], "--link-library dir/z: a library is named,"),
+    ]
+    hello = rel(os.path.join(HERE, "hello.saw"))
+    out = os.path.join(work, "refused")
+    outputs = (out, out + ".ll", out + ".o")
+    checked = 0
+    for label, args, needle in rows:
+        for stale in outputs:
+            if os.path.exists(stale):
+                os.remove(stale)
+        command = [build.SAWC, "build", "--std-root", "std"] + (target_flags() if "--target" not in args else []) \
+            + args + [hello] + ([] if "--emit-ll" in args else ["-o", out])
+        r = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        written = [p for p in outputs if os.path.exists(p)]
+        if r.returncode != 2 or needle not in said or "define " in said or written:
+            failures.append("run link input refusals (%s): sawc exits %d with %r, not 2 and %r; wrote %s"
+                            % (label, r.returncode, said[:300], needle, written or "nothing"))
+            continue
+        checked += 1
+    r = subprocess.run([build.SAWC, "build", "--std-root", "std", hello, "--link-object"], cwd=REPO,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 2 or "usage:" not in r.stdout:
+        failures.append("run link input refusals (a flag with no operand): sawc exits %d with %r, not 2 and the usage"
+                        % (r.returncode, (r.stdout + r.stderr)[:200]))
+    else:
+        checked += 1
+    counts["run link input refusals checked"] = checked
 
 
 # The probes whose `@section` definitions must be defined in the optimized
@@ -4502,26 +4841,31 @@ def tool_lines(out):
 def check_sawc_tools(failures, counts):
     """`sawc tools` prints the tools the records beside the binary name: for the
     host and for the bare-metal target, a `clang` line naming a file that exists, an
-    `ld.lld` line only when that file sits beside the clang, and the record's
-    `objcopy`. A copy of sawc beside the records without the Xtensa one is refused
-    for that target with the text `sawc build` prints, and an unknown triple
+    `ld.lld` line only when that file sits beside the clang, the record's
+    `objcopy`, and a `triple` line holding the clang triple sawc compiles that
+    target's module for (`target_clang_triple`). A copy of sawc beside the
+    records without the Xtensa one is refused for that target with the text `sawc build` prints, and an unknown triple
     is refused as elsewhere."""
     where = "run sawc tools"
     problem = bare_metal_record_problem("sawc tools for %s" % BARE_METAL_TARGET)
     if problem:
         failures.append(problem)
         return
-    for flags, label in (([], "the host"), (["--target", BARE_METAL_TARGET], BARE_METAL_TARGET)):
+    for flags, label, named in (([], "the host", build.host_triple()),
+                                (["--target", BARE_METAL_TARGET], BARE_METAL_TARGET, BARE_METAL_TARGET)):
         r = subprocess.run([build.SAWC, "tools"] + flags, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
         found = tool_lines(r.stdout)
         clang = found.get("clang", "")
         beside = os.path.join(os.path.dirname(clang), "ld.lld")
         if (r.returncode != 0 or r.stderr or not os.path.isfile(clang)
                 or ("ld.lld" in found) != os.path.isfile(beside) or found.get("ld.lld", beside) != beside
-                or not set(found) <= {"clang", "ld.lld", "objcopy"}
+                or not set(found) <= {"clang", "ld.lld", "objcopy", "triple"}
                 or ("objcopy" in found and not os.path.isfile(found["objcopy"]))):
-            failures.append("%s for %s exits %d with %r, not an existing clang, an ld.lld only beside it, and the "
-                            "record's objcopy" % (where, label, r.returncode, r.stdout + r.stderr))
+            failures.append("%s for %s exits %d with %r, not an existing clang, an ld.lld only beside it, the "
+                            "record's objcopy and a triple" % (where, label, r.returncode, r.stdout + r.stderr))
+        elif found.get("triple") != build.clang_triple(named):
+            failures.append("%s for %s prints the triple line %r, not the clang triple sawc compiles it for, %s"
+                            % (where, label, found.get("triple"), build.clang_triple(named)))
     unknown = subprocess.run([build.SAWC, "tools", "--target", "sawc-no-such-target"], capture_output=True, text=True,
                              timeout=BUILD_TIMEOUT)
     if unknown.returncode != 2 or unknown.stdout.strip() != "sawc: unknown target sawc-no-such-target":
@@ -5054,6 +5398,8 @@ CUSTOM_PROBES = {
     COOPERATIVE_PROBE: check_cooperative_provider,
     POOL_REFUSED_PROBE: check_pool_provider_refused,
     "executable_path.saw": check_executable_path,
+    LINK_INPUTS_PROBE: check_link_inputs,
+    LINK_FRAMEWORK_PROBE: check_link_framework,
     "export_link_collection.saw": check_export_link_collection,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,
@@ -5215,6 +5561,7 @@ def run(names=None, write=False):
         check_long_accessor(failures, counts)
         check_deep_match(failures, counts)
         run_check(check_link_arguments, failures, counts)
+        check_link_refusals(failures, counts)
         check_twin_table(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

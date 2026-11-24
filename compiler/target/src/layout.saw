@@ -345,6 +345,29 @@ public func target_mach_o(triple: String) -> Bool {
     triple.contains("-apple-")
 }
 
+// The machine code an object file for `triple` carries in its header: the
+// Mach-O `cputype` on a Mach-O triple, the ELF `e_machine` on every other.
+// `sawc build` reads it from each `--link-object`, so the table lives with the
+// triple set it must cover. 0 for a triple this module does not describe.
+public func target_object_machine(triple: String) -> Int {
+    if triple.starts_with("arm64-apple-") {
+        return 16777228
+    }
+    if triple.starts_with("x86_64-") {
+        return 62
+    }
+    if triple.starts_with("aarch64-") {
+        return 183
+    }
+    if triple.starts_with("riscv32-") {
+        return 243
+    }
+    if triple.starts_with("xtensa-") {
+        return 94
+    }
+    0
+}
+
 // THE FEATURE FUNNEL: the subtarget feature list a compile for `triple`
 // runs with. Three rules, by architecture. On aarch64 `explicit`, the
 // `--target-features` operand, replaces the default outright; a `freestanding`

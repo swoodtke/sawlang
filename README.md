@@ -755,7 +755,9 @@ and flag, including one subcommand per compiler stage (`lex`, `parse`,
 ```bash
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--target TRIPLE]
            [--target-features FEATURES] [--freestanding] [--runtime]
-           [--max-task-frame=SIZE] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+           [--max-task-frame=SIZE] [--module-path NAME=DIR]...
+           [--link-object FILE]... [--link-archive FILE]... [--link-library NAME]...
+           [--link-library-path DIR]... [--link-framework NAME]... (FILE [-o OUT] | --emit-ll FILE)
 sawc fix [--check] FILE...
 sawc runtime (--out DIR | --emit-ll FILE)
 sawc tools [--target TRIPLE]
@@ -770,9 +772,14 @@ that is its own runtime, defining every `__saw_rt_*` seam it reaches (checked
 against `runtime/ABI.md`). `--max-task-frame=SIZE` sets the most bytes a spawned task's frame may take, in
 bytes or with a `KiB`, `MiB` or `GiB` suffix; a task over it is a compile error
 naming its largest slots. The default is 1MiB hosted and 4KiB freestanding.
-`sawc runtime` builds the hosted runtime from
+The five `--link-*` flags add C objects, static archives, named libraries,
+library directories and Mach-O frameworks to the executable's link, each taking
+the next word and repeating; sawc checks every path and each object's header
+before it compiles anything (the spec's Appendix 0 has the link order and the
+refusals). `sawc runtime` builds the hosted runtime from
 `runtime/`. `sawc tools` prints the `clang`, `ld.lld` and `objcopy` recorded for
-a target, one `NAME PATH` line each. `sawc --build-id` prints one line that
+a target, one `NAME PATH` line each, then a `triple` line with the clang triple
+sawc compiles that target for. `sawc --build-id` prints one line that
 identifies the compiler binary, the std it compiles against and its runtime
 records, which Blade uses to tell a rebuilt toolchain from the one that made
 the last build. The spec documents some flags `sawc` does not take yet: the `-W`
