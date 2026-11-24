@@ -750,9 +750,32 @@ extension TcProgram {
         self.refuse_in(info.module, site, "static.optional", msg.build())
     }
 
+    // THE DECLARED-ROOT VAR FUNNEL: whether static `d` is an `unsafe static
+    // var` that some function declares as its `borrows(ROOT)` root, bare or
+    // through a field path. Every write to it is a place write through an
+    // exclusive window that drops the old value, so a hand-written `deinit`
+    // in its type runs at each overwrite and never at exit (SL-1156).
+    // ENTRY POINTS:
+    //     check_static_immortal
+    func is_declared_root_var(&self, d: Int) -> Bool {
+        if (self.sigs[d].flags & TC_FLAG_UNSAFE_VAR) == 0 {
+            return false
+        }
+        var k = 0
+        while k < self.res.decls.len() {
+            let kind = self.res.decls[k].kind
+            if (kind == ResDeclKind.Func || kind == ResDeclKind.Method) && self.sigs[k].root_decl == d {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
     // A static is never destroyed, so its type owns nothing a drop would
     // release (spec, Module-level statics: "Immortal"): a destructor that
-    // never runs would be silently skipped.
+    // never runs would be silently skipped. A declared root `unsafe static
+    // var` is the one exception for a hand-written `deinit`.
     func check_static_immortal(&var self, d: Int) {
         let t = self.sigs[d].result
         if self.has_error(t) {
@@ -760,6 +783,13 @@ extension TcProgram {
         }
         let owner = self.static_owner(t)
         if owner < 0 {
+            return
+        }
+        let oi = self.types.ty(owner)
+        // Only a hand-written `deinit` is relaxed: a closure environment stays refused
+        // (`static.immortal.root-closure.saw`). A `String` owner never reaches this test,
+        // since `static.zero-invalid` or `static.not-constant` refuses it earlier.
+        if oi.kind == TcKind.Nominal && oi.decl != self.known.string && self.is_declared_root_var(d) {
             return
         }
         let info = self.res.decls[d]
@@ -770,7 +800,6 @@ extension TcProgram {
         try! msg.append(self.type_text(t))
         try! msg.append("`, which owns a resource (Deinit) through `")
         try! msg.append(self.type_text(owner))
-        let oi = self.types.ty(owner)
         if oi.kind == TcKind.Func {
             try! msg.append("`, a closure's environment")
         } else if oi.kind == TcKind.Nominal && oi.decl == self.known.string {

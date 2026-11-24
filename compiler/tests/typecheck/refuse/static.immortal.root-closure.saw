@@ -1,0 +1,15 @@
+// refuses: static.immortal at 9:19
+// a declared root `unsafe static var` is relaxed for a hand-written `deinit`
+// only: a closure's environment is also an owner, and it stays refused
+
+struct Hook {
+    f: () -> Int
+}
+
+unsafe static var H: Hook?
+
+func h() unsafe sync borrows(sync, H) -> &var Hook? {
+    lend H
+}
+
+func main() {}

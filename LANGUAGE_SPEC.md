@@ -5651,7 +5651,8 @@ pointer.
 
 **Status: grammar and declaration rules landing (SL-1156). Built: the
 declaration rules, the naming rule, the callee's `lend` and the caller's
-window, which charges the root. Not built yet: the call summary, so a callee
+window, which charges the root, and the `deinit` a declared root
+`unsafe static var` may hold. Not built yet: the call summary, so a callee
 that opens a window on the same root inside a caller's window goes
 unchecked.** A function with no receiver may lend a module static if it
 declares which one: `borrows(ROOT)` names the root, and `lend` may hand out a
@@ -5711,7 +5712,8 @@ one function and its callees can show, and the root's module owes the rest:
 A declared root that is an `unsafe static var` may hold a type with a
 hand-written `deinit`. Every write to it goes through an exclusive window and
 is a place write, so it drops the old value. The last value is never dropped:
-a static lives for the whole program, and the exception narrows the
+a static lives for the whole program, so no `deinit` runs for it at process
+exit, and the exception narrows the
 [`Immortal`](#module-level-statics) rule for declared roots only.
 
 #### Lends and their windows

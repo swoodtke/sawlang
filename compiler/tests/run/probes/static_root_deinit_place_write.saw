@@ -1,0 +1,62 @@
+// probe: stated
+// about: an `unsafe static var` that is a declared `borrows` root holds a type with a hand-written `deinit`: a whole write, a field write, an Optional set to `None` and then to a value, and a write in a loop each drop the old value of the place written exactly once, and the last value is never dropped at exit, conformance row U51 (SL-1156)
+// stage 0: cannot parse `borrows(ROOT)`
+// speeds: -O0 -O2
+// leaks: none
+// prints: whole 1
+// prints: whole 2
+// prints: drop 1
+// prints: field
+// prints: drop 2
+// prints: none
+// prints: drop 3
+// prints: value
+// prints: loop
+// prints: drop 4
+// prints: drop 5
+// prints: drop 6
+// prints: end
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Slot {
+    first: Token?
+    second: Token?
+}
+
+extension Slot: NoCopy {}
+
+// Zero is every field `None`.
+unsafe static var SLOT: Slot
+
+func slot() unsafe sync borrows(sync, SLOT) -> &var Slot {
+    lend SLOT
+}
+
+func main() {
+    print("whole 1")
+    slot() = Slot(first: Token(id: 1), second: None)
+    print("whole 2")
+    slot() = Slot(first: Token(id: 2), second: None)
+    print("field")
+    slot().first = Token(id: 3)
+    print("none")
+    slot().first = None
+    print("value")
+    slot().first = Token(id: 4)
+    print("loop")
+    var i = 5
+    while i < 8 {
+        slot().first = Token(id: i)
+        i = i + 1
+    }
+    print("end")
+}

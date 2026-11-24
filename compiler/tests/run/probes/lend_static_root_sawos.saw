@@ -1,0 +1,111 @@
+// probe: stated
+// about: sawos's boot cell: a declared root `unsafe static var` whose type holds `deinit` types, written once through an exclusive window, read by shared windows across a task, and never dropped at exit, conformance row U51 (SL-1156)
+// stage 0: cannot parse `borrows(ROOT)`
+// speeds: -O0 -O2
+// leaks: none
+// prints: served 212
+// prints: process 200
+// sawos's use case (chat m1268, SO-124) written under the SL-1156 design, with
+// stand-in types: one `Boot` in a module-private `unsafe static var`, written
+// once at start-up through an exclusive window, read by shared windows for the
+// life of the process. On main it is refused at the first `borrows(`.
+import std.task.*
+
+struct System {
+    handle: UInt
+}
+
+extension System: NoCopy {
+    func deinit(&var self) {
+        print("close system {}", self.handle)
+    }
+}
+
+struct Process {
+    handle: UInt
+}
+
+extension Process: NoCopy {
+    func deinit(&var self) {
+        print("close process {}", self.handle)
+    }
+}
+
+struct BootSet {
+    tags: [Int; 4]
+    taken: Int
+}
+
+extension BootSet: NoCopy {
+    func deinit(&var self) {
+        print("drop boot set")
+    }
+}
+
+extension BootSet {
+    func take(&var self, tag: Int) -> Int? {
+        if self.taken >= 4 {
+            return None
+        }
+        let t = self.tags[self.taken] + tag
+        self.taken = self.taken + 1
+        t
+    }
+}
+
+extension System {
+    func call(&self, op: Int) -> UInt {
+        self.handle + (op as UInt)
+    }
+}
+
+struct Boot {
+    system: System?
+    process: Process?
+    boot_set: BootSet?
+}
+
+extension Boot: NoCopy {}
+
+// Zero is every field `None`. Needs D7 (a deinit-bearing type in a root static).
+unsafe static var BOOT: Boot
+
+// The one writer: an exclusive window on the whole static, no suspension.
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(system: System, process: Process, boot_set: BootSet) {
+    boot_slot() = Boot(system: move system, process: move process, boot_set: move boot_set)
+}
+
+// Shared accessors: each charges only its own field of the static.
+func system() unsafe borrows(BOOT.system) -> &System {
+    lend BOOT.system!
+}
+
+func process() unsafe borrows(BOOT.process) -> &Process {
+    lend BOOT.process!
+}
+
+// The exclusive one: `sync` on the body and the window.
+func boot_set() unsafe sync borrows(sync, BOOT.boot_set) -> &var BootSet {
+    lend BOOT.boot_set!
+}
+
+func serve() -> UInt {
+    borrow let sys = system() {
+        let a = sys.call(1)
+        yield_now()                              // a shared window spans it
+        let t = boot_set().take(tag: 10) ?? -1   // disjoint root: accepted
+        a + sys.call(t)
+    }
+}
+
+func main() {
+    install(System(handle: 100), Process(handle: 200), BootSet(tags: [1, 2, 3, 4], taken: 0))
+    var group = TaskGroup()
+    let h = group.spawn(serve())
+    print("served {}", h.join())
+    print("process {}", process().handle)
+}

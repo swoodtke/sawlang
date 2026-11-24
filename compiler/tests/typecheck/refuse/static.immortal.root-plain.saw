@@ -1,0 +1,21 @@
+// refuses: static.immortal at 15:8
+// a plain `static` that is a declared root stays immortal: only an `unsafe
+// static var` root is written, so only it drops an old value
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+static HELD: Guard = Guard(id: 1)
+
+func held() borrows(HELD) -> &Guard {
+    lend HELD
+}
+
+func main() {}
