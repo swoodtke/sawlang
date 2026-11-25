@@ -1,0 +1,44 @@
+[package]
+name = "lz4"
+version = "0.1.0"
+
+# The C half is lz4 1.10.0's block codec, vendored under vendor/lz4/ (see
+# vendor/README.md). Blade compiles it with the package's own flags and links
+# the object into every program that depends on this package.
+[native]
+c-sources = ["vendor/lz4/lz4.c"]
+include-dirs = ["vendor/lz4"]
+
+# A freestanding image has no libc headers and no allocator hooks. lz4's own
+# freestanding mode drops <string.h>; the three memory routines become the
+# compiler's builtins (std's freestanding object defines memcpy, memmove and
+# memset weakly, so they resolve at the link), and the functions that
+# allocate (the streaming contexts) are compiled out, since this package uses
+# the one-shot block API only. Each bare-metal triple sawc records takes the
+# same table.
+[native.riscv32-unknown-none-elf]
+defines = [
+    "LZ4_FREESTANDING=1",
+    "LZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION",
+    "LZ4_memcpy=__builtin_memcpy",
+    "LZ4_memmove=__builtin_memmove",
+    "LZ4_memset=__builtin_memset",
+]
+
+[native.aarch64-unknown-none-elf]
+defines = [
+    "LZ4_FREESTANDING=1",
+    "LZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION",
+    "LZ4_memcpy=__builtin_memcpy",
+    "LZ4_memmove=__builtin_memmove",
+    "LZ4_memset=__builtin_memset",
+]
+
+[native.xtensa-esp-unknown-elf]
+defines = [
+    "LZ4_FREESTANDING=1",
+    "LZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION",
+    "LZ4_memcpy=__builtin_memcpy",
+    "LZ4_memmove=__builtin_memmove",
+    "LZ4_memset=__builtin_memset",
+]

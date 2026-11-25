@@ -59,7 +59,7 @@ import patch_gate  # noqa: E402
 
 BLADE_DIR = os.path.join(REPO, "blade")
 LIBS_DIR = os.path.join(REPO, "libs")
-LIBRARIES = ("semver", "toml", "imgformat")
+LIBRARIES = ("semver", "toml", "imgformat", "lz4")
 WORK_DIR = os.path.join(build.BUILD_DIR, "blade_lane")
 BLADE_BINARY = os.path.join(WORK_DIR, "blade")
 SMOKE_DIR = os.path.join(WORK_DIR, "smoke")
@@ -1285,6 +1285,51 @@ def check_blade_native_c(binary=None):
     blade_ok(binary, ["run"], app, "total 222")
 
 
+# The bare-metal triples lz4's `[native.<triple>]` tables cover, with the QEMU that boots each one's ELF
+# (None: built and linked only, because the ESP32-S3 boots a flash image the freestanding suite writes).
+LZ4_IMAGE_ROWS = (
+    ("riscv32-unknown-none-elf", "qemu-system-riscv32", ["-M", "virt", "-bios", "none"]),
+    ("aarch64-unknown-none-elf", "qemu-system-aarch64",
+     ["-M", "virt,gic-version=2", "-cpu", "cortex-a53", "-semihosting"]),
+    ("xtensa-esp-unknown-elf", None, None),
+)
+LZ4_IMAGE_EXPECT = ("fs check lz4_shrinks=1", "fs check lz4_length=1", "fs check lz4_bytes=1",
+                    "fs done lz4_image ok")
+
+
+def check_lz4_image(binary=None):
+    """`libs/lz4/image` builds for each bare-metal triple through that triple's `[native.<triple>]` defines
+    (lz4's freestanding mode) and links with no libc symbol left undefined. Where QEMU is installed the
+    riscv32 and aarch64 images boot and round-trip a buffer through the codec. A target with no sawc
+    record, or no QEMU, is skipped, saying so; anything else that stops a row (a failing build, a build
+    that leaves no ELF) fails the lane."""
+    binary = binary or SELF_BUILT
+    package = os.path.join(LIBS_DIR, "lz4", "image")
+    for triple, qemu_name, qemu_args in LZ4_IMAGE_ROWS:
+        if not has_sawc_record(triple):
+            print("blade: no sawc record for %s: the lz4 image is not built" % triple, flush=True)
+            continue
+        out_dir = os.path.join(WORK_DIR, "lz4image-%s" % triple)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        print("blade: blade build --target %s of the lz4 image" % triple, flush=True)
+        blade_ok(binary, ["build", "--target", triple, "--out-dir", out_dir], package, "Finished")
+        elf = os.path.join(out_dir, "lz4image.elf")
+        if not os.path.exists(elf):
+            raise Failure("blade build --target %s --out-dir left no %s" % (triple, elf))
+        if qemu_name is None:
+            print("blade: the lz4 image for %s is built and linked, not booted" % triple, flush=True)
+            continue
+        qemu = shutil.which(qemu_name)
+        if qemu is None:
+            print("blade: no %s: the lz4 image for %s is built and not booted" % (qemu_name, triple), flush=True)
+            continue
+        print("blade: the lz4 image for %s boots and round-trips a buffer" % triple, flush=True)
+        code, out = run([qemu] + qemu_args + ["-nographic", "-kernel", elf], SMOKE_TIMEOUT_S)
+        for line in LZ4_IMAGE_EXPECT:
+            if line not in (out or ""):
+                raise Failure("the lz4 image for %s did not print %r (exit %s)\n%s" % (triple, line, code, out))
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -1320,6 +1365,7 @@ def lane():
         check_blade_max_task_frame()
         check_blade_native()
         check_blade_native_c()
+        check_lz4_image()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

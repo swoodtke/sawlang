@@ -1,0 +1,28 @@
+// A freestanding round trip: compress a repetitive buffer, check it shrank,
+// decompress it and compare. Reaching the final line shows the lz4 object
+// built with the freestanding defines, linked, and ran on the image.
+import fscore.*
+import lz4.*
+import std.data.{Data}
+
+static COPIES: Int = 64
+
+@export("fs_main")
+func fs_main() unsafe {
+    var original = Data()
+    for _ in 0..COPIES {
+        try! original.append(try! "freestanding lz4 round trip ".to_data())
+    }
+    let packed = try! compress(&original)
+    check("lz4_shrinks", packed.len() < original.len())
+    let restored = try! decompress(&packed, size: original.len())
+    check_value("lz4_length", restored.len(), original.len())
+    var same = true
+    for i in 0..original.len() {
+        if original[i] != restored[i] {
+            same = false
+        }
+    }
+    check("lz4_bytes", same)
+    finish("lz4_image")
+}

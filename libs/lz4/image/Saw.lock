@@ -1,0 +1,26 @@
+[lock]
+manifest_hash = "-7343400054444946008"
+
+[pkg.fscore]
+version = "0.1.0"
+source = "path"
+loc = "../../../tests/freestanding/core"
+rev = ""
+
+[pkg.fsdata]
+version = "0.1.0"
+source = "path"
+loc = "../data"
+rev = ""
+
+[pkg.fsrt]
+version = "0.1.0"
+source = "path"
+loc = "../rt"
+rev = ""
+
+[pkg.lz4]
+version = "0.1.0"
+source = "path"
+loc = ".."
+rev = ""

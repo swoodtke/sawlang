@@ -1,0 +1,174 @@
+//! LZ4 block compression over `Data`.
+//!
+//! The codec is lz4 1.10.0, compiled from `vendor/lz4/` by Blade's `[native]`
+//! support. This module is the safe surface: three functions and one error type.
+//! A block carries no length and no checksum, so a caller that stores one also
+//! stores the decompressed size and passes it back to `decompress(size:)`.
+
+import std.data.{Data}
+
+extern "C" {
+    func LZ4_compressBound(input_size: Int32) -> Int32
+    func LZ4_sizeofState() -> Int32
+    func LZ4_compress_fast_extState(state: UnsafePointer<Int8>, source: UnsafePointer<Int8>,
+                                    destination: UnsafePointer<Int8>, source_size: Int32,
+                                    destination_capacity: Int32, acceleration: Int32) -> Int32
+    func LZ4_decompress_safe(source: UnsafePointer<Int8>, destination: UnsafePointer<Int8>,
+                             compressed_size: Int32, destination_capacity: Int32) -> Int32
+}
+
+// lz4 requires its compression state at 8-byte alignment (a pointer's).
+static STATE_ALIGN: Int = 8
+
+/// The largest input `compress` accepts, in bytes (lz4's `LZ4_MAX_INPUT_SIZE`).
+public static MAX_INPUT_SIZE: Int = 0x7E00_0000
+
+/// Why a compression or decompression failed.
+public enum Lz4Error {
+    /// The input is longer than `MAX_INPUT_SIZE` bytes.
+    case InputTooLarge(size: Int),
+    /// `max_size` is negative or does not fit in a 32-bit signed integer.
+    case InvalidLimit(value: Int),
+    /// lz4 refused to compress the input. The call is sized with the worst-case
+    /// bound, so this does not occur for an input within `MAX_INPUT_SIZE`.
+    case CompressFailed,
+    /// The block is not a valid LZ4 block, or it decompresses to more than
+    /// `max_size` bytes. lz4 reports both with one negative code, so they are
+    /// one case. `code` is that code.
+    case Malformed(code: Int),
+    /// `decompress(size:)` decoded `got` bytes where the caller recorded `expected`.
+    /// A damaged block can be a valid, shorter block, so only the length tells.
+    case SizeMismatch(expected: Int, got: Int),
+    /// The scratch buffer or the output could not be allocated.
+    case Alloc(e: AllocError)
+}
+
+extension Lz4Error: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case InputTooLarge(size) -> {
+                try! into.append("lz4: input of {size} bytes is larger than the {MAX_INPUT_SIZE} byte limit")
+            },
+            case InvalidLimit(value) -> {
+                try! into.append("lz4: max_size {value} is not between 0 and 2147483647")
+            },
+            case CompressFailed -> {
+                try! into.append("lz4: the compressor produced no output")
+            },
+            case Malformed(code) -> {
+                try! into.append("lz4: the block is malformed or longer than max_size (code {code})")
+            },
+            case SizeMismatch(expected, got) -> {
+                try! into.append("lz4: the block decodes to {got} bytes, not the {expected} recorded")
+            },
+            case Alloc(e) -> {
+                try! into.append("lz4: out of memory: {e}")
+            }
+        }
+    }
+}
+
+extension Lz4Error: Error {}
+
+/// Compresses `input` into one LZ4 block.
+///
+/// An empty input compresses to a one-byte block. Returns `Err(InputTooLarge)`
+/// past `MAX_INPUT_SIZE` bytes and `Err(Alloc)` when the allocator refuses.
+public func compress(input: &Data) -> Result<Data, Lz4Error> {
+    let size = input.len()
+    if size > MAX_INPUT_SIZE {
+        return Lz4Error.InputTooLarge(size: size)
+    }
+    return compress_block(&input, size)
+}
+
+/// Decompresses one LZ4 block into at most `max_size` bytes.
+///
+/// `max_size` bounds the output and is the only protection against a block that
+/// expands without limit. It does not check the length: an LZ4 block may end
+/// after any run of literals, so a damaged or truncated block can decode to
+/// fewer bytes and still return `Ok`. A caller that knows the decompressed
+/// length uses `decompress(input:size:)`. Returns `Err(InvalidLimit)` for a
+/// `max_size` outside `0...2147483647`, `Err(InputTooLarge)` for a block past
+/// that size, `Err(Malformed)` for a corrupt block or one whose output would
+/// exceed `max_size`, and `Err(Alloc)` when the allocator refuses.
+public func decompress(input: &Data, max_size: Int) -> Result<Data, Lz4Error> {
+    if max_size < 0 || max_size > Int32.max as Int {
+        return Lz4Error.InvalidLimit(value: max_size)
+    }
+    let size = input.len()
+    if size > Int32.max as Int {
+        return Lz4Error.InputTooLarge(size: size)
+    }
+    return decompress_block(&input, size, max_size)
+}
+
+/// Decompresses one LZ4 block that must decode to exactly `size` bytes.
+///
+/// `size` is the length recorded when the block was made. A block that decodes
+/// to any other length returns `Err(SizeMismatch)`, which catches a truncated
+/// block that is still a valid shorter one. The other errors are
+/// `decompress(input:max_size:)`'s, with `size` as the limit.
+public func decompress(input: &Data, size: Int) -> Result<Data, Lz4Error> {
+    let out = try decompress(&input, max_size: size)
+    if out.len() != size {
+        return Lz4Error.SizeMismatch(expected: size, got: out.len())
+    }
+    return move out
+}
+
+// The helpers below hold every pointer. Each owns its buffers (a scratch
+// buffer, and in `compress_block` the compressor's state too), frees them on
+// every path, and hands back a `Data` that copies out of the scratch, so no
+// pointer outlives the helper.
+
+func compress_block(input: &Data, size: Int) unsafe -> Result<Data, Lz4Error> {
+    let bound = LZ4_compressBound(size as Int32) as Int
+    if bound <= 0 {
+        return Lz4Error.CompressFailed
+    }
+    // lz4's own state is 16 KiB, so it lives on the heap: a freestanding thread
+    // may have a stack smaller than that.
+    let state_size = LZ4_sizeofState() as Int
+    guard let state = GlobalAllocator().alloc(state_size, STATE_ALIGN) else {
+        return Lz4Error.Alloc(e: AllocError(size: state_size, align: STATE_ALIGN))
+    }
+    guard let scratch = GlobalAllocator().alloc(bound, 1) else {
+        GlobalAllocator().dealloc(state, state_size, STATE_ALIGN)
+        return Lz4Error.Alloc(e: AllocError(size: bound, align: 1))
+    }
+    let written = LZ4_compress_fast_extState(state, input.byte_ptr(), scratch, size as Int32,
+                                             bound as Int32, 1) as Int
+    GlobalAllocator().dealloc(state, state_size, STATE_ALIGN)
+    if written <= 0 {
+        GlobalAllocator().dealloc(scratch, bound, 1)
+        return Lz4Error.CompressFailed
+    }
+    let out = copy_out(scratch, written)
+    GlobalAllocator().dealloc(scratch, bound, 1)
+    return out
+}
+
+func decompress_block(input: &Data, size: Int, max_size: Int) unsafe -> Result<Data, Lz4Error> {
+    // A zero limit still needs a valid destination pointer.
+    let capacity = if max_size == 0 { 1 } else { max_size }
+    guard let scratch = GlobalAllocator().alloc(capacity, 1) else {
+        return Lz4Error.Alloc(e: AllocError(size: capacity, align: 1))
+    }
+    let written = LZ4_decompress_safe(input.byte_ptr(), scratch, size as Int32, max_size as Int32) as Int
+    if written < 0 {
+        GlobalAllocator().dealloc(scratch, capacity, 1)
+        return Lz4Error.Malformed(code: written)
+    }
+    let out = copy_out(scratch, written)
+    GlobalAllocator().dealloc(scratch, capacity, 1)
+    return out
+}
+
+func copy_out(scratch: UnsafePointer<Int8>, length: Int) unsafe -> Result<Data, Lz4Error> {
+    var out = Data()
+    match out.append_bytes(scratch, length) {
+        case Ok(_) -> { return move out },
+        case Err(e) -> { return Lz4Error.Alloc(e: e) }
+    }
+}

@@ -1,0 +1,30 @@
+[package]
+name = "lz4image"
+version = "0.1.0"
+
+# A freestanding image that round-trips a buffer through lz4, built by
+# `blade build --target <triple>` for each bare-metal triple. It borrows the freestanding
+# suite's runtime provider and boot stub (tests/freestanding/), so what this
+# package adds is the one thing under test: lz4's `[native]` table for a
+# freestanding triple.
+runtime = true
+
+[dependencies]
+lz4 = { path = ".." }
+fscore = { path = "../../../tests/freestanding/core" }
+
+[sos]
+emit = "sosimg"
+priorities = { background = 0, low = 1, normal = 1, high = 1 }
+
+[sos.riscv32-unknown-none-elf]
+linker-script = "../../../tests/freestanding/hal/riscv32/link.ld"
+native = "../../../tests/freestanding/hal/riscv32/boot.S ../../../tests/freestanding/hal/support.c"
+
+[sos.aarch64-unknown-none-elf]
+linker-script = "../../../tests/freestanding/hal/arm64/link.ld"
+native = "../../../tests/freestanding/hal/arm64/boot.S ../../../tests/freestanding/hal/support.c"
+
+[sos.xtensa-esp-unknown-elf]
+linker-script = "../../../tests/freestanding/hal/xtensa/link.ld"
+native = "../../../tests/freestanding/hal/xtensa/boot.S ../../../tests/freestanding/hal/support.c"

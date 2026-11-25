@@ -143,7 +143,7 @@ func rt_panic(ptr: UnsafePointer<Int8>, len: UInt) unsafe -> Never {
 // No reclamation: `dealloc` is a no-op, which is all a suite needs.
 
 /// The arena's size, written once. Everything below derives from it.
-static ARENA_BYTES: Int = 16_384
+static ARENA_BYTES: Int = 65_536
 
 /// The region's type. Naming it is what lets `arena_capacity()` read the size
 /// back with `sizeof` instead of repeating the number.
@@ -155,8 +155,9 @@ type ArenaRegion = [UInt8; ARENA_BYTES]
 /// enabled, so no other agent can observe the window between the bound check
 /// and the cursor store.
 ///
-/// An all-zero static costs no image bytes, so this is 16 KiB of `.bss`, not
-/// 16 KiB of ELF.
+/// An all-zero static costs no image bytes, so this is 64 KiB of `.bss`, not
+/// 64 KiB of ELF. The lz4 image's compression state alone is 16 KiB, and the
+/// arena reclaims nothing.
 unsafe static var ARENA: ArenaRegion = [0; ARENA_BYTES]
 unsafe static var ARENA_NEXT: UInt = 0
 

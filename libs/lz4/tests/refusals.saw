@@ -1,0 +1,114 @@
+// A damaged block, a limit that is too small and a limit that is not a size
+// are each refused with their own error, and a refused call returns no bytes.
+import lz4.*
+import std.data.{Data}
+
+func text_block() -> Data {
+    var d = Data()
+    for _ in 0..200 {
+        try! d.append(try! "pack my box with five dozen liquor jugs\n".to_data())
+    }
+    return d
+}
+
+func expect_malformed(result: Result<Data, Lz4Error>, what: String) {
+    match result {
+        case Ok(_) -> panic("{what}: should have been refused"),
+        case Err(e) -> {
+            match e {
+                case Malformed(_) -> assert("{e}".contains("malformed"), "{what}: the message names the cause"),
+                case _ -> panic("{what}: wrong error: {e}")
+            }
+        }
+    }
+}
+
+func main() {
+    let original = text_block()
+    let packed = try! compress(&original)
+
+    // max_size one byte under the real size: lz4 stops rather than overrun.
+    expect_malformed(decompress(&packed, max_size: original.len() - 1), "limit too small")
+    expect_malformed(decompress(&packed, max_size: 0), "zero limit")
+
+    // An empty input is not a block at all.
+    let nothing = Data()
+    expect_malformed(decompress(&nothing, max_size: 16), "empty input")
+
+    // A block cut three bytes short is refused by both forms; whether a cut is
+    // depends on where it falls, which the prefix scan below covers.
+    let cut = packed.slice(0, packed.len() - 3)!
+    expect_malformed(decompress(&cut, max_size: original.len()), "truncated block")
+
+    // An LZ4 block may end after any run of literals, so some prefixes are valid,
+    // shorter blocks. `max_size:` returns those as `Ok` with fewer bytes;
+    // `size:` refuses every prefix, naming the lengths when it decoded short.
+    var short_prefixes = 0
+    for cut_at in 1..packed.len() {
+        let prefix = packed.slice(0, cut_at)!
+        match decompress(&prefix, max_size: original.len()) {
+            case Ok(bytes) -> {
+                assert(bytes.len() < original.len(), "a prefix cannot decode to the full length")
+                short_prefixes += 1
+                match decompress(&prefix, size: original.len()) {
+                    case Ok(_) -> panic("size: accepted a short decode at {cut_at}"),
+                    case Err(e) -> {
+                        match e {
+                            case SizeMismatch(expected, got) -> {
+                                assert(expected == original.len() && got == bytes.len(), "the mismatch names both lengths")
+                                assert("{e}".contains("recorded"), "the message names the recorded length")
+                            },
+                            case _ -> panic("wrong error for a short decode: {e}")
+                        }
+                    }
+                }
+            },
+            case Err(_) -> {
+                match decompress(&prefix, size: original.len()) {
+                    case Ok(_) -> panic("size: accepted a malformed prefix at {cut_at}"),
+                    case Err(_) -> {}
+                }
+            }
+        }
+    }
+    assert(short_prefixes > 0, "the scan finds prefixes that decode short")
+
+    // The exact form still decodes the whole block.
+    let exact = try! decompress(&packed, size: original.len())
+    assert(exact.len() == original.len(), "size: decodes the whole block")
+
+    // A match offset that points before the start of the output: the first
+    // token claims one literal and then a match at offset 0xFFFF.
+    var forged = Data()
+    try! forged.push(0x11)
+    try! forged.push(0x41)
+    try! forged.push(0xFF)
+    try! forged.push(0xFF)
+    expect_malformed(decompress(&forged, max_size: 64), "forged offset")
+
+    // Limits that are not sizes.
+    match decompress(&packed, max_size: -1) {
+        case Ok(_) -> panic("a negative limit should be refused"),
+        case Err(e) -> {
+            match e {
+                case InvalidLimit(v) -> assert(v == -1, "the error carries the limit"),
+                case _ -> panic("wrong error for a negative limit: {e}")
+            }
+        }
+    }
+    match decompress(&packed, max_size: Int32.max as Int + 1) {
+        case Ok(_) -> panic("a limit past 32 bits should be refused"),
+        case Err(e) -> {
+            match e {
+                case InvalidLimit(_) -> assert("{e}".contains("max_size"), "the message names the parameter"),
+                case _ -> panic("wrong error for a huge limit: {e}")
+            }
+        }
+    }
+
+    // A valid block still decodes after all the refusals.
+    let again = try! decompress(&packed, size: original.len())
+    assert(again.len() == original.len(), "the block still decodes")
+
+    print("refusals: ok")
+}

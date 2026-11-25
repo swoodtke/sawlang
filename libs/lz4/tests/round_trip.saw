@@ -1,0 +1,75 @@
+// Each input compresses and decompresses back to the same bytes, at the
+// sizes where lz4's block format changes shape: nothing, a few bytes, text,
+// bytes with no repeats, and a buffer of several megabytes.
+import lz4.*
+import std.data.{Data}
+
+static MEGABYTE: Int = 1 << 20
+static LARGE_SIZE: Int = 4 * MEGABYTE
+static SEED: UInt32 = 0x1234_5678
+static LCG_MULTIPLIER: UInt32 = 1_664_525
+static LCG_INCREMENT: UInt32 = 1_013_904_223
+static LCG_SHIFT: UInt32 = 24
+
+func same_bytes(a: &Data, b: &Data) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    for i in 0..a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
+func round_trip(input: &Data, label: String) -> Int {
+    let packed = try! compress(&input)
+    let restored = try! decompress(&packed, size: input.len())
+    assert(same_bytes(&input, &restored), "{label}: the round trip changed the bytes")
+    return packed.len()
+}
+
+func repeating_text(copies: Int) -> Data {
+    var d = Data()
+    for _ in 0..copies {
+        try! d.append(try! "the quick brown fox jumps over the lazy dog\n".to_data())
+    }
+    return d
+}
+
+func main() {
+    let empty = Data()
+    let empty_packed = round_trip(&empty, "empty")
+    assert(empty_packed == 1, "an empty input compresses to one byte")
+
+    let small = try! "hello".to_data()
+    let _ = round_trip(&small, "small")
+
+    // Repetitive text shrinks.
+    let text = repeating_text(2000)
+    let text_packed = round_trip(&text, "text")
+    assert(text_packed < text.len() / 10, "repeated text compresses well")
+
+    // A linear congruential stream has no repeats lz4 can use, so the block
+    // grows by the format's overhead and stays within the compression bound.
+    var noise = Data()
+    var state = SEED
+    for _ in 0..65_536 {
+        state = state &* LCG_MULTIPLIER &+ LCG_INCREMENT
+        try! noise.push(UInt8.from(truncating: state >> LCG_SHIFT))
+    }
+    let noise_packed = round_trip(&noise, "noise")
+    assert(noise_packed <= noise.len() + noise.len() / 255 + 16, "the block stays within the bound")
+
+    // A buffer of several megabytes, mixed so some of it compresses.
+    var large = Data()
+    try! large.reserve(LARGE_SIZE)
+    for i in 0..LARGE_SIZE {
+        try! large.push(UInt8.from(truncating: (i / 97) &* 31))
+    }
+    let large_packed = round_trip(&large, "large")
+    assert(large_packed < large.len(), "the large buffer compresses")
+
+    print("round_trip: ok")
+}
