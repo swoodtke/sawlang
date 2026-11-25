@@ -1056,9 +1056,9 @@ errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_field_is_read_only.saw	pass	-	mutability.immutable: this assignment writes `self.source.n`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_producer_alias_return.saw	pass	-	lends.path: every returning path of `Owner.bad` must construct `It` with `lends self` in every reference field, and this path yields `other.iter()`, which is not a construction of it written in this b
-errors/borrowing_producer_composite_return.saw	pass	-	borrows.result: `Owner.opt_sugar` is declared `borrows`, and lends `It?`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &It?` if a use site may
+errors/borrowing_producer_composite_return.saw	pass	judged by its own directives (edited since its oracle)	borrows.result: `Owner.opt_sugar` is declared `borrows`, and lends `It?`: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value; write `borrows -> &It?` if a use site may
 errors/borrowing_producer_stores_no_borrow.saw	pass	-	borrowing.containment: `other.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in other.iter() { … }`, or name it with `borrow let held = other.iter() {
-errors/borrowing_struct_alias_compositions.saw	pass	-	borrowing.containment: the borrowing struct `borrowing_struct_alias_compositions.It` is stored in a field: it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow`
+errors/borrowing_struct_alias_compositions.saw	pass	judged by its own directives (edited since its oracle)	borrowing.containment: the borrowing struct `borrowing_struct_alias_compositions.It` is stored in a field: it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow`
 errors/borrowing_struct_exclusive_field.saw	pass	judged by its own directives (edited since its oracle)	type.reference-position: a borrowing struct's field holds `&T` or `&var T`, which `lends self` fills, and `&[Int]` is a slice, which no `lends self` makes: hold a reference to the collection and read
 errors/borrowing_struct_origin.saw	pass	-	lends.origin: `lends self.items` lends a projection of the receiver, and `lends self` is the only spelling: the window a `borrows` call opens charges its receiver's root, and a projection (`lends self
 errors/borrowing_struct_type_positions.saw	pass	-	conformance.signature: `CallableChain.next` does not meet `Iterator.next`, as `CallableChain` conforms to `Iterator` needs: its result type differs
@@ -2549,7 +2549,7 @@ two_copy_arc.saw	pass	judged by its own directives (edited since its oracle)	-
 two_copy_captures.saw	stage0-wrong	annotated SL-525	sawc meets its directives
 two_escaping_copies.saw	pass	-	-
 two_modules_export_distinct_c_symbols.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
-type_alias.saw	pass	-	-
+type_alias.saw	pass	judged by its own directives (edited since its oracle)	-
 type_alias_chained.saw	pass	-	-
 type_alias_construction.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
 type_alias_construction_arity_error.saw	pass	-	call.arity: an alias is constructed from one unlabeled value of the type it names
@@ -2558,7 +2558,7 @@ type_alias_cross_module.saw	pass	-	-
 type_alias_cross_module_sibling_error.saw	wrong	accepts a refusal test	argument `h` expects `SystemHandle` but got `ChannelHandle`
 type_alias_in_function_body_refused.saw	pass	-	resolve.parse-refused: a type alias is declared at module level (syntax.stmt.refused-local-type-alias): declare the alias at module level, or as an associated type; the parser refuses `tests/corpus/ty
 type_alias_no_implicit_from_underlying.saw	wrong	accepts a refusal test	argument `x` expects `MyInt` but got `Int`
-type_alias_of_enum_error.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+type_alias_of_enum_error.saw	pass	-	type.alias-of-enum: type alias `Rank` names the enum `Level`, and an alias of an enum is not allowed: use `Level` itself, or wrap it in a struct you own
 type_alias_sibling_arg_error.saw	wrong	accepts a refusal test	argument `o` expects `OrderId` but got `UserId`
 type_alias_sibling_no_flow_error.saw	wrong	accepts a refusal test	cannot assign `UserId` to variable of type `OrderId`
 type_alias_to_underlying.saw	pass	-	-

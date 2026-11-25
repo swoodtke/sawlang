@@ -5,13 +5,12 @@
 // 100
 
 type MyInt = Int
-type OptInt = Int?
 func double(x: MyInt) -> MyInt {
     x * 2
 }
 func main() {
     let x: MyInt = 21
     print(double(x))
-    let y: OptInt = 100
+    let y: Int? = 100
     print(y!)
 }

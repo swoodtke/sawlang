@@ -1,0 +1,11 @@
+// refuses: type.alias-of-enum at 8:1
+// errors: 1
+// the prelude's Result, written with its arguments
+// message: type alias `Outcome` names the enum `Result`
+
+struct ParseErr { n: Int }
+
+type Outcome = Result<Int, ParseErr>
+
+func main() {
+}

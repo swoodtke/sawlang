@@ -1,0 +1,14 @@
+// refuses: type.alias-of-enum at 11:1
+// errors: 1
+// a user generic enum, applied to an argument
+// message: type alias `Boxed` names the enum `Wrap`
+
+enum Wrap<T> {
+    case Some(value: T),
+    case Empty
+}
+
+type Boxed = Wrap<Int>
+
+func main() {
+}

@@ -9,8 +9,8 @@
 // that would hand the struct out of its scope, so it is refused bare and
 // through an alias.
 //
-// `Result<It, E>` has no alias row: a type alias of an enum is refused on
-// its own terms (DF-194b). `iter` is the control, a bare producer that is
+// `Optional<It>` and `Result<It, E>` have no alias row: a type alias of an
+// enum is refused on its own terms (`type.alias-of-enum`). `iter` is the control, a bare producer that is
 // accepted, and `borrowing_producer_every_path.saw` keeps one running.
 // EXPECT: error
 // EXPECT-ERROR-ABSENT: internal compiler error
@@ -23,8 +23,6 @@ extension Bad: Error {
     func format(&self, into: &var StringBuilder) { try! into.append("bad") }
 }
 
-type OptIt = It?
-type OptNamedIt = Optional<It>
 type TupIt = (It, Int)
 type VecIt = Vector<It>
 type BoxIt = Box<It>
@@ -43,8 +41,6 @@ extension Owner {
     func box(&self) borrows -> Box<It> { panic("never") }
 
     // ---- the same rows through a DISTINCT ALIAS ----
-    func alias_opt_sugar(&self) borrows -> OptIt { panic("never") }
-    func alias_opt_named(&self) borrows -> OptNamedIt { panic("never") }
     func alias_tuple(&self) borrows -> TupIt { panic("never") }
     func alias_vector(&self) borrows -> VecIt { panic("never") }
     func alias_box(&self) borrows -> BoxIt { panic("never") }

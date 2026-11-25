@@ -11,20 +11,19 @@
 // thirty-two, and reaching it is `DEPTH_EXHAUSTED` — a refusal naming the
 // depth, because a type that cannot be proven free of a borrowing struct is
 // never admitted. Rows: the alias as a field, as a parameter, inside a type
-// argument (`Box<Hidden>`), as a plain return through an alias of the alias's
-// composition (`Twice = Optional<Hidden>`), and the nine-deep bare nesting.
+// argument (`Box<Hidden>`), as a plain return inside a composition
+// (`Optional<Hidden>`), and the nine-deep bare nesting.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: field `value` of `Holder` may not name a borrowing struct: `Hidden` names a `borrows struct` (`It`)
 // EXPECT-ERROR-CONTAINS: field `value` of `Deep` may not name a borrowing struct
-// EXPECT-ERROR-CONTAINS: field `value` of `Twin` may not name a borrowing struct: `Twice` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: field `value` of `Twin` may not name a borrowing struct: `Optional<Hidden>` names a `borrows struct` (`It`)
 // EXPECT-ERROR-CONTAINS: parameter `value` of `accept` may not name a borrowing struct: `Hidden` names a `borrows struct` (`It`)
 // EXPECT-ERROR-CONTAINS: parameter `value` of `boxed` may not name a borrowing struct: `Box<Hidden>` names a `borrows struct` (`It`)
-// EXPECT-ERROR-CONTAINS: the return type of `give` may not name a borrowing struct: `Twice` names a `borrows struct` (`It`)
+// EXPECT-ERROR-CONTAINS: the return type of `give` may not name a borrowing struct: `Optional<Hidden>` names a `borrows struct` (`It`)
 
 struct Owner { value: Int }
 borrows struct It { source: &Owner, done: Bool }
 type Hidden = Vector<It>
-type Twice = Optional<Hidden>
 
 struct Holder {
     value: Hidden                              // ROW: an alias to a composition, as a field
@@ -36,11 +35,11 @@ struct Deep {
 }
 extension Deep: NoCopy {}
 
-struct Twin { value: Twice }                   // ROW: an alias of an alias's composition
+struct Twin { value: Optional<Hidden> }        // ROW: a composition over an alias's composition
 extension Twin: NoCopy {}
 
 func accept(value: Hidden) -> Int { 0 }        // ROW: the alias as a parameter
 func boxed(value: Box<Hidden>) -> Int { 0 }    // ROW: the alias inside a type argument
-func give() -> Twice { None }                  // ROW: the alias as a plain return
+func give() -> Optional<Hidden> { None }       // ROW: the composition as a plain return
 
 func main() {}

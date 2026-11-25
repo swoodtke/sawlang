@@ -3481,13 +3481,15 @@ underlying allowed, the reverse requires explicit construction) and function-typ
 aliases (not enforced by `sawc` yet, SL-1012). Generic type aliases
 (`type Handler<T> = ...`) are *planned*.
 
-The underlying type may not be an **enum** (not enforced by `sawc` yet,
-SL-1012). An alias exists to be read back to what it names, and `as` has no
-enum reading — so an enum alias would be a name with no way out. It is refused
-at the alias declaration, whether the enum is named directly, reached through a
-chain of aliases, raw-backed, or written with a module qualifier:
+The underlying type may not be an **enum**. An alias exists to be read back to
+what it names, and `as` has no enum reading — so an enum alias would be a name
+with no way out. It is refused at the alias declaration, whether the enum is
+named directly, reached through a chain of aliases, raw-backed, generic, or
+written with a module qualifier:
 
-```saw-fragment
+```saw-error
+// error-rule: type.alias-of-enum
+// error-contains: an alias of an enum is not allowed
 enum Level { case High, case Low }
 
 type Rank = Level      // Error! an alias of an enum is not allowed
@@ -3495,8 +3497,16 @@ type Step = Rank       // Error! the same, through the chain
 ```
 
 Structs and primitives are unaffected. This includes the built-in enums, so
-`type Outcome = Result<Int, ParseErr>` is refused today as well; a use case is
-what would reopen the question.
+`type Outcome = Result<Int, ParseErr>` and `type OptInt = Int?` are refused as
+well; a use case is what would reopen the question.
+
+```saw-error
+// error-rule: type.alias-of-enum
+// error-contains: names the enum `Result`
+struct ParseErr { code: Int }
+
+type Outcome = Result<Int, ParseErr>   // Error! Result is an enum
+```
 
 ```saw-fragment
 // Type definitions create distinct types (not interchangeable aliases)

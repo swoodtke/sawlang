@@ -1,0 +1,11 @@
+// refuses: type.alias-of-enum at 8:1
+// errors: 1
+// an enum named through its module's qualifier
+// message: type alias `Ranked` names the enum `Level`
+
+import alias_enum_dep
+
+type Ranked = alias_enum_dep.Level
+
+func main() {
+}

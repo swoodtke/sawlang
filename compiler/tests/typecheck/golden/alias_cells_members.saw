@@ -2,9 +2,9 @@
 // today's verdicts (SL-1012 U1, design 4.3). An alias reads through to its
 // target for members and limits; an overload on an alias and on its
 // underlying are distinct candidates by their types alone, so the picks below
-// hold. The refusals the spec adds (an alias of an enum, a public signature
+// hold. The refusals the spec adds (a public signature
 // naming a private alias, a conformance body naming the underlying) are
-// accepted here.
+// accepted here; an alias of an enum is refused (refuse/type.alias-of-enum*).
 
 type UserId = Int
 type Small = UInt8
@@ -19,15 +19,6 @@ extension Wrapped {
 }
 
 type Owned = Wrapped
-
-enum Level {
-    case High
-    case Low
-}
-
-type Rank = Level
-type Step = Rank
-type MaybeInt = Int?
 
 func field_through_alias() {
     let o: Owned = Wrapped(n: 3)
@@ -82,14 +73,6 @@ func append_unsigned_byte(u: UInt8) {
 
 func size() {
     print(sizeof<Byte>())
-}
-
-func enum_aliases() {
-    let r: Rank = Level.High
-    let s: Step = r
-    let o: MaybeInt = 3
-    print(s == Level.High)
-    print(o!)
 }
 
 type Handle = Int

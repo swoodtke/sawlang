@@ -1,0 +1,11 @@
+// refuses: type.alias-of-enum at 8:1
+// errors: 1
+// a raw-backed enum: the backing is not a way back
+// message: type alias `Bits` names the enum `Perm`
+
+enum Perm: UInt8 { case Read = 1, case Write = 2 }
+
+type Bits = Perm
+
+func main() {
+}

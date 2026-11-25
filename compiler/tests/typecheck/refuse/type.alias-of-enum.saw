@@ -1,0 +1,11 @@
+// refuses: type.alias-of-enum at 8:1
+// errors: 1
+// an alias written directly over a user enum
+// message: type alias `Rank` names the enum `Level`, and an alias of an enum is not allowed: use `Level` itself, or wrap it in a struct you own
+
+enum Level { case High, case Low }
+
+type Rank = Level
+
+func main() {
+}

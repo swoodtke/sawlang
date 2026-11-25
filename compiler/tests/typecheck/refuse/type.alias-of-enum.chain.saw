@@ -1,0 +1,12 @@
+// refuses: type.alias-of-enum at 8:1
+// errors: 2
+// an alias of an alias of an enum: each link is refused once, the outer naming the inner
+// message: type alias `Step` names the enum `Level` (through `Rank`)
+
+enum Level { case High, case Low }
+
+type Step = Rank
+type Rank = Level
+
+func main() {
+}

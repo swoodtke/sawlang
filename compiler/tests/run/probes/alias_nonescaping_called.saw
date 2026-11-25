@@ -5,18 +5,11 @@
 // leaks: none
 // prints: 7 7 7 7
 // prints: 7 7
-// prints: 7 7 7
+// prints: 7
 // prints: 7
 
 type Fn = (Int) -> Int
 type Fn2 = Fn
-type MF = ((Int) -> Int)?
-
-struct W<T> {
-    v: T
-}
-
-type WMF = W<MF>
 
 func apply(g: Fn, x: Int) -> Int { g(x) }
 func apply_plain(g: (Int) -> Int, x: Int) -> Int { g(x) }
@@ -46,14 +39,12 @@ func replaced(f: (Int) -> Int) -> Int {
 }
 
 func literal(n: Int) -> Fn { Fn({ x in x + n }) }
-func literal_optional(n: Int) -> MF { MF({ x in x + n }) }
-func literal_wrapped(n: Int) -> WMF { WMF(W(v: MF({ x in x + n }))) }
-func kept(g: (Int) escaping -> Int) -> MF { MF(g) }
+func kept(g: (Int) escaping -> Int) -> Fn { Fn(g) }
 
 func main() {
     let n = 5
     print("{} {} {} {}", passed({ x in x + n }), bound({ x in x + n }), called({ x in x + n }), nested({ x in x + n }))
     print("{} {}", captured({ x in x + n }), replaced({ x in x + n }))
-    print("{} {} {}", literal(5)(2), literal_optional(5)!(2), literal_wrapped(5).v!(2))
-    print(kept({ x in x + n })!(2))
+    print("{}", literal(5)(2))
+    print(kept({ x in x + n })(2))
 }

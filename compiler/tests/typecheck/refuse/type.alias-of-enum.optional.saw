@@ -1,0 +1,9 @@
+// refuses: type.alias-of-enum at 6:1
+// errors: 1
+// the prelude's Optional, written with its arguments
+// message: type alias `Maybe` names the enum `Optional`
+
+type Maybe = Optional<Int>
+
+func main() {
+}

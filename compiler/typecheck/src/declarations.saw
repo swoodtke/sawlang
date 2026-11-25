@@ -203,9 +203,64 @@ extension TcProgram {
     }
 
     // An alias's type, which the type funnel resolves once, whichever reaches
-    // it first: a use, or the declaration.
+    // it first: a use, or the declaration. An alias of an enum, a prelude
+    // `Optional` or `Result` in any spelling included, is refused here, once
+    // per alias at its own declaration (SL-1012).
     func build_alias(&var self, d: Int) {
-        let _ = self.alias_type(d, -1)
+        let t = self.alias_type(d, -1)
+        if t < 0 || self.types.ty(t).kind != TcKind.Nominal {
+            return
+        }
+        if self.res.decls[self.types.ty(t).decl].kind != ResDeclKind.Enum {
+            return
+        }
+        let info = self.res.decls[d]
+        let shown: String = self.name_text(self.res.decls[self.types.ty(t).decl].name)
+        var msg = StringBuilder()
+        try! msg.append("type alias `")
+        try! msg.append(self.text(info.module, info.leaf))
+        try! msg.append("` names the enum `")
+        try! msg.append(shown)
+        try! msg.append("`")
+        let middle = self.alias_written_through(d)
+        if middle != "" {
+            try! msg.append(" (through `")
+            try! msg.append(middle)
+            try! msg.append("`)")
+        }
+        try! msg.append(", and an alias of an enum is not allowed: use `")
+        try! msg.append(shown)
+        try! msg.append("` itself, or wrap it in a struct you own")
+        self.refuse_in(info.module, info.node, "type.alias-of-enum", msg.build())
+    }
+
+    // The name written for the alias that alias `d`'s written type is
+    // (`type Step = Rank`), else "".
+    func alias_written_through(&self, d: Int) -> String {
+        let info = self.res.decls[d]
+        let inner = self.res.last_node_child(info.node)
+        if inner < 0 {
+            return ""
+        }
+        if let alt = self.node_alt(inner) {
+            if alt != Alt.Type_Named {
+                return ""
+            }
+        } else {
+            return ""
+        }
+        let path = self.child(inner, 0)
+        let leaf = self.child(path, self.child_count(path) - 1)
+        let b = self.binding_at(leaf)
+        match b.kind {
+            case Decl -> {
+                if b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias {
+                    return self.text(info.module, leaf)
+                }
+                ""
+            },
+            case _ -> ""
+        }
     }
 
     func build_static(&var self, d: Int) {

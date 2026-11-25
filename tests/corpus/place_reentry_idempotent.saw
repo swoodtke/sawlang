@@ -20,7 +20,6 @@
 import std.task.*
 
 type MyInt = Int
-type OptInt = Int?
 
 struct Cell { n: Int }
 
@@ -60,10 +59,10 @@ func main() {
     cells[0].n += 9
     print(cells[0].n)
 
-    // A distinct alias initialized from a bare literal, and one to an optional.
+    // A distinct alias initialized from a bare literal, and an optional.
     let x: MyInt = 21
     print(x)
-    let y: OptInt = 100
+    let y: Int? = 100
     print(y!)
 
     // The driven generic.

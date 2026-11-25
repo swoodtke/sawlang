@@ -1,0 +1,9 @@
+// refuses: type.alias-of-enum at 6:1
+// errors: 1
+// the optional suffix spelling, `T?`
+// message: type alias `OptInt` names the enum `Optional`
+
+type OptInt = Int?
+
+func main() {
+}
