@@ -2208,6 +2208,7 @@ extension TcProgram {
             self.root_function_value(callee, &var acc)
         }
         let n = self.child_count(e)
+        let table = self.function_argument_table(&c, n)
         var index = 0
         var k = 0
         while k < n {
@@ -2218,7 +2219,8 @@ extension TcProgram {
             }
             let position = index
             index = index + 1
-            if not self.takes_function_argument(&c, position) {
+            let takes = if c.role == TcRole.Call { position < table.len() && table[position] } else { self.takes_function_argument(&c, position) }
+            if not takes {
                 continue
             }
             if self.has_alt(arg, Alt.Expr_Argument_Positional) {
@@ -2230,28 +2232,43 @@ extension TcProgram {
         }
     }
 
-    // Whether written argument `found` of call `c` binds a function-typed
-    // parameter that does not say `escaping`.
+    // Whether written argument `found` of a value call `c` binds a
+    // function-typed parameter that does not say `escaping`.
     func takes_function_argument(&self, c: &TcCall, found: Int) -> Bool {
-        if c.role == TcRole.Value {
-            if c.owner < 0 || self.kind_of(c.owner) != TcKind.Func || found >= self.types.ty(c.owner).count {
-                return false
-            }
-            let pt = self.types.arg(c.owner, found)
-            return self.kind_of(pt) == TcKind.Func && (self.types.ty(pt).a & TC_EFFECT_ESCAPING) == 0
-        }
-        if c.role != TcRole.Call || c.bind_first < 0 || c.target < 0 {
+        if c.role != TcRole.Value || c.owner < 0 || self.kind_of(c.owner) != TcKind.Func || found >= self.types.ty(c.owner).count {
             return false
+        }
+        let pt = self.types.arg(c.owner, found)
+        self.kind_of(pt) == TcKind.Func && (self.types.ty(pt).a & TC_EFFECT_ESCAPING) == 0
+    }
+
+    // For a named call `c` of `n` written arguments, whether each written
+    // position binds a function-typed parameter that does not say `escaping`,
+    // the first binding of a position deciding. One pass over the bindings,
+    // so a call's cost stays linear in its argument count.
+    func function_argument_table(&self, c: &TcCall, n: Int) -> Vector<Bool> {
+        var table = Vector<Bool>()
+        if c.role != TcRole.Call || c.bind_first < 0 || c.target < 0 {
+            return move table
+        }
+        var decided = Vector<Bool>()
+        var i = 0
+        while i < n {
+            try! table.push(false)
+            try! decided.push(false)
+            i = i + 1
         }
         var j = 0
         while j < c.bind_count {
-            if self.binds[c.bind_first + j] == found {
+            let at = self.binds[c.bind_first + j]
+            if at >= 0 && at < n && not decided[at] {
+                decided[at] = true
                 let p = self.params[self.sigs[c.target].param_first + j]
-                return self.kind_of(p.ty) == TcKind.Func && not p.escaping
+                table[at] = self.kind_of(p.ty) == TcKind.Func && not p.escaping
             }
             j = j + 1
         }
-        false
+        move table
     }
 
     // What function value `node` adds where it is called or passed on.
