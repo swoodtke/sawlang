@@ -1,0 +1,8 @@
+// A runtime provider's own definition of a defaulted seam, built with
+// `--freestanding --runtime`: std's weak default of `__saw_rt_thread_yield`
+// yields to it in the one compile, so the module holds one strong definition
+// of the symbol, this one. `builtin_lowering.py` reads the module (SL-1159).
+
+@export("__saw_rt_thread_yield")
+func provider_thread_yield() {
+}

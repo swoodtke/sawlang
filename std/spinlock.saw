@@ -22,13 +22,23 @@
 //! }
 //! ```
 //!
-//! Hold it briefly. A waiter burns its core until the lock is free.
+//! Hold it briefly. A waiter burns its core until the lock is free, and after
+//! a run of failed attempts it offers the processor to another thread
+//! (`__saw_rt_thread_yield`, runtime/ABI.md).
 
 extern "C" {
     // The calling context's identity: nonzero, and distinct between any two
     // contexts that can hold a lock at once (runtime/ABI.md).
     func __saw_rt_lock_owner() -> Int
+    // Offers the processor to another thread, and returns at once where there
+    // is none (runtime/ABI.md).
+    func __saw_rt_thread_yield()
 }
+
+// Failed attempts to take the lock between yields of the thread. A documented
+// default, not a tuned one: a lower count yields sooner, a higher one spins
+// longer for a holder that is about to release.
+static SPINS_BEFORE_YIELD: Int = 64
 
 // Unlocked must be zero: that is what lets a `static SpinLock<T>` go without
 // an initializer. `Atomic<Int>` is the only atomic, so each use site projects
@@ -126,7 +136,15 @@ extension SpinLock<T> {
     // spinning on a lock it holds would never stop. The message is a literal
     // so that the panic path allocates nothing.
     func acquire(&self) sync {
+        var spins = 0
         while not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
+            spins = spins + 1
+            if spins == SPINS_BEFORE_YIELD {
+                // A holder that lost its processor cannot release while this
+                // thread spins on the only one.
+                __saw_rt_thread_yield()
+                spins = 0
+            }
         }
     }
 

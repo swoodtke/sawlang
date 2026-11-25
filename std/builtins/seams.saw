@@ -1,0 +1,11 @@
+//! The runtime seams std defaults in a freestanding image: each a weak body a
+//! runtime's own definition replaces, in the same compile or at the link
+//! (runtime/ABI.md, "Weak defaults"). Only a freestanding compile loads this
+//! module, and no program can import it. A hosted image's runtime defines
+//! every seam strongly, so it gets none of these.
+
+// A runtime with nothing to yield to has nothing to do here.
+@weak
+@export("__saw_rt_thread_yield")
+func thread_yield() {
+}

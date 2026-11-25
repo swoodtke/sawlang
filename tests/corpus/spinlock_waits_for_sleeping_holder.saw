@@ -1,0 +1,51 @@
+// SL-1159: a `SpinLock` waiter whose holder sleeps while it holds the lock. The
+// holder thread keeps the lock for 200 ms, vastly longer than the 64 failed
+// attempts after which the waiter yields the thread (`__saw_rt_thread_yield`,
+// `sched_yield` in the hosted runtime), so the waiter takes the yield path many
+// times before it gets the lock, and it must then see the holder's write.
+//
+// The yield itself is not pinned in this repo: the hosted runtime's strong body
+// cannot be replaced by a program, and a freestanding case runs one context, so
+// none can contend a lock. This test passes against a std whose `acquire` never
+// yields. sosrt's override holds the yield, in a sawos case with two threads
+// contending one lock.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// holder took the lock
+// waiter saw 42
+
+import std.spinlock.*
+
+extern "C" {
+    func usleep(microseconds: UInt32) -> Int32
+}
+
+static SHARED: SpinLock<Int>
+static HOLDING: Atomic<Int> = Atomic(0)
+
+static HOLD_MICROSECONDS: UInt32 = 200000
+static POLL_MICROSECONDS: UInt32 = 1000
+static ANSWER: Int = 42
+
+func hold() -> Int {
+    borrow var value = SHARED.lock() {
+        HOLDING.store(1)
+        let _ = usleep(HOLD_MICROSECONDS)
+        value = ANSWER
+    }
+    0
+}
+
+func main() {
+    var holder = try! Thread.spawn {
+        hold()
+    }
+    while HOLDING.load() == 0 {
+        let _ = usleep(POLL_MICROSECONDS)
+    }
+    print("holder took the lock")
+    let seen = borrow var value = SHARED.lock() { value }
+    print("waiter saw {seen}")
+    let _ = holder.join()
+}

@@ -2368,6 +2368,7 @@ spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.loc
 spinlock_contention_mt.saw	pass	-	-
 spinlock_import_gate.saw	pass	-	name.not-in-prelude: `SpinLock` is not in the prelude and must be imported: `import std.spinlock.{SpinLock}` selects it
 spinlock_no_hidden_alloc.saw	pass	-	-
+spinlock_waits_for_sleeping_holder.saw	pass	judged by its own directives (no oracle)	-
 static236_declared_static.saw	pass	-	-
 static236_module_level_funcs_untouched.saw	pass	-	-
 static_and_instance_method_share_a_name.saw	pass	-	-

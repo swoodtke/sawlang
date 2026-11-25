@@ -35,6 +35,9 @@ An object whose graph has no edge fails: the reader sees none of its calls.
 - `builtin_memset_helper.saw`'s riscv32 and Xtensa -O2 modules with its helper's
   "no-builtins" taken away are reported as reaching itself, so the check sees
   what it is for;
+- every object also defines the seam defaults (`SEAM_DEFAULTS`) `W`, and
+  `seam_override.saw`, a runtime provider's own definition of one built with
+  `--runtime`, is the module's one definition of it, strong;
 - `builtin_uses.saw` built for the host defines none of the routines, and
   `shift_checks.saw`'s -O0 module checks the variable shift's count and not the
   constant one's (`ll_constant_shift_count`);
@@ -71,6 +74,9 @@ INTEGER = ("__divdi3", "__moddi3", "__udivdi3", "__umoddi3", "__ashldi3", "__ash
 FLOAT = ("__adddf3", "__subdf3", "__muldf3", "__divdf3", "__eqdf2", "__nedf2", "__ltdf2", "__ledf2", "__gtdf2",
          "__gedf2", "__unorddf2", "__fixdfsi", "__fixdfdi", "__fixunsdfsi", "__fixunsdfdi", "__floatsidf",
          "__floatdidf", "__floatunsidf", "__floatundidf")
+# The runtime seams std defaults weakly in every freestanding object
+# (`std/builtins/seams.saw`; runtime/ABI.md, "Weak defaults").
+SEAM_DEFAULTS = ("__saw_rt_thread_yield",)
 # (triple, `--target-features` or None for the freestanding default, the
 # routines std defines there).
 ARCHES = (
@@ -360,6 +366,11 @@ def check_std_routines(failures, counts, triple, features, tools, level):
     if not any(graph.values()):
         failures.append("%s: the reader sees none of the object's calls (its graph has no edge)" % where)
         return
+    for seam in SEAM_DEFAULTS:
+        if symbols.get(seam) != "W":
+            failures.append("%s: %s is %r in the object, not std's weak default (W)" % (where, seam, symbols.get(seam)))
+        else:
+            counts["run builtin lowering seam defaults weak"] = counts.get("run builtin lowering seam defaults weak", 0) + 1
     for routine in sorted(set(MEMORY + INTEGER + FLOAT)):
         wanted = routine in STD_ROUTINES[triple]
         if not wanted:
@@ -563,13 +574,38 @@ def check_hosted(failures, counts):
     defined = set()
     for line in r.stdout.splitlines():
         found = _DEFINE.match(line)
-        if found and (found.group(1) or found.group(2)) in MEMORY + INTEGER + FLOAT:
+        if found and (found.group(1) or found.group(2)) in MEMORY + INTEGER + FLOAT + SEAM_DEFAULTS:
             defined.add(found.group(1) or found.group(2))
     if defined or '"no-builtins"' in r.stdout:
         failures.append("%s: the module defines %s" % (where, ", ".join(sorted(defined)) or "a no-builtins group"))
         return
     counts["run builtin lowering hosted modules with no routine"] = \
         counts.get("run builtin lowering hosted modules with no routine", 0) + 1
+
+
+def check_seam_override(failures, counts, triple, features):
+    """A runtime provider's own `__saw_rt_thread_yield`, built with `--runtime`
+    beside std's weak default, is the module's one definition of the symbol
+    and is strong: the default yields to it in the compile (SL-1159)."""
+    where = "run builtin lowering seam_override.saw %s" % triple
+    cmd = [build.SAWC, "build", "--emit-ll", "-g0", "--freestanding", "--runtime", "--std-root", "std", "--target",
+           triple]
+    if features is not None:
+        cmd += ["--target-features", features]
+    r = subprocess.run(cmd + [rel(os.path.join(LOWERING, "seam_override.saw"))], cwd=REPO, capture_output=True,
+                       text=True, timeout=TIMEOUT)
+    if r.returncode != 0:
+        failures.append("%s: sawc writes no module: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+        return
+    defines = [line for line in r.stdout.splitlines() if line.startswith("define ") and '@"__saw_rt_thread_yield"' in line]
+    if len(defines) != 1:
+        failures.append("%s: the module defines __saw_rt_thread_yield %d times, not once" % (where, len(defines)))
+    elif defines[0].split("@")[0].find("weak") >= 0:
+        failures.append("%s: the one definition is weak, so std's default won: %s" % (where, defines[0][:80]))
+    elif "std.builtins.seams" in r.stdout:
+        failures.append("%s: std's default is still in the module beside the provider's" % where)
+    else:
+        counts["run builtin lowering provider seams strong"] = counts.get("run builtin lowering provider seams strong", 0) + 1
 
 
 def check_shift_checks(failures, counts, triple, features):
@@ -878,6 +914,7 @@ def check(failures, counts):
     check_soft_float_vectors(failures, counts)
     for triple, features, _ in ARCHES:
         check_shift_checks(failures, counts, triple, features)
+        check_seam_override(failures, counts, triple, features)
         clang, skip, problem = record_clang(triple)
         if problem:
             failures.append("run builtin lowering: %s" % problem)

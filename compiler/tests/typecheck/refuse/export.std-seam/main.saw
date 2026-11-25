@@ -1,0 +1,6 @@
+// refuses: export.std-seam at seams.saw:5:1
+// flags: --freestanding --runtime --std-overlay compiler/tests/typecheck/refuse/export.std-seam/std
+// message: std defines only the defaulted seams, only weakly, and only in `std.builtins`
+
+func main() {
+}

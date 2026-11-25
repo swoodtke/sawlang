@@ -130,6 +130,7 @@ RUNTIME_SEAMS = frozenset({
     "__saw_rt_lock_acquire",
     "__saw_rt_lock_release",
     "__saw_rt_lock_owner",
+    "__saw_rt_thread_yield",
     # The blocking-extern offload.
     "__saw_rt_offload_start",
     "__saw_rt_offload_done",
@@ -141,6 +142,13 @@ RUNTIME_SEAMS = frozenset({
     "__saw_rt_get_argv",
     # The executable's path.
     "__saw_rt_executable_path",
+})
+
+# The seams std defines weakly in a freestanding image, which a runtime's own
+# definition replaces (ABI.md, "Weak defaults"). Each has exactly one
+# `@weak @export` in `std/builtins/seams.saw`.
+DEFAULTED_SEAMS = frozenset({
+    "__saw_rt_thread_yield",
 })
 
 # The seams the program defines, which a runtime must not (ABI.md, "Program
@@ -209,7 +217,8 @@ def abi_signatures(path=ABI_DOC):
 
 
 def abi_rows():
-    """[(seam, param classes, result class, owner)], sorted by seam."""
+    """[(seam, param classes, result class, owner, default)], sorted by seam;
+    `default` is "std" for a defaulted seam, else ""."""
     signatures = abi_signatures()
     rows = []
     missing = []
@@ -220,7 +229,8 @@ def abi_rows():
             continue
         params, result = sig
         owner = "program" if name in PROGRAM_SEAMS else "runtime"
-        rows.append((name, ", ".join(params), result, owner))
+        default = "std" if name in DEFAULTED_SEAMS else ""
+        rows.append((name, ", ".join(params), result, owner, default))
     return rows, missing
 
 
@@ -295,7 +305,7 @@ def consistency(rows):
     """Failures of the tree against the table: each host's sources and shim
     export the runtime's seams exactly once."""
     failures = []
-    runtime = set(name for name, _, _, owner in rows if owner == "runtime")
+    runtime = set(name for name, _, _, owner, _ in rows if owner == "runtime")
     for target, directory, defined, undefined in HOSTS:
         seams, errors = shim_seams(defined, undefined)
         failures += ["runtime table: %s" % e for e in errors]
@@ -323,12 +333,14 @@ def saw_text(rows):
     out.append("// compiled in: written by that tool's --write, never by hand.\n")
     out.append("\n")
     out.append("// Each seam's name, its parameters' machine classes separated by commas, its\n")
-    out.append("// result's class, and whether the runtime or the program defines it.\n")
+    out.append("// result's class, whether the runtime or the program defines it, and \"std\" when\n")
+    out.append("// std defines a weak default of it in a freestanding image.\n")
     out.append("public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<String>,\n")
-    out.append("                                results: &var Vector<String>, owners: &var Vector<String>) {\n")
-    for name, params, result, owner in rows:
-        out.append('    tc_abi_row(&var names, &var params, &var results, &var owners, "%s", "%s", "%s", "%s")\n'
-                   % (name, params, result, owner))
+    out.append("                                results: &var Vector<String>, owners: &var Vector<String>,\n")
+    out.append("                                defaults: &var Vector<String>) {\n")
+    for name, params, result, owner, default in rows:
+        out.append('    tc_abi_row(&var names, &var params, &var results, &var owners, &var defaults, "%s", "%s", "%s", "%s", "%s")\n'
+                   % (name, params, result, owner, default))
     out.append("}\n")
     out.append("\n")
     out.append("// A host's runtime sources, relative to the runtime root, in build order.\n")
@@ -355,11 +367,13 @@ def saw_text(rows):
     out.append("}\n")
     out.append("\n")
     out.append("func tc_abi_row(names: &var Vector<String>, params: &var Vector<String>, results: &var Vector<String>,\n")
-    out.append("                owners: &var Vector<String>, name: String, param: String, result: String, owner: String) {\n")
+    out.append("                owners: &var Vector<String>, defaults: &var Vector<String>, name: String, param: String,\n")
+    out.append("                result: String, owner: String, default: String) {\n")
     out.append("    try! names.push(name)\n")
     out.append("    try! params.push(param)\n")
     out.append("    try! results.push(result)\n")
     out.append("    try! owners.push(owner)\n")
+    out.append("    try! defaults.push(default)\n")
     out.append("}\n")
     return "".join(out)
 

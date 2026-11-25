@@ -563,6 +563,24 @@ TEST_CASES = [
                                  "it is `(word) -> word`",
                                  "runtime/ABI.md freezes it as `(word, word) -> word`"],
     },
+    {
+        # A defaulted seam the runtime does not define: the call links against
+        # std's weak default and returns.
+        "name": "thread_yield_default",
+        "expect_out": ["fs check default_yield_returned=1",
+                       "fs check lock_after_yield=1",
+                       "fs done thread_yield_default ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The same seam defined strongly beside std's default in one compile:
+        # the strong body runs and counts, and an uncontended lock never yields.
+        "name": "thread_yield_override",
+        "expect_out": ["fs check strong_yield_counted=1",
+                       "fs check uncontended_lock_takes_no_yield=1",
+                       "fs done thread_yield_override ok"],
+        "expect_clean_exit": True,
+    },
     # --- no hidden allocations ------------------------------------------------
     #
     # Three refusals and one green control: three rows that must not compile

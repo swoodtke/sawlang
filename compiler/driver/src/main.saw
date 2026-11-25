@@ -4336,7 +4336,8 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
     var params = Vector<String>()
     var results = Vector<String>()
     var owners = Vector<String>()
-    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
+    var defaults = Vector<String>()
+    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners, &var defaults)
     var holds = true
     var k = 0
     while k < names.len() {

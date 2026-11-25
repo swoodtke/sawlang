@@ -4149,6 +4149,7 @@ let n = borrow var c = shared.value().lock() { c = c + 5; c }   // shared: Arc<M
 
 ## Systems/embedded corner
 `@weak` beside `@export` (top-level functions only; alone it is `export.weak-alone`) makes the export a default that an ordinary export of the same C symbol replaces, in the same compile or from another object at the link (never from an archive member, unless `--whole-archive`); a Saw call of the replaced one runs the replacement, and the two must agree on the signature (SL-1159).
+A freestanding image carries std's weak `__saw_rt_thread_yield` (a runtime/ABI.md "Weak defaults" seam); a runtime that can yield defines it, one that cannot writes nothing.
 `static NAME: T = const_init` (Sync-only, immortal, and NEVER OPTIONAL —
 DF-226f, Aug 17: `static SLOT: Int? = 7` is refused by the rule, since a
 static is fixed at compile time and so always present; only the static's
@@ -4176,6 +4177,8 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
     (`borrow var c = LOCK.lock() { … }`, the block's tail is the value) and
     `try_lock()` its conditional lend (`-> &var T?`, absent when ANOTHER
     owner holds it); suspending inside the window is a compile error.
+    A waiter yields the thread (`__saw_rt_thread_yield`) after every 64th failed
+    attempt; `try_lock` never spins or yields.
     RE-ENTRY: through the same name a compile error, through another name a
     run-time PANIC (from `try_lock` too), never a spin-forever (SL-843); the
     owner comes from the `__saw_rt_lock_owner()` seam, the calling thread

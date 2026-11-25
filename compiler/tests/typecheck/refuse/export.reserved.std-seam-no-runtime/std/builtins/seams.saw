@@ -1,0 +1,8 @@
+// A std definition of a runtime seam that std does not default: the overlay's
+// replacement of std's own `builtins/seams.saw`, which the fixture's main
+// loads in a runtime compile.
+
+@export("__saw_rt_lock_owner")
+func lock_owner() -> Int {
+    1
+}

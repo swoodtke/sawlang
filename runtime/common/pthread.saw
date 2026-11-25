@@ -26,6 +26,7 @@ extern "C" {
     // it as a platform word (`Int`). retval is NULL (we discard the thread result).
     func pthread_join(thread: Int, retval: UnsafePointer<Int8>) -> Int32
     func pthread_self() -> Int
+    func sched_yield() -> Int32
     func __saw_classify_code(code: Int) -> Int
     // Standard error, unbuffered (shim.c).
     func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
@@ -180,4 +181,11 @@ func rt_thread_join(handle: Int) unsafe -> Int {
 @export("__saw_rt_lock_owner")
 func rt_lock_owner() -> Int {
     pthread_self()
+}
+
+// Offers the processor to another runnable thread. A yield that did not happen
+// is a spin, not an error, so the status is dropped.
+@export("__saw_rt_thread_yield")
+func rt_thread_yield() {
+    let _ = sched_yield()
 }

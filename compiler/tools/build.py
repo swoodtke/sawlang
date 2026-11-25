@@ -539,7 +539,7 @@ def runtime_seam_problems(objects, triple):
     it wrote."""
     import runtime_table
     rows, _ = runtime_table.abi_rows()
-    wanted = set(name for name, _, _, owner in rows if owner == "runtime")
+    wanted = set(name for name, _, _, owner, _ in rows if owner == "runtime")
     seen = {}
     # Mach-O prefixes a C symbol with an underscore, and ELF does not.
     mach_o = triple.endswith("-apple-darwin")

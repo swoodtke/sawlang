@@ -1,0 +1,27 @@
+// The defaulted seam, with no runtime definition: `fsrt` defines no
+// `__saw_rt_thread_yield`, so the call below links against std's weak default
+// (`std/builtins/seams.saw`, runtime/ABI.md "Weak defaults"), which returns at
+// once. A contended `SpinLock` would reach the same seam, but a case runs one
+// context and cannot contend a lock: no case in this repo observes the yield
+// from `SpinLock.acquire`. sosrt's override holds it, in a sawos case with two
+// threads contending one lock.
+
+import fscore.*
+import std.spinlock.{SpinLock}
+
+extern "C" {
+    func __saw_rt_thread_yield()
+}
+
+static LOCK: SpinLock<Int>
+
+@export("fs_main")
+func fs_main() unsafe {
+    __saw_rt_thread_yield()
+    check("default_yield_returned", true)
+    borrow var held = LOCK.lock() {
+        held = held + 1
+    }
+    check_value("lock_after_yield", borrow var held = LOCK.lock() { held }, 1)
+    finish("thread_yield_default")
+}

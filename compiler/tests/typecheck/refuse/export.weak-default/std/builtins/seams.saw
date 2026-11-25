@@ -1,0 +1,6 @@
+// A std default of a runtime seam that is not `@weak`: the overlay's replacement
+// of std's own `builtins/seams.saw`, which the fixture's main loads freestanding.
+
+@export("__saw_rt_thread_yield")
+func thread_yield() {
+}

@@ -130,12 +130,13 @@ OPTIONAL_METHODS = ("take", "is_some", "is_none")
 # The cones that must reach no allocator: a program using only Optional and
 # Result, and one whose only Strings are literals.
 NO_ALLOCATOR_CONES = ("optional_result", "literal_only", "spinlock")
-# The cones that must reach no runtime seam but the panic sink and the lock
-# owner, which every runtime provides, a freestanding one included: a program
-# locking a `SpinLock`, which needs no operating system. `__saw_rt_dealloc` is
-# reached only by `String.deinit` of a literal panic message, which never runs,
-# since a literal is immortal (SL-850).
-SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic", "__saw_rt_lock_owner", "__saw_rt_dealloc")}
+# The cones that must reach no runtime seam but the panic sink, the lock
+# owner and the thread yield, which every freestanding image provides (the
+# yield by std's weak default): a program locking a `SpinLock`, which needs no
+# operating system. `__saw_rt_dealloc` is reached only by `String.deinit` of a
+# literal panic message, which never runs, since a literal is immortal (SL-850).
+SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic", "__saw_rt_lock_owner", "__saw_rt_thread_yield",
+                                "__saw_rt_dealloc")}
 # The cones of programs that start OS threads and run no task, which must
 # reach none of the task executor's seams: a thread needs no executor (SL-965).
 EXECUTOR_FREE_CONES = ("thread_detach", "thread_join_blocking")

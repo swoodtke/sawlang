@@ -13803,7 +13803,12 @@ let quick = if let c = STATS.try_lock() { c.hits } else { 0 }   // never spins; 
   lock is released when the window closes, on every way out. It is a
   [cell-carrying](#interior-mutability) `&self` accessor, so it works on a
   `static`, a `let` or a `&SpinLock` parameter, while no other use of the lock
-  is allowed inside the window.
+  is allowed inside the window. After every 64th failed attempt in a row (a
+  documented default, not a tuned value) the waiter calls the runtime seam
+  `__saw_rt_thread_yield` and spins again, so a holder that lost its processor
+  can run and release. The seam returns at once where the runtime has nothing
+  to yield to: a freestanding image gets std's weak default (see
+  Symbol hygiene), a hosted one `sched_yield`.
 - `try_lock()`, declared
   `func try_lock(&self) unsafe sync borrows(sync) -> &var T?`, decides with one
   compare-and-swap. It is a conditional lend: absent when
@@ -16620,6 +16625,13 @@ loosens the reservation for EXACTLY the frozen `__saw_rt_*` ABI names (a
 misspelled/non-ABI `__saw_rt_*` export is a clean error naming the valid set; a
 suspending seam body is rejected — the runtime is sync-only); every other
 reserved name stays rejected, and an ordinary compile keeps the full reservation.
+**Exception — std's weak defaults:** a freestanding image holds std's `@weak`
+definition of each seam `runtime/ABI.md` lists under "Weak defaults" (today
+`__saw_rt_thread_yield`, which `SpinLock` calls after a run of failed attempts),
+so a runtime with nothing to yield to writes none; a runtime's own definition
+replaces it, in the same compile or at the link from an object. Only a
+`std.builtins.*` module may define one, weakly (`export.weak-default`
+otherwise); hosted images get none, since the hosted runtime defines every seam.
 `@export` composes with overloading
 (the exact-match model): an exported function's *name* may be overloaded
 Saw-side, but only **one** overload may carry `@export` without an explicit

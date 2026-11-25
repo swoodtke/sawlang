@@ -2,8 +2,8 @@
 // builtins modules a compile loads, read through the feature funnel and the
 // front end's target as the driver reads them. The memory routines load on
 // every freestanding target, the 64-bit integer helpers where the word is 32
-// bits, the soft-float routines where the target has no FP unit, and none
-// hosted (SL-948).
+// bits, the soft-float routines where the target has no FP unit, the seams'
+// weak defaults on every freestanding target, and none hosted (SL-948).
 import sawtarget.layout.{target_builtins_modules, target_effective_features, target_float_unit, target_front_end}
 
 func row(triple: String, explicit: String, freestanding: Bool, want: String) {
@@ -40,20 +40,20 @@ func main() {
     row("xtensa-esp-unknown-elf", "", false, "")
     // aarch64: the freestanding default turns `fp-armv8` off; a part whose
     // boot code enables the FP unit names it.
-    row("aarch64-unknown-none-elf", "", true, "builtins.memory builtins.float")
-    row("aarch64-unknown-linux-gnu", "", true, "builtins.memory builtins.float")
-    row("aarch64-unknown-none-elf", "+neon,+fp-armv8", true, "builtins.memory")
+    row("aarch64-unknown-none-elf", "", true, "builtins.memory builtins.seams builtins.float")
+    row("aarch64-unknown-linux-gnu", "", true, "builtins.memory builtins.seams builtins.float")
+    row("aarch64-unknown-none-elf", "+neon,+fp-armv8", true, "builtins.memory builtins.seams")
     // riscv32: `D` is the FP unit for `Float`, and a `-f` after it turns it
     // off.
-    row("riscv32-unknown-none-elf", "", true, "builtins.memory builtins.integer builtins.float")
-    row("riscv32-unknown-none-elf", "+m,+a,+c", true, "builtins.memory builtins.integer builtins.float")
-    row("riscv32-unknown-none-elf", "+m,+a,+c,+f,+d", true, "builtins.memory builtins.integer")
-    row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-f", true, "builtins.memory builtins.integer builtins.float")
-    row("riscv32-unknown-none-elf", "+m,+a,+c,+f", true, "builtins.memory builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "", true, "builtins.memory builtins.seams builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "+m,+a,+c", true, "builtins.memory builtins.seams builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f,+d", true, "builtins.memory builtins.seams builtins.integer")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-f", true, "builtins.memory builtins.seams builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f", true, "builtins.memory builtins.seams builtins.integer builtins.float")
     // xtensa: a 32-bit word, and no FP unit for `Float` whatever the features
     // (every double operation is a libcall), so all three load.
-    row("xtensa-esp-unknown-elf", "", true, "builtins.memory builtins.integer builtins.float")
-    row("xtensa-esp-unknown-elf", "+fp", true, "builtins.memory builtins.integer builtins.float")
+    row("xtensa-esp-unknown-elf", "", true, "builtins.memory builtins.seams builtins.integer builtins.float")
+    row("xtensa-esp-unknown-elf", "+fp", true, "builtins.memory builtins.seams builtins.integer builtins.float")
     // The FPU funnel itself, beside the front end's copy of its answer.
     unit("arm64-apple-darwin", "", true)
     unit("x86_64-unknown-linux-gnu", "", true)

@@ -22,10 +22,12 @@ public func tc_export_rules() -> Vector<String> {
     try! out.push("export.generic")
     try! out.push("export.reserved")
     try! out.push("export.seam-signature")
+    try! out.push("export.std-seam")
     try! out.push("export.signature-disagree")
     try! out.push("export.suspends")
     try! out.push("export.unknown-seam")
     try! out.push("export.weak-alone")
+    try! out.push("export.weak-default")
     move out
 }
 
@@ -35,6 +37,8 @@ struct TcAbiTable {
     params: Vector<String>
     results: Vector<String>
     owners: Vector<String>
+    // "std" for a seam std defines a weak default of, else "".
+    defaults: Vector<String>
 }
 
 extension TcAbiTable: NoCopy {}
@@ -55,8 +59,10 @@ public func tc_check_exports(p: &var TcProgram, layer: &FrontLayer) {
     var params = Vector<String>()
     var results = Vector<String>()
     var owners = Vector<String>()
-    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
-    let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners)
+    var defaults = Vector<String>()
+    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners, &var defaults)
+    let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners,
+                           defaults: move defaults)
     var d = layer.decl_first
     while d < p.res.decls.len() {
         let info = p.res.decls[d]
@@ -347,7 +353,31 @@ extension TcProgram {
         let row = tc_abi_row_of(&table, symbol)
         let owner = table.owners.get(row) ?? ""
         let defines_seams = self.profile.seams() == TcSeams.Exported
+        let defaulted = (table.defaults.get(row) ?? "").equals("std")
+        // Std's builtins define a seam only as its weak default: a runtime
+        // compile's allowance below is for the runtime's own package.
+        if row >= 0 && defaulted && self.builtin_routine(d) {
+            if not self.export_weak(d) {
+                var msg = StringBuilder()
+                try! msg.append("std's default of seam `")
+                try! msg.append(symbol)
+                try! msg.append("` must be `@weak`: a runtime's own definition replaces it, and a strong one would collide with it (runtime/ABI.md, \"Weak defaults\")")
+                self.refuse_in(m, attr, "export.weak-default", msg.build())
+                return false
+            }
+            return self.export_seam_ok(d, attr, symbol, &table, row)
+        }
         if defines_seams && owner.equals("runtime") {
+            // Any std module, not only the builtins: the one seam export std
+            // may make is the builtins' weak default handled above.
+            if self.std_declaration(d) {
+                var msg = StringBuilder()
+                try! msg.append("`@export` symbol `")
+                try! msg.append(symbol)
+                try! msg.append("` is a runtime seam std may not define here: std defines only the defaulted seams, only weakly, and only in `std.builtins` (runtime/ABI.md, \"Weak defaults\")")
+                self.refuse_in(m, attr, "export.std-seam", msg.build())
+                return false
+            }
             return self.export_seam_ok(d, attr, symbol, &table, row)
         }
         if defines_seams && row < 0 && symbol.starts_with("__saw_rt_") {
@@ -401,8 +431,10 @@ extension TcProgram {
         var params = Vector<String>()
         var results = Vector<String>()
         var owners = Vector<String>()
-        tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
-        let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners)
+        var defaults = Vector<String>()
+        tc_runtime_abi_rows(&var names, &var params, &var results, &var owners, &var defaults)
+        let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners,
+                               defaults: move defaults)
         let row = tc_abi_row_of(&table, symbol)
         if row < 0 || not (table.owners.get(row) ?? "").equals("runtime") {
             return false
@@ -518,6 +550,11 @@ extension TcProgram {
     func builtin_routine(&self, d: Int) -> Bool {
         let m = self.res.decls[d].module
         self.res.module(m).kind == ResModuleKind.Std && self.res.module_name(m).starts_with("std.builtins.")
+    }
+
+    // Whether declaration `d` is in any std module, the builtins included.
+    func std_declaration(&self, d: Int) -> Bool {
+        self.res.module(self.res.decls[d].module).kind == ResModuleKind.Std
     }
 
     // Whether declaration `d` is the program's own, in no std module.

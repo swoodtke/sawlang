@@ -1,0 +1,8 @@
+// refuses: export.std-seam at mem.saw:24:1
+// flags: --freestanding --runtime --std-overlay compiler/tests/typecheck/refuse/export.std-seam.outside-builtins/std
+// message: only in `std.builtins`
+
+import std.mem
+
+func main() {
+}

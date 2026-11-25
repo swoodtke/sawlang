@@ -1,0 +1,26 @@
+//! Raw memory: what a type that owns a buffer does with it.
+
+/// Destroys the value at `at` where it lies, leaving its slot uninitialized.
+///
+/// The value is never moved first, so a `NoMove` value's `deinit` runs at its
+/// own address.
+public func drop_in_place<T>(at: UnsafePointer<T>) unsafe {
+    __saw_deinit_in_place(at)
+}
+
+/// Copies `count` bytes from `source` to `target`; the two ranges must not
+/// overlap.
+public func copy_bytes(source: UnsafePointer<Int8>, target: UnsafePointer<Int8>,
+                       count: Int) unsafe {
+    var i = 0
+    while i < count {
+        target[i] = source[i]
+        i = i + 1
+    }
+}
+
+// The overlay adds what no std module outside `std.builtins` may: a strong
+// definition of a defaulted seam, in a runtime compile.
+@export("__saw_rt_thread_yield")
+public func thread_yield() {
+}

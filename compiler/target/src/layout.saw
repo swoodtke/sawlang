@@ -305,7 +305,8 @@ public func target_float_unit(triple: String, features: String) -> Bool {
 // `freestanding` compile loads any: the memory routines on every target, the
 // 64-bit integer helpers where the word is 32 bits, the one place LLVM calls
 // them, and the soft-float routines where the target has no `float_unit`
-// (`target_float_unit`) (SL-948).
+// (`target_float_unit`). `builtins.seams` holds std's weak defaults of the
+// runtime seams runtime/ABI.md marks defaulted (SL-948).
 // ENTRY POINTS:
 //     asserts_typecheck_program
 public func target_builtins_modules(triple: String, freestanding: Bool, float_unit: Bool) -> Vector<String> {
@@ -314,6 +315,7 @@ public func target_builtins_modules(triple: String, freestanding: Bool, float_un
         return move out
     }
     try! out.push("builtins.memory")
+    try! out.push("builtins.seams")
     if target_word_bytes(triple) == 4 {
         try! out.push("builtins.integer")
     }

@@ -1,0 +1,33 @@
+// The defaulted seam, with the program's own strong definition beside std's
+// weak default in one `--runtime` compile: std's yields to it, so every call
+// below reaches this body, and the count shows it. An uncontended `SpinLock`
+// never yields, so taking the lock leaves the count where it was; a contended
+// one is not pinned here (one context cannot contend a lock).
+
+import fscore.*
+import std.spinlock.{SpinLock}
+
+extern "C" {
+    func __saw_rt_thread_yield()
+}
+
+static YIELDS: Atomic<Int> = Atomic(0)
+static LOCK: SpinLock<Int>
+
+@export("__saw_rt_thread_yield")
+func counting_yield() {
+    let _ = YIELDS.fetch_add(1)
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    __saw_rt_thread_yield()
+    __saw_rt_thread_yield()
+    __saw_rt_thread_yield()
+    check_value("strong_yield_counted", YIELDS.load(), 3)
+    borrow var held = LOCK.lock() {
+        held = held + 1
+    }
+    check_value("uncontended_lock_takes_no_yield", YIELDS.load(), 3)
+    finish("thread_yield_override")
+}

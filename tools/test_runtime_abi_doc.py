@@ -21,11 +21,13 @@ Run from the repo root:  ./.venv/bin/python tools/test_runtime_abi_doc.py
 Exit code 0 = pass; nonzero (with a diagnostic) = fail.
 """
 import os
+import re
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "compiler", "tools"))
 
+from runtime_table import DEFAULTED_SEAMS  # noqa: E402
 from runtime_table import RUNTIME_SEAMS  # noqa: E402
 from runtime_table import abi_signatures  # noqa: E402
 
@@ -33,6 +35,41 @@ from runtime_table import abi_signatures  # noqa: E402
 # does not recognize falls through as itself, which would silently never match a
 # Saw signature — so an unrecognized one is a documentation bug, not a pass.
 KNOWN_CLASSES = {"void", "noreturn", "word", "i64", "i32", "i16", "i8", "float"}
+
+
+def defaulted_failures() -> list:
+    """The "Weak defaults" section against the table's defaulted set, and
+    that set against std's seams module: each defaulted seam has exactly one
+    `@weak @export` there, and nothing else is exported from it."""
+    failures = []
+    with open(os.path.join(REPO, "runtime", "ABI.md")) as fh:
+        text = fh.read()
+    start = text.find("\n## Weak defaults")
+    end = text.find("\n## ", start + 1)
+    section = text[start:end] if start >= 0 else ""
+    listed = set(re.findall(r"`(__saw_rt_[a-z0-9_]+)`", section))
+    if start < 0:
+        failures.append('runtime/ABI.md has no "Weak defaults" section')
+    elif listed != set(DEFAULTED_SEAMS):
+        failures.append("the \"Weak defaults\" section names %s where DEFAULTED_SEAMS holds %s"
+                        % (sorted(listed), sorted(DEFAULTED_SEAMS)))
+    for name in sorted(set(DEFAULTED_SEAMS) - set(RUNTIME_SEAMS)):
+        failures.append("DEFAULTED_SEAMS names `%s`, which is not a runtime seam" % name)
+    with open(os.path.join(REPO, "std", "builtins", "seams.saw")) as fh:
+        lines = [line.strip() for line in fh]
+    exported = []
+    for k, line in enumerate(lines):
+        m = re.match(r'@export\("([^"]+)"\)$', line)
+        if m:
+            exported.append((m.group(1), k > 0 and lines[k - 1] == "@weak"))
+    for name in sorted(DEFAULTED_SEAMS):
+        found = [weak for symbol, weak in exported if symbol == name]
+        if len(found) != 1 or not found[0]:
+            failures.append("std/builtins/seams.saw must hold exactly one `@weak @export(\"%s\")`" % name)
+    for symbol, _ in exported:
+        if symbol not in DEFAULTED_SEAMS:
+            failures.append("std/builtins/seams.saw exports `%s`, which ABI.md does not mark defaulted" % symbol)
+    return failures
 
 
 def main() -> int:
@@ -62,6 +99,8 @@ def main() -> int:
                 f"signature can ever match")
         if ret == "noreturn" and name != "__saw_rt_panic":
             failures.append(f"{name}: documented as noreturn; only panic is")
+
+    failures += defaulted_failures()
 
     if failures:
         print("runtime/ABI.md is out of step with the frozen ABI set:\n")

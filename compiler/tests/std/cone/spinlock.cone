@@ -1,6 +1,6 @@
 # The cone of compiler/tests/std/cone/spinlock.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 28 declarations in 4 modules
+# 29 declarations in 4 modules
 
 std.panic: 2
   extern __saw_rt_panic
@@ -20,9 +20,10 @@ std.prelude: 12
   struct Atomic
   struct UnsafeMutableInterior
 
-std.spinlock: 9
+std.spinlock: 10
   enum LockState
   extern __saw_rt_lock_owner
+  extern __saw_rt_thread_yield
   init SpinLock.init
   method SpinLock.acquire
   method SpinLock.is_locked

@@ -1,0 +1,6 @@
+// refuses: export.weak-default at seams.saw:4:1
+// flags: --freestanding --std-overlay compiler/tests/typecheck/refuse/export.weak-default/std
+// std's default of a seam is weak, so a runtime's own definition replaces it; a strong one is refused (the overlay's std/builtins/seams.saw)
+
+func main() {
+}

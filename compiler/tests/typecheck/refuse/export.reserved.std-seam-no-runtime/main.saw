@@ -1,0 +1,6 @@
+// refuses: export.reserved at seams.saw:5:1
+// flags: --freestanding --std-overlay compiler/tests/typecheck/refuse/export.reserved.std-seam-no-runtime/std
+// message: only a runtime built by `sawc runtime` defines
+
+func main() {
+}

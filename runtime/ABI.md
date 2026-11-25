@@ -42,6 +42,9 @@ provider must follow it):
   `__saw_rt_write_error`. `__saw_rt_executable_path` gains a `status_out`
   parameter, and `__saw_rt_tcp_socketpair` is new. Each entry below carries
   its own amendment note.
+- SL-1159: `__saw_rt_thread_yield` is new, the first defaulted
+  seam (see "Weak defaults"). A freestanding runtime need not define it; a
+  hosted runtime provider that reaches it does.
 
 Two symbol tiers exist (design 113); only the first is this ABI:
 
@@ -1289,6 +1292,46 @@ owner is the CPU or hart plus the interrupt context, since the re-entry that
 matters in a kernel is an interrupt handler taking a lock its own core holds;
 that contract is planned.
 
+### `__saw_rt_thread_yield() -> void`
+**The thread yield (SL-1159).** Offers the processor to another thread the
+caller's scheduler could run, and returns; it may return at once. It is not the
+cooperative `yield_now` (std.task), which hands a task to its executor's next
+task. `sync`, prompt, and it neither allocates nor panics. `SpinLock` calls it
+after a run of failed attempts to take its lock, so that a holder preempted on
+a single core runs and releases instead of waiting out the spinner's slice.
+
+`SpinLock` reaches the seam from every context that takes a lock, an interrupt
+handler taking a lock its own core holds included. A provider's body must
+return at once where it cannot switch threads, an interrupt handler among them.
+
+The hosted body is `sched_yield()`, in Saw (`rt/common/pthread.saw`). Its
+default in a freestanding image is std's: see "Weak defaults".
+
+## Weak defaults
+
+A seam marked **defaulted** is one std defines in every freestanding image, as a
+weak body that does nothing, so a runtime with nothing to offer writes no
+code. The only one is `__saw_rt_thread_yield`. A runtime that can do the work
+defines the seam, and its definition replaces std's, in the same compile
+(`sawc build --freestanding --runtime`) or at the link from an object file.
+
+- **An archive member does not replace it.** The weak default already satisfies
+  the symbol, so a linker never searches an archive for another definition.
+  Link the replacement as an object, or the archive with `--whole-archive`.
+- **Hosted images get no default.** The hosted runtime defines every seam
+  strongly, and a hosted runtime provider that reaches a defaulted seam defines
+  it too.
+- **Only std defaults a seam, and only a listed one.** The compiler accepts a
+  weak `__saw_rt_*` export from a `std.builtins.*` module for exactly the seams
+  `compiler/tools/runtime_table.py` marks defaulted, held to the signature given
+  here; a strong default is refused (`export.weak-default`), and a program's own
+  `@weak @export("__saw_rt_...")` stays `export.reserved`. In a runtime compile,
+  any other seam export from std is refused (`export.std-seam`): one from a
+  module outside `std.builtins`, or of a seam that is not defaulted.
+
+`tools/test_runtime_abi_doc.py` holds this list to the table's defaulted set and
+requires one `@weak @export` of each in `std/builtins/seams.saw`.
+
 ## Blocking-extern offload (design 183)
 
 A blocking FFI call inside a suspending task runs on a thread of its own, one
@@ -1615,9 +1658,10 @@ on one side alone.
    external declarations only and links no runtime; a kernel supplies the bodies
    (for a program that runs tasks, the "Freestanding executor set" above).
    The object itself defines `memcpy`, `memset`, `memmove`, on a 32-bit word
-   the 64-bit integer helpers, and on a target with no floating-point unit the
-   soft-float routines, each weakly, so a kernel need not supply them and its
-   own definition wins when it does (LANGUAGE_SPEC.md, Profiles).
+   the 64-bit integer helpers, on a target with no floating-point unit the
+   soft-float routines, and the seams "Weak defaults" lists, each weakly, so a
+   kernel need not supply them and its own definition wins when it does
+   (LANGUAGE_SPEC.md, Profiles).
 
 ## Authoring a runtime in Saw (design 113b)
 

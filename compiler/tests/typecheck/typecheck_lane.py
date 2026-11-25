@@ -15,7 +15,8 @@ directory specifies:
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names, checked with the flags a second
-  line `// flags: ...` passes (`--runtime`, for a runtime's seams), that
+  line `// flags: ...` passes (`--runtime`, for a runtime's seams;
+  `--std-overlay DIR`, for std with the files under DIR laid over it), that
   refusal's message holds each `// message:` line of its leading comment, and
   its record holds exactly N `ERROR` lines when a `// errors: N` line (after
   `// refuses:` and `// flags:`, before `// message:`) states N, which
@@ -83,9 +84,45 @@ def sawc(args):
     return r.returncode, r.stdout
 
 
+_OVERLAYS = {}
+
+
+def std_overlay(directory):
+    """A std root made of the checkout's std with the files under `directory`
+    laid over it, for a fixture that needs a std file the checkout does not
+    hold (a strong default of a seam). Made once per run, under the system's
+    temporary directory; each top-level entry of std is a link, except the
+    directories the overlay also holds, which are merged one level down, and the
+    files it holds, which replace std's."""
+    if directory in _OVERLAYS:
+        return _OVERLAYS[directory]
+    root = tempfile.mkdtemp(prefix="typecheck-std-overlay-")
+    std = os.path.join(REPO, "std")
+    over = os.path.join(REPO, directory)
+    for name in os.listdir(std):
+        if os.path.isdir(os.path.join(over, name)):
+            os.mkdir(os.path.join(root, name))
+            for inner in os.listdir(os.path.join(std, name)):
+                if not os.path.exists(os.path.join(over, name, inner)):
+                    os.symlink(os.path.join(std, name, inner), os.path.join(root, name, inner))
+            for inner in os.listdir(os.path.join(over, name)):
+                os.symlink(os.path.join(over, name, inner), os.path.join(root, name, inner))
+        elif os.path.isfile(os.path.join(over, name)):
+            os.symlink(os.path.join(over, name), os.path.join(root, name))
+        else:
+            os.symlink(os.path.join(std, name), os.path.join(root, name))
+    _OVERLAYS[directory] = root
+    return root
+
+
 def with_std_root(args):
-    """`args`, naming the checkout's std when they name no `--std-root`."""
-    return list(args) if "--std-root" in args else ["--std-root", "std"] + list(args)
+    """`args`, naming the checkout's std when they name no `--std-root`; a
+    `--std-overlay DIR` pair becomes the `--std-root` of `std_overlay(DIR)`."""
+    args = list(args)
+    if "--std-overlay" in args:
+        k = args.index("--std-overlay")
+        args[k:k + 2] = ["--std-root", std_overlay(args[k + 1])]
+    return args if "--std-root" in args else ["--std-root", "std"] + args
 
 
 def package_args():
