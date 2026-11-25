@@ -1,0 +1,77 @@
+// A hosted C compile is driven by the clang and the triple `sawc tools` names:
+// `hosted_c_tools` reads them from the text, and `hosted_compile_arguments`
+// spells the compile, one argument per word, with the depfile, then each
+// include directory and define. A text with no triple, no clang, or a
+// bare-metal triple is refused, the last naming `[sos]`. The object's path is
+// `<dir>/native/<package>/<hash of the source path>-<stem>.o`.
+
+import blade.nativec.*
+
+func words(items: &Vector<String>) -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < items.len() {
+        if i > 0 {
+            try! b.append(" ")
+        }
+        try! b.append(items.get(i) ?? "")
+        i = i + 1
+    }
+    b.build()
+}
+
+func tools_of(text: String) -> HostedTools {
+    match hosted_c_tools(text) {
+        case Ok(found) -> { return found },
+        case Err(e) -> panic("`{text}` should name tools: {e.text()}")
+    }
+}
+
+func refused(text: String) -> String {
+    match hosted_c_tools(text) {
+        case Ok(_) -> panic("`{text}` should be refused"),
+        case Err(e) -> { return e.text() }
+    }
+}
+
+func main() {
+    let mac = tools_of("clang /usr/bin/clang\nld.lld /usr/bin/ld.lld\ntriple arm64-apple-macosx11.0.0\n")
+    assert(mac.clang.equals("/usr/bin/clang") && mac.triple.equals("arm64-apple-macosx11.0.0"), "the clang and the triple lines")
+    let spaced = tools_of("clang /Users/a b/bin/clang\ntriple x86_64-unknown-linux-gnu\n")
+    assert(spaced.clang.equals("/Users/a b/bin/clang"), "a path with a space stays whole")
+
+    var said = refused("clang /usr/bin/clang\n")
+    assert(said.contains("names no triple"), "an older compiler: {said}")
+    said = refused("triple arm64-apple-macosx11.0.0\n")
+    assert(said.contains("names no clang"), "no clang: {said}")
+    said = refused("clang /usr/bin/clang\ntriple riscv32-unknown-none-elf\n")
+    assert(said.contains("riscv32-unknown-none-elf") && said.contains("`[sos]`"), "a bare-metal triple names [sos]: {said}")
+
+    var includes = Vector<String>()
+    try! includes.push("vendor/lz4/lib")
+    try! includes.push("inc dir")
+    var defines = Vector<String>()
+    try! defines.push("NDEBUG")
+    try! defines.push("CONFIG=\"saw config.h\"")
+    let args = hosted_compile_arguments(mac.triple, "c/glue.c", ".build/host/native/p/0000-glue.o",
+                                        ".build/host/native/p/0000-glue.o.d", &includes, &defines)
+    assert(args.len() == 19, "nineteen words, each define and directory its own: {args.len()}")
+    assert(words(&args).equals("-target arm64-apple-macosx11.0.0 -O2 -g -c c/glue.c -o .build/host/native/p/0000-glue.o -MD -MF .build/host/native/p/0000-glue.o.d -I vendor/lz4/lib -I inc dir -D NDEBUG -D CONFIG=\"saw config.h\""),
+           "the arguments: {words(&args)}")
+    assert((args.get(14) ?? "").equals("inc dir"), "a directory with a space is one argument")
+    assert((args.get(18) ?? "").equals("CONFIG=\"saw config.h\""), "a define with quotes is one argument")
+
+    let none = Vector<String>()
+    let bare = hosted_compile_arguments("aarch64-unknown-linux-gnu", "a.c", "a.o", "a.d", &none, &none)
+    assert(words(&bare).equals("-target aarch64-unknown-linux-gnu -O2 -g -c a.c -o a.o -MD -MF a.d"), "no directories or defines: {words(&bare)}")
+
+    // The object's path: a fixed directory, the package, a hash of the whole
+    // source path (so two files of one name stay apart) and the stem.
+    let one = native_object_path(".build/host", "pkg", "a/x.c")
+    let two = native_object_path(".build/host", "pkg", "b/x.c")
+    assert(one.starts_with(".build/host/native/pkg/") && one.ends_with("-x.o"), "the object's path: {one}")
+    assert(not one.equals(two), "a/x.c and b/x.c have objects of their own")
+    assert(one.equals(native_object_path(".build/host", "pkg", "a/x.c")), "the same source, the same object")
+    assert(native_object_path("o", "p", "s/glue.S").ends_with("-glue.o"), "an assembly source's stem")
+    print("native_compile_arguments_hosted: ok")
+}

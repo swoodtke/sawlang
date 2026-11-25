@@ -1,0 +1,6 @@
+[package]
+name = "native_define_bad_name"
+version = "0.1.0"
+
+[native.arm64-apple-darwin]
+defines = ["9LIVES=1"]

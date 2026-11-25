@@ -1,0 +1,6 @@
+[package]
+name = "native_define_function_like"
+version = "0.1.0"
+
+[native]
+defines = ["SQUARE(x)=((x)*(x))"]

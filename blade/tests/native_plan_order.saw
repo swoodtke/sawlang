@@ -7,6 +7,7 @@
 // matches nothing is refused naming the package and the key.
 
 import blade.builder.{Builder}
+import blade.layout.*
 import blade.linkinputs.*
 import blade.manifest.*
 import blade.resolver.*
@@ -137,12 +138,29 @@ func main() {
     said = refused("p", "tests/fixtures/native_files", "library-path", "nowhere")
     assert(said.contains("`nowhere` does not exist"), "a missing directory: {said}")
 
+    // ---- C sources and include directories -------------------------------
+    let c_files = match expand_native_value("p", "tests/fixtures/native_files", "c-source", "*.c") {
+        case Ok(found) -> move found,
+        case Err(e) -> panic("*.c should match: {e.text()}")
+    }
+    assert(words(&c_files).equals("tests/fixtures/native_files/z.c"), "a C pattern: {words(&c_files)}")
+    said = refused("p", "tests/fixtures/native_files", "c-source", "q*.c")
+    assert(said.contains("[native] c-sources: `q*.c` matches no file"), "a C pattern matching nothing: {said}")
+    said = refused("p", "tests/fixtures/native_files", "c-source", "notes.txt")
+    assert(said.contains("`tests/fixtures/native_files/notes.txt` is not a C or assembly source"), "an extension that is not C: {said}")
+    said = refused("p", "tests/fixtures/native_files", "c-source", "m*.o")
+    assert(said.contains("is not a C or assembly source"), "a pattern that matches an object: {said}")
+    said = refused("p", "tests/fixtures/native_files", "c-source", "dir.o")
+    assert(said.contains("[native] c-sources: `dir.o` is a directory"), "a directory for a C source: {said}")
+    said = refused("p", "tests/fixtures/native_files", "include-dir", "z.c")
+    assert(said.contains("[native] include-dirs: `z.c` is a file"), "a file for an include directory: {said}")
+
     // ---- a resolved diamond, end to end ----------------------------------
     match Manifest.load_from(Path(s: "tests/fixtures/native_diamond/app")) {
         case Ok(m) -> {
             match resolve(m) {
                 case Ok(res) -> {
-                    let linked = match Builder(m: m).link_plan(&res, "") {
+                    let linked = match Builder(m: m).link_plan(&res, "", &BuildLayout()) {
                         case Ok(found) -> move found,
                         case Err(e) -> panic("the diamond should plan: {e.message}")
                     }

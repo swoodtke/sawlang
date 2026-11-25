@@ -74,7 +74,9 @@ extension Tester {
                     try! args.push("{name}={dir}/src")
                     i = i + 1
                 }
-                let plan = try Builder(m: self.manifest).link_plan(&res, "")
+                let builder = Builder(m: self.manifest)
+                let plan = try builder.link_plan(&res, "", &self.layout)
+                try builder.compile_hosted(&plan, "")
                 let linked = plan.sawc_arguments()
                 var n = 0
                 while n < linked.len() {

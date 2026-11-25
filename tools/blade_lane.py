@@ -1117,7 +1117,7 @@ def check_blade_native(binary=None):
         ("a pattern that matches nothing", '[native]\nobjects = ["none/*.o"]\n', "`none/*.o` matches no file"),
         ("a framework outside a Mach-O triple's table", '[native]\nframeworks = ["Security"]\n',
          "belongs in the [native.<triple>] table of an `-apple-` triple"),
-        ("c-sources", '[native]\nc-sources = ["glue.c"]\n', "c-sources: compiling C sources is not supported yet"),
+        ("a function-like define", '[native]\ndefines = ["SQUARE(x)=((x)*(x))"]\n', "function-like macro"),
         ("a missing object", '[native]\nobjects = ["gone.o"]\n', "`gone.o` does not exist"),
     )
     for index, (title, native, said) in enumerate(refusals):
@@ -1129,6 +1129,106 @@ def check_blade_native(binary=None):
         blade_refused(binary, ["build"], package, said)
     print("blade: blade test refuses a `[native]` input that is not there", flush=True)
     blade_refused(binary, ["test"], os.path.join(work, "refused5"), "`gone.o` does not exist")
+
+
+NATIVE_C_SOURCES = {
+    "a": '#include "config.h"\nint c_a(void) { return BASE + LEVEL; }\n',
+    "b": "int c_b(void) {\n#ifdef FLAG\n    return 7;\n#else\n    return 0;\n#endif\n}\n",
+    "c": "int c_c(void) { return 9; }\n",
+}
+NATIVE_C_BROKEN_B = "int c_b(void) { return ; }\n"
+NATIVE_C_LIBRARY_SOURCE = (
+    'extern "C" {\n    func c_a() -> Int32\n    func c_b() -> Int32\n    func c_c() -> Int32\n}\n\n'
+    'public func total() -> Int {\n    (c_a() + c_b() + c_c()) as Int\n}\n')
+
+
+def native_c_objects(package, library):
+    """The objects Blade compiled for `library` under `package`'s build directory, by source stem."""
+    directory = os.path.join(package, ".build", "host", "native", library)
+    found = {}
+    for name in sorted(os.listdir(directory)):
+        if name.endswith(".o"):
+            found[name.split("-", 1)[1][:-2]] = os.path.join(directory, name)
+    return found
+
+
+def native_c_state(objects):
+    """(object mtime in ns, key text) per stem, which a rebuild of one object moves for that object alone."""
+    state = {}
+    for stem, path in objects.items():
+        with open(path + ".key", encoding="utf-8") as f:
+            state[stem] = (os.stat(path).st_mtime_ns, f.read())
+    return state
+
+
+def check_blade_native_c(binary=None):
+    """A dependency's `[native]` C sources, found by a pattern in a directory whose name holds a space and
+    double quotes, compile with its include directory and defines, link into `blade build`, `blade run` and
+    `blade test`, and are cached: an unchanged build is up to date, a header edit recompiles the one object
+    that includes it (the other objects, and their keys, stay), and a syntax error in one of three sources
+    fails the build with that source's diagnostic printed once and the others' left out."""
+    binary = binary or SELF_BUILT
+    work = os.path.join(WORK_DIR, "native_c")
+    shutil.rmtree(work, ignore_errors=True)
+    library = os.path.join(work, 'lib "dir"')
+    app = os.path.join(work, "app")
+    write_text(os.path.join(library, "Saw.toml"),
+               '[package]\nname = "clib"\nversion = "0.1.0"\n\n[native]\nc-sources = ["c/*.c"]\n'
+               'include-dirs = ["inc"]\ndefines = ["LEVEL=5", "FLAG"]\n')
+    write_text(os.path.join(library, "inc", "config.h"), "#define BASE 100\n")
+    for stem, text in NATIVE_C_SOURCES.items():
+        write_text(os.path.join(library, "c", stem + ".c"), text)
+    write_text(os.path.join(library, "src", "lib.saw"), NATIVE_C_LIBRARY_SOURCE)
+    write_text(os.path.join(app, "Saw.toml"),
+               '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nclib = { path = "../lib \\"dir\\"" }\n')
+    write_text(os.path.join(app, "src", "main.saw"),
+               'import clib\n\nfunc main() {\n    print("total {clib.total()}")\n}\n')
+    write_text(os.path.join(app, "tests", "total.saw"),
+               'import clib\n\nfunc main() {\n    assert(clib.total() == 121, "the three C sources")\n}\n')
+    print("blade: a dependency's C sources compile, link, run and test", flush=True)
+    blade_ok(binary, ["build"], app, "Finished .build/host/app")
+    blade_ok(binary, ["build"], app, "(up to date)")
+    blade_ok(binary, ["run"], app, "total 121")
+    blade_ok(binary, ["test"], app, "test result: ok")
+    objects = native_c_objects(app, "clib")
+    if sorted(objects) != ["a", "b", "c"]:
+        raise Failure("the three sources have objects %s" % sorted(objects))
+    before = native_c_state(objects)
+
+    print("blade: a header edit recompiles only the object that includes it", flush=True)
+    write_text(os.path.join(library, "inc", "config.h"), "#define BASE 200\n")
+    out = blade_ok(binary, ["build"], app, "Compiling")
+    if "(up to date)" in out or "c/a.c" not in out or "c/b.c" in out or "c/c.c" in out:
+        raise Failure("a header only a.c includes should recompile a.c alone\n%s" % out)
+    blade_ok(binary, ["run"], app, "total 221")
+    after = native_c_state(objects)
+    if after["a"] == before["a"] or after["a"][1] == before["a"][1]:
+        raise Failure("the object that includes the header was not recompiled")
+    for stem in ("b", "c"):
+        if after[stem] != before[stem]:
+            raise Failure("the object of %s.c changed with a header it does not include" % stem)
+    blade_ok(binary, ["build"], app, "(up to date)")
+
+    print("blade: a define edit recompiles every object", flush=True)
+    write_text(os.path.join(library, "Saw.toml"),
+               '[package]\nname = "clib"\nversion = "0.1.0"\n\n[native]\nc-sources = ["c/*.c"]\n'
+               'include-dirs = ["inc"]\ndefines = ["LEVEL=6", "FLAG"]\n')
+    blade_ok(binary, ["run"], app, "total 222")
+    redone = native_c_state(objects)
+    if any(redone[stem][1] == after[stem][1] for stem in redone):
+        raise Failure("a changed define should change every object's key")
+
+    print("blade: a syntax error in one of three sources fails the build with its diagnostic once", flush=True)
+    write_text(os.path.join(library, "c", "b.c"), NATIVE_C_BROKEN_B)
+    code, out = run_blade(binary, ["build"], app)
+    if code == 0:
+        raise Failure("a syntax error in b.c did not fail the build\n%s" % out)
+    if out.count("error: compiling") != 1 or "b.c" not in out or out.count("should return a value") != 1:
+        raise Failure("the failure should print b.c's diagnostic once\n%s" % out)
+    if "a.c" in out or "c/c.c" in out:
+        raise Failure("the sources that compile should print nothing\n%s" % out)
+    write_text(os.path.join(library, "c", "b.c"), NATIVE_C_SOURCES["b"])
+    blade_ok(binary, ["run"], app, "total 222")
 
 
 def lane():
@@ -1164,6 +1264,7 @@ def lane():
         check_blade_no_hidden_alloc()
         check_blade_max_task_frame()
         check_blade_native()
+        check_blade_native_c()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

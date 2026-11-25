@@ -1,0 +1,500 @@
+// Native C - compiling a package's `[native] c-sources` (SL-1170).
+//
+// Each C source compiles to an object under the build directory, beside a
+// depfile clang writes (`-MD -MF`) and a key file. The key covers the compiler,
+// the arguments, the source and every file the depfile names, so an object is
+// reused exactly when none of those changed. The compiles that are due run
+// side by side as cooperative tasks, at most `parallel_jobs()` at once.
+
+import blade.linkinputs.*
+import blade.sosimg.{recorded_tool}
+
+import blade.layout.*
+
+import std.channel.{Channel}
+import std.data.{Data}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+import std.process.{Command}
+
+// =============================================================================
+// The depfile
+// =============================================================================
+
+/// The prerequisites a Make-syntax depfile names, in order, without its target.
+/// A backslash before a newline continues the line, `\ ` is a space inside a
+/// word, `\#` a `#` and `$$` a `$`. A new unescaped line starts a new rule,
+/// whose target is dropped too.
+public func parse_depfile(text: String) -> Vector<String> {
+    var out = Vector<String>()
+    var word = StringBuilder()
+    var has_word = false
+    var in_target = true
+    var i = 0
+    let end = text.len()
+    while i < end {
+        let b = text.byte_at(i) as Int
+        var split = false
+        var newline = false
+        if b == 92 && i + 1 < end {
+            let next = text.byte_at(i + 1) as Int
+            if next == 10 {
+                split = true
+                i = i + 2
+            } else if next == 13 && i + 2 < end && (text.byte_at(i + 2) as Int) == 10 {
+                split = true
+                i = i + 3
+            } else if next == 32 || next == 35 {
+                try! word.append(text.byte_at(i + 1))
+                has_word = true
+                i = i + 2
+            } else {
+                try! word.append(text.byte_at(i))
+                has_word = true
+                i = i + 1
+            }
+        } else if b == 36 && i + 1 < end && (text.byte_at(i + 1) as Int) == 36 {
+            try! word.append(text.byte_at(i))
+            has_word = true
+            i = i + 2
+        } else if b == 32 || b == 9 {
+            split = true
+            i = i + 1
+        } else if b == 10 || b == 13 {
+            split = true
+            newline = true
+            i = i + 1
+        } else {
+            try! word.append(text.byte_at(i))
+            has_word = true
+            i = i + 1
+        }
+        if (split || i >= end) && has_word {
+            let finished = word.build()
+            word = StringBuilder()
+            has_word = false
+            if in_target {
+                if finished.ends_with(":") {
+                    in_target = false
+                } else if finished.equals(":") {
+                    in_target = false
+                }
+            } else {
+                try! out.push(finished)
+            }
+        }
+        if newline {
+            in_target = true
+        }
+    }
+    move out
+}
+
+// =============================================================================
+// Compile arguments
+// =============================================================================
+
+/// The C compiler and the triple a hosted build compiles for, as `sawc tools`
+/// printed them.
+public struct HostedTools {
+    clang: String
+    triple: String
+}
+
+func bare_metal_triple(triple: String) -> Bool {
+    triple.equals("aarch64-unknown-none-elf") || triple.equals("riscv32-unknown-none-elf") ||
+        triple.equals("xtensa-esp-unknown-elf")
+}
+
+/// The `clang` and `triple` lines of what `sawc tools [--target T]` printed. A
+/// text with no clang, or no triple (a compiler older than the line), is
+/// refused, and so is a bare-metal triple, which only an `[sos]` image links.
+public func hosted_c_tools(recorded: String) -> Result<HostedTools, NativeError> {
+    guard let clang = recorded_tool(recorded, "clang") else {
+        return NativeError(msg: "[native] c-sources: `sawc tools` names no clang to compile C with")
+    }
+    guard let triple = recorded_tool(recorded, "triple") else {
+        return NativeError(msg: "[native] c-sources: `sawc tools` names no triple to compile C for: the compiler is older than Blade")
+    }
+    if bare_metal_triple(triple) {
+        return NativeError(msg: "[native] c-sources: {triple} is a bare-metal target, which only an image links: declare an `[sos]` table in Saw.toml to build C for it")
+    }
+    return HostedTools(clang: clang, triple: triple)
+}
+
+/// What every C compile is given after its own flags: the depfile clang writes,
+/// then `-I DIR` for each include directory and `-D DEF` for each define, one
+/// argument per word.
+public func c_extra_arguments(depfile: String, includes: &Vector<String>, defines: &Vector<String>) -> Vector<String> {
+    var args = Vector<String>()
+    try! args.push("-MD")
+    try! args.push("-MF")
+    try! args.push(depfile)
+    var i = 0
+    while i < includes.len() {
+        try! args.push("-I")
+        try! args.push(includes.get(i) ?? "")
+        i = i + 1
+    }
+    var d = 0
+    while d < defines.len() {
+        try! args.push("-D")
+        try! args.push(defines.get(d) ?? "")
+        d = d + 1
+    }
+    move args
+}
+
+/// The argument list (without the program) that compiles `source` into
+/// `object` for a hosted build for `triple`.
+public func hosted_compile_arguments(triple: String, source: String, object: String, depfile: String,
+                                     includes: &Vector<String>, defines: &Vector<String>) -> Vector<String> {
+    var args = Vector<String>()
+    try! args.push("-target")
+    try! args.push(triple)
+    try! args.push("-O2")
+    try! args.push("-g")
+    try! args.push("-c")
+    try! args.push(source)
+    try! args.push("-o")
+    try! args.push(object)
+    let extra = c_extra_arguments(depfile, &includes, &defines)
+    var e = 0
+    while e < extra.len() {
+        try! args.push(extra.get(e) ?? "")
+        e = e + 1
+    }
+    move args
+}
+
+// =============================================================================
+// Paths and the key
+// =============================================================================
+
+func hex_of(value: Int) -> String {
+    let digits = "0123456789abcdef"
+    var out = StringBuilder()
+    var shift = 60
+    while shift >= 0 {
+        let nibble = (value >> shift) & 15
+        try! out.append(digits.substring(nibble, nibble + 1))
+        shift = shift - 4
+    }
+    out.build()
+}
+
+/// Where the object of `source` goes: `<dir>/native/<package>/<hex of the
+/// source path>-<stem>.o`. The digested prefix keeps `a/x.c` and `b/x.c` apart.
+public func native_object_path(dir: String, package: String, source: String) -> String {
+    var h = 5381
+    for byte in source.bytes() {
+        h = (h &* 33) &+ (byte as Int)
+    }
+    let slash = source.last_index_of(47) ?? -1
+    let name = source.substring(slash + 1, source.len())
+    let dot = name.last_index_of(46) ?? -1
+    let stem = if dot > 0 { name.substring(0, dot) } else { name }
+    "{dir}/native/{package}/{hex_of(h)}-{stem}.o"
+}
+
+/// The key an object is reused under: a tag, the compiler's identity (`clang`),
+/// every argument but the output paths (`-o` and `-MF` and their values), the
+/// source's digest and each prerequisite line (a path and its digest), as one
+/// digest. Moving an output changes nothing; any input's bytes do.
+public func object_key(clang: String, arguments: &Vector<String>, source: String,
+                       prerequisites: &Vector<String>) -> String {
+    var b = StringBuilder()
+    try! b.append("blade-native-1\nclang {clang}\n")
+    var i = 0
+    while i < arguments.len() {
+        let argument = arguments.get(i) ?? ""
+        if argument.equals("-o") || argument.equals("-MF") {
+            i = i + 2
+            continue
+        }
+        try! b.append("argument {argument}\n")
+        i = i + 1
+    }
+    try! b.append("source {source}\n")
+    var p = 0
+    while p < prerequisites.len() {
+        try! b.append("prerequisite {prerequisites.get(p) ?? ""}\n")
+        p = p + 1
+    }
+    "blade-native-1 {text_digest(b.build())}"
+}
+
+/// A C compile that is due or reusable: `arguments` is the whole list for
+/// `program`, `object`, `depfile` and `keyfile` the three files it keeps.
+public struct CJob {
+    source: String
+    object: String
+    depfile: String
+    keyfile: String
+    arguments: Vector<String>
+}
+
+extension CJob: NoCopy {}
+
+extension CJob {
+    public init(source: &CSource, arguments: Vector<String>) -> CJob {
+        CJob(source: source.source, object: source.object, depfile: "{source.object}.d",
+             keyfile: "{source.object}.key", arguments: move arguments)
+    }
+}
+
+/// The key `job` has now: its source and, when the depfile exists, each file it
+/// names but the source, read from disk.
+func current_key(job: &CJob, clang: String) -> String {
+    var prerequisites = Vector<String>()
+    if File.exists(Path(s: job.depfile)) {
+        let named = parse_depfile(read_file(job.depfile))
+        var i = 0
+        while i < named.len() {
+            let path = named.get(i) ?? ""
+            if not path.equals(job.source) {
+                try! prerequisites.push("{path} {file_digest(path)}")
+            }
+            i = i + 1
+        }
+    }
+    object_key(clang, &job.arguments, file_digest(job.source), &prerequisites)
+}
+
+func is_reusable(job: &CJob, clang: String) -> Bool {
+    if not (File.exists(Path(s: job.object)) && File.exists(Path(s: job.depfile)) && File.exists(Path(s: job.keyfile))) {
+        return false
+    }
+    read_file(job.keyfile).equals(current_key(&job, clang))
+}
+
+// =============================================================================
+// Running the compiles
+// =============================================================================
+
+/// How many compiles run at once: three quarters of the processors
+/// `getconf _NPROCESSORS_ONLN` reports, at least one, lowered by a positive
+/// `SAW_GATE_JOBS` (the knob sawc's split build keeps to as well).
+public func parallel_jobs() -> Int {
+    var ask = Command(program: "getconf")
+    try! ask.arg("_NPROCESSORS_ONLN")
+    var cpus = 0
+    match ask.output() {
+        case Ok(out) -> {
+            if out.success() {
+                let lines = try! out.stdout.split("\n")
+                cpus = (lines.get(0) ?? "").to_int() ?? 0
+            }
+        },
+        case Err(_) -> {}
+    }
+    var ceiling = cpus * 3 / 4
+    if ceiling < 1 {
+        ceiling = 1
+    }
+    let asked = ((try! Env.get("SAW_GATE_JOBS")) ?? "").to_int() ?? 0
+    if asked > 0 && asked < ceiling {
+        return asked
+    }
+    ceiling
+}
+
+/// The compiler's identity for object keys: its path and the first line of
+/// `--version`.
+public func clang_identity(clang: String) -> Result<String, NativeError> {
+    var ask = Command(program: clang)
+    try! ask.arg("--version")
+    match ask.output() {
+        case Ok(out) -> {
+            if not out.success() {
+                return NativeError(msg: "`{clang} --version` failed: the C compiler `sawc tools` names does not run")
+            }
+            let lines = try! out.stdout.split("\n")
+            return "{clang}\n{lines.get(0) ?? ""}"
+        },
+        case Err(e) -> {
+            return NativeError(msg: "could not run `{clang}`, the C compiler `sawc tools` names: {e}")
+        }
+    }
+}
+
+struct RunJob {
+    index: Int
+    program: String
+    arguments: Vector<String>
+}
+
+extension RunJob: NoCopy {}
+
+struct RunDone {
+    index: Int
+    success: Bool
+    text: String
+}
+
+func run_job(job: &RunJob) -> RunDone {
+    var cmd = Command(program: job.program)
+    var i = 0
+    while i < job.arguments.len() {
+        try! cmd.arg(job.arguments.get(i) ?? "")
+        i = i + 1
+    }
+    cmd.merge_stderr()
+    match cmd.output() {
+        case Ok(out) -> {
+            return RunDone(index: job.index, success: out.success(), text: out.stdout)
+        },
+        case Err(e) -> {
+            return RunDone(index: job.index, success: false, text: "could not run {job.program}: {e}\n")
+        }
+    }
+}
+
+// One compile worker: takes jobs until the queue is closed and drained. After
+// any compile has failed it takes the rest without running them, so no new job
+// starts once one failed while the running ones finish.
+func compile_worker(queue: Channel<RunJob>, finished: Channel<RunDone>, failed: Arc<Atomic<Int>>) {
+    var going = true
+    while going {
+        match queue.receive() {
+            case Ok(job) -> {
+                if failed.value().load() == 0 {
+                    let done = run_job(&job)
+                    if not done.success {
+                        failed.value().store(1)
+                    }
+                    let _ = finished.send(done)
+                }
+            },
+            case Err(_) -> { going = false }
+        }
+    }
+}
+
+func alloc_failed(what: String) -> NativeError {
+    NativeError(msg: "could not allocate {what} for the C compiles")
+}
+
+// Runs `pending` on `workers` tasks and answers each job that ran, in no
+// particular order. Jobs left unrun after a failure have no answer.
+func run_pending(pending: Vector<RunJob>, workers: Int) -> Result<Vector<RunDone>, NativeError> {
+    guard let queue = try? Channel<RunJob>() else {
+        return alloc_failed("the job queue")
+    }
+    guard let finished = try? Channel<RunDone>() else {
+        return alloc_failed("the result queue")
+    }
+    guard let failed = try? Arc(value: Atomic<Int>(0)) else {
+        return alloc_failed("the failure flag")
+    }
+    var group = TaskGroup()
+    var handles = Vector<Task<Void>>()
+    var w = 0
+    while w < workers {
+        try! handles.push(group.spawn(compile_worker(queue.copy(), finished.copy(), failed.copy())))
+        w = w + 1
+    }
+    var jobs = move pending
+    while let job = jobs.pop() {
+        match queue.send(move job) {
+            case Ok(_) -> {},
+            case Err(e) -> { return NativeError(msg: "could not queue a C compile: {e}") }
+        }
+    }
+    let _ = queue.close()
+    while let handle = handles.pop() {
+        handle.join()
+    }
+    var answers = Vector<RunDone>()
+    var going = true
+    while going {
+        match finished.try_receive() {
+            case Ok(next) -> {
+                if let done = next {
+                    try! answers.push(done)
+                } else {
+                    going = false
+                }
+            },
+            case Err(_) -> { going = false }
+        }
+    }
+    return move answers
+}
+
+func write_text(path: String, text: String) -> Bool {
+    match File.create(Path(s: path)) {
+        case Ok(f) -> {
+            match f.write(try! text.to_data()) {
+                case Ok(_) -> { return true },
+                case Err(_) -> { return false }
+            }
+        },
+        case Err(_) -> { return false }
+    }
+}
+
+/// Compiles every job that is not reusable, `parallel_jobs()` at a time, with
+/// `clang` (`identity` its `clang_identity`), and answers how many it compiled. A
+/// reusable job's object, depfile and key are untouched. Each failure prints
+/// whole, once, after the running compiles end; a key is written only for a
+/// compile that succeeded, from the depfile it just wrote.
+public func compile_c_sources(jobs: &Vector<CJob>, clang: String, identity: String) -> Result<Int, NativeError> {
+    var pending = Vector<RunJob>()
+    var i = 0
+    while i < jobs.len() {
+        if let job = jobs.find(i) {
+            if not Path(s: job.object).parent()!.ensure_dir() {
+                return NativeError(msg: "could not create the directory of {job.object}")
+            }
+            if not is_reusable(&job, identity) {
+                let _ = File.remove(Path(s: job.keyfile))
+                try! pending.push(RunJob(index: i, program: clang, arguments: job.arguments.copy()))
+            }
+        }
+        i = i + 1
+    }
+    if pending.len() == 0 {
+        return 0
+    }
+    let limit = parallel_jobs()
+    let width = if pending.len() < limit { pending.len() } else { limit }
+    let queued = pending.len()
+    let answers = try run_pending(move pending, width)
+    var compiled = 0
+    var failures = 0
+    var at = 0
+    while at < jobs.len() {
+        var a = 0
+        while a < answers.len() {
+            if let done = answers.get(a) {
+                if done.index == at {
+                    if let job = jobs.find(at) {
+                        if done.success {
+                            print("   Compiling {job.source}")
+                            if not write_text(job.keyfile, current_key(&job, identity)) {
+                                return NativeError(msg: "could not write {job.keyfile}")
+                            }
+                            compiled = compiled + 1
+                        } else {
+                            print("error: compiling {job.source} failed\n{done.text}")
+                            failures = failures + 1
+                        }
+                    }
+                }
+            }
+            a = a + 1
+        }
+        at = at + 1
+    }
+    if failures > 0 {
+        return NativeError(msg: "{failures} C source(s) failed to compile")
+    }
+    // Only a failure leaves jobs unrun, so with none every queued job answers;
+    // a missing answer is a result the channel lost, and its object is unknown.
+    if answers.len() != queued {
+        return NativeError(msg: "{queued - answers.len()} of {queued} C compile result(s) were lost: the result queue refused them")
+    }
+    return compiled
+}

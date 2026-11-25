@@ -1,0 +1,6 @@
+[package]
+name = "native_c_sources_glob_directory"
+version = "0.1.0"
+
+[native]
+c-sources = ["src*/x.c"]

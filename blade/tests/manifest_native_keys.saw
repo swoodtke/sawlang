@@ -2,7 +2,7 @@
 // triple's table after the base table's, a manifest without it as no entries.
 // A key it does not know, a value of the wrong type, a framework outside a
 // Mach-O triple's table, a `*` outside the last segment, an empty value, and
-// `c-sources` (compiled by a later unit) are refused naming the file, the table
+// a function-like or misnamed define are refused naming the file, the table
 // and the key. A target the compiler does not know is judged where the compiler
 // is asked (the blade lane).
 
@@ -60,9 +60,20 @@ func main() {
     shows(&ok, 10, "framework", "Security", "arm64-apple-darwin")
     shows(&ok, 11, "framework", "CoreFoundation", "arm64-apple-darwin")
 
-    // `include-dirs` and `defines` read, and name nothing for the link.
+    // `include-dirs` and `defines` read as entries of their own kinds.
     let sources = entries_of("native_source_keys")
-    assert(sources.len() == 0, "include-dirs and defines add no link input")
+    assert(sources.len() == 3, "an include directory and two defines: {sources.len()}")
+    shows(&sources, 0, "include-dir", "inc", "")
+    shows(&sources, 1, "define", "NDEBUG", "")
+    shows(&sources, 2, "define", "LEVEL=2", "")
+
+    // `c-sources` reads too, a triple's table after the base table's.
+    let c = entries_of("native_c_sources")
+    assert(c.len() == 1, "one C source: {c.len()}")
+    shows(&c, 0, "c-source", "c/glue.c", "")
+    let c_triple = entries_of("native_c_sources_triple")
+    assert(c_triple.len() == 1, "one C source in a triple's table: {c_triple.len()}")
+    shows(&c_triple, 0, "c-source", "c/glue.c", "arm64-apple-darwin")
 
     var said = refusal("native_unknown_key")
     assert(said.contains("native_unknown_key/Saw.toml") && said.contains("[native] has an unknown key `sources`"),
@@ -82,12 +93,21 @@ func main() {
     said = refusal("native_framework_linux")
     assert(said.contains("[native.aarch64-unknown-linux-gnu] frameworks:") && said.contains("not a Mach-O"),
            "a framework in a Linux triple's table: {said}")
-    said = refusal("native_c_sources")
-    assert(said.contains("[native] c-sources:") && said.contains("not supported yet") && said.contains("unit 3"),
-           "c-sources is refused as not yet, naming the unit: {said}")
-    said = refusal("native_c_sources_triple")
-    assert(said.contains("[native.arm64-apple-darwin] c-sources:") && said.contains("unit 3"),
-           "c-sources in a triple's table is refused too: {said}")
+    said = refusal("native_define_function_like")
+    assert(said.contains("[native] defines:") && said.contains("function-like macro"),
+           "a function-like macro is refused: {said}")
+    said = refusal("native_define_bad_name")
+    assert(said.contains("[native.arm64-apple-darwin] defines:") && said.contains("`9LIVES` is not a C identifier"),
+           "a name that is not a C identifier: {said}")
+    said = refusal("native_include_glob")
+    assert(said.contains("[native] include-dirs:") && said.contains("does not take"),
+           "a `*` in an include directory: {said}")
+    said = refusal("native_c_sources_glob_directory")
+    assert(said.contains("[native] c-sources:") && said.contains("before its last segment"),
+           "a `*` in a C source's directory segment: {said}")
+    assert(define_problem("NDEBUG").is_empty() && define_problem("A_1=\"x y\"").is_empty() && define_problem("EMPTY=").is_empty(),
+           "NAME and NAME=VALUE (the value anything) are definitions")
+    assert(not define_problem("").is_empty() && not define_problem("=1").is_empty(), "an empty name")
     said = refusal("native_glob_directory")
     assert(said.contains("[native] objects:") && said.contains("before its last segment"),
            "a `*` in a directory segment: {said}")

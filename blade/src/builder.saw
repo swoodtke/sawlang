@@ -15,6 +15,7 @@ import blade.cli.{BuildOptions, ModulePath}
 import blade.layout.*
 import blade.linkinputs.*
 import blade.manifest.*
+import blade.nativec.*
 import blade.resolver.*
 import blade.lock.*
 import blade.sosimg.*
@@ -48,54 +49,6 @@ extension BuildError {
 // =============================================================================
 // File helpers (content hashing)
 // =============================================================================
-
-func read_file(path_str: String) -> String {
-    let p = Path(s: path_str)
-    if not File.exists(p) {
-        return ""
-    }
-    var f = match File.open(p) {
-        case Ok(handle) -> move handle,
-        case Err(_) -> { return "" }
-    }
-    let data = match f.read() {
-        case Ok(bytes) -> move bytes,
-        case Err(_) -> { return "" }
-    }
-    // Same contract as the branches above: an unusable file reads as empty.
-    // Design 122 unit B made the UTF-8 decode fallible, so a binary file is now
-    // "unusable" for the same reason an unopenable one is.
-    match data.to_string() {
-        case Ok(s) -> s,
-        case Err(_) -> ""
-    }
-}
-
-// A digest of the bytes of `path` for a freshness check: the length and two
-// wrapping hashes, as one line of text. `read_file` cannot stand in, since it
-// reads a file that is not UTF-8 (an object, an archive) as empty. A file that
-// is missing or unreadable has a digest of its own.
-public func file_digest(path: String) -> String {
-    let p = Path(s: path)
-    if not File.exists(p) {
-        return "missing"
-    }
-    var f = match File.open(p) {
-        case Ok(handle) -> move handle,
-        case Err(_) -> { return "unreadable" }
-    }
-    let data = match f.read() {
-        case Ok(bytes) -> move bytes,
-        case Err(_) -> { return "unreadable" }
-    }
-    var first = 5381
-    var second = 1469598103934665603
-    for byte in data.iter() {
-        first = (first &* 33) &+ (byte as Int)
-        second = (second &* 1099511628211) &+ (byte as Int)
-    }
-    "{data.len()}:{first}:{second}"
-}
 
 // The entries of `dir` as paths, sorted: `Directory.list` answers in the order
 // the system lists them, and a fingerprint must not depend on it. A directory
@@ -575,6 +528,13 @@ extension Builder {
             }
             u = u + 1
         }
+        var c = 0
+        while c < plan.sources.len() {
+            if let one = plan.sources.find(c) {
+                try! b.append("\nnative-c-key={one.object} {read_file("{one.object}.key")}\n")
+            }
+            c = c + 1
+        }
         var f = 0
         while f < plan.files.len() {
             if let entry = plan.files.get(f) {
@@ -660,7 +620,7 @@ extension Builder {
     // ("" is the host): each manifest read, the triple tables that apply kept,
     // each path expanded against its own package, and the packages ordered and
     // deduplicated by `native_plan`.
-    public func link_plan(&self, res: &Resolution, target: String) -> Result<NativePlan, BuildError> {
+    public func link_plan(&self, res: &Resolution, target: String, layout: &BuildLayout) -> Result<NativePlan, BuildError> {
         var names = Vector<String>()
         var dirs = Vector<String>()
         try! names.push(self.manifest.name())
@@ -717,7 +677,12 @@ extension Builder {
                 case Err(err) -> { return BuildError(msg: err.text()) }
             }
         }
+        // `sources` are the C sources, `includes` and `defines` what their
+        // packages hand the compile, and `rows` every other link input.
         var rows = Vector<LinkEntry>()
+        var sources = Vector<LinkEntry>()
+        var includes = Vector<LinkEntry>()
+        var defines = Vector<LinkEntry>()
         var r = 0
         while r < entries.len() {
             guard let entry = entries.get(r) else {
@@ -733,16 +698,61 @@ extension Builder {
                 try! rows.push(LinkEntry(package: package, kind: entry.kind, value: entry.value))
                 continue
             }
+            if entry.kind.equals("define") {
+                try! defines.push(LinkEntry(package: package, kind: entry.kind, value: entry.value))
+                continue
+            }
             match expand_native_value(package, dirs.get(at) ?? "", entry.kind, entry.value) {
                 case Ok(paths) -> {
                     var q = 0
                     while q < paths.len() {
-                        try! rows.push(LinkEntry(package: package, kind: entry.kind, value: paths.get(q) ?? ""))
+                        let found = LinkEntry(package: package, kind: entry.kind, value: paths.get(q) ?? "")
+                        if entry.kind.equals("c-source") {
+                            try! sources.push(found)
+                        } else if entry.kind.equals("include-dir") {
+                            try! includes.push(found)
+                        } else {
+                            try! rows.push(found)
+                        }
                         q = q + 1
                     }
                 },
                 case Err(err) -> { return BuildError(msg: err.text()) }
             }
+        }
+        // Each C source's object is a link object of its package, placed
+        // before the package's prebuilt ones.
+        var compiled = Vector<CSource>()
+        var linked = Vector<LinkEntry>()
+        var s = 0
+        while s < sources.len() {
+            guard let found = sources.get(s) else {
+                break
+            }
+            s = s + 1
+            let object = native_object_path(layout.dir(), found.package, found.value)
+            var already = false
+            var c = 0
+            while c < compiled.len() {
+                if let seen = compiled.find(c) {
+                    if seen.object.equals(object) {
+                        already = true
+                    }
+                }
+                c = c + 1
+            }
+            if already {
+                continue
+            }
+            try! compiled.push(CSource(package: found.package, source: found.value, object: object,
+                                       includes: values_of(&includes, found.package),
+                                       defines: values_of(&defines, found.package)))
+            try! linked.push(LinkEntry(package: found.package, kind: "object", value: object))
+        }
+        var l = 0
+        while l < rows.len() {
+            try! linked.push(rows.get(l) ?? LinkEntry(package: "", kind: "object", value: ""))
+            l = l + 1
         }
         var requirers = Vector<String>()
         var required = Vector<String>()
@@ -753,7 +763,72 @@ extension Builder {
             k = k + 1
         }
         let order = link_order(&names, &requirers, &required)
-        return native_plan(&names, &order, &rows)
+        var plan = native_plan(&names, &order, &linked)
+        var d = 0
+        while d < compiled.len() {
+            if let one = compiled.find(d) {
+                try! plan.sources.push(one.copy())
+            }
+            d = d + 1
+        }
+        return move plan
+    }
+
+    // Runs the C compiles `jobs` with `clang`: the objects land where the plan's
+    // link inputs name them, and a failure is the build's error.
+    func compile_native(&self, clang: String, jobs: &Vector<CJob>) -> Result<Void, BuildError> {
+        let identity = match clang_identity(clang) {
+            case Ok(found) -> found,
+            case Err(e) -> { return BuildError(msg: e.text()) }
+        }
+        match compile_c_sources(&jobs, clang, identity) {
+            case Ok(_) -> {},
+            case Err(e) -> { return BuildError(msg: e.text()) }
+        }
+        return
+    }
+
+    // What `sawc tools` prints for `target` ("" is the host).
+    func sawc_tools(&self, target: String) -> Result<String, BuildError> {
+        var ask = self.compiler_command()
+        try! ask.arg("tools")
+        if not target.is_empty() {
+            try! ask.arg("--target")
+            try! ask.arg(target)
+        }
+        guard let out = try? ask.output() else {
+            return BuildError(msg: "could not run `sawc tools` to find the C compiler")
+        }
+        if not out.success() {
+            return BuildError(msg: "`sawc tools` failed, so the C compiler is unknown: {out.stdout}")
+        }
+        return out.stdout
+    }
+
+    // Compiles the C sources of `plan` for a hosted build for `target` ("" is
+    // the host), the clang and triple `sawc tools` names, with the hosted
+    // flags. A plan with no C sources runs nothing, not even `sawc tools`.
+    public func compile_hosted(&self, plan: &NativePlan, target: String) -> Result<Void, BuildError> {
+        if plan.sources.len() == 0 {
+            return
+        }
+        let recorded = try self.sawc_tools(target)
+        let tools = match hosted_c_tools(recorded) {
+            case Ok(found) -> found,
+            case Err(e) -> { return BuildError(msg: e.text()) }
+        }
+        var jobs = Vector<CJob>()
+        var i = 0
+        while i < plan.sources.len() {
+            if let one = plan.sources.find(i) {
+                let depfile = "{one.object}.d"
+                let args = hosted_compile_arguments(tools.triple, one.source, one.object, depfile,
+                                                    &one.includes, &one.defines)
+                try! jobs.push(CJob(source: &one, arguments: move args))
+            }
+            i = i + 1
+        }
+        return try self.compile_native(tools.clang, &jobs)
     }
 
     // Refuse a `--module-path` before anything is compiled: a DIR that does not
@@ -953,7 +1028,28 @@ extension Builder {
         let recorded = self.recorded_tools(cfg.target)
         let clang = sos_clang(recorded)
         let linker = sos_ld(recorded)
-        let plan = try self.link_plan(&res, cfg.target)
+        let plan = try self.link_plan(&res, cfg.target, &layout)
+        // The image's C sources compile as its `[sos.<triple>] native` units do,
+        // with the include directories, defines and depfile added.
+        var image_jobs = Vector<CJob>()
+        var j = 0
+        while j < plan.sources.len() {
+            if let one = plan.sources.find(j) {
+                let depfile = "{one.object}.d"
+                var args = native_compile_arguments(&cfg, one.source, one.object)
+                let extra = c_extra_arguments(depfile, &one.includes, &one.defines)
+                var x = 0
+                while x < extra.len() {
+                    try! args.push(extra.get(x) ?? "")
+                    x = x + 1
+                }
+                try! image_jobs.push(CJob(source: &one, arguments: move args))
+            }
+            j = j + 1
+        }
+        if image_jobs.len() > 0 {
+            try self.compile_native(clang, &image_jobs)
+        }
         let hash = self.build_hash(&res, &layout, script, cfg.native, &plan,
                                    "clang={clang}\nld={linker}")
         if not force && is_up_to_date(&layout, &hash, image) {
@@ -1119,7 +1215,10 @@ extension Builder {
         // so a build for one target never reports another's work as its own —
         // and an artifact left over from an older layout, sitting beside the
         // source where Blade used to put it, is simply not consulted.
-        let plan = try self.link_plan(&res, self.requested_target)
+        // The C sources compile first, and their keys (which cover the headers
+        // the compiles read) are part of the hash.
+        let plan = try self.link_plan(&res, self.requested_target, &self.layout)
+        try self.compile_hosted(&plan, self.requested_target)
         let hash = self.build_hash(&res, &self.layout, "", "", &plan, "")
         if not force && is_up_to_date(&self.layout, &hash, output_path) {
             print("    Finished {output_path} (up to date)")
@@ -1308,4 +1407,19 @@ extension Builder {
             case Err(e) -> BuildError(msg: "could not launch `{binary_name}`: {e}")
         }
     }
+}
+
+// The values of `rows` that belong to `package`, in order.
+func values_of(rows: &Vector<LinkEntry>, package: String) -> Vector<String> {
+    var out = Vector<String>()
+    var i = 0
+    while i < rows.len() {
+        if let row = rows.get(i) {
+            if row.package.equals(package) {
+                try! out.push(row.value)
+            }
+        }
+        i = i + 1
+    }
+    move out
 }

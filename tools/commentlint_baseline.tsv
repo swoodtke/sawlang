@@ -6,7 +6,6 @@ blade/src/builder.saw	refs.count	1	Design 143: every artifact lands in `.build/<
 blade/src/builder.saw	refs.count	1	The write happens for an APPLICATION only (design 143). An application's
 blade/src/builder.saw	refs.count	1	design 149, reaching the SOS image path (design 172 part 2): a
 blade/src/builder.saw	refs.position	1	(DF-140e) — the arms unify to the error type and the auto-wrap into
-blade/src/builder.saw	refs.position	1	Design 122 unit B made the UTF-8 decode fallible, so a binary file is now
 blade/src/builder.saw	refs.position	1	Design 143: an SOS image is an artifact like any other, so it lands
 blade/src/builder.saw	refs.position	1	Design 143: every artifact lands in `.build/<target>/`, never beside the
 blade/src/builder.saw	refs.position	1	The write happens for an APPLICATION only (design 143). An application's

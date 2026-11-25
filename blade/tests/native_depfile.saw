@@ -1,0 +1,56 @@
+// A clang depfile is Make syntax: `parse_depfile` gives its prerequisites in
+// order and drops the target, whether the rule is on one line or continued
+// with a backslash, and keeps a path with an escaped space whole.
+
+import blade.nativec.{parse_depfile}
+
+func words(items: &Vector<String>) -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < items.len() {
+        if i > 0 {
+            try! b.append("|")
+        }
+        try! b.append(items.get(i) ?? "")
+        i = i + 1
+    }
+    b.build()
+}
+
+func main() {
+    // The shape clang writes: the target, then each prerequisite on a
+    // continued line.
+    let clang = "help.o: \\\n  /sdk/SDKSettings.json \\\n  help.c inc/help.h\n"
+    var found = parse_depfile(clang)
+    assert(words(&found).equals("/sdk/SDKSettings.json|help.c|inc/help.h"), "continuations: {words(&found)}")
+
+    // One line, and a target that is separated from its colon.
+    found = parse_depfile("a.o : a.c b.h\n")
+    assert(words(&found).equals("a.c|b.h"), "a target then a spaced colon: {words(&found)}")
+    found = parse_depfile("a.o: a.c b.h")
+    assert(words(&found).equals("a.c|b.h"), "no trailing newline: {words(&found)}")
+
+    // An escaped space stays inside its word, in a prerequisite and in the
+    // target.
+    found = parse_depfile("my\\ obj.o: my\\ dir/x.c  y.h\n")
+    assert(words(&found).equals("my dir/x.c|y.h"), "escaped spaces: {words(&found)}")
+
+    // `$$` is a dollar sign, and `\#` a hash.
+    found = parse_depfile("a.o: $$x/a.c d\\#e.h\n")
+    assert(words(&found).equals("$x/a.c|d#e.h"), "dollar and hash: {words(&found)}")
+
+    // CRLF line ends continue the same way.
+    found = parse_depfile("a.o: \\\r\n a.c \\\r\n b.h\r\n")
+    assert(words(&found).equals("a.c|b.h"), "CRLF: {words(&found)}")
+
+    // A second rule's target is dropped as the first's was.
+    found = parse_depfile("a.o: a.c\nb.o: b.c\n")
+    assert(words(&found).equals("a.c|b.c"), "two rules: {words(&found)}")
+
+    // A depfile with no prerequisite, and an empty one, name none.
+    found = parse_depfile("a.o:\n")
+    assert(found.len() == 0, "a target alone")
+    found = parse_depfile("")
+    assert(found.len() == 0, "nothing")
+    print("native_depfile: ok")
+}

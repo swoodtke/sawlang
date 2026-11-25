@@ -242,25 +242,20 @@ public struct NativeEntry {
     table: String
 }
 
-// The `[native]` keys that are lists of link inputs, in the order their entries
-// are returned: each kind lists `[native]`'s values, then each triple's.
+// The `[native]` keys, each a list of strings, in the order their entries are
+// returned: each kind lists `[native]`'s values, then each triple's. A
+// package's C sources come first, so its compiled objects precede its prebuilt
+// ones.
 func native_list_keys() -> Vector<String> {
     var keys = Vector<String>()
+    try! keys.push("c-sources")
+    try! keys.push("include-dirs")
+    try! keys.push("defines")
     try! keys.push("objects")
     try! keys.push("archives")
     try! keys.push("libraries")
     try! keys.push("library-paths")
     try! keys.push("frameworks")
-    move keys
-}
-
-// The keys that name C sources to compile, which a later unit builds. They are
-// type-checked now, and `c-sources` is refused until then.
-func native_source_keys() -> Vector<String> {
-    var keys = Vector<String>()
-    try! keys.push("c-sources")
-    try! keys.push("include-dirs")
-    try! keys.push("defines")
     move keys
 }
 
@@ -277,11 +272,13 @@ func vector_has(names: &Vector<String>, key: String) -> Bool {
 
 func native_key_known(key: String) -> Bool {
     let lists = native_list_keys()
-    let sources = native_source_keys()
-    vector_has(&lists, key) || vector_has(&sources, key)
+    vector_has(&lists, key)
 }
 
 func native_kind_of(key: String) -> String {
+    if key.equals("c-sources") { return "c-source" }
+    if key.equals("include-dirs") { return "include-dir" }
+    if key.equals("defines") { return "define" }
     if key.equals("objects") { return "object" }
     if key.equals("archives") { return "archive" }
     if key.equals("libraries") { return "library" }
@@ -289,18 +286,47 @@ func native_kind_of(key: String) -> String {
     "framework"
 }
 
+/// What is wrong with the macro `value` of `[native] defines`, or "": a
+/// definition is `NAME` or `NAME=VALUE`, NAME a C identifier. A function-like
+/// macro has a `(` where the identifier ends, so it is refused here too.
+public func define_problem(value: String) -> String {
+    let at = value.index_of(61) ?? -1
+    let name = if at >= 0 { value.substring(0, at) } else { value }
+    if name.is_empty() {
+        return "an empty macro name"
+    }
+    var i = 0
+    while i < name.len() {
+        let b = name.byte_at(i) as Int
+        let letter = (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || b == 95
+        let digit = b >= 48 && b <= 57
+        if not (letter || (digit && i > 0)) {
+            if b == 40 {
+                return "`{value}` defines a function-like macro, which `defines` does not take: name an object-like macro, `NAME` or `NAME=VALUE`"
+            }
+            return "`{name}` is not a C identifier: a definition is `NAME` or `NAME=VALUE`"
+        }
+        i = i + 1
+    }
+    ""
+}
+
 // What is wrong with a value of the `[native]` list `key`, or "". A name or a
-// path is not empty. A `*` stands in the last segment of an `objects` or
-// `archives` path only (a pattern matching nothing is the build's error), and
-// `library-paths` names a directory, so it takes none.
+// path is not empty. A `*` stands in the last segment of a `c-sources`,
+// `objects` or `archives` path only (a pattern matching nothing is the build's
+// error); `include-dirs` and `library-paths` name a directory, so they take
+// none; a `defines` entry is `define_problem`'s.
 func native_value_problem(key: String, value: String) -> String {
     if value.is_empty() {
         return "an empty value"
     }
+    if key.equals("defines") {
+        return define_problem(value)
+    }
     if not value.contains("*") {
         return ""
     }
-    if key.equals("objects") || key.equals("archives") {
+    if key.equals("c-sources") || key.equals("objects") || key.equals("archives") {
         let at = value.last_index_of(47) ?? -1
         let directory = if at >= 0 { value.substring(0, at) } else { "" }
         if directory.contains("*") {
@@ -330,8 +356,8 @@ func read_string_list(t: &TomlTable, manifest: String, key: String) -> Result<Ve
 }
 
 // Checks one `[native]` or `[native.<triple>]` table: every key is known, a
-// list holds strings, `c-sources` is not yet supported, `frameworks` sits in a
-// Mach-O triple's table, and each value reads. `table` is "" for `[native]`.
+// list holds strings, `frameworks` sits in a Mach-O triple's table, and each
+// value reads. `table` is "" for `[native]`.
 func check_native_table(t: &TomlTable, manifest: String, table: String) -> Result<Void, Box<any Error>> {
     let label = if table.is_empty() { "native" } else { "native.{table}" }
     let keys = try t.keys()
@@ -346,9 +372,6 @@ func check_native_table(t: &TomlTable, manifest: String, table: String) -> Resul
             return ManifestError(msg: "{manifest}: [{label}] has an unknown key `{key}`: the keys are c-sources, include-dirs, defines, objects, archives, libraries, library-paths and frameworks")
         }
         let strings = try read_string_list(&t, manifest, key)
-        if key.equals("c-sources") && strings.len() > 0 {
-            return ManifestError(msg: "{manifest}: [{label}] c-sources: compiling C sources is not supported yet (SL-1170 unit 3 adds it); name prebuilt `objects` or `archives` for now")
-        }
         if key.equals("frameworks") && strings.len() > 0 {
             if table.is_empty() {
                 return ManifestError(msg: "{manifest}: [{label}] frameworks: a framework is a Mach-O library, so it belongs in the [native.<triple>] table of an `-apple-` triple, such as [native.arm64-apple-darwin]")
@@ -357,16 +380,13 @@ func check_native_table(t: &TomlTable, manifest: String, table: String) -> Resul
                 return ManifestError(msg: "{manifest}: [{label}] frameworks: `{table}` is not a Mach-O (`-apple-`) triple, and a framework is a Mach-O library")
             }
         }
-        let list_keys = native_list_keys()
-        if vector_has(&list_keys, key) {
-            var k = 0
-            while k < strings.len() {
-                let problem = native_value_problem(key, strings.get(k) ?? "")
-                if not problem.is_empty() {
-                    return ManifestError(msg: "{manifest}: [{label}] {key}: {problem}")
-                }
-                k = k + 1
+        var k = 0
+        while k < strings.len() {
+            let problem = native_value_problem(key, strings.get(k) ?? "")
+            if not problem.is_empty() {
+                return ManifestError(msg: "{manifest}: [{label}] {key}: {problem}")
             }
+            k = k + 1
         }
     }
     return

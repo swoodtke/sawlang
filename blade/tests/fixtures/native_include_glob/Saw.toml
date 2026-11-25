@@ -1,0 +1,6 @@
+[package]
+name = "native_include_glob"
+version = "0.1.0"
+
+[native]
+include-dirs = ["inc/*"]

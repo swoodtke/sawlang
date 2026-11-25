@@ -1,0 +1,54 @@
+// An object is reused under a key that covers the compiler's identity, every
+// argument but the output paths, the source and each prerequisite the depfile
+// names: a header's digest, a define or the compiler line changes it, and
+// moving the object or its depfile does not.
+
+import blade.nativec.*
+
+func args_with(object: String, depfile: String, define: String) -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("-target")
+    try! out.push("arm64-apple-macosx11.0.0")
+    try! out.push("-O2")
+    try! out.push("-c")
+    try! out.push("c/glue.c")
+    try! out.push("-o")
+    try! out.push(object)
+    try! out.push("-MD")
+    try! out.push("-MF")
+    try! out.push(depfile)
+    try! out.push("-D")
+    try! out.push(define)
+    move out
+}
+
+func headers_with(digest: String) -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("inc/glue.h {digest}")
+    try! out.push("/sdk/stdio.h 10:1:2")
+    move out
+}
+
+func main() {
+    let clang = "/usr/bin/clang\nApple clang version 17"
+    let args = args_with("a.o", "a.d", "LEVEL=1")
+    let headers = headers_with("5:1:1")
+    let base = object_key(clang, &args, "40:1:1", &headers)
+    assert(base.starts_with("blade-native-1 "), "the key names its format: {base}")
+    assert(base.equals(object_key(clang, &args, "40:1:1", &headers)), "the same inputs, the same key")
+
+    let moved = args_with("elsewhere/b.o", "elsewhere/b.d", "LEVEL=1")
+    assert(base.equals(object_key(clang, &moved, "40:1:1", &headers)), "the output paths are not in the key")
+
+    let header_edit = headers_with("5:2:9")
+    assert(not base.equals(object_key(clang, &args, "40:1:1", &header_edit)), "a header's bytes change the key")
+    let define = args_with("a.o", "a.d", "LEVEL=2")
+    assert(not base.equals(object_key(clang, &define, "40:1:1", &headers)), "a define changes the key")
+    assert(not base.equals(object_key("/usr/bin/clang\nApple clang version 18", &args, "40:1:1", &headers)), "the clang line changes the key")
+    assert(not base.equals(object_key("/opt/clang\nApple clang version 17", &args, "40:1:1", &headers)), "the clang path changes the key")
+    assert(not base.equals(object_key(clang, &args, "41:1:1", &headers)), "the source's bytes change the key")
+    var fewer = Vector<String>()
+    try! fewer.push("inc/glue.h 5:1:1")
+    assert(not base.equals(object_key(clang, &args, "40:1:1", &fewer)), "a prerequisite that goes away changes the key")
+    print("native_cache_key: ok")
+}

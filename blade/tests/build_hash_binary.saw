@@ -2,7 +2,7 @@
 // UTF-8: two files that differ only there have different digests, an unchanged
 // one the same, and a file that is missing has a digest of its own.
 
-import blade.builder.{file_digest}
+import blade.linkinputs.{file_digest}
 import std.data.{Data}
 import std.file.{File}
 import std.path.{Path}

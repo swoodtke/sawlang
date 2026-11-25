@@ -37,14 +37,31 @@ public struct LinkEntry {
     value: String
 }
 
+// One C source a package declares, with what its compile is given: `source` is
+// the file's path from the build's directory, `object` where its object goes
+// (the plan's `files` names the same path), and `includes` and `defines` the
+// package's `include-dirs` and `defines` that apply, base table first.
+public struct CSource {
+    package: String
+    source: String
+    object: String
+    includes: Vector<String>
+    defines: Vector<String>
+}
+
+@synthesize
+extension CSource: ExplicitCopy {}
+
 // The link inputs of a build, in the order they reach the link. `files` holds
 // objects and archives in one sequence: an archive is read after the objects
-// that need it, which is the package order `link_order` gives.
+// that need it, which is the package order `link_order` gives. `sources` are
+// the C sources whose objects `files` names, still to be compiled.
 public struct NativePlan {
     files: Vector<LinkEntry>
     library_paths: Vector<String>
     libraries: Vector<String>
     frameworks: Vector<String>
+    sources: Vector<CSource>
 }
 
 extension NativePlan: NoCopy {}
@@ -55,12 +72,13 @@ extension NativePlan {
         let paths = Vector<String>()
         let libraries = Vector<String>()
         let frameworks = Vector<String>()
+        let sources = Vector<CSource>()
         NativePlan(files: move files, library_paths: move paths, libraries: move libraries,
-                   frameworks: move frameworks)
+                   frameworks: move frameworks, sources: move sources)
     }
 
     public func is_empty(&self) -> Bool {
-        (self.files.len() + self.library_paths.len() + self.libraries.len() + self.frameworks.len()) == 0
+        (self.files.len() + self.library_paths.len() + self.libraries.len() + self.frameworks.len() + self.sources.len()) == 0
     }
 
     // The flags sawc takes, in plan order: the files, then the directories,
@@ -348,6 +366,64 @@ public func glob_match(pattern: String, name: String) -> Bool {
     true
 }
 
+// The text of the file `path_str`. An unusable file reads as empty: one that
+// is missing, cannot be opened or read, or is not UTF-8 (a binary file).
+public func read_file(path_str: String) -> String {
+    let p = Path(s: path_str)
+    if not File.exists(p) {
+        return ""
+    }
+    var f = match File.open(p) {
+        case Ok(handle) -> move handle,
+        case Err(_) -> { return "" }
+    }
+    let data = match f.read() {
+        case Ok(bytes) -> move bytes,
+        case Err(_) -> { return "" }
+    }
+    match data.to_string() {
+        case Ok(s) -> s,
+        case Err(_) -> ""
+    }
+}
+
+// A digest of the bytes of `path` for a freshness check: the length and two
+// wrapping hashes, as one line of text. A file read as text cannot stand in,
+// since an object or an archive is not UTF-8. A file that is missing or
+// unreadable has a digest of its own.
+public func file_digest(path: String) -> String {
+    let p = Path(s: path)
+    if not File.exists(p) {
+        return "missing"
+    }
+    var f = match File.open(p) {
+        case Ok(handle) -> move handle,
+        case Err(_) -> { return "unreadable" }
+    }
+    let data = match f.read() {
+        case Ok(bytes) -> move bytes,
+        case Err(_) -> { return "unreadable" }
+    }
+    var first = 5381
+    var second = 1469598103934665603
+    for byte in data.iter() {
+        first = (first &* 33) &+ (byte as Int)
+        second = (second &* 1099511628211) &+ (byte as Int)
+    }
+    "{data.len()}:{first}:{second}"
+}
+
+// The same digest of a string's bytes.
+public func text_digest(text: String) -> String {
+    var first = 5381
+    var second = 1469598103934665603
+    for byte in text.bytes() {
+        first = (first &* 33) &+ (byte as Int)
+        second = (second &* 1099511628211) &+ (byte as Int)
+    }
+    "{text.len()}:{first}:{second}"
+}
+
 // Whether `path` lists as a directory. Listing is the directory test:
 // `Directory.exists` answers true for a file too.
 func is_directory(path: String) -> Bool {
@@ -363,10 +439,35 @@ func is_directory(path: String) -> Bool {
 // least one. A library directory must be a directory and an object or an
 // archive a file; each refusal names the package, the key and the value.
 public func expand_native_value(package: String, dir: String, kind: String, value: String) -> Result<Vector<String>, NativeError> {
-    let key = if kind.equals("object") { "objects" } else if kind.equals("archive") { "archives" } else { "library-paths" }
+    let found = try expand_native_paths(package, dir, kind, value)
+    if kind.equals("c-source") {
+        var i = 0
+        while i < found.len() {
+            let path = found.get(i) ?? ""
+            if not (path.ends_with(".c") || path.ends_with(".S") || path.ends_with(".s")) {
+                return NativeError(msg: "package `{package}` [native] c-sources: `{path}` is not a C or assembly source: Blade compiles `.c`, `.S` and `.s` files")
+            }
+            i = i + 1
+        }
+    }
+    return move found
+}
+
+func expand_native_paths(package: String, dir: String, kind: String, value: String) -> Result<Vector<String>, NativeError> {
+    let key = if kind.equals("object") {
+        "objects"
+    } else if kind.equals("archive") {
+        "archives"
+    } else if kind.equals("c-source") {
+        "c-sources"
+    } else if kind.equals("include-dir") {
+        "include-dirs"
+    } else {
+        "library-paths"
+    }
     let joined = join_declared(dir, value)
     var out = Vector<String>()
-    if kind.equals("library-path") {
+    if kind.equals("library-path") || kind.equals("include-dir") {
         if not is_directory(joined) {
             let what = if File.exists(Path(s: joined)) { "is a file" } else { "does not exist" }
             return NativeError(msg: "package `{package}` [native] {key}: `{value}` {what} ({joined}); a directory is expected")
