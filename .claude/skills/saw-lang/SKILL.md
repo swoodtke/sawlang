@@ -5484,4 +5484,11 @@ construct in the owner and lend `&driver` down.
   genuinely OS-divergent bytes need a compiler shim.
 - Blade: `blade build/run/test/new/add/tree/update`; Saw.toml
   `[dependencies] name = { path = "..." }` or `{ git = "...",
-  version = "1.2.3" }` (bare version = exact pin; no registry yet).
+  version = "1.2.3" }` (bare version = exact pin; no registry yet). C comes in
+  through `[native]` (`c-sources`, `include-dirs`, `defines`, `objects`, `archives`,
+  `libraries`, `library-paths`, `frameworks`; a `[native.<triple>]` table adds to
+  them): Blade compiles the C, caches the objects, and passes every package's
+  inputs to the link, `blade test` and an `[sos]` image too. There is no raw
+  compiler-flags key, and a header edit is tracked but a named system library's
+  contents are not (`--force`). Under `sawc` the same inputs are `--link-object`,
+  `--link-archive`, `--link-library`, `--link-library-path` and `--link-framework`.

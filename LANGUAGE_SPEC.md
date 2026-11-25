@@ -15730,7 +15730,8 @@ flat image, `.build/<triple>/<name>.sosimg`, rather than a host executable.
 Blade runs `sawc --freestanding --target <triple>` on the package (with
 `--runtime` when `[package] runtime = true`, and `--target-features` when the
 manifest or the triple's defaults give a list), compiles each `native` unit with
-the C compiler, links the objects with `ld.lld -T <linker-script>
+the C compiler, links the objects and every package's `[native]` inputs (see
+[Native inputs](#native-inputs-native)) with `ld.lld -T <linker-script>
 --gc-sections`, and converts the linked ELF to the image.
 
 ```toml
@@ -15825,6 +15826,87 @@ When the query fails, prints no such line, or the compiler has no `tools`
 command, Blade uses `clang` and `ld.lld` from `PATH`. A variable that names no
 program fails the build with `could not launch clang` or
 `could not launch ld.lld`.
+
+### Native inputs (`[native]`)
+
+A package's `Saw.toml` may carry a `[native]` table naming the C code its Saw
+calls through `extern "C"`: sources for Blade to compile, and objects, archives
+and libraries it already has. Every key is a list of strings. A key that is not
+in the table below is an error naming the manifest, the table and the key; a
+value that is not a string is an error naming the manifest, its line and column,
+and the key.
+
+| Key | Meaning | `sawc` flag |
+|---|---|---|
+| `c-sources` | C and assembly sources (`.c`, `.S`, `.s`) Blade compiles. Another extension, `.cc` included, is an error: there is no C++. | none (compiled to `objects`) |
+| `include-dirs` | Directories passed to the compile as `-I`. | none |
+| `defines` | Macros passed as `-D`: `NAME` or `NAME=VALUE`, NAME a C identifier. A function-like macro is an error. | none |
+| `objects` | Object files. | `--link-object` |
+| `archives` | Static archives. | `--link-archive` |
+| `libraries` | Library names, as `-lNAME`. | `--link-library` |
+| `library-paths` | Directories the names are searched in. | `--link-library-path` |
+| `frameworks` | Mach-O frameworks. Only in the table of an `-apple-` triple. | `--link-framework` |
+
+`[native.<triple>]` is a table of the same keys for one target. Its lists are
+appended after the base table's; nothing is overridden or removed. Blade asks
+`sawc tools --target <triple>` whether it knows the name, and a name it does not
+know is an error naming the package. For a host build, the table applies when
+the triple names the host. With `--target T`, it applies when it is `T`. Any
+other target's table is left alone.
+
+A path is relative to the package that declares it, and may be absolute or
+contain `..`. The path must exist, and a file key naming a directory (or a
+directory key naming a file) is an error. A `*` may stand in the last segment of
+a `c-sources`, `objects` or `archives` path. It matches files in that one
+directory, sorted, and a pattern that matches nothing is an error. A `*` never
+crosses a directory: `**` in the last segment matches as `*` does, and a `*`
+in an earlier segment, in `include-dirs` or in `library-paths` is an error.
+
+Unlike `no-hidden-alloc` and `max-task-frame`, which only the root package sets,
+every resolved package's `[native]` reaches the link: a package's C is a fact
+about that package. The root comes first, then each package before every
+package it depends on, with ties broken in resolution order. A diamond (root
+needs A and B, which both need C) is root, A, B, C. Within a package its
+compiled objects come first, then `objects`, then `archives`. A repeated
+object, library directory or framework keeps its first occurrence; a repeated
+archive or library keeps its last, so it follows every package that needs it.
+A package's `include-dirs` and `defines` apply to its own `c-sources` only.
+
+Blade compiles a C source to one object under the root's build directory, never
+inside a dependency. A hosted build runs the `clang` that `sawc tools` names, as
+`-target <the triple line> -O2 -g -c`, with `-I`, `-D` and `-MD -MF` after
+them. An image build compiles it as it does a `[sos]` `native` unit, with the
+same target, features and `-ffreestanding`. `[native]` sources for a bare-metal
+triple with no `[sos]` table are an error naming `[sos]`. The compiles that are
+due run in parallel, at most three quarters of the processors, and each
+failing compile's diagnostic is printed. There are no raw compiler flags, and a
+package does not export its include directories to its dependents.
+
+An object is reused when its `.o`, depfile and key all exist and the key matches.
+The key covers clang's path and version, the arguments, the source's bytes and
+the bytes of every header the depfile names, system headers included. A
+`blade build` is up to date when the same things, with each prebuilt object's
+and archive's bytes and the names of the libraries, library directories and
+frameworks, match the last build's. The contents of a named system library are
+not tracked: `--force` rebuilds.
+
+A hosted build passes the plan to `sawc` as its link flags (see [Native inputs
+in `sawc`](#native-inputs-in-sawc)): each file as `--link-object` or
+`--link-archive` in plan order, then the directories, libraries and frameworks.
+`blade test` links the same inputs into each test program. An image's `ld.lld`
+line is
+
+```
+ld.lld -T SCRIPT --gc-sections -o ELF  SAW.o  [sos] native objects  PLAN-FILES...  -L DIR...  -l NAME...
+```
+
+An image has no framework, so a plan that holds one is an error.
+
+Files are linked as given, which is static. A named library links however the
+system ships it, which on macOS is dynamic (`-lz` resolves to
+`/usr/lib/libz.1.dylib`). There is no `pkg-config` and no rpath, so a library
+found through `library-paths` that the loader cannot find at run time fails at
+launch.
 
 ---
 

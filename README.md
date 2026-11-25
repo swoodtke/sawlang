@@ -835,7 +835,28 @@ runs, and the compiler's identity: the line `sawc --build-id` prints, which
 covers the compiler binary, its std and its runtime records, or the first line
 of `sawc --version` for a compiler that does not know the flag. A rebuilt
 development compiler or an edited `std/` therefore rebuilds. A header a native
-unit includes is not tracked: `--force` rebuilds.
+unit includes is not tracked: `--force` rebuilds. A package's `[native]` inputs are part of that hash: each C
+source's object key, and the bytes of every prebuilt object and archive.
+
+A package that calls C names it in a `[native]` table, and Blade compiles the C
+sources, caches the objects and passes every resolved package's inputs to the
+link (`blade test` and an `[sos]` image included):
+
+```toml
+[native]
+c-sources    = ["vendor/lz4/lib/*.c", "c/glue.c"]
+include-dirs = ["vendor/lz4/lib"]
+defines      = ["NDEBUG"]
+libraries    = ["z"]
+
+[native.arm64-apple-darwin]
+frameworks   = ["Security"]
+```
+
+`objects`, `archives` and `library-paths` take prebuilt files and directories.
+A `[native.<triple>]` table adds to the base for one target. blade/README.md has
+the order, the cache and what is not tracked (a named system library's
+contents).
 
 A project declares dependencies in its `Saw.toml`:
 
