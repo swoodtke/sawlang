@@ -75,6 +75,8 @@ public struct MirProgram {
     types: Vector<Int>
     // Condition runs: a conditional suspension point's conditions.
     conds: Vector<String>
+    // Root-key runs: the static roots a call may open a window on.
+    roots: Vector<Int>
     windows: Vector<MirWindow>
     diags: Vector<MirDiag>
     // What the lowering found typecheck left unrecorded, and in which module:
@@ -263,7 +265,7 @@ func mir_empty_program(tc: TcProgram) -> MirProgram {
                blocks: Vector<MirBlock>(), stmts: Vector<MirStmt>(), places: Vector<MirPlace>(),
                projs: Vector<MirProj>(), operands: Vector<MirOperand>(), rvalues: Vector<MirRvalue>(),
                lists: Vector<Int>(), arms: Vector<MirArm>(), calls: Vector<MirCall>(),
-               types: Vector<Int>(), conds: Vector<String>(), windows: Vector<MirWindow>(),
+               types: Vector<Int>(), conds: Vector<String>(), roots: Vector<Int>(), windows: Vector<MirWindow>(),
                diags: Vector<MirDiag>(), problems: Vector<String>(), problem_modules: Vector<Int>(),
                func_of: ResIndex(), cur: -1, local_base: 0,
                block_base: 0, current: -1, scope: Vector<MirScopeEntry>(),

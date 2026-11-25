@@ -1,0 +1,16 @@
+// refuses: loan.window-root-call at 13:9
+// a caller in another module holds a shared window on the root's module's
+// static and calls a function of its own that reaches the module's
+// exclusive window, naming no root (SL-1156)
+import modules.static_root_boot
+
+func relay(n: Int) {
+    static_root_boot.install(n)
+}
+
+func main() {
+    borrow let c = static_root_boot.count() {
+        relay(5)
+        print("{}", c)
+    }
+}

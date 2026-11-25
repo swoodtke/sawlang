@@ -87,6 +87,93 @@ func generic() -> Int {
     }
 }
 
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func reset(n: Int) {
+    boot_slot() = Boot(system: None, pair: Pair(depth: n, width: n), count: n)
+}
+
+func peek_depth() -> Int {
+    borrow let d = depth() {
+        d
+    }
+}
+
+func peek_count() -> Int {
+    borrow let c = Boot.count() {
+        c
+    }
+}
+
+func run(body: () sync -> Int) -> Int {
+    body()
+}
+
+// An exclusive root body is its root's owner: the call before its `lend`
+// opens a window on a root it overlaps.
+func owner_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    reset(1)
+    lend BOOT.count
+}
+
+// A shared root body calls a function opening a shared window of its own
+// root, and one opening a disjoint exclusive window.
+func reader() unsafe borrows(BOOT.count) -> &Int {
+    let before = peek_count()
+    lend BOOT.count
+}
+
+// Calls inside windows whose roots are disjoint, or both shared.
+func calls_inside() -> Int {
+    var total = 0
+    borrow var c = count_slot() {
+        total = total + peek_depth()
+        c = c + 1
+    }
+    borrow let w = Boot.count() {
+        total = total + peek_count() + w
+    }
+    total
+}
+
+// A call that opens the root's exclusive window runs once the window
+// closed, and so does a function parameter's call.
+func calls_outside() -> Int {
+    borrow let w = Boot.count() {
+        let _ = w
+    }
+    reset(2)
+    run({ peek_count() })
+}
+
+func through_parameter(body: () sync -> Int) -> Int {
+    let n = body()
+    borrow let w = Boot.count() {
+        n + w
+    }
+}
+
+// A join inside a shared window stays legal: a shared window may span a
+// suspension, and the joined task runs inside it.
+func shared_join() -> Int {
+    borrow let w = Boot.count() {
+        let h = Task.spawn(peek_count())
+        h.join() + w
+    }
+}
+
+func owned() -> Int {
+    borrow var c = owner_slot() {
+        c = 3
+    }
+    borrow let r = reader() {
+        r
+    }
+}
+
 func main() {
     print(disjoint() + shared_twice() + conditional() + generic())
+    print(calls_inside() + calls_outside() + through_parameter({ 1 }) + owned() + shared_join())
 }

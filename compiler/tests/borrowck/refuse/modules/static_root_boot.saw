@@ -1,0 +1,20 @@
+// The root's module for `loan.window-root-call.cross-module`: `BOOT` is
+// private, so no importer can name it (SL-1156).
+
+public struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+public func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+public func install(n: Int) {
+    boot_slot() = Boot(count: n)
+}

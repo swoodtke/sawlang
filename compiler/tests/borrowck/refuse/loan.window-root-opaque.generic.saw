@@ -1,0 +1,48 @@
+// refuses: loan.window-root-opaque at 30:9
+// a call through a bound of the generic body's own parameter inside a
+// window on a root: which implementation runs is not known here (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func install(n: Int) {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+trait Probe {
+    func poke(&self)
+}
+
+func run<T: Probe>(t: &T) {
+    borrow let c = count() {
+        t.poke()
+        print("{}", c)
+    }
+}
+
+struct Writer {
+    n: Int
+}
+
+extension Writer: Probe {
+    func poke(&self) {
+        install(self.n)
+    }
+}
+
+func main() {
+    let w = Writer(n: 1)
+    run(&w)
+}

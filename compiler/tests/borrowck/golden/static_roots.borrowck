@@ -332,32 +332,396 @@ fn static_roots.generic() {
     }
 }
 
-fn static_roots.main() {
+fn prologue static_roots.boot_slot() {
+    loan L0: exclusive static static_roots.BOOT;  // ref at 91:5
 
     bb0: {
-        [] _1 = call static_roots.disjoint() [] -> [return: bb1];
+        [] {} _1 = ref(exclusive, static static_roots.BOOT);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.boot_slot() {
+
+    bb0: {
+        [] goto -> bb1;
     }
 
     bb1: {
-        [] _2 = call static_roots.shared_twice() [] -> [return: bb2];
+        [] return;
+    }
+}
+
+fn static_roots.reset(n: Int) {
+    loan L0: exclusive static static_roots.BOOT;  // window w0 at 95:5
+
+    bb0: {
+        [] {} _3 = static_roots.System?::None;
+        [] {} _4 = static_roots.Pair { depth: copy _1, width: copy _1 };
+        [] {} _5 = static_roots.Boot { system: move _3, pair: move _4, count: copy _1 };
+        [] {} _6 = window_open w0 prologue static_roots.boot_slot() [] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0} (*_6) = move _5;
+        [] {L0} window_close w0 epilogue static_roots.boot_slot() -> [return: bb2];
     }
 
     bb2: {
-        [] _3 = Add(move _1, move _2);
-        [] _4 = call static_roots.conditional() [] -> [return: bb3];
+        [] {} return;
+    }
+}
+
+fn static_roots.peek_depth() {
+    loan L0: shared static static_roots.BOOT.pair;  // window w0 at 99:5
+    loan L1: shared (*_2);  // ref at 99:16
+
+    bb0: {
+        [] {} _2 = window_open w0 prologue static_roots.depth() [] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0} _3 = ref(shared, (*_2));
+        [] {L0 L1} _0 = copy (*_3);
+        [] {L0} window_close w0 epilogue static_roots.depth() -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} return;
+    }
+}
+
+fn static_roots.peek_count() {
+    loan L0: shared static static_roots.BOOT.count;  // window w0 at 105:5
+    loan L1: shared (*_2);  // ref at 105:16
+
+    bb0: {
+        [] {} _2 = window_open w0 prologue static_roots.Boot.count() (owner static_roots.Boot) [] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0} _3 = ref(shared, (*_2));
+        [] {L0 L1} _0 = copy (*_3);
+        [] {L0} window_close w0 epilogue static_roots.Boot.count() (owner static_roots.Boot) -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} return;
+    }
+}
+
+fn static_roots.run(body: () sync -> Int) {
+    place _1: () sync -> Int;  // body
+
+    bb0: {
+        [W] _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] _0 = move _2;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn prologue static_roots.owner_slot() {
+    loan L0: exclusive static static_roots.BOOT.count;  // ref at 118:5
+
+    bb0: {
+        [] {} call static_roots.reset(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _1 = ref(exclusive, static static_roots.BOOT.count);
+        [] {L0} _0 = move _1;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.owner_slot() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue static_roots.reader() {
+    loan L0: shared static static_roots.BOOT.count;  // ref at 125:5
+
+    bb0: {
+        [] {} _2 = call static_roots.peek_count() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _1 = move _2;
+        [] {} _3 = ref(shared, static static_roots.BOOT.count);
+        [] {L0} _0 = move _3;
+        [] {L0} return;
+    }
+}
+
+fn epilogue static_roots.reader() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn static_roots.calls_inside() {
+    loan L0: exclusive static static_roots.BOOT.count;  // window w0 at 131:5
+    loan L1: exclusive (*_3);  // ref at 131:16
+    loan L2: shared static static_roots.BOOT.count;  // window w1 at 135:5
+    loan L3: shared (*_10);  // ref at 135:16
+
+    bb0: {
+        [] {} _1 = const 0: Int;
+        [] {} _3 = window_open w0 prologue static_roots.count_slot() [] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0} _4 = ref(exclusive, (*_3));
+        [] {L0 L1} _5 = copy _1;
+        [] {L0 L1} _6 = call static_roots.peek_depth() [] -> [return: bb2];
+    }
+
+    bb2: {
+        [] {L0 L1} _7 = Add(move _5, move _6);
+        [] {L0 L1} _1 = move _7;
+        [] {L0 L1} _8 = Add(copy (*_4), const 1: Int);
+        [] {L0 L1} (*_4) = move _8;
+        [] {L0} window_close w0 epilogue static_roots.count_slot() -> [return: bb3];
     }
 
     bb3: {
-        [] _5 = Add(move _3, move _4);
-        [] _6 = call static_roots.generic() [] -> [return: bb4];
+        [] {} _10 = window_open w1 prologue static_roots.Boot.count() (owner static_roots.Boot) [] -> [present: bb4];
     }
 
     bb4: {
-        [] _7 = Add(move _5, move _6);
-        [] call builtin print [move _7] -> [return: bb5];
+        [] {L2} _11 = ref(shared, (*_10));
+        [] {L2 L3} _12 = copy _1;
+        [] {L2 L3} _13 = call static_roots.peek_count() [] -> [return: bb5];
     }
 
     bb5: {
+        [] {L2 L3} _14 = Add(move _12, move _13);
+        [] {L2 L3} _15 = Add(move _14, copy (*_11));
+        [] {L2} _1 = move _15;
+        [] {L2} window_close w1 epilogue static_roots.Boot.count() (owner static_roots.Boot) -> [return: bb6];
+    }
+
+    bb6: {
+        [] {} _0 = copy _1;
+        [] {} return;
+    }
+}
+
+fn static_roots.calls_outside() {
+    place _5: () sync -> Int;  // _5
+    loan L0: shared static static_roots.BOOT.count;  // window w0 at 144:5
+    loan L1: shared (*_2);  // ref at 144:16
+
+    bb0: {
+        [U] {} _2 = window_open w0 prologue static_roots.Boot.count() (owner static_roots.Boot) [] -> [present: bb1];
+    }
+
+    bb1: {
+        [U] {L0} _3 = ref(shared, (*_2));
+        [U] {L0 L1} _4 = copy (*_3);
+        [U] {L0} window_close w0 epilogue static_roots.Boot.count() (owner static_roots.Boot) -> [return: bb2];
+    }
+
+    bb2: {
+        [U] {} call static_roots.reset(n: Int) [const 2: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        [U] {} _5 = closure#0 of static_roots.calls_outside() [];
+        [W] {} _6 = call static_roots.run(body: () sync -> Int) [move _5] -> [return: bb4];
+    }
+
+    bb4: {
+        [M] {} _0 = move _6;
+        [M] {} return;
+    }
+}
+
+fn closure#0 of static_roots.calls_outside() {
+
+    bb0: {
+        [] _2 = call static_roots.peek_count() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [] _0 = move _2;
+        [] return;
+    }
+}
+
+fn static_roots.through_parameter(body: () sync -> Int) {
+    place _1: () sync -> Int;  // body
+    loan L0: shared static static_roots.BOOT.count;  // window w0 at 153:5
+    loan L1: shared (*_5);  // ref at 153:16
+
+    bb0: {
+        [W] {} _3 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] {} _2 = move _3;
+        [W] {} _5 = window_open w0 prologue static_roots.Boot.count() (owner static_roots.Boot) [] -> [present: bb2];
+    }
+
+    bb2: {
+        [W] {L0} _6 = ref(shared, (*_5));
+        [W] {L0 L1} _7 = Add(copy _2, copy (*_6));
+        [W] {L0} _0 = move _7;
+        [W] {L0} window_close w0 epilogue static_roots.Boot.count() (owner static_roots.Boot) -> [return: bb3];
+    }
+
+    bb3: {
+        [W] {} drop(_1);  // static
+        [D] {} return;
+    }
+}
+
+fn static_roots.shared_join() {
+    place _4: std.taskgroup.Task<Int>;  // h
+    place _5: std.taskgroup.Task<Int>;  // _5
+    loan L0: shared static static_roots.BOOT.count;  // window w0 at 161:5
+    loan L1: shared (*_2);  // ref at 161:16
+    loan L2: shared _4;  // argument at 163:9
+
+    bb0: {
+        [U U] {} _2 = window_open w0 prologue static_roots.Boot.count() (owner static_roots.Boot) [] -> [present: bb1];
+    }
+
+    bb1: {
+        [U U] {L0} _3 = ref(shared, (*_2));
+        [U U] {L0 L1} _5 = spawn singleton static_roots.peek_count() [] -> [return: bb2];
+    }
+
+    bb2: {
+        [U W] {L0 L1} _4 = move _5;
+        [W M] {L0 L1} _6 = ref(shared, _4);
+        [W M] {L0 L1 L2} _7 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb3] suspends;
+    }
+
+    bb3: {
+        [W M] {L0 L1} _8 = Add(move _7, copy (*_3));
+        [W M] {L0} _0 = move _8;
+        [W M] {L0} drop(_4);  // static
+        [D M] {L0} window_close w0 epilogue static_roots.Boot.count() (owner static_roots.Boot) -> [return: bb4];
+    }
+
+    bb4: {
+        [D M] {} return;
+    }
+}
+
+fn static_roots.owned() {
+    loan L0: exclusive static static_roots.BOOT.count;  // window w0 at 168:5
+    loan L1: exclusive (*_2);  // ref at 168:16
+    loan L2: shared static static_roots.BOOT.count;  // window w1 at 171:5
+    loan L3: shared (*_5);  // ref at 171:16
+
+    bb0: {
+        [] {} _2 = window_open w0 prologue static_roots.owner_slot() [] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0} _3 = ref(exclusive, (*_2));
+        [] {L0 L1} (*_3) = const 3: Int;
+        [] {L0} window_close w0 epilogue static_roots.owner_slot() -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _5 = window_open w1 prologue static_roots.reader() [] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L2} _6 = ref(shared, (*_5));
+        [] {L2 L3} _0 = copy (*_6);
+        [] {L2} window_close w1 epilogue static_roots.reader() -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} return;
+    }
+}
+
+fn static_roots.main() {
+    place _11: () sync -> Int;  // _11
+
+    bb0: {
+        [U] _1 = call static_roots.disjoint() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U] _2 = call static_roots.shared_twice() [] -> [return: bb2];
+    }
+
+    bb2: {
+        [U] _3 = Add(move _1, move _2);
+        [U] _4 = call static_roots.conditional() [] -> [return: bb3];
+    }
+
+    bb3: {
+        [U] _5 = Add(move _3, move _4);
+        [U] _6 = call static_roots.generic() [] -> [return: bb4];
+    }
+
+    bb4: {
+        [U] _7 = Add(move _5, move _6);
+        [U] call builtin print [move _7] -> [return: bb5];
+    }
+
+    bb5: {
+        [U] _8 = call static_roots.calls_inside() [] -> [return: bb6];
+    }
+
+    bb6: {
+        [U] _9 = call static_roots.calls_outside() [] -> [return: bb7];
+    }
+
+    bb7: {
+        [U] _10 = Add(move _8, move _9);
+        [U] _11 = closure#0 of static_roots.main() [];
+        [W] _12 = call static_roots.through_parameter(body: () sync -> Int) [move _11] -> [return: bb8];
+    }
+
+    bb8: {
+        [M] _13 = Add(move _10, move _12);
+        [M] _14 = call static_roots.owned() [] -> [return: bb9];
+    }
+
+    bb9: {
+        [M] _15 = Add(move _13, move _14);
+        [M] _16 = call static_roots.shared_join() [] -> [return: bb10] suspends;
+    }
+
+    bb10: {
+        [M] _17 = Add(move _15, move _16);
+        [M] call builtin print [move _17] -> [return: bb11];
+    }
+
+    bb11: {
+        [M] return;
+    }
+}
+
+fn closure#0 of static_roots.main() {
+
+    bb0: {
+        [] _0 = const 1: Int;
         [] return;
     }
 }

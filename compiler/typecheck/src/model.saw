@@ -522,6 +522,10 @@ public struct TcSummary {
     // reaches, which adds its twin's and `paired`.
     thread_causes: Int
     suspends: Bool
+    // Whether a call may run the executor's sweep inside it, which resumes
+    // other tasks while no suspension happens: a join. A `borrows(sync)`
+    // window admits no such call (SL-1156).
+    drives: Bool
     suspend_first: Int
     suspend_count: Int
     nonsync: Bool
@@ -542,7 +546,7 @@ public struct TcSummary {
 
 extension TcSummary {
     public static func blank() -> TcSummary {
-        TcSummary(state: TC_SUMMARY_NONE, causes: 0, thread_causes: 0, suspends: false, suspend_first: 0, suspend_count: 0,
+        TcSummary(state: TC_SUMMARY_NONE, causes: 0, thread_causes: 0, suspends: false, drives: false, suspend_first: 0, suspend_count: 0,
                   nonsync: false, nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0,
                   forbid_first: 0, forbid_count: 0, root_first: 0, root_count: 0, root_when_first: 0,
                   root_when_count: 0)

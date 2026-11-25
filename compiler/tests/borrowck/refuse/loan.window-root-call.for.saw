@@ -1,0 +1,46 @@
+// refuses: loan.window-root-call at 42:9
+// `for` calls `next` on its iterator, whose body opens the exclusive window
+// (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func install(n: Int) {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct Ticks {
+    left: Int
+}
+
+extension Ticks: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        install(self.left)
+        if self.left == 0 {
+            return None
+        }
+        self.left = self.left - 1
+        self.left
+    }
+}
+
+func main() {
+    borrow let c = count() {
+        for i in Ticks(left: 2) {
+            print("{} {}", i, c)
+        }
+    }
+}

@@ -1059,7 +1059,9 @@ extension MirProgram {
             return -1
         }
         let at = self.calls.len()
-        try! self.calls.push(c)
+        var marked = c
+        self.mark_roots(&var marked)
+        try! self.calls.push(marked)
         self.relinquish_operands(c.arg_first, c.arg_count)
         self.relinquish_operand(c.callee)
         let b = self.current
@@ -1078,7 +1080,8 @@ extension MirProgram {
                 spelling: -1, callee: -1, arg_first: self.lists.len(), arg_count: 0, dest: -1, next: -1,
                 absent: -1, window: -1, suspend: MirSuspend.Never, cond_first: self.conds.len(),
                 cond_count: 0, node: node, half: -1, spawn: MirSpawnForm.Absent,
-                drive: MirDriveForm.Absent, ordering_operator: -1, copied: -1)
+                drive: MirDriveForm.Absent, ordering_operator: -1, copied: -1, root_first: self.roots.len(),
+                root_count: 0, root_opaque: false, drives: false)
     }
 
     // Ends the current block in call `c` and continues in a new block on its
@@ -1145,6 +1148,60 @@ extension MirProgram {
         self.mark_suspension(&var c, &acc)
     }
 
+    // The static roots call `c`, written in function `f`, may open a window
+    // on, from typecheck's summaries evaluated where it stands: the keys,
+    // sorted, and whether the call is opaque (`flat_call_roots`). A program
+    // with no key marks nothing.
+    //
+    // ENTRY POINTS:
+    //   mark_roots
+    //   verify_roots
+    public func call_roots(&var self, f: Int, c: &MirCall, keys: &var Vector<Int>) -> Bool {
+        if self.tc.root_keys.len() == 0 {
+            return false
+        }
+        var acc = TcAcc(owner: self.funcs[f].owner, unit: -1)
+        if c.copied >= 0 {
+            if c.target < 0 {
+                return false
+            }
+            self.copy_effect(c.target, c.copied, &var acc)
+        } else {
+            if c.node < 0 || self.tc.call_at[c.node] < 0 {
+                return false
+            }
+            self.call_effect(c.node, &c, &var acc)
+        }
+        self.tc.flat_call_roots(&acc, &var keys)
+    }
+
+    // Marks call `c` at source node `e` by whether it may drive the executor,
+    // for a window half that is no suspension point (`suspension` marks the
+    // rest).
+    public func mark_drives(&var self, e: Int, c: &var MirCall) {
+        if e < 0 || self.tc.call_at[e] < 0 {
+            return
+        }
+        var acc = TcAcc(owner: self.funcs[self.cur].owner, unit: -1)
+        self.call_effect(e, &c, &var acc)
+        c.drives = acc.drives
+    }
+
+    // Records call `c`'s roots, the run its marks name, in the pool.
+    func mark_roots(&var self, c: &var MirCall) {
+        c.root_first = self.roots.len()
+        c.root_count = 0
+        c.root_opaque = false
+        var keys = Vector<Int>()
+        c.root_opaque = self.call_roots(self.cur, &c, &var keys)
+        var k = 0
+        while k < keys.len() {
+            try! self.roots.push(keys[k])
+            k = k + 1
+        }
+        c.root_count = keys.len()
+    }
+
     // Whether the call of copy hook `hook` that a copy of type `t` makes is
     // a suspension point: the copy's cost, which typecheck's copy-cost
     // funnel decides, evaluated where the function being lowered stands.
@@ -1172,6 +1229,7 @@ extension MirProgram {
 
     // Call `c`'s suspension point from what evaluating it gathered.
     func mark_suspension(&var self, c: &var MirCall, acc: &TcAcc) {
+        c.drives = acc.drives
         let f = self.cur
         let threaded = self.thread_context(f)
         if self.thread_plain_call(threaded, &acc) {
@@ -1339,6 +1397,8 @@ extension MirProgram {
         }
         if suspends {
             self.suspension(info.node, &var c)
+        } else {
+            self.mark_drives(info.node, &var c)
         }
         let _ = self.call_and_continue(c)
     }

@@ -1,0 +1,36 @@
+// refuses: loan.window-root-call at 28:5
+// a reference argument on a static root is a live loan for its call: inside
+// the root's own body, `helper` opens a shared window on the field the
+// `&var` argument holds (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func peek() -> Int {
+    borrow let c = count() {
+        c
+    }
+}
+
+func helper(n: &var Int) {
+    n = n + peek()
+}
+
+func slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    helper(&var BOOT.count)
+    lend BOOT.count
+}
+
+func main() {
+    borrow var c = slot() {
+        c = 1
+    }
+}

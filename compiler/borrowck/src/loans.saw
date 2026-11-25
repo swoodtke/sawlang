@@ -940,7 +940,7 @@ extension BorrowckProgram {
 
     // The static path root function `accessor` declares, `BOOT.system`: the
     // storage a window on it holds, since no receiver names one (SL-1156).
-    func declared_root_path(&self, accessor: Int, facts: &var BorrowckLoans) -> BorrowckPath {
+    public func declared_root_path(&self, accessor: Int, facts: &var BorrowckLoans) -> BorrowckPath {
         let s = self.mir.tc.sigs[accessor]
         let first = facts.projs.len()
         var k = 0
@@ -2571,7 +2571,7 @@ extension BorrowckProgram {
         if block.term != MirTermKind.Call {
             return false
         }
-        self.mir.calls[block.call].suspend != MirSuspend.Never
+        self.mir.calls[block.call].suspend != MirSuspend.Never || self.mir.calls[block.call].drives
     }
 
     // Path `p` traced back through derefs of references to the place they

@@ -447,7 +447,7 @@ extension TcProgram {
             }
             var acc = TcAcc(owner: d, unit: -1)
             self.eval_call(item.node, &var acc)
-            if tc_path_takes(&acc, kind) {
+            if self.path_takes(&acc, kind) {
                 return item.node
             }
             if hops.len() > 0 && self.path_conditions_take(&acc, item.node, root, kind, &hops) {
@@ -477,7 +477,36 @@ extension TcProgram {
             let t = self.path_type(a.ty, &hops)
             self.eval_condition(t, a.req, e, false, &var at_root)
         }
-        tc_path_takes(&at_root, kind)
+        self.path_takes(&at_root, kind)
+    }
+
+    // Whether a call evaluated into `acc` does what `kind` asks of a path's
+    // next call. A `Roots` path asks for a call that may open one of the keys
+    // `path_keys` holds.
+    func path_takes(&self, acc: &TcAcc, kind: TcPathKind) -> Bool {
+        if kind != TcPathKind.Roots {
+            return tc_path_takes(&acc, kind)
+        }
+        var found = Vector<Int>()
+        let _ = self.flat_call_roots(&acc, &var found)
+        var k = 0
+        while k < found.len() {
+            if tc_contains(&self.path_keys, found[k]) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // `` `f` → `g` ``: the path from the call at `e`, written in `owner`'s
+    // body, to a call that opens one of window keys `keys`, a refusal's
+    // chain for a call inside a window on a static root.
+    public func root_chain(&var self, e: Int, owner: Int, keys: &Vector<Int>) -> String {
+        self.path_keys = keys.copy()
+        let text = self.effect_path(e, owner, TcPathKind.Roots)
+        self.path_keys = Vector<Int>()
+        text
     }
 
     // A generic body's inferred Copy requirement against what its signature
@@ -2375,7 +2404,9 @@ enum TcPathKind: UInt8 {
     // It may suspend by a cause thread context refuses (`tc_thread_struck`).
     case ThreadStruck = 2,
     // It blocks its thread.
-    case Blocks = 3
+    case Blocks = 3,
+    // It may open a window on one of the static roots `path_keys` names.
+    case Roots = 4
 }
 
 // One function a refusal's path passes, with what carries its types to the
@@ -2395,6 +2426,7 @@ func tc_path_takes(acc: &TcAcc, kind: TcPathKind) -> Bool {
         case Suspends -> acc.suspends,
         case NotSyncCallable -> acc.suspends || acc.nonsync,
         case ThreadStruck -> tc_thread_struck(acc.thread_causes) != 0,
-        case Blocks -> (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0
+        case Blocks -> (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0,
+        case Roots -> false
     }
 }

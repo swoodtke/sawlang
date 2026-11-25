@@ -1,0 +1,37 @@
+// refuses: loan.window-root-call at 35:24
+// a default value the call leaves out is evaluated by the caller, so its
+// call of `install` runs inside the window (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func install(n: Int) {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func fresh() -> Int {
+    install(5)
+    5
+}
+
+func take(n: Int = fresh()) -> Int {
+    n
+}
+
+func main() {
+    borrow let c = count() {
+        print("{} {}", take(), c)
+    }
+}

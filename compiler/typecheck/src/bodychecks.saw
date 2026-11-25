@@ -1559,11 +1559,21 @@ extension TcProgram {
             if self.call_at[id] >= 0 {
                 var acc = TcAcc(owner: d, unit: -1)
                 self.eval_call(id, &var acc)
-                if acc.suspends || acc.suspend_atoms.len() > 0 {
+                // A drive is held out of a window on a static root only:
+                // another task's write there is invisible, where a lock's
+                // re-entry panics.
+                let drives = acc.drives && self.sigs[accessor].root_decl >= 0
+                if acc.suspends || acc.suspend_atoms.len() > 0 || drives {
                     var msg = StringBuilder()
-                    try! msg.append("this call may suspend while a borrow from `")
-                    try! msg.append(self.res.decl_path(accessor))
-                    try! msg.append("` is open, and that accessor is `borrows(sync)`: its borrow cannot be held across a suspension, so end the borrow before the call")
+                    if drives && not acc.suspends && acc.suspend_atoms.len() == 0 {
+                        try! msg.append("this call may drive the executor, running other tasks, while a borrow from `")
+                        try! msg.append(self.res.decl_path(accessor))
+                        try! msg.append("` is open, and that accessor is `borrows(sync)`: its borrow cannot be held where another task runs, so end the borrow before the call")
+                    } else {
+                        try! msg.append("this call may suspend while a borrow from `")
+                        try! msg.append(self.res.decl_path(accessor))
+                        try! msg.append("` is open, and that accessor is `borrows(sync)`: its borrow cannot be held across a suspension, so end the borrow before the call")
+                    }
                     let m = self.node_in_module(id)
                     self.refuse_in(m, id, "borrows.sync-window", msg.build())
                 }

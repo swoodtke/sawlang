@@ -1,0 +1,30 @@
+// refuses: loan.window-root-call at 22:5
+// a shared root function holds its declared root for its whole body, so a
+// call before its `lend` that opens an exclusive window on an overlapping
+// root is refused (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func watched() unsafe borrows(BOOT.count) -> &Int {
+    install(1)
+    lend BOOT.count
+}
+
+func main() {
+    borrow let c = watched() {
+        print("{}", c)
+    }
+}

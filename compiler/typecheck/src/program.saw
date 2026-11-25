@@ -483,6 +483,10 @@ public struct TcProgram {
     sig_key: Vector<Int>
     root_sets: Vector<Int>
     closure_units: ResIndex
+    // The executor's sweep, which a call drives the executor through, or -1.
+    drive_decl: Int
+    // The keys a `Roots` path is looking for, set for one `root_chain` call.
+    path_keys: Vector<Int>  // front: process-local
     // The std suspension table: (key's name id, 0) -> its row, the keys in
     // row order, and the rows' columns.
     std_verdicts: ResIndex
@@ -788,7 +792,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: ResIndex(),
                       defaults: Vector<TcDefault>(), default_at: ResIndex(),
                       root_keys: Vector<TcRootKey>(), sig_key: Vector<Int>(), root_sets: Vector<Int>(),
-                      closure_units: ResIndex(),
+                      closure_units: ResIndex(), drive_decl: -1, path_keys: Vector<Int>(),
                       std_verdicts: ResIndex(), std_keys: Vector<Int>(),
                       std_rows: TcStdRows(keys: Vector<String>(), verdicts: Vector<Int>(), causes: Vector<Int>(),
                                           labels: Vector<String>()),

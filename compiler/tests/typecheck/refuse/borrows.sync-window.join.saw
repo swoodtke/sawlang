@@ -1,0 +1,35 @@
+// refuses: borrows.sync-window at 32:17
+// a `Task.join` inside the block of a window on an exclusive static root
+// runs the joined task there, which may open the same root: a call that
+// drives the executor is held out like a suspension (SL-1156)
+
+import std.task.*
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func writer() -> Int {
+    install(42)
+    0
+}
+
+func main() {
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let h = Task.spawn(writer())
+        let r = h.join()
+        print("{} {}", b.tag, r)
+    }
+}

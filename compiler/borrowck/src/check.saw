@@ -43,6 +43,8 @@ public func borrowck_rules() -> Vector<String> {
     try! out.push("loan.read-while-exclusive")
     try! out.push("loan.sync-suspend")
     try! out.push("loan.window-root")
+    try! out.push("loan.window-root-call")
+    try! out.push("loan.window-root-opaque")
     try! out.push("loan.write-while-shared")
     try! out.push("move.use-after")
     move out

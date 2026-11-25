@@ -44,6 +44,8 @@ import sawtypecheck.walks.{TcMemo, tc_memo}
 // What evaluating a body's items gathers.
 public struct TcAcc {
     suspends: Bool
+    // Whether a gathered call may run the executor's sweep (`TcSummary.drives`).
+    drives: Bool
     nonsync: Bool
     // The `TC_CAUSE_*` kinds behind `suspends` and `nonsync`, and those a
     // thread-context copy has (`TcSummary.thread_causes`).
@@ -87,7 +89,7 @@ extension TcAcc: NoCopy {}
 
 extension TcAcc {
     public init(owner: Int, unit: Int) -> TcAcc {
-        TcAcc(suspends: false, nonsync: false, causes: 0, thread_causes: 0, suspend_atoms: Vector<TcAtom>(),
+        TcAcc(suspends: false, drives: false, nonsync: false, causes: 0, thread_causes: 0, suspend_atoms: Vector<TcAtom>(),
               nonsync_atoms: Vector<TcAtom>(), copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner,
               unit: unit, blocked_hook: -1, blocked_type: -1, hooks: Vector<Int>(), hook_types: Vector<Int>(),
               roots: Vector<Int>(), root_when: Vector<TcAtom>(), root_units: Vector<Int>(), root_opaque: false,
@@ -153,6 +155,7 @@ extension TcProgram {
             k = k + 1
         }
         self.intern_root_keys(&layer)
+        self.find_drive_point(&layer)
         self.collect_units(&layer)
         k = layer.decl_first
         while k < total {
@@ -834,6 +837,9 @@ extension TcProgram {
         if inner.suspends {
             acc.suspends = true
         }
+        if inner.drives {
+            acc.drives = true
+        }
         if inner.nonsync {
             acc.nonsync = true
         }
@@ -943,6 +949,7 @@ extension TcProgram {
         s.state = TC_SUMMARY_BODY
         let sync = self.declares_sync(d)
         s.suspends = acc.suspends && not sync
+        s.drives = acc.drives || d == self.drive_decl
         s.nonsync = (acc.nonsync || acc.suspends) && not sync
         let kept = TC_CAUSE_BLOCKS_THREAD | TC_CAUSE_PAIRED
         s.causes = (if s.nonsync { acc.causes } else { 0 }) | (acc.causes & TC_CAUSE_BLOCKS_THREAD)
@@ -997,7 +1004,7 @@ extension TcProgram {
     // Whether two summaries say the same: their words, and each condition
     // list as a set.
     public func same_summary(&self, a: &TcSummary, b: &TcSummary) -> Bool {
-        if a.state != b.state || a.suspends != b.suspends || a.nonsync != b.nonsync || a.causes != b.causes {
+        if a.state != b.state || a.suspends != b.suspends || a.drives != b.drives || a.nonsync != b.nonsync || a.causes != b.causes {
             return false
         }
         if a.thread_causes != b.thread_causes {
@@ -1243,6 +1250,9 @@ extension TcProgram {
         if s.suspends {
             acc.suspends = true
         }
+        if s.drives {
+            acc.drives = true
+        }
         if s.nonsync {
             acc.nonsync = true
         }
@@ -1369,6 +1379,9 @@ extension TcProgram {
             return
         }
         let s = self.summary_for(impl, &acc)
+        if s.drives {
+            acc.drives = true
+        }
         if suspension && s.suspends {
             acc.suspends = true
             acc.add_causes_of(&s)
@@ -2023,6 +2036,29 @@ extension TcProgram {
         self.root_keys.len() - 1
     }
 
+    // THE DRIVE-POINT FUNNEL: binds `drive_decl`, the executor's sweep that
+    // every join, teardown and drive point enters, when `layer` declares it.
+    // Its calls and its callers' calls drive, and a `borrows(sync)` window
+    // admits none (SL-1156).
+    // ENTRY POINTS:
+    //     solve_summaries
+    func find_drive_point(&var self, layer: &FrontLayer) {
+        let name = self.res.names.find("sweep")
+        if name < 0 {
+            return
+        }
+        var d = layer.decl_first
+        while d < self.res.decls.len() {
+            let decl = d
+            d = d + 1
+            if self.res.decls[decl].name == name && self.res.decls[decl].kind == ResDeclKind.Func &&
+                    self.res.decl_identity(decl).equals("std.taskgroup.sweep") {
+                self.drive_decl = decl
+                return
+            }
+        }
+    }
+
     // Root function `d`'s own key, added to `acc` when it has one.
     func note_root_key(&var self, d: Int, acc: &var TcAcc) {
         if self.root_keys.len() > 0 && d >= 0 && d < self.sig_key.len() && self.sig_key[d] >= 0 {
@@ -2507,6 +2543,34 @@ extension TcProgram {
         }
     }
 
+    // THE CALL-ROOTS FUNNEL: the keys a call evaluated into `acc` may open,
+    // its closure units' included, sorted and without repeats, replacing what
+    // `out` held; whether the call is opaque: it goes through the owner's own
+    // non-escaping function parameter, or keeps a condition over the owner's
+    // own type parameters, so it may open any root.
+    // ENTRY POINTS:
+    //     MirProgram.call_roots
+    public func flat_call_roots(&self, acc: &TcAcc, out: &var Vector<Int>) -> Bool {
+        var keys = Vector<Int>()
+        var opaque = acc.root_opaque || acc.root_when.len() > 0
+        var k = 0
+        while k < acc.roots.len() {
+            try! keys.push(acc.roots[k])
+            k = k + 1
+        }
+        k = 0
+        while k < acc.root_units.len() {
+            let unit = self.units[acc.root_units[k]]
+            if unit.root_when_count > 0 {
+                opaque = true
+            }
+            self.unit_keys_into(acc.root_units[k], &var keys)
+            k = k + 1
+        }
+        out = tc_sorted_unique(&keys)
+        opaque
+    }
+
     // Writes `acc`'s roots into summary `s`: its keys a sorted run of the
     // pool, its conditions a run of the atoms.
     func store_roots(&var self, acc: &TcAcc, s: &var TcSummary) {
@@ -2539,7 +2603,7 @@ extension TcProgram {
     }
 
     // Key `id`'s text, `module.STATIC.field`.
-    func root_key_text(&self, id: Int) -> String {
+    public func root_key_text(&self, id: Int) -> String {
         let key = self.root_keys[id]
         var out = StringBuilder()
         try! out.append(self.res.decl_identity(key.static_decl))

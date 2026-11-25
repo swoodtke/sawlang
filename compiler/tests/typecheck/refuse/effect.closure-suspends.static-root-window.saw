@@ -1,0 +1,39 @@
+// refuses: effect.closure-suspends at 33:15
+// a closure that joins a task, called inside the window of an exclusive static
+// root: the join parks, so the closure body is refused before the window can
+// see the root opened under it (SL-1156)
+
+import std.task.*
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func writer() -> Int {
+    install(42)
+    0
+}
+
+func settle() -> Int {
+    Task.spawn(writer()).join()
+}
+
+func main() {
+    let f = { settle() }
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let r = f()
+        print("{} {}", b.tag, r)
+    }
+}

@@ -3852,6 +3852,8 @@ extension MirProgram {
         call.half = acc.prologue
         if acc.prologue_suspends {
             self.suspension(e, &var call)
+        } else {
+            self.mark_drives(e, &var call)
         }
     }
 

@@ -1,0 +1,37 @@
+// refuses: loan.window-root-call at 34:9
+// the message names the whole chain, `first` → `second` → `install` →
+// `boot_slot` (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func install(n: Int) {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func second() {
+    install(3)
+}
+
+func first() {
+    second()
+}
+
+func main() {
+    borrow let c = count() {
+        first()
+        print("{}", c)
+    }
+}

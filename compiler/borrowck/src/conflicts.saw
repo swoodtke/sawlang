@@ -15,8 +15,8 @@ import sawborrowck.program.{BorrowckProgram}
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
-import sawmir.model.{MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProjKind, MirRvalueKind, MirStmtKind,
-                         MirTermKind}
+import sawmir.model.{MirCall, MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProj, MirProjKind, MirRvalueKind, MirStmtKind,
+                         MirSuspend, MirTermKind}
 import sawmir.program.{MirProgram, mir_diag_message}
 import sawmir.states.{MirCursor, mir_cursor}
 import sawparse.grammar.{Alt}
@@ -25,8 +25,10 @@ import sawresolve.model.{ResCallClass}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.model.{TC_EFFECT_BORROWS_SYNC, TcLend}
+import sawtypecheck.effects.{tc_check_effects}
+import sawtypecheck.model.{TC_EFFECT_BORROWS_SYNC, TcLend, TcReceiver}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.summaries.{tc_sorted_unique}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
@@ -157,6 +159,10 @@ extension BorrowckProgram {
                 if c.kind == MirCallKind.WindowOpen && c.window >= 0 {
                     self.check_window_charge(f, block.call, &inits, at, &var facts, &live.state, lives[i],
                                              &made.state, &open, &var reported)
+                }
+                if c.root_count > 0 || c.root_opaque {
+                    self.check_root_call(f, block.call, at, &var facts, &live.state, lives[i], &made.state, &open,
+                                         &var reported)
                 }
             }
             if self.suspends_at(&facts, f, b, i) {
@@ -587,6 +593,159 @@ extension BorrowckProgram {
         self.check_access(f, &a, call, &inits, at, &var facts, &live, live_root, &created, &open, &var reported)
     }
 
+    // The static path root key `id` names, `BOOT.count`.
+    func key_path(&self, id: Int, facts: &var BorrowckLoans) -> BorrowckPath {
+        let key = self.mir.tc.root_keys[id]
+        let first = facts.projs.len()
+        var k = 0
+        while k < key.field_count {
+            let field = self.mir.tc.root_fields[key.field_first + k]
+            try! facts.projs.push(MirProj(kind: MirProjKind.Field, decl: field, index: -1, ty: self.mir.tc.sigs[field].result))
+            k = k + 1
+        }
+        BorrowckPath(local: -1, static_decl: key.static_decl, first: first, count: key.field_count)
+    }
+
+    // THE ROOT-CALL RULE (`loan.window-root-call`, `loan.window-root-opaque`):
+    // a call at the end of a block is an access of each static root its
+    // summary says it may open a window on, in that window's mode, against
+    // every live loan, a window's or a reference argument's; a window call
+    // skips its own window's loan and its own key, which the charge at its
+    // open judges. In a shared root function's body the declared root is held
+    // too, so a call that may open an exclusive window overlapping it is
+    // refused. A call through an own function parameter or an unresolved
+    // bound may open any root: refused while a loan on one is live.
+    //
+    // ENTRY POINTS:
+    //     check_block
+    func check_root_call(&var self, f: Int, call: Int, at: BorrowckSite, facts: &var BorrowckLoans,
+                         live: &Vector<Int>, live_root: Int, created: &Vector<Int>, open: &Vector<Int>,
+                         reported: &var Vector<Int>) {
+        let c = self.mir.calls[call]
+        if c.node < 0 || borrowck_seen(&reported, c.node) {
+            return
+        }
+        let window = c.kind == MirCallKind.WindowOpen || c.kind == MirCallKind.WindowClose
+        let skip = if window { call } else { -1 }
+        var own = -1
+        if window && c.target >= 0 && c.target < self.mir.tc.sig_key.len() {
+            own = self.mir.tc.sig_key[c.target]
+        }
+        var k = 0
+        while k < c.root_count {
+            let id = self.mir.roots[c.root_first + k]
+            k = k + 1
+            if id == own {
+                continue
+            }
+            let n = self.root_loan(id, skip, &var facts, &live, live_root, &created, &open)
+            if n >= 0 {
+                self.report_root_call(f, c, id, n, "loan.window-root-call", &var facts, &var reported)
+                return
+            }
+        }
+        let info = self.mir.funcs[f]
+        let body = info.kind == MirFuncKind.Body || info.kind == MirFuncKind.Prologue || info.kind == MirFuncKind.Epilogue
+        if body && info.decl >= 0 && self.holds_shared_root(info.decl) {
+            let held = self.declared_root_path(info.decl, &var facts)
+            k = 0
+            while k < c.root_count {
+                let id = self.mir.roots[c.root_first + k]
+                k = k + 1
+                let path = self.key_path(id, &var facts)
+                if self.mir.tc.root_keys[id].exclusive && facts.overlaps(&path, &held) {
+                    self.report_held_root(f, c, id, info.decl, &var reported)
+                    return
+                }
+            }
+        }
+        if not c.root_opaque {
+            return
+        }
+        var id = 0
+        while id < self.mir.tc.root_keys.len() {
+            let n = self.root_loan(id, skip, &var facts, &live, live_root, &created, &open)
+            if n >= 0 {
+                self.report_opaque_call(f, c, id, n, &var facts, &var reported)
+                return
+            }
+            id = id + 1
+        }
+    }
+
+    // Whether `decl` is a root function of a shared charge, whose body holds
+    // its declared root shared.
+    func holds_shared_root(&self, decl: Int) -> Bool {
+        let s = self.mir.tc.sigs[decl]
+        s.root_decl >= 0 && s.receiver == TcReceiver.Absent && not s.lending_exclusive
+    }
+
+    // The live loan that a window on root key `id` conflicts with, or -1.
+    func root_loan(&var self, id: Int, skip: Int, facts: &var BorrowckLoans, live: &Vector<Int>, live_root: Int,
+                   created: &Vector<Int>, open: &Vector<Int>) -> Int {
+        let kind = if self.mir.tc.root_keys[id].exclusive {
+            BorrowckAccessKind.Exclusive
+        } else {
+            BorrowckAccessKind.Shared
+        }
+        let a = BorrowckAccess(kind: kind, path: self.key_path(id, &var facts), node: -1, closing: false)
+        self.first_conflict(&a, skip, &var facts, &live, live_root, &created, &open)
+    }
+
+    // `` `BOOT.count` `` held by loan `n`, in the words of the refusals of a
+    // call that may open a window on root key `id`.
+    func report_root_call(&var self, f: Int, c: MirCall, id: Int, n: Int, rule: String, facts: &var BorrowckLoans,
+                          reported: &var Vector<Int>) {
+        var mode = "a shared"
+        if self.mir.tc.root_keys[id].exclusive {
+            mode = "an exclusive"
+        }
+        var keys = Vector<Int>()
+        try! keys.push(id)
+        var msg = StringBuilder()
+        try! msg.append("this call may open ")
+        try! msg.append(mode)
+        try! msg.append(" window on `")
+        try! msg.append(self.mir.tc.root_key_text(id))
+        try! msg.append("` (through ")
+        try! msg.append(self.mir.tc.root_chain(c.node, self.mir.funcs[f].owner, &keys))
+        try! msg.append(") while ")
+        try! msg.append(self.loan_origin(f, n, &var facts))
+        try! msg.append("; a window on a static root admits no overlapping window until it closes")
+        self.report_loan(f, c.node, rule, msg.build(), &var reported)
+    }
+
+    // A call that may open window `id` while the shared root `decl` declares
+    // is held by its own body.
+    func report_held_root(&var self, f: Int, c: MirCall, id: Int, decl: Int, reported: &var Vector<Int>) {
+        var keys = Vector<Int>()
+        try! keys.push(id)
+        var msg = StringBuilder()
+        try! msg.append("this call may open an exclusive window on `")
+        try! msg.append(self.mir.tc.root_key_text(id))
+        try! msg.append("` (through ")
+        try! msg.append(self.mir.tc.root_chain(c.node, self.mir.funcs[f].owner, &keys))
+        try! msg.append(") inside the body of `")
+        try! msg.append(self.mir.decl_name(decl))
+        try! msg.append("`, which holds `")
+        try! msg.append(self.root_text(decl))
+        try! msg.append("` shared; a window on a static root admits no overlapping window until it closes")
+        self.report_loan(f, c.node, "loan.window-root-call", msg.build(), &var reported)
+    }
+
+    // A call whose callee this function cannot see, while loan `n` holds a
+    // root it may open a window on, `id`.
+    func report_opaque_call(&var self, f: Int, c: MirCall, id: Int, n: Int, facts: &var BorrowckLoans,
+                            reported: &var Vector<Int>) {
+        var msg = StringBuilder()
+        try! msg.append("this call goes through a function parameter's argument, or a bound's implementation, that this function cannot see, so it may open a window on `")
+        try! msg.append(self.mir.tc.root_key_text(id))
+        try! msg.append("` while ")
+        try! msg.append(self.loan_origin(f, n, &var facts))
+        try! msg.append("; a window on a static root admits no overlapping window until it closes")
+        self.report_loan(f, c.node, "loan.window-root-opaque", msg.build(), &var reported)
+    }
+
     // Access `made`, made by instruction `at`, against every live loan on an
     // overlapping place, the loans the arguments of window call `skip`
     // carry excepted; the first conflict is reported, once per source node,
@@ -599,6 +758,23 @@ extension BorrowckProgram {
         if a.path.count < 0 || borrowck_seen(&reported, a.node) {
             return
         }
+        let found = self.first_conflict(&a, skip, &var facts, &live, live_root, &created, &open)
+        if found >= 0 && facts.loans[found].kind == BorrowckLoanKind.Spawn {
+            self.report_spawn_conflict(f, &a, found, &inits, at, &var facts, &var reported)
+        } else if found >= 0 {
+            self.report_conflict(f, &a, found, &var facts, &var reported)
+        }
+    }
+
+    // The live loan that access `a` conflicts with, or -1: the loan of
+    // window call `skip`'s own window and arguments excepted. A window's own
+    // loan is preferred over the receiver borrow its open consumed.
+    //
+    // ENTRY POINTS:
+    //     check_access
+    //     check_root_call
+    func first_conflict(&var self, a: &BorrowckAccess, skip: Int, facts: &var BorrowckLoans, live: &Vector<Int>,
+                        live_root: Int, created: &Vector<Int>, open: &Vector<Int>) -> Int {
         let writes = a.kind != BorrowckAccessKind.Read && a.kind != BorrowckAccessKind.Shared
         let candidates = facts.live_candidates(&live, live_root, &created, &open)
         var found = -1
@@ -629,17 +805,11 @@ extension BorrowckProgram {
             if not facts.overlaps(&a.path, &loan.path) {
                 continue
             }
-            // A window's own loan names the conflict better than the
-            // receiver borrow its open consumed.
             if found < 0 || loan.kind == BorrowckLoanKind.Window {
                 found = n - 1
             }
         }
-        if found >= 0 && facts.loans[found].kind == BorrowckLoanKind.Spawn {
-            self.report_spawn_conflict(f, &a, found, &inits, at, &var facts, &var reported)
-        } else if found >= 0 {
-            self.report_conflict(f, &a, found, &var facts, &var reported)
-        }
+        found
     }
 
     // Access `a`, made by instruction `at`, with the node a conflict it meets
@@ -873,11 +1043,13 @@ extension BorrowckProgram {
         var node = block.term_node
         var closing = block.term_closing
         var closes = -1
+        var only_drives = false
         if s >= 0 {
             node = self.mir.stmts[s].node
             closing = self.mir.stmts[s].closing
         } else if block.term == MirTermKind.Call {
             let c = self.mir.calls[block.call]
+            only_drives = c.drives && c.suspend == MirSuspend.Never
             if c.kind == MirCallKind.WindowClose {
                 closes = c.window
             }
@@ -885,15 +1057,26 @@ extension BorrowckProgram {
         var w = 0
         while w < info.window_count {
             let window = self.mir.windows[info.window_first + w]
-            if window.sync && w != closes && borrowck_bit(&open, 0, w) {
+            // A drive is held out of a window on a static root only: another
+            // task's write there is invisible, where a lock's re-entry panics.
+            let held_out = not only_drives || (window.accessor >= 0 && self.mir.tc.sigs[window.accessor].root_decl >= 0)
+            if window.sync && w != closes && held_out && borrowck_bit(&open, 0, w) {
                 var msg = StringBuilder()
-                try! msg.append("this may suspend while the `borrows(sync)` window of `")
+                if only_drives {
+                    try! msg.append("this may drive the executor, running other tasks, while the `borrows(sync)` window of `")
+                } else {
+                    try! msg.append("this may suspend while the `borrows(sync)` window of `")
+                }
                 if window.accessor >= 0 {
                     try! msg.append(self.mir.decl_name(window.accessor))
                 }
                 try! msg.append("` opened at ")
                 try! msg.append(self.mir.span_text(window.node, false))
-                try! msg.append(" is open; a `borrows(sync)` borrow cannot be held across a suspension")
+                if only_drives {
+                    try! msg.append(" is open; a `borrows(sync)` borrow cannot be held where another task runs")
+                } else {
+                    try! msg.append(" is open; a `borrows(sync)` borrow cannot be held across a suspension")
+                }
                 self.report_loan(f, node, "loan.sync-suspend", msg.build(), &var reported)
                 return
             }

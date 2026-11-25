@@ -1,0 +1,56 @@
+// refuses: effect.any-suspends at 53:25
+// a trait method whose implementation joins a task, called through `&any
+// Trait` inside the window of an exclusive static root (SL-1156)
+
+import std.task.*
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func writer() -> Int {
+    install(42)
+    0
+}
+
+func settle() -> Int {
+    Task.spawn(writer()).join()
+}
+
+struct Joiner {
+    k: Int
+}
+
+trait Settles {
+    func go(&self) -> Int
+}
+
+extension Joiner: Settles {
+    func go(&self) -> Int {
+        settle()
+    }
+}
+
+func through(s: &any Settles) -> Int {
+    s.go()
+}
+
+func main() {
+    let j = Joiner(k: 1)
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let r = through(&j)
+        print("{} {}", b.tag, r)
+    }
+}

@@ -1772,6 +1772,7 @@ extension MirProgram {
         }
         self.verify_arguments(f, &c, &var out)
         self.verify_suspension(f, &c, &var out)
+        self.verify_roots(f, &c, &var out)
         self.verify_spawn(f, &c, &var out)
         self.verify_drive(f, &c, &var out)
     }
@@ -2135,8 +2136,30 @@ extension MirProgram {
             self.problem(f, &var out, "a call's suspension point disagrees with its callee's summary")
             return
         }
+        if acc.drives != c.drives {
+            self.problem(f, &var out, "a call's drive mark disagrees with its callee's summary")
+            return
+        }
         if want == MirSuspend.When && c.cond_count == 0 {
             self.problem(f, &var out, "a conditional suspension point carries no condition")
+        }
+    }
+
+    // A call's root marks are exactly what typecheck's summaries, evaluated
+    // at its source node, say it may open (`call_roots`).
+    func verify_roots(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        var keys = Vector<Int>()
+        let opaque = self.call_roots(f, &c, &var keys)
+        var same = opaque == c.root_opaque && keys.len() == c.root_count
+        var k = 0
+        while same && k < keys.len() {
+            if self.roots[c.root_first + k] != keys[k] {
+                same = false
+            }
+            k = k + 1
+        }
+        if not same {
+            self.problem(f, &var out, "a call's static roots disagree with its callee's summary")
         }
     }
 

@@ -396,6 +396,16 @@ public struct MirCall {
     // this call is that copy's hook; -1 for every other call. Its suspension
     // point is the copy's cost (`copy_suspension`), not a node's summary.
     copied: Int
+    // The static roots the call may open a window on, from its callee's
+    // summary: a sorted run of key ids in the program's `roots`, and whether
+    // the call goes through an own non-escaping function parameter or an
+    // unresolved bound, which may open any (SL-1156).
+    root_first: Int
+    root_count: Int
+    root_opaque: Bool
+    // Whether the call may run the executor's sweep (`TcSummary.drives`),
+    // which a `borrows(sync)` window admits as it admits a suspension.
+    drives: Bool
 }
 
 // A window a body opens: the accessor, whether it lends exclusively, and
