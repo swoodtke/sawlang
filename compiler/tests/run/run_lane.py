@@ -4894,7 +4894,32 @@ def check_sawc_tools(failures, counts):
             or said.replace("sawc tools:", "sawc build:", 1) != built.stdout.strip()):
         failures.append("%s --target %s with no record exits %d with %r, not the text `sawc build` prints: %r"
                         % (where, missing, refused.returncode, said[:200], built.stdout.strip()[:200]))
-    counts["run sawc tools checks"] = 4
+    # A recorded clang that has gone is named, with the way to record it again,
+    # at the single build's launch and at the split build's job launch. A wait
+    # that fails needs a child that started, so a missing file never reaches it.
+    gone = os.path.join(work, "gone")
+    shutil.rmtree(gone, ignore_errors=True)
+    os.makedirs(gone)
+    shutil.copy(build.SAWC, os.path.join(gone, "sawc"))
+    for path in glob.glob(os.path.join(os.path.dirname(os.path.realpath(build.SAWC)), "sawc-runtime*.txt")):
+        shutil.copy(path, gone)
+    host_record = os.path.join(gone, "sawc-runtime.txt")
+    with open(host_record) as fh:
+        lines = fh.read().splitlines()
+    absent = os.path.join(gone, "no-such-llvm", "bin", "clang")
+    with open(host_record, "w") as fh:
+        fh.write("\n".join("clang " + absent if line.startswith("clang ") else line for line in lines) + "\n")
+    hello = os.path.join(REPO, "tests", "corpus", "hello.saw")
+    want = "the clang the records beside this binary name, %s, does not exist; run compiler/tools/build.py" % absent
+    for units in ("1", "module"):
+        r = subprocess.run([os.path.join(gone, "sawc"), "build", "--std-root", "std", "--no-object-cache",
+                            "--codegen-units=" + units, rel(hello), "-o", os.path.join(gone, "hello")],
+                           cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 1 or want not in r.stdout:
+            failures.append("%s: a build with --codegen-units=%s and a recorded clang that has gone exits %d with "
+                            "%r, not the message naming the record" % (where, units, r.returncode,
+                                                                        (r.stdout + r.stderr)[:300]))
+    counts["run sawc tools checks"] = 6
 
 
 # The Xtensa target is compiled by Espressif's clang alone, so a machine

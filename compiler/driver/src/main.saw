@@ -3258,7 +3258,9 @@ func driver_run_jobs(jobs: &Vector<DriverJob>, workers: Int) blocking -> Vector<
                     try! launched.push(next)
                 },
                 case Err(e) -> {
-                    print("sawc build: cannot run {}: {}", jobs[next].tool, e)
+                    if not driver_tool_missing("sawc build", jobs[next].tool, jobs[next].program) {
+                        print("sawc build: cannot run {}: {}", jobs[next].tool, e)
+                    }
                     out[next].status = 1
                 }
             }
@@ -3276,7 +3278,9 @@ func driver_run_jobs(jobs: &Vector<DriverJob>, workers: Int) blocking -> Vector<
                     out[job].status = code as Int
                 },
                 case Err(e) -> {
-                    print("sawc build: cannot run {}: {}", jobs[job].tool, e)
+                    if not driver_tool_missing("sawc build", jobs[job].tool, jobs[job].program) {
+                        print("sawc build: cannot run {}: {}", jobs[job].tool, e)
+                    }
                     out[job].status = 1
                 }
             }
@@ -4031,6 +4035,19 @@ func driver_clang(command: String, program: String, arguments: &Vector<String>) 
     driver_tool(command, "clang", program, &arguments)
 }
 
+// Whether `program`, a tool a record names by absolute path, is gone, and if
+// so the message that says which record to refresh. A relative name is left
+// to the launch error: nothing recorded it. The driver never picks a
+// replacement.
+func driver_tool_missing(command: String, tool: String, program: String) -> Bool {
+    if program.starts_with("/") && not driver_file_exists(program) {
+        print("{}: the {} the records beside this binary name, {}, does not exist; run compiler/tools/build.py (bin/sawc does) to record it again", command, tool, program)
+        true
+    } else {
+        false
+    }
+}
+
 // Runs `program`, the tool `tool`, with `arguments` and returns its exit
 // status, or 1 once the reason it could not run is printed, headed by
 // `command`.
@@ -4052,7 +4069,9 @@ func driver_tool(command: String, tool: String, program: String, arguments: &Vec
             code as Int
         },
         case Err(e) -> {
-            print("{command}: cannot run {tool}: {e}")
+            if not driver_tool_missing(command, tool, program) {
+                print("{command}: cannot run {tool}: {e}")
+            }
             1
         }
     }

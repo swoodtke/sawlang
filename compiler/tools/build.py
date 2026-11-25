@@ -316,6 +316,28 @@ HOMEBREW_DEFAULT_PREFIX = "/opt/homebrew"
 _VERSIONED_CLANG = re.compile(r"^clang-(\d+)$")
 
 
+_KEG_PATH = re.compile(r"^(.*)/Cellar/([^/]+)/[^/]+/(.+)$")
+
+
+def recorded_tool_path(path):
+    """THE TOOL PATH A RECORD NAMES: `path`, unless it lies inside a Homebrew
+    keg (`PREFIX/Cellar/FORMULA/VERSION/...`), when it is the same file spelled
+    `PREFIX/opt/FORMULA/...`, which survives the formula's next version where
+    the keg's own path does not. Only a path whose `opt` spelling is the very
+    same file changes; everything outside Homebrew is returned as given.
+
+    ENTRY POINTS:
+      pick_clang
+      choose_objcopy
+    """
+    real = os.path.realpath(path)
+    m = _KEG_PATH.match(real)
+    if m is None:
+        return path
+    stable = os.path.join(m.group(1), "opt", m.group(2), m.group(3))
+    return stable if os.path.exists(stable) and os.path.realpath(stable) == real else path
+
+
 def homebrew_clang():
     return os.path.join(os.environ.get("HOMEBREW_PREFIX") or HOMEBREW_DEFAULT_PREFIX, "opt", "llvm", "bin", "clang")
 
@@ -401,7 +423,7 @@ def pick_clang(triple, named):
             continue
         path = os.path.abspath(path)
         if clang_capable(path, triple):
-            answer = (path, "")
+            answer = (recorded_tool_path(path), "")
             break
         refused.append("%s does not compile opaque-pointer IR (`ptr`) for %s" % (path, triple))
     if answer is None:
@@ -446,7 +468,7 @@ def choose_objcopy(clang):
     """
     said = clang_tool(clang, "llvm-objcopy")
     if os.path.isabs(said) and os.path.exists(said):
-        return said
+        return recorded_tool_path(said)
     names = ["llvm-objcopy"]
     major = re.search(r"clang version (\d+)", clang_version(clang))
     if major:
@@ -454,9 +476,32 @@ def choose_objcopy(clang):
     for name in names:
         found = shutil.which(name)
         if found:
-            return found
+            return recorded_tool_path(found)
     beside = os.path.join(os.path.dirname(homebrew_clang()), "llvm-objcopy")
-    return beside if os.path.exists(beside) else None
+    return recorded_tool_path(beside) if os.path.exists(beside) else None
+
+
+def missing_recorded_tool(text):
+    """The (record name, path) of the first tool the record or manifest
+    `text` names by absolute path that no longer exists, or None."""
+    for line in text.splitlines():
+        for name in ("clang", "objcopy"):
+            if line.startswith(name + " "):
+                path = line[len(name) + 1:]
+                if os.path.isabs(path) and not os.path.exists(path):
+                    return name, path
+    return None
+
+
+def note_missing_tool(text, written):
+    """Says on stderr, in one line, that the record or manifest `text` at
+    `written` names a tool that is gone and is about to be recorded again.
+    Returns whether it did."""
+    gone = missing_recorded_tool(text)
+    if gone:
+        print("build: %s records %s %s, which no longer exists; recording it again"
+              % (os.path.relpath(written, REPO), gone[0], gone[1]), file=sys.stderr, flush=True)
+    return gone is not None
 
 
 def target_record_lines(clang):
@@ -581,8 +626,9 @@ def configure_bare_metal_targets():
         if os.path.exists(record):
             with open(record) as fh:
                 current = fh.read()
+        stale = current is not None and note_missing_tool(current, record)
         key = "\0".join(looked_at + [current or ""])
-        if current is not None and os.path.exists(key_path):
+        if not stale and current is not None and os.path.exists(key_path):
             with open(key_path) as fh:
                 if fh.read() == key:
                     continue
@@ -644,6 +690,8 @@ def build_runtime(triple=None):
         with open(written) as fh:
             old = fh.read()
     if old != manifest:
+        if old is not None:
+            note_missing_tool(old, written)
         with open(written + ".tmp", "w") as fh:
             fh.write(manifest)
         os.replace(written + ".tmp", written)

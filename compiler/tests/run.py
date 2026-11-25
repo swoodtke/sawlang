@@ -104,6 +104,7 @@ import test_recognize  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "seed"))
 import test_seed_store  # noqa: E402
+import test_tool_records  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "prelude_doc"))
 import check_prelude_doc  # noqa: E402
@@ -452,8 +453,10 @@ def run_std_suspension(run):
 
 def run_seed(run):
     """The seed's fetch funnel against a local blob host
-    (seed/test_seed_store.py)."""
+    (seed/test_seed_store.py), and the tool records' spelling and refresh
+    (seed/test_tool_records.py)."""
     _run_module(run, test_seed_store)
+    _run_module(run, test_tool_records)
 
 
 DRIVER_SOURCE = os.path.join(COMPILER, "driver", "src", "main.saw")
