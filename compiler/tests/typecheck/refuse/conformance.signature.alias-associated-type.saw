@@ -1,0 +1,20 @@
+// refuses: conformance.signature at 17:10
+// the associated type is assigned the alias `Handle` and the member returns `Int` (SL-823)
+
+type Handle = Int
+
+trait Source {
+    type Item
+    func next(&self) -> Item
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Source {
+    type Item = Handle
+    func next(&self) -> Int { 1 }
+}
+
+func main() {}

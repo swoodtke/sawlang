@@ -5,9 +5,11 @@
 import sawparse.grammar.{Alt}
 import sawparse.tree.{is_body_node}
 import sawresolve.collect.{res_is_top_level}
+import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.lang.{ResLang}
 import sawresolve.layer.{FrontLayer}
-import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
+import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResImportForm, ResModule}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
                                TC_FLAG_DEFAULT_BODY, TC_FLAG_DERIVED_TWIN, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
@@ -15,6 +17,7 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_FLAG_BL
                                TcParam, TcReceiver, TcSig}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{tc_effect_bit}
+import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.types.{TcKind, TcType}
 
 // Every declaration's signature of `layer`'s modules.
@@ -591,7 +594,11 @@ extension TcProgram {
             let leaf = self.res.last_leaf_of(head)
             let b = self.binding_at(leaf)
             if b.kind == ResBindKind.Decl && b.decl >= 0 {
-                self.not_in_slice(head, Alt.Decl_Extension)
+                if self.res.decls[b.decl].kind == ResDeclKind.Alias {
+                    self.refuse_extension_alias(leaf, b.decl)
+                } else {
+                    self.not_in_slice(head, Alt.Decl_Extension)
+                }
             }
         }
         if target >= 0 {
@@ -618,6 +625,128 @@ extension TcProgram {
             s.flags = s.flags | TC_FLAG_SYNTHESIZE
         }
         self.sigs[d] = s
+    }
+
+    // An extension, or a conformance, written on alias `a`: an alias is a
+    // distinct type with no members of its own, so there is nothing for the
+    // extension to attach to. Refused once, at the head; the extension has no
+    // target, so its members are never registered or checked. An alias
+    // already refused at its declaration (a cycle, an enum) draws no second
+    // refusal. (SL-1012)
+    func refuse_extension_alias(&var self, leaf: Int, a: Int) {
+        let parent = self.alias_type(a, -1)
+        let of: String = self.written_text(parent)
+        var bottom = parent
+        while bottom >= 0 && self.types.ty(bottom).alias >= 0 {
+            bottom = self.alias_type(self.types.ty(bottom).alias, -1)
+        }
+        if bottom < 0 || self.types.ty(bottom).kind == TcKind.Error {
+            return
+        }
+        if self.types.ty(bottom).kind == TcKind.Nominal && self.res.decls[self.types.ty(bottom).decl].kind == ResDeclKind.Enum {
+            return
+        }
+        let under: String = self.extension_spelling(bottom)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(self.current, leaf))
+        try! msg.append("` is an alias of `")
+        try! msg.append(of)
+        try! msg.append("`, and an alias carries no members of its own: ")
+        if under != "" {
+            try! msg.append("extend `")
+            try! msg.append(under)
+            try! msg.append("`, or ")
+        }
+        try! msg.append("declare a struct that wraps it")
+        self.refuse(leaf, "extension.alias", msg.build())
+    }
+
+    // The type an extension head can name, spelled as this module's source
+    // writes it; "" for a kind that takes no extension. ENTRY POINTS:
+    // written_text (any type), extension_spelling, append_written_type,
+    // written_decl_name.
+    public func written_text(&var self, t: Int) -> String {
+        var out = StringBuilder()
+        self.append_written_type(&var out, t)
+        out.build()
+    }
+
+    func extension_spelling(&var self, t: Int) -> String {
+        let info = self.types.ty(t)
+        if info.kind != TcKind.Nominal || info.decl == self.known.optional {
+            return ""
+        }
+        var out = StringBuilder()
+        self.append_written_type(&var out, t)
+        out.build()
+    }
+
+    // `t` as a head in this module writes it: nominal names as the module's
+    // scope reaches them, defaulted trailing arguments left out.
+    func append_written_type(&var self, out: &var StringBuilder, t: Int) {
+        let info = self.types.ty(t)
+        if info.alias >= 0 {
+            try! out.append(self.written_decl_name(info.alias))
+            return
+        }
+        if info.kind != TcKind.Nominal || (info.decl == self.known.optional && info.count == 1) {
+            self.append_type(&var out, t)
+            return
+        }
+        try! out.append(self.written_decl_name(info.decl))
+        var count = info.count
+        if count > 0 {
+            self.ensure_generics(info.decl)
+            let s = self.sigs[info.decl]
+            while count > 0 && count <= s.generic_count {
+                let g = self.generics[s.generic_first + count - 1]
+                if g.default_type < 0 || g.default_type != self.types.arg(t, count - 1) {
+                    break
+                }
+                count = count - 1
+            }
+        }
+        if count == 0 {
+            return
+        }
+        try! out.append("<")
+        var k = 0
+        while k < count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            self.append_written_type(&var out, self.types.arg(t, k))
+            k = k + 1
+        }
+        try! out.append(">")
+    }
+
+    // Declaration `d` as this module's source names it: its path when the
+    // module declares it, binds it bare or the language prints it bare; else
+    // behind the qualifier a whole-module import of its module binds; else its
+    // identity.
+    func written_decl_name(&self, d: Int) -> String {
+        let decl = self.res.decls[d]
+        if self.res.prints_bare(d) || decl.module == self.current {
+            return self.res.decl_path(d)
+        }
+        if decl.parent < 0 && self.head_named_decl(self.current, decl.name) == d {
+            return self.res.decl_path(d)
+        }
+        var k = 0
+        while k < self.res.imports.len() {
+            let imp = self.res.imports[k]
+            k = k + 1
+            if imp.module == self.current && imp.form == ResImportForm.Qualifier && imp.target == decl.module && imp.qualifier >= 0 {
+                var out = StringBuilder()
+                try! out.append(self.name_text(imp.qualifier))
+                try! out.append(".")
+                try! out.append(self.res.decl_path(d))
+                return out.build()
+            }
+        }
+        self.res.decl_identity(d)
     }
 
     // An extension head's parameters rename its type's, or, in a specialized

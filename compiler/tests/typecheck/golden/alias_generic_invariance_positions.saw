@@ -1,0 +1,54 @@
+// Generic invariance at the positions `alias_cells_generics` leaves out
+// (SL-823 face 1, SL-1012 U5): an alias is distinct at every depth of a
+// generic argument, in a return, a field, a nested argument, a `Map` value and
+// a `Result` payload. Each cross-flow below is an ERROR; the matching-alias
+// functions at the end are the controls and stay accepted.
+
+type UserId = Int
+
+struct Roster {
+    ids: Vector<UserId>
+}
+
+extension Roster: NoCopy {}
+
+func ints_returned(v: Vector<UserId>) -> Vector<Int> {
+    move v
+}
+
+func ids_returned(v: Vector<Int>) -> Vector<UserId> {
+    move v
+}
+
+func field_from_ints() {
+    let w: Vector<Int> = [1]
+    let r = Roster(ids: move w)
+    print(r.ids.len())
+}
+
+func nested(v: Vector<Vector<UserId>>) {
+    let w: Vector<Vector<Int>> = move v
+    print(w.len())
+}
+
+func map_value(m: Map<Int, UserId>) {
+    let n: Map<Int, Int> = move m
+    print(n.len())
+}
+
+func result_payload(r: Result<UserId, Int>) {
+    let s: Result<Int, Int> = move r
+    print("payload")
+}
+
+func same_alias(v: Vector<UserId>) -> Vector<UserId> {
+    move v
+}
+
+func same_alias_field() {
+    let w: Vector<UserId> = [UserId(1)]
+    let r = Roster(ids: move w)
+    print(r.ids.len())
+}
+
+func main() {}

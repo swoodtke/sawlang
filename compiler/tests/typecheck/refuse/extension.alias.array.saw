@@ -1,0 +1,12 @@
+// refuses: extension.alias at 8:11
+// errors: 1
+// a fixed array takes no extension (SL-1012)
+// message: `Triple` is an alias of `[Int; 3]`, and an alias carries no members of its own: declare a struct that wraps it
+
+type Triple = [Int; 3]
+
+extension Triple {
+    func first(&self) -> Int { 1 }
+}
+
+func main() {}

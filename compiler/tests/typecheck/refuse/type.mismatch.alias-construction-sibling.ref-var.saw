@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 10:13
+// errors: 1
+// a construction refuses a sibling alias read through a `&var` reference, as it does the value (SL-1012)
+// message: `UserId`, an alias of its own: write `OrderId(user as Int)`
+
+type UserId = Int
+type OrderId = Int
+
+func make(user: &var UserId) -> OrderId {
+    OrderId(user)
+}
+
+func main() {
+    var user = UserId(1)
+    print("{}", make(&var user) as Int)
+}

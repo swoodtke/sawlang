@@ -1,8 +1,7 @@
-// refuses: slice.not-yet at 13:11
+// refuses: extension.alias at 12:11
 // a `consumes` method on an alias this module declares for `Conn`. An alias
-// extension is outside the slice today, so that refusal comes first; the
-// record also carries `consumes.foreign-type` at 14:10, read through the
-// alias to `Conn`, which this header names once alias extensions open (SL-832)
+// takes no extension, so that refusal comes first; the record also carries
+// `consumes.foreign-type` at 14:10, read through the alias to `Conn` (SL-832)
 
 import conn.{Conn}
 

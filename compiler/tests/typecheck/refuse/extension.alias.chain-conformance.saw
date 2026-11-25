@@ -1,0 +1,16 @@
+// refuses: extension.alias at 12:11
+// a conformance through a chain of aliases (SL-1012)
+// message: `Slot` is an alias of `UserId`
+
+type UserId = Int
+type Slot = UserId
+
+trait Describe {
+    func describe(&self) -> Int
+}
+
+extension Slot: Describe {
+    func describe(&self) -> Int { 1 }
+}
+
+func main() {}

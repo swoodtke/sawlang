@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 15:21
+// errors: 1
+// the same refusal for a struct target (SL-1012)
+// message: `Home`, an alias of its own: write `Spot(home as Point)`
+
+struct Point {
+    x: Int
+}
+
+type Home = Point
+type Spot = Point
+
+func main() {
+    let home = Home(Point(x: 1))
+    let spot = Spot(home)
+    print("{}", (spot as Point).x)
+}

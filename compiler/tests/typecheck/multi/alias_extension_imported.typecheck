@@ -1,0 +1,30 @@
+(Module main
+  (declarations
+    (extension 6:1 (target shapes.Ring))
+    (method Ring.radius 7:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 10:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views
+    (shapes.Ring r radius))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (Ring.radius 7:10
+      (7:33-7:39 Member Int place copy)
+      (7:33-7:37 SelfExpr shapes.Ring place project))
+    (main 10:6)))
+
+(Module shapes
+  (declarations
+    (struct Ring 1:15 public)
+    (field Ring.r 2:5 public Int))
+  (members
+    (shapes.Ring
+      (field r Int public declared)
+      (method radius private (extension main))))
+  (views
+    (shapes.Ring r))
+  (conformances)
+  (copy-tier
+    (shapes.Ring Copy))
+  (bodies))

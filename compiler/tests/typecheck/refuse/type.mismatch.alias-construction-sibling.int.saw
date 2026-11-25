@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 11:25
+// errors: 1
+// a construction refuses a sibling alias even over a primitive target, before the argument projects (SL-1012)
+// message: `UserId`, an alias of its own: write `OrderId(user as Int)`
+
+type UserId = Int
+type OrderId = Int
+
+func main() {
+    let user: UserId = UserId(1)
+    let order = OrderId(user)
+    print("{}", order as Int)
+}

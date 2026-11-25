@@ -1,0 +1,12 @@
+// refuses: type.alias-cycle at 6:14
+// errors: 1
+// an alias refused at its declaration draws no second refusal at its extension (SL-1012)
+
+type Loop = Again
+type Again = Loop
+
+extension Loop {
+    func probe(&self) -> Int { 1 }
+}
+
+func main() {}

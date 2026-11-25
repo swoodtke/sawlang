@@ -1,0 +1,31 @@
+// The controls of the conformance-signature cells (SL-823 face 2, SL-1012 U5):
+// a member that spells the same alias as the requirement, in every position
+// the refusal fixtures `conformance.signature.alias-*` cross, is accepted.
+// The type-argument, optional, reference and associated-type cells read the
+// alias as written.
+
+type Handle = Int
+
+trait Store {
+    type Item
+    func read(&self, at: Handle) -> Handle
+    func find(&self) -> Handle?
+    func all(&self) -> Vector<Handle>
+    func peek(&self, at: &Handle) -> Int
+    func first(&self) -> Item
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Store {
+    type Item = Handle
+    func read(&self, at: Handle) -> Handle { at }
+    func find(&self) -> Handle? { Handle(1) }
+    func all(&self) -> Vector<Handle> { Vector<Handle>() }
+    func peek(&self, at: &Handle) -> Int { 1 }
+    func first(&self) -> Handle { Handle(2) }
+}
+
+func main() {}

@@ -1,0 +1,12 @@
+// refuses: extension.alias at 8:11
+// errors: 1
+// a tuple takes no extension: the message offers only the wrapping struct (SL-1012)
+// message: `Pair` is an alias of `(Int, Int)`, and an alias carries no members of its own: declare a struct that wraps it
+
+type Pair = (Int, Int)
+
+extension Pair {
+    func total(&self) -> Int { self.0 + self.1 }
+}
+
+func main() {}

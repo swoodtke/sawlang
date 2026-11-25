@@ -1,0 +1,43 @@
+// A construction takes a type on its chain, and a sibling alias through the
+// explicit step out, which is the spelling the sibling refusals name:
+// refuse/type.mismatch.alias-construction-sibling.int and .struct (SL-1012).
+
+type UserId = Int
+type Slot = UserId
+type OrderId = Int
+
+struct Point {
+    x: Int
+}
+
+type Home = Point
+type Spot = Point
+
+func through(user: &UserId) -> OrderId {
+    OrderId(user as Int)
+}
+
+func through_var(user: &var UserId) -> OrderId {
+    OrderId(user as Int)
+}
+
+func own(user: &UserId) -> Slot {
+    Slot(user)
+}
+
+// An alias above the constructed one on its chain is a peer too.
+func down(slot: Slot) -> UserId {
+    UserId(slot)
+}
+
+func main() {
+    var user = UserId(1)
+    let slot = Slot(user)
+    let order = OrderId(user as Int)
+    let a = through(&user)
+    let b = through_var(&var user)
+    let c = own(&user)
+    let home = Home(Point(x: 1))
+    let spot = Spot(home as Point)
+    print("{} {} {}", slot as Int, order as Int, (spot as Point).x)
+}

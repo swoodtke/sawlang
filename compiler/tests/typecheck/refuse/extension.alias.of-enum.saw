@@ -1,0 +1,11 @@
+// refuses: type.alias-of-enum at 5:1
+// errors: 1
+// an alias of an enum is refused at its declaration, and its extension adds nothing (SL-1012)
+
+type MaybeInt = Int?
+
+extension MaybeInt {
+    func probe(&self) -> Int { 1 }
+}
+
+func main() {}

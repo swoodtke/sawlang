@@ -1,0 +1,15 @@
+// refuses: extension.alias at 11:11
+// a conformance declared on an alias is refused the same way (SL-1012)
+// message: `UserId` is an alias of `Int`, and an alias carries no members of its own
+
+type UserId = Int
+
+trait Describe {
+    func describe(&self) -> Int
+}
+
+extension UserId: Describe {
+    func describe(&self) -> Int { 1 }
+}
+
+func main() {}

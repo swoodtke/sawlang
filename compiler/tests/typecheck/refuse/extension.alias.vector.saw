@@ -1,0 +1,12 @@
+// refuses: extension.alias at 8:11
+// errors: 1
+// a std generic is spelled with its defaulted allocator argument left out (SL-1012)
+// message: `Bytes` is an alias of `Vector<UInt8>`, and an alias carries no members of its own: extend `Vector<UInt8>`, or declare a struct that wraps it
+
+type Bytes = Vector<UInt8>
+
+extension Bytes {
+    func first_or_zero(&self) -> UInt8 { 0 }
+}
+
+func main() {}

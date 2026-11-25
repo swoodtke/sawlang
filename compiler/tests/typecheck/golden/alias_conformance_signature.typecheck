@@ -1,0 +1,49 @@
+(Module alias_conformance_signature
+  (declarations
+    (alias Handle 7:6 private Int)
+    (trait Store 9:7 private)
+    (assoc-type Store.Item 10:10)
+    (requirement Store.read 11:10 (signature (receiver shared) (params (at alias_conformance_signature.Handle owned)) -> alias_conformance_signature.Handle))
+    (requirement Store.find 12:10 (signature (receiver shared) (params) -> alias_conformance_signature.Handle?))
+    (requirement Store.all 13:10 (signature (receiver shared) (params) -> std.vector.Vector<alias_conformance_signature.Handle, std.alloc.GlobalAllocator>))
+    (requirement Store.peek 14:10 (signature (receiver shared) (params (at &alias_conformance_signature.Handle shared)) -> Int))
+    (requirement Store.first 15:10 (signature (receiver shared) (params) -> Self.Item))
+    (struct Disk 18:8 private)
+    (field Disk.n 19:5 private Int)
+    (extension 22:1 (target alias_conformance_signature.Disk) (conforms alias_conformance_signature.Store))
+    (type-assign Disk.Item 23:10 alias_conformance_signature.Handle)
+    (method Disk.read 24:10 private (signature (receiver shared) (params (at alias_conformance_signature.Handle owned)) -> alias_conformance_signature.Handle) (summary body (suspends no) (sync-callable yes)))
+    (method Disk.find 25:10 private (signature (receiver shared) (params) -> alias_conformance_signature.Handle?) (summary body (suspends no) (sync-callable yes)))
+    (method Disk.all 26:10 private (signature (receiver shared) (params) -> std.vector.Vector<alias_conformance_signature.Handle, std.alloc.GlobalAllocator>) (summary body (suspends no) (sync-callable yes)))
+    (method Disk.peek 27:10 private (signature (receiver shared) (params (at &alias_conformance_signature.Handle shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (method Disk.first 28:10 private (signature (receiver shared) (params) -> alias_conformance_signature.Handle) (summary body (suspends no) (sync-callable yes)))
+    (func main 31:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (alias_conformance_signature.Disk
+      (field n Int private declared)
+      (type-assign Item public (extension alias_conformance_signature))
+      (method read private (extension alias_conformance_signature))
+      (method find private (extension alias_conformance_signature))
+      (method all private (extension alias_conformance_signature))
+      (method peek private (extension alias_conformance_signature))
+      (method first private (extension alias_conformance_signature))))
+  (views
+    (alias_conformance_signature.Disk n Item read find all peek first))
+  (conformances
+    (alias_conformance_signature.Disk alias_conformance_signature.Store 22:17 (Item written) (read written) (find written) (all written) (peek written) (first written)))
+  (copy-tier
+    (alias_conformance_signature.Disk Copy))
+  (bodies
+    (Disk.read 24:10
+      (24:46-24:48 Name alias_conformance_signature.Handle place copy))
+    (Disk.find 25:10
+      (25:35-25:44 Call.paren alias_conformance_signature.Handle (some alias_conformance_signature.Handle?) value temp (conversion alias_conformance_signature.Handle alias (owner Int)))
+      (25:42-25:43 IntLit Int value temp))
+    (Disk.all 26:10
+      (26:41-26:57 Call.paren std.vector.Vector<alias_conformance_signature.Handle, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<alias_conformance_signature.Handle, std.alloc.GlobalAllocator>))))
+    (Disk.peek 27:10
+      (27:44-27:45 IntLit Int value temp))
+    (Disk.first 28:10
+      (28:35-28:44 Call.paren alias_conformance_signature.Handle value temp (conversion alias_conformance_signature.Handle alias (owner Int)))
+      (28:42-28:43 IntLit Int value temp))
+    (main 31:6)))

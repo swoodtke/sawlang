@@ -1,0 +1,14 @@
+// refuses: extension.alias at 10:11
+// errors: 1
+// an alias of another module's struct is told to extend it as this module's import names it (SL-1012)
+// message: `Loop` is an alias of `shapes.Ring`, and an alias carries no members of its own: extend `shapes.Ring`, or declare a struct that wraps it
+
+import shapes
+
+type Loop = shapes.Ring
+
+extension Loop {
+    func radius(&self) -> Int { self.r }
+}
+
+func main() {}

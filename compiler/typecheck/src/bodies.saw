@@ -5535,6 +5535,8 @@ extension TcProgram {
     //     arithmetic_expr
     //     compare_expr (sibling_operands)
     //     range_expr
+    //     alias_construct
+    //     construction_spelling
     func sibling_aliases(&var self, x: Int, y: Int) -> Bool {
         self.is_alias(x) && self.is_alias(y) && not self.on_alias_chain(x, y) && not self.on_alias_chain(y, x)
     }
@@ -11629,14 +11631,40 @@ extension TcProgram {
             slot = self.types.unaliased(t)
         }
         self.check_argument(args.values[0], slot)
-        let given = self.expr_types[args.values[0]]
-        if given >= 0 && self.is_alias(t) && self.is_alias(given) && not self.on_alias_chain(t, given) && not self.has_error(given) {
+        var given = self.expr_types[args.values[0]]
+        // A reference is judged by the alias it reads, the place read
+        // `as` takes through it.
+        while self.is_reference(given) && self.referent(given) >= 0 {
+            given = self.referent(given)
+        }
+        // The argument is judged before it projects: an alias whose chain
+        // diverges from the constructed alias's (a sibling) is refused whatever
+        // `t` is, and the way out is the explicit step to its representation.
+        // An alias on the same chain, above or below, is a peer. A mismatch of
+        // representations is `check_argument`'s refusal already.
+        let built = self.alias_twin(alias, -1)
+        if given >= 0 && self.sibling_aliases(built, given) && not self.has_error(given) && self.same_representation(given, slot) {
+            let arg = self.text(self.current, args.values[0])
+            var simple = true
+            var at = 0
+            while at < arg.len() {
+                if arg.byte_at(at) == 32 {
+                    simple = false
+                }
+                at = at + 1
+            }
             var msg = StringBuilder()
             try! msg.append("expected a `")
-            try! msg.append(self.type_text(t))
+            try! msg.append(self.written_text(built))
             try! msg.append("` or a type below it, and found `")
-            try! msg.append(self.type_text(given))
-            try! msg.append("`, an alias of its own")
+            try! msg.append(self.written_text(given))
+            try! msg.append("`, an alias of its own: write `")
+            try! msg.append(self.text(self.current, callee))
+            try! msg.append(if simple { "(" } else { "((" })
+            try! msg.append(arg)
+            try! msg.append(if simple { " as " } else { ") as " })
+            try! msg.append(self.written_text(self.types.unaliased(given)))
+            try! msg.append(")`")
             self.refuse(args.values[0], "type.mismatch", msg.build())
         }
         // The construction carries its argument's value. Over a non-escaping
@@ -11657,7 +11685,6 @@ extension TcProgram {
         c.spelling = self.res.intern("alias")
         self.calls[at] = c
         // The construction is the alias itself, a type of its own.
-        let built = self.alias_twin(alias, -1)
         self.set_type(e, built, false)
     }
 
@@ -17424,7 +17451,7 @@ extension TcProgram {
         }
         let rep = self.types.unaliased(slot)
         let text = self.text(self.current, e)
-        let sibling = self.is_alias(from) && not self.on_alias_chain(slot, from)
+        let sibling = self.sibling_aliases(slot, from)
         let fits = self.fit(from, rep, self.allowance(TcPosition.Argument)) > TC_FIT_NONE
         var out = StringBuilder()
         try! out.append(self.alias_written_name(slot))

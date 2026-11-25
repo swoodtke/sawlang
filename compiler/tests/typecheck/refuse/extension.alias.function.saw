@@ -1,0 +1,12 @@
+// refuses: extension.alias at 8:11
+// errors: 1
+// a function type takes no extension (SL-1012)
+// message: `Step` is an alias of `(Int) -> Int`, and an alias carries no members of its own: declare a struct that wraps it
+
+type Step = (Int) -> Int
+
+extension Step {
+    func twice(&self) -> Int { 2 }
+}
+
+func main() {}

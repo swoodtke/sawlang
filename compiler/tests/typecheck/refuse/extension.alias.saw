@@ -1,0 +1,11 @@
+// refuses: extension.alias at 7:11
+// an extension on an alias: an alias carries no members of its own (SL-1012)
+// message: `UserId` is an alias of `Int`, and an alias carries no members of its own: extend `Int`, or declare a struct that wraps it
+
+type UserId = Int
+
+extension UserId {
+    func doubled(&self) -> Int { 2 }
+}
+
+func main() {}

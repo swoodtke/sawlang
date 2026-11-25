@@ -1,0 +1,10 @@
+// The extension refuse/extension.alias.imported suggests, written out with
+// the same import: it compiles (SL-1012).
+
+import shapes
+
+extension shapes.Ring {
+    func radius(&self) -> Int { self.r }
+}
+
+func main() {}

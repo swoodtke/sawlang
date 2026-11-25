@@ -1,0 +1,18 @@
+// refuses: conformance.incomplete at 14:17
+// an init requirement takes the alias `Handle` and the type's `init` takes `Int` (SL-823)
+
+type Handle = Int
+
+trait Open {
+    init(at: Handle)
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Open {
+    init(at: Int) { Disk(n: at) }
+}
+
+func main() {}

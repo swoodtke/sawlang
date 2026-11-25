@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 13:10
+// a requirement takes `Vector<Byte>` and the member writes `Vector<UInt8>`: generics are invariant in an alias argument (SL-823)
+
+trait Sink {
+    func put(&self, bytes: Vector<Byte>)
+}
+
+struct Pipe {
+    n: Int
+}
+
+extension Pipe: Sink {
+    func put(&self, bytes: Vector<UInt8>) {}
+}
+
+func main() {}

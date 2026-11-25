@@ -1,0 +1,89 @@
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_generic_invariance_positions.saw:16:5	expected `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, the type of the function's result, which the body's last expression is, and found `std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_generic_invariance_positions.saw:20:5	expected `std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>`, the type of the function's result, which the body's last expression is, and found `std.vector.Vector<Int, std.alloc.GlobalAllocator>`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_generic_invariance_positions.saw:25:25	expected `std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>`, the type of the field, and found `std.vector.Vector<Int, std.alloc.GlobalAllocator>`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_generic_invariance_positions.saw:30:34	expected `std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>`, the type of the annotated binding, and found `std.vector.Vector<std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_generic_invariance_positions.saw:35:28	expected `std.map.Map<Int, Int, std.alloc.GlobalAllocator>`, the type of the annotated binding, and found `std.map.Map<Int, alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_generic_invariance_positions.saw:40:31	expected `Result<Int, Int>`, the type of the annotated binding, and found `Result<alias_generic_invariance_positions.UserId, Int>`
+(Module alias_generic_invariance_positions
+  (declarations
+    (alias UserId 7:6 private Int)
+    (struct Roster 9:8 private)
+    (field Roster.ids 10:5 private std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>)
+    (extension 13:1 (target alias_generic_invariance_positions.Roster) (conforms NoCopy))
+    (func ints_returned 15:6 private (signature (params (v std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> owned)) -> std.vector.Vector<Int, std.alloc.GlobalAllocator>) (summary body (suspends no) (sync-callable yes)))
+    (func ids_returned 19:6 private (signature (params (v std.vector.Vector<Int, std.alloc.GlobalAllocator> owned)) -> std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>) (summary body (suspends no) (sync-callable yes)))
+    (func field_from_ints 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func nested 29:6 private (signature (params (v std.vector.Vector<std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func map_value 34:6 private (signature (params (m std.map.Map<Int, alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func result_payload 39:6 private (signature (params (r Result<alias_generic_invariance_positions.UserId, Int> owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func same_alias 44:6 private (signature (params (v std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> owned)) -> std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>) (summary body (suspends no) (sync-callable yes)))
+    (func same_alias_field 48:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 54:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (alias_generic_invariance_positions.Roster
+      (field ids std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (alias_generic_invariance_positions.Roster ids deinit))
+  (conformances
+    (alias_generic_invariance_positions.Roster NoCopy 13:19 (deinit implicit)))
+  (copy-tier
+    (alias_generic_invariance_positions.Roster NoCopy declared))
+  (bodies
+    (ints_returned 15:6
+      (16:5-16:11 Move std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> value move)
+      (16:10-16:11 Name std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> place move))
+    (ids_returned 19:6
+      (20:5-20:11 Move std.vector.Vector<Int, std.alloc.GlobalAllocator> value move)
+      (20:10-20:11 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> place move))
+    (field_from_ints 23:6
+      (24:9-24:10 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (24:26-24:29 Array std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (24:27-24:28 IntLit Int value temp)
+      (25:9-25:10 BindingName alias_generic_invariance_positions.Roster place temp)
+      (25:13-25:32 Call.paren alias_generic_invariance_positions.Roster value temp (memberwise alias_generic_invariance_positions.Roster (owner alias_generic_invariance_positions.Roster)))
+      (25:25-25:31 Move std.vector.Vector<Int, std.alloc.GlobalAllocator> value move)
+      (25:30-25:31 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> place move)
+      (26:5-26:23 Call.paren Void value temp (builtin print))
+      (26:11-26:22 Call.paren Int value borrow (call std.vector.Vector.len() (owner std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>)))
+      (26:11-26:16 Member std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>) place borrow)
+      (26:11-26:12 Name alias_generic_invariance_positions.Roster place project))
+    (nested 29:6
+      (30:9-30:10 BindingName std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> place temp)
+      (30:34-30:40 Move std.vector.Vector<std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> value move)
+      (30:39-30:40 Name std.vector.Vector<std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> place move)
+      (31:5-31:19 Call.paren Void value temp (builtin print))
+      (31:11-31:18 Call.paren Int value borrow (call std.vector.Vector.len() (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>)))
+      (31:11-31:12 Name std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) place borrow))
+    (map_value 34:6
+      (35:9-35:10 BindingName std.map.Map<Int, Int, std.alloc.GlobalAllocator> place temp)
+      (35:28-35:34 Move std.map.Map<Int, alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> value move)
+      (35:33-35:34 Name std.map.Map<Int, alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> place move)
+      (36:5-36:19 Call.paren Void value temp (builtin print))
+      (36:11-36:18 Call.paren Int value borrow (call std.map.Map.len() (owner std.map.Map<Int, Int, std.alloc.GlobalAllocator>)))
+      (36:11-36:12 Name std.map.Map<Int, Int, std.alloc.GlobalAllocator> (borrow &std.map.Map<Int, Int, std.alloc.GlobalAllocator>) place borrow))
+    (result_payload 39:6
+      (40:9-40:10 BindingName Result<Int, Int> place temp)
+      (40:31-40:37 Move Result<alias_generic_invariance_positions.UserId, Int> value move)
+      (40:36-40:37 Name Result<alias_generic_invariance_positions.UserId, Int> place move)
+      (41:5-41:21 Call.paren Void value temp (builtin print))
+      (41:11-41:20 StringLit String value temp))
+    (same_alias 44:6
+      (45:5-45:11 Move std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> value move)
+      (45:10-45:11 Name std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> place move))
+    (same_alias_field 48:6
+      (49:9-49:10 BindingName std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> place temp)
+      (49:29-49:40 Array std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> value temp)
+      (49:30-49:39 Call.paren alias_generic_invariance_positions.UserId value temp (conversion alias_generic_invariance_positions.UserId alias (owner Int)))
+      (49:37-49:38 IntLit Int value temp)
+      (50:9-50:10 BindingName alias_generic_invariance_positions.Roster place temp)
+      (50:13-50:32 Call.paren alias_generic_invariance_positions.Roster value temp (memberwise alias_generic_invariance_positions.Roster (owner alias_generic_invariance_positions.Roster)))
+      (50:25-50:31 Move std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> value move)
+      (50:30-50:31 Name std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> place move)
+      (51:5-51:23 Call.paren Void value temp (builtin print))
+      (51:11-51:22 Call.paren Int value borrow (call std.vector.Vector.len() (owner std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>)))
+      (51:11-51:16 Member std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<alias_generic_invariance_positions.UserId, std.alloc.GlobalAllocator>) place borrow)
+      (51:11-51:12 Name alias_generic_invariance_positions.Roster place project))
+    (main 54:6))
+  (string-positions
+    (41:11 message std.string.string_literal)))

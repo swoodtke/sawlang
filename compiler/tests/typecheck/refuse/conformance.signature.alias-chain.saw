@@ -1,0 +1,19 @@
+// refuses: conformance.signature at 16:10
+// an alias of an alias is a third type: the requirement names `Handle`, the member `Slot` (SL-823)
+
+type Handle = Int
+type Slot = Handle
+
+trait Reader {
+    func read(&self, at: Handle) -> Int
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Reader {
+    func read(&self, at: Slot) -> Int { 1 }
+}
+
+func main() {}

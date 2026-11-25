@@ -1,0 +1,18 @@
+// refuses: conformance.signature at 15:10
+// a requirement names the alias `Handle` for a parameter and the member writes `Int`: an alias is a distinct type (SL-823)
+
+type Handle = Int
+
+trait Reader {
+    func read(&self, at: Handle) -> Int
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Reader {
+    func read(&self, at: Int) -> Int { at }
+}
+
+func main() {}

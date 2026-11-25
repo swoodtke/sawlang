@@ -1,0 +1,16 @@
+// refuses: conformance.signature at 13:10
+// a requirement returns `Vector<UInt8>` and the member returns `Vector<Byte>` (SL-823)
+
+trait Source {
+    func take(&self) -> Vector<UInt8>
+}
+
+struct Pipe {
+    n: Int
+}
+
+extension Pipe: Source {
+    func take(&self) -> Vector<Byte> { Vector<Byte>() }
+}
+
+func main() {}

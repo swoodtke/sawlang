@@ -1,0 +1,18 @@
+// refuses: conformance.signature at 15:10
+// a requirement returns `Handle?` and the member returns `Int?` (SL-823)
+
+type Handle = Int
+
+trait Finder {
+    func find(&self) -> Handle?
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Finder {
+    func find(&self) -> Int? { 1 }
+}
+
+func main() {}

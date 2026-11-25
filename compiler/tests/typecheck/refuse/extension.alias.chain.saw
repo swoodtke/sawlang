@@ -1,0 +1,12 @@
+// refuses: extension.alias at 8:11
+// through a chain the message names the alias it is written on and the type to extend (SL-1012)
+// message: `Slot` is an alias of `UserId`, and an alias carries no members of its own: extend `Int`, or declare a struct that wraps it
+
+type UserId = Int
+type Slot = UserId
+
+extension Slot {
+    func doubled(&self) -> Int { 2 }
+}
+
+func main() {}

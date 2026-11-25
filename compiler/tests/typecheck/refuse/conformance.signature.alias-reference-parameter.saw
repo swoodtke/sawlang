@@ -1,0 +1,18 @@
+// refuses: conformance.signature at 15:10
+// a requirement takes `&Handle` and the member takes `&Int` (SL-823)
+
+type Handle = Int
+
+trait Reader {
+    func read(&self, at: &Handle) -> Int
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Reader {
+    func read(&self, at: &Int) -> Int { 1 }
+}
+
+func main() {}

@@ -1,0 +1,18 @@
+// refuses: conformance.signature at 15:10
+// a requirement returns `Int` and the member returns the alias `Handle` (SL-823)
+
+type Handle = Int
+
+trait Opener {
+    func open(&self) -> Int
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Opener {
+    func open(&self) -> Handle { Handle(1) }
+}
+
+func main() {}

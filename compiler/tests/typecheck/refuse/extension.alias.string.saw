@@ -1,0 +1,12 @@
+// refuses: extension.alias at 8:11
+// errors: 1
+// a language-vocabulary type is spelled bare (SL-1012)
+// message: `Label` is an alias of `String`, and an alias carries no members of its own: extend `String`, or declare a struct that wraps it
+
+type Label = String
+
+extension Label {
+    func shout(&self) -> Int { 1 }
+}
+
+func main() {}

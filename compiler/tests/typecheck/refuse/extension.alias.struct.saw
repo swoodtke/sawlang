@@ -1,0 +1,16 @@
+// refuses: extension.alias at 12:11
+// errors: 1
+// an alias of a struct carries no members either: the way out names the struct as this module writes it (SL-1012)
+// message: `Spot` is an alias of `Point`, and an alias carries no members of its own: extend `Point`, or declare a struct that wraps it
+
+struct Point {
+    x: Int
+}
+
+type Spot = Point
+
+extension Spot {
+    func double_x(&self) -> Int { self.x * 2 }
+}
+
+func main() {}

@@ -1,0 +1,11 @@
+// refuses: extension.alias at 9:11
+// an empty conformance body on an alias (the assertion form) is refused too (SL-1012)
+// message: `UserId` is an alias of `Int`
+
+type UserId = Int
+
+trait Marker {}
+
+extension UserId: Marker {}
+
+func main() {}

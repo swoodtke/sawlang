@@ -1,0 +1,26 @@
+// Every extension the `extension.alias` refusal suggests, written out: each
+// refuse/extension.alias.* fixture names one of the heads below, and the
+// program has no ERROR (SL-1012). A tuple, a function type and a fixed array
+// take no extension, so their refusals suggest none.
+
+struct Point {
+    x: Int
+}
+
+extension Point {
+    func double_x(&self) -> Int { self.x * 2 }
+}
+
+extension Vector<UInt8> {
+    func first_or_zero(&self) -> UInt8 { 0 }
+}
+
+extension String {
+    func shout(&self) -> Int { 1 }
+}
+
+extension Int {
+    func doubled(&self) -> Int { 2 }
+}
+
+func main() {}

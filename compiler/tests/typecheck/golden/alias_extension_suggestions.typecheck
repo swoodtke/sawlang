@@ -1,0 +1,35 @@
+(Module alias_extension_suggestions
+  (declarations
+    (struct Point 6:8 private)
+    (field Point.x 7:5 private Int)
+    (extension 10:1 (target alias_extension_suggestions.Point))
+    (method Point.double_x 11:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 14:1 (target std.vector.Vector<UInt8, std.alloc.GlobalAllocator>))
+    (method Vector.first_or_zero 15:10 private (signature (receiver shared) (params) -> UInt8) (summary body (suspends no) (sync-callable yes)))
+    (extension 18:1 (target String))
+    (method String.shout 19:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 22:1 (target Int))
+    (method Int.doubled 23:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 26:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (alias_extension_suggestions.Point
+      (field x Int private declared)
+      (method double_x private (extension alias_extension_suggestions))))
+  (views
+    (alias_extension_suggestions.Point x double_x))
+  (conformances)
+  (copy-tier
+    (alias_extension_suggestions.Point Copy))
+  (bodies
+    (Point.double_x 11:10
+      (11:35-11:45 Binary Int value temp (op *))
+      (11:35-11:41 Member Int place copy)
+      (11:35-11:39 SelfExpr alias_extension_suggestions.Point place project)
+      (11:44-11:45 IntLit Int value temp))
+    (Vector.first_or_zero 15:10
+      (15:42-15:43 IntLit Int (adopt UInt8) value temp))
+    (String.shout 19:10
+      (19:32-19:33 IntLit Int value temp))
+    (Int.doubled 23:10
+      (23:34-23:35 IntLit Int value temp))
+    (main 26:6)))

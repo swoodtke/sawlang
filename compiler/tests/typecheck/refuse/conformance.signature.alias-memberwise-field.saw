@@ -1,0 +1,16 @@
+// refuses: conformance.incomplete at 14:17
+// a memberwise construction meets an init requirement only at the same types: the field is `Int`, the requirement names the alias `Handle` (SL-823)
+
+type Handle = Int
+
+trait Open {
+    init(n: Handle)
+}
+
+struct Disk {
+    n: Int
+}
+
+extension Disk: Open {}
+
+func main() {}
