@@ -1,0 +1,25 @@
+// probe: panics
+// about: a task parked in a `join()` of a task that waits on a channel nothing can send to counts as waiting, so the deadlock walk reports it, conformance row K226 (SL-1161)
+// stage 0: runs the join as a nested sweep, which the walk reports without naming the join
+// speeds: -O0 -O2
+// panics: deadlock: every task is waiting to receive from a channel
+import std.channel.{Channel}
+
+func k(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> 0 - 1
+    }
+}
+
+func j(orders: Channel<Int>) -> Int {
+    let t = Task.spawn(k(orders))
+    t.join()
+}
+
+func main() {
+    let orders = try! Channel<Int>()
+    var g = TaskGroup()
+    let h = g.spawn(j(orders.copy()))
+    print("joined {h.join()}")
+}

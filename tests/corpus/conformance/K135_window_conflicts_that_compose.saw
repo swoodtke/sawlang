@@ -218,7 +218,7 @@ func root_generic_instantiation() -> Int {
     w.walk() * 4
 }
 
-func main() {
+func main() blocking {
     let v: Vector<Int> = [1, 2, 3]
     print("read the root {__saw_drive(read_the_root(&v))}")
 

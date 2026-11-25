@@ -107,7 +107,7 @@ func row_task() {
     print("after task")
 }
 
-func main() {
+func main() blocking {
     print("-- in_loop")
     __saw_drive(row_loop())
     print("-- in_try_catch")

@@ -1,0 +1,33 @@
+// refuses: effect.any-suspends at 32:19
+// a trait method whose implementation joins a task, called through `&any
+// Trait`
+func writer() -> Int {
+    4
+}
+
+func settle() -> Int {
+    Task.spawn(writer()).join()
+}
+
+trait Settles {
+    func settle_it(&self) -> Int
+}
+
+struct Joiner {
+    n: Int
+}
+
+extension Joiner: Settles {
+    func settle_it(&self) -> Int {
+        settle()
+    }
+}
+
+func through(s: &any Settles) -> Int {
+    s.settle_it()
+}
+
+func main() {
+    let j = Joiner(n: 1)
+    print(through(&j))
+}

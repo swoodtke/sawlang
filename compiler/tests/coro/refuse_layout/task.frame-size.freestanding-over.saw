@@ -14,7 +14,7 @@ func hold() {
 }
 
 @export("entry")
-func entry() {
+func entry() blocking {
     let g = TaskGroup()
     let t = g.spawn(hold())
     t.join()

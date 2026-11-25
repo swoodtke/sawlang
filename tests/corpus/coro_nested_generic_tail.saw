@@ -39,7 +39,7 @@ func viaTailExpr() -> Int {
     work<A>(A(n: 4))             // trailing expression
 }
 
-func main() {
+func main() blocking {
     print(__saw_drive(viaReturn()))
     var group = TaskGroup()
     let h = group.spawn(viaTailExpr())

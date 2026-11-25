@@ -45,7 +45,7 @@ func drain_with_try() -> Int {
     total
 }
 
-func main() {
+func main() blocking {
     print("driven {__saw_drive(drain_with_try())}")
     var group = TaskGroup()
     let h = group.spawn(drain_with_try())

@@ -1,0 +1,68 @@
+// probe: stated
+// about: pool lockers that take the lock inside a `sync` helper, beside a pool task whose lock window drops a live group, wait for the lock instead of re-entering it, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: count 9
+import std.mutex.{Mutex}
+import std.task.*
+
+func noop() -> Int {
+    0
+}
+
+func nap(n: Int) -> Int {
+    sleep(Duration.ms(5))
+    n
+}
+
+func teardown_inside() sync -> Int {
+    var g = TaskGroup()
+    g.spawn(nap(1))
+    1
+}
+
+func bump(shared: &Arc<Mutex<Int>>) sync -> Int {
+    let v = borrow var c = shared.value().lock() {
+        c = c + 1
+        c
+    }
+    v
+}
+
+func own_child() -> Int {
+    var g = TaskGroup()
+    let c = g.spawn(noop())
+    c.join()
+}
+
+func holder(shared: Arc<Mutex<Int>>) -> Int {
+    sleep(Duration.ms(1))
+    let v = borrow var c = shared.value().lock() {
+        c = c + teardown_inside()
+        c
+    }
+    v * 0 + 1 + own_child()
+}
+
+func locker(shared: Arc<Mutex<Int>>) -> Int {
+    sleep(Duration.ms(2))
+    let v = bump(&shared)
+    v * 0 + 1 + own_child()
+}
+
+func main() {
+    let shared = try! Arc(value: Mutex(value: 0))
+    var pool = try! TaskGroup(threads: 2)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 8 {
+        try! hs.push(pool.spawn(locker(shared.copy())))
+        i = i + 1
+    }
+    try! hs.push(pool.spawn(holder(shared.copy())))
+    var total = 0
+    while let h = hs.pop() {
+        total = total + h.join()
+    }
+    print("count {}", total)
+}

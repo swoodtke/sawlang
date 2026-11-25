@@ -1,0 +1,48 @@
+// probe: stated
+// about: a `Thread.spawn` body blocked on a lock whose holder computes outside the executor is not reported, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: got 7 total 2
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+
+static M: Mutex<Int>
+static HELD: Atomic<Int> = Atomic(0)
+static SPIN: Atomic<Int> = Atomic(0)
+static GOT: Atomic<Int> = Atomic(0)
+
+func take_one(ch: Channel<Int>) -> Int {
+    GOT.store(try! ch.receive())
+    0
+}
+
+func drop_waiting_group(ch: Channel<Int>) sync {
+    let g = TaskGroup()
+    let h = g.spawn(take_one(ch))
+}
+
+func hold_and_compute() {
+    borrow var m = M.lock() {
+        HELD.store(1)
+        while SPIN.fetch_add(1) < 30_000_000 { }
+        m = m + 1
+    }
+}
+
+func lock_then_send(ch: Channel<Int>) {
+    while HELD.load() == 0 { }
+    borrow var m = M.lock() { m = m + 1 }
+    try! ch.send(7)
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    let c = ch.copy()
+    var t1 = try! Thread.spawn { hold_and_compute() }
+    var t2 = try! Thread.spawn { [c] in lock_then_send(c) }
+    while HELD.load() == 0 { }
+    drop_waiting_group(ch.copy())
+    t1.join()
+    t2.join()
+    print("got {} total {}", GOT.load(), M.get())
+}

@@ -7,12 +7,12 @@
 // the holder. The fields start out holding group handles, which drop freely
 // when the background handles replace them.
 // prints: tick 1
-// prints: fields dropped
 // prints: tick 2
+// prints: tick 0
+// prints: tick 0
+// prints: tick 0
+// prints: fields dropped
 // prints: spin 3 cancelled
-// prints: tick 0
-// prints: tick 0
-// prints: tick 0
 // prints: tick 5
 // prints: tick 4
 // prints: keeper dropped

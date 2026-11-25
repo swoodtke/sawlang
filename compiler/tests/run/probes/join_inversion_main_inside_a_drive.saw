@@ -1,10 +1,11 @@
-// probe: panics
-// about: a suspending `main` resumed inside the drive of a task joining its own inner group's task, which then joins that task, panics at its join, before the inner task finishes, conformance row K200 (SL-809)
+// probe: stated
+// about: a suspending `main` resumed inside the drive of a task joining its own inner group's task, which then joins that task, parks until the inner task finishes, conformance row K200 (SL-1161)
 // stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
 // speeds: -O0 -O2
 // prints: subject joins leaf
 // prints: main joins subject
-// panics: Task.join: the task cannot finish while this join waits for it
+// prints: leaf done
+// prints: never reached 2
 // `main` waits until `leaf` reports that it is waiting, so `subject`'s join of
 // `leaf` resumes it; `subject` continues only once `main`'s join returns, and
 // that join waits for `subject`. `leaf` holds until `main` releases it just

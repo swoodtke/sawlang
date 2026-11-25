@@ -275,6 +275,8 @@ public struct CoroResume {
     result: Int
     poison_first: Int
     poison_count: Int
+    // The frame's `thread_bound`, which the descriptor carries to the pool.
+    thread_bound: Bool
 }
 
 // Where in a resume function a poison-list step runs, as the backend emits a
@@ -361,6 +363,9 @@ public struct CoroFrame {
     size: Int
     align: Int
     unsupported: Int
+    // Whether the frame holds a thread-bound handle across a suspension, which
+    // a pool resumes only on the worker that first ran it (`coro_check_root`).
+    thread_bound: Bool
 }
 
 extension CoroProgram {

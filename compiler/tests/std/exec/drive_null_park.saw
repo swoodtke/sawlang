@@ -20,7 +20,7 @@ func run() unsafe {
     let parker = FrameDescriptor(resume: { f, c in null_resume(f, c) },
                                  size: sizeof<Int>(), align: alignof<Int>(),
                                  result_offset: 0, result_size: 0, result_align: 1,
-                                 drop_result: { p in drop_nothing(p) }, backtrace: -1)
+                                 drop_result: { p in drop_nothing(p) }, backtrace: -1, thread_bound: 0)
     let d = (&parker) as UnsafePointer<FrameDescriptor>
     var storage = 0
     let frame = (&storage) as UnsafePointer<UInt8>

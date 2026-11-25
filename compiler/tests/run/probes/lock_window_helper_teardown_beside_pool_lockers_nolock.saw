@@ -1,0 +1,57 @@
+// probe: stated
+// about: control: the same lockers beside a teardown made outside the window, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: total 106
+import std.mutex.{Mutex}
+import std.task.*
+
+static M: Mutex<Int>
+
+func leaf() -> Int {
+    1
+}
+
+// Parked on its sleep when the holder's window opens; then it holds a group
+// across its child's join made in place on its worker, and takes the lock.
+func pinned() -> Int {
+    sleep(Duration.ms(10))
+    var g = TaskGroup()
+    let c = g.spawn(leaf())
+    let v = c.join()
+    borrow var m = M.lock() { m = m + v }
+    v
+}
+
+func slow() -> Int {
+    sleep(Duration.ms(40))
+    1
+}
+
+func drop_live_group() sync {
+    let g = TaskGroup()
+    let h = g.spawn(slow())
+}
+
+func holder() -> Int {
+    sleep(Duration.ms(2))
+    drop_live_group()
+    borrow var m = M.lock() { m = m + 100 }
+    0
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 6 {
+        try! hs.push(pool.spawn(pinned()))
+        i = i + 1
+    }
+    let h = pool.spawn(holder())
+    let _ = h.join()
+    while let t = hs.pop() {
+        let _ = t.join()
+    }
+    print("total {}", M.get())
+}

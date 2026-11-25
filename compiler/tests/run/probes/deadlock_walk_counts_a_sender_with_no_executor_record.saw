@@ -1,0 +1,61 @@
+// probe: stated
+// about: a pool task's lock window waits in place for a send from a blocking `main` that never drives the executor, while the only `Thread.spawn` body waits for the lock: it completes and is never reported, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: total 101 got 7
+// A live program. A `blocking` `main` never touches the executor: it starts
+// one thread, computes for a while and then sends. The thread makes a pool
+// whose task takes a Mutex and, inside the window, a `sync` helper drops a
+// cooperative group whose task waits to receive main's send, so the task's
+// worker waits in place holding the lock. The thread then waits for the same
+// lock. Every `Thread.spawn` body is blocked behind a holder that waits in
+// place, and the only sender is `main`, which has no executor record. Once
+// main sends, the window closes and the thread takes the lock.
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+import std.thread.{Thread}
+import std.task.*
+
+static M: Mutex<Int>
+static OPEN: Atomic<Int> = Atomic(0)
+static SPIN: Atomic<Int> = Atomic(0)
+static GOT: Atomic<Int> = Atomic(0)
+
+func take_one(ch: Channel<Int>) -> Int {
+    GOT.store(try! ch.receive())
+    0
+}
+
+func drain_inside(ch: Channel<Int>) sync {
+    let g = TaskGroup()
+    let h = g.spawn(take_one(ch))
+}
+
+func holder(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(2))
+    borrow var m = M.lock() {
+        OPEN.store(1)
+        drain_inside(ch.copy())
+        m = m + 100
+    }
+    0
+}
+
+func starter(ch: Channel<Int>) {
+    var pool = try! TaskGroup(threads: 2)
+    let h = pool.spawn(holder(ch.copy()))
+    while OPEN.load() == 0 { }
+    borrow var m = M.lock() { m = m + 1 }
+    let _ = h.join()
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    let c = ch.copy()
+    var x = try! Thread.spawn { [c] in starter(c) }
+    while OPEN.load() == 0 { }
+    while SPIN.fetch_add(1) < 40_000_000 { }
+    try! ch.send(7)
+    x.join()
+    print("total {} got {}", M.get(), GOT.load())
+}

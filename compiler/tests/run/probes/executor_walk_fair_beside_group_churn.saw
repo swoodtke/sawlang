@@ -41,7 +41,11 @@ func churner() -> Int {
     0
 }
 
+// Cedes once first: a join parks, so the walk's first pass reaches the older
+// group before any churner has a turn, and only a task that cedes sits behind
+// them.
 func victim() -> Int {
+    yield_now()
     SEEN_AT.store(TURNS.load())
     VICTIM_RAN.store(1)
     1

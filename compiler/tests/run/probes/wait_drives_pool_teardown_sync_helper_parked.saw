@@ -37,20 +37,20 @@ func tear_down_pool(ch: Channel<Int>) -> Int {
     (try! out.try_receive())!
 }
 
-func helper() sync -> Int {
-    let ch = try! Channel<Int>()
-    var group = TaskGroup()
-    let s = group.spawn(late_sender(ch, 5))
-    // The kick's join runs the sender to its timer park.
-    var kick = TaskGroup()
-    let k = kick.spawn(yielder())
-    let _ = k.join()
-    let v = tear_down_pool(ch)
-    let _ = s.join()
-    v
+func helper(ch: Channel<Int>) sync -> Int {
+    tear_down_pool(ch)
 }
 
 func main() {
     yield_now()
-    print("done {}", helper())
+    let ch = try! Channel<Int>()
+    var group = TaskGroup()
+    let s = group.spawn(late_sender(ch, 5))
+    // The kick's join parks `main` while the sender runs to its timer park.
+    var kick = TaskGroup()
+    let k = kick.spawn(yielder())
+    let _ = k.join()
+    let v = helper(ch)
+    let _ = s.join()
+    print("done {}", v)
 }

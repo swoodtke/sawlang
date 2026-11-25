@@ -1,9 +1,10 @@
-// probe: panics
-// about: a `join()` of a `Task.spawn` task further up its thread's stack, made by a suspending `main` inside the drive two above the subject's own, beside a sibling sleeping an hour, panics at the join, before any other task runs, conformance row K200 (SL-809)
+// probe: stated
+// about: a `join()` of a `Task.spawn` task, made by a suspending `main` inside the drive two above the subject's own, beside a sibling sleeping an hour, parks until the subject finishes and then returns, conformance row K200 (SL-1161)
 // stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
 // speeds: -O0 -O2
 // prints: J joins the subject
-// panics: Task.join: the task cannot finish while this join waits for it
+// prints: leaf done
+// prints: J returns 4
 // The joiner waits until the leaf reports that it is waiting, so the subject's
 // drive resumes it; the leaf holds until the joiner releases it just before the
 // join, so no timer decides which of the two moves first.

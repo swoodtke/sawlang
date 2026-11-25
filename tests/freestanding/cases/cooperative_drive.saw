@@ -30,7 +30,7 @@ func sent(orders: Channel<Int>, order: Int) -> Int {
 }
 
 @export("fs_main")
-func fs_main() unsafe {
+func fs_main() unsafe blocking {
     var marker = 0
     let at = (&marker) as UnsafePointer<Int> as Int
     report("ram_reads_negative", if at < 0 { 1 } else { 0 })

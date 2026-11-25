@@ -1,0 +1,17 @@
+// refuses: export.suspends at 10:6
+// an exported function that joins a task: the join parks, and C calls an
+// export directly, with no executor to resume it (conformance row K226)
+
+func work() -> Int {
+    4
+}
+
+@export("joined")
+func joined() -> Int {
+    let t = Task.spawn(work())
+    t.join()
+}
+
+func main() {
+    print(joined())
+}

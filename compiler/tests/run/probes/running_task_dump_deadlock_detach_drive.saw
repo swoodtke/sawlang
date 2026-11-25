@@ -6,7 +6,8 @@
 // prints:   task group 1 slot 0 gen 1 ready
 // prints:     at running_task_dump_deadlock_detach_drive.saw:0 in long_work
 // prints:   task group 2 slot 0 gen 1 running
-// prints:     at running_task_dump_deadlock_detach_drive.saw:57 in p
+// prints:     at running_task_dump_deadlock_detach_drive.saw:58 in p
+// prints: T 7
 // panics: deadlock: every task is waiting
 import std.task.*
 import std.channel.{Channel}
@@ -62,7 +63,7 @@ func p(i: Int) -> Int {
     h.join()
 }
 
-func main() {
+func main() blocking {
     var group = TaskGroup()
     let h = group.spawn(p(1))
     print("T {}", wait_for_thread())

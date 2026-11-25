@@ -104,11 +104,11 @@ func run() unsafe {
     let child = FrameDescriptor(resume: { f, c in child_resume(f, c) }, size: sizeof<Child>(),
                                 align: alignof<Child>(), result_offset: child_offset(),
                                 result_size: sizeof<Int>(), result_align: alignof<Int>(),
-                                drop_result: { p in drop_int(p) }, backtrace: -1)
+                                drop_result: { p in drop_int(p) }, backtrace: -1, thread_bound: 0)
     let entry = FrameDescriptor(resume: { f, c in main_resume(f, c) }, size: sizeof<MainFrame>(),
                                 align: alignof<MainFrame>(), result_offset: main_offset(),
                                 result_size: sizeof<Int>(), result_align: alignof<Int>(),
-                                drop_result: { p in drop_nothing(p) }, backtrace: -1)
+                                drop_result: { p in drop_nothing(p) }, backtrace: -1, thread_bound: 0)
     drive((&entry) as UnsafePointer<FrameDescriptor>, (&child) as UnsafePointer<FrameDescriptor>)
     print("after the frame")
 }

@@ -19,7 +19,7 @@ func drained(orders: Channel<Int>) -> Int {
 }
 
 @export("fs_main")
-func fs_main() unsafe {
+func fs_main() unsafe blocking {
     let orders = try! Channel<Int>()
     var group = TaskGroup()
     let waiter = group.spawn(drained(orders.copy()))

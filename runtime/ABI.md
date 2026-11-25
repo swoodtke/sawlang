@@ -1617,16 +1617,18 @@ on one side alone.
   resume function directly.
 - **The frame descriptor**, a constant the compiler emits for each frame
   the executor drives, laid out as std's `FrameDescriptor`: `{ resume, size,
-  align, result_offset, result_size, result_align, drop_result, backtrace
-  }`. `resume` and `drop_result` are function values, a code pointer, a
+  align, result_offset, result_size, result_align, drop_result, backtrace,
+  thread_bound }`. `resume` and `drop_result` are function values, a code pointer, a
   null environment and a null release, word by word (a null release makes
   copying or dropping the value do nothing), each called as a Saw function
   value is:
   `resume` as `void (ptr poll_out, ptr env, ptr frame, ptr cx)`, since a
   `Poll` is returned through `sret` ahead of the environment and the code
   writes its `i32` tag there, and `drop_result` as `void (ptr env, ptr
-  result)`, which drops a result in place. The other six are words;
-  `backtrace` is the root frame's index in `__saw_bt_table`.
+  result)`, which drops a result in place. The other seven are words;
+  `backtrace` is the root frame's index in `__saw_bt_table`, and `thread_bound` is
+  1 when the frame holds a `Task` or a `TaskGroup` it made across a suspension,
+  which a pool resumes only on the worker that first ran it.
 - **The context record** `cx`, which the executor owns: three words, the
   address of the task's park word (the root token), the address of its
   cancel word, and the task's identity, as std's `TaskContext`. A park

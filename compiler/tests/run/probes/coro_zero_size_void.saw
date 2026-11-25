@@ -50,7 +50,7 @@ func pauses() -> Int {
     n
 }
 
-func main() {
+func main() blocking {
     print(__saw_drive(at_end()))
     print(__saw_drive(mid()))
     print(__saw_drive(pauses()))

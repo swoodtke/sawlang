@@ -1,0 +1,97 @@
+// probe: stated
+// about: a spawned task holds a `Task` or a `TaskGroup` it made across a suspension in every group form, and a pool keeps such a task on the worker that made them, so a pool task joining its own handle never panics for the wrong thread, and a task parked on a receive from the child it spawned completes on a cooperative host and a pool alike, conformance row K227 (SL-1161)
+// stage 0: refuses every frame that holds a `Task` or a `TaskGroup` across a suspension as not `Send`
+// speeds: -O0 -O2
+// prints: held 25 25 25 25
+// prints: group 25 25 25 25
+// prints: receive 14
+// prints: child 7 7
+// prints: pool 260128
+import std.channel.{Channel}
+import std.task.*
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+// A `Task.spawn` handle held across a yield and a sleep.
+func held(n: Int) -> Int {
+    let t = Task.spawn(square(n))
+    var k = 0
+    while k < 8 {
+        yield_now()
+        k = k + 1
+    }
+    sleep(Duration.ms(1))
+    t.join()
+}
+
+// A `TaskGroup` the task made, held across a yield.
+func holds_group(n: Int) -> Int {
+    var inner = TaskGroup()
+    let a = inner.spawn(square(n))
+    let b = inner.spawn(square(n + 1))
+    yield_now()
+    a.join() + b.join()
+}
+
+// A handle held across a channel receive.
+func held_over_receive(ch: Channel<Int>) -> Int {
+    let t = Task.spawn(square(3))
+    let v = try! ch.receive()
+    t.join() + v
+}
+
+func sends(ch: Channel<Int>) -> Int {
+    try! ch.send(7)
+    0
+}
+
+// A `TaskGroup` held across a receive from the child it spawned, which only
+// this task's thread runs: on a pool, the worker the task is pinned to.
+func receives_from_its_child() -> Int {
+    let ch = try! Channel<Int>()
+    var g = TaskGroup()
+    let t = g.spawn(sends(ch.copy()))
+    let v = try! ch.receive()
+    t.join() + v
+}
+
+func both(n: Int) -> Int {
+    held(n) + holds_group(n)
+}
+
+func main() {
+    var coop = TaskGroup()
+    var one = try! TaskGroup(threads: 1)
+    var two = try! TaskGroup(threads: 2)
+    let a = coop.spawn(held(5))
+    let b = one.spawn(held(5))
+    let c = two.spawn(held(5))
+    let d = Task.spawn(held(5))
+    print("held {} {} {} {}", a.join(), b.join(), c.join(), d.join())
+    let e = coop.spawn(holds_group(3))
+    let f = one.spawn(holds_group(3))
+    let g = two.spawn(holds_group(3))
+    let h = Task.spawn(holds_group(3))
+    print("group {} {} {} {}", e.join(), f.join(), g.join(), h.join())
+    let ch = try! Channel<Int>()
+    let r = coop.spawn(held_over_receive(ch))
+    try! ch.send(5)
+    print("receive {}", r.join())
+    let cc = coop.spawn(receives_from_its_child())
+    let cp = two.spawn(receives_from_its_child())
+    print("child {} {}", cc.join(), cp.join())
+    var pool = try! TaskGroup(threads: 4)
+    var handles = Vector<Task<Int>>()
+    var n = 0
+    while n < 64 {
+        try! handles.push(pool.spawn(both(n)))
+        n = n + 1
+    }
+    var total = 0
+    while let next = handles.pop() {
+        total = total + next.join()
+    }
+    print("pool {}", total)
+}

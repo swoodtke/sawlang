@@ -1,0 +1,38 @@
+// probe: stated
+// about: a pool task's lock window that drops a `TaskGroup(threads: 2)` whose task never takes the lock completes, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: total 100
+import std.mutex.{Mutex}
+import std.task.*
+
+static M: Mutex<Int>
+static LOCKS: Bool = false
+
+func locker() -> Int {
+    if LOCKS {
+        borrow var m = M.lock() { m = m + 1 }
+    }
+    0
+}
+
+func drop_pool() sync {
+    let g = try! TaskGroup(threads: 2)
+    let h = g.spawn(locker())
+}
+
+func holder() -> Int {
+    sleep(Duration.ms(1))
+    borrow var m = M.lock() {
+        drop_pool()
+        m = m + 100
+    }
+    0
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    let h = pool.spawn(holder())
+    let _ = h.join()
+    print("total {}", M.get())
+}

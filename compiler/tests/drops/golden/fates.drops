@@ -191,7 +191,7 @@ fn fates.both_arms(c: Bool) -> Void {
 
     bb3: {
         _4 = ref(shared, _2);
-        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [move _4] -> [return: bb5];
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [move _4] -> [return: bb5] suspends;
     }
 
     bb4: {
@@ -222,7 +222,7 @@ fn fates.chained() -> Void {
 
     bb1: {
         _2 = ref(shared, _1);
-        _3 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _2] -> [return: bb2];
+        _3 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _2] -> [return: bb2] suspends;
     }
 
     bb2: {
@@ -273,7 +273,7 @@ fn fates.per_iteration() -> Void {
     bb5: {
         _3 = move _4;
         _5 = ref(shared, _3);
-        _6 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _5] -> [return: bb6];
+        _6 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _5] -> [return: bb6] suspends;
     }
 
     bb6: {
@@ -368,15 +368,15 @@ fn fates.main() -> Void {
     }
 
     bb3: {
-        call fates.both_arms(c: Bool) [const true: Bool] -> [return: bb4];
+        call fates.both_arms(c: Bool) [const true: Bool] -> [return: bb4] suspends;
     }
 
     bb4: {
-        call fates.chained() [] -> [return: bb5];
+        call fates.chained() [] -> [return: bb5] suspends;
     }
 
     bb5: {
-        call fates.per_iteration() [] -> [return: bb6];
+        call fates.per_iteration() [] -> [return: bb6] suspends;
     }
 
     bb6: {

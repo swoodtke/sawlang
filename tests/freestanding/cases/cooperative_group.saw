@@ -24,7 +24,7 @@ func napped(n: Int) -> Int {
 }
 
 @export("fs_main")
-func fs_main() unsafe {
+func fs_main() unsafe blocking {
     var group = TaskGroup()
     let a = group.spawn(counted(40))
     let b = group.spawn(napped(21))

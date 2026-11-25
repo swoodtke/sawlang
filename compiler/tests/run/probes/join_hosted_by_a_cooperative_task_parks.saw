@@ -1,0 +1,47 @@
+// probe: stated
+// about: K200's headline on a cooperative host: hosted by a cooperative task, each join parks its joiner, so a task whose join waits on a sibling's later send completes; the pool-hosted control is `join_hosted_by_a_pool_task_runs_in_place.saw`, conformance row K200 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-1161)
+// speeds: -O0 -O2
+// prints: host 15
+// `a` joins `a1` and then sends; `b` joins `b1`, which receives what `a`
+// sends. Each join parks, so `a` resumes after `a1` finishes and sends while
+// `b` is parked.
+import std.channel.{Channel}
+import std.task.*
+
+func a1() -> Int {
+    yield_now()
+    5
+}
+
+func b1(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func a(ch: Channel<Int>) -> Int {
+    var ga = TaskGroup()
+    let h = ga.spawn(a1())
+    let x = h.join()
+    try! ch.send(x)
+    x
+}
+
+func b(ch: Channel<Int>) -> Int {
+    var gb = TaskGroup()
+    let h = gb.spawn(b1(ch.copy()))
+    h.join() * 2
+}
+
+func host() -> Int {
+    let ch = try! Channel<Int>()
+    var g = TaskGroup()
+    let ha = g.spawn(a(ch.copy()))
+    let hb = g.spawn(b(ch.copy()))
+    ha.join() + hb.join()
+}
+
+func main() {
+    var coop = TaskGroup()
+    let h = coop.spawn(host())
+    print("host {}", h.join())
+}

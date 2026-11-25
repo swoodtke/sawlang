@@ -214,7 +214,7 @@ func cross_suspdef_explicit() -> Int {
     v
 }
 
-func main() {
+func main() blocking {
     // The embedded funnel.
     print(__saw_drive(cross_posdef()))     // 7     (a defaulted)
     print(__saw_drive(cross_labdef()))     // 105   (a=1, b defaulted 5)

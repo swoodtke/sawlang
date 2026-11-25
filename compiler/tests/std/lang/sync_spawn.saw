@@ -1,7 +1,7 @@
 // A `sync` function may spawn a background task and give it a fate: the
-// spawn form runs nothing of the task, and `join`, `detach` and `cancel` on
-// either handle are sync-callable under both stds, as Stage 0 builds and runs
-// this program. The new std's handles reach frames only through their
+// spawn form runs nothing of the task, and `detach` and `cancel` on either
+// handle are sync-callable. `join` parks the joining task, so the functions
+// that join suspend. The new std's handles reach frames only through their
 // descriptors' function values, so those are `sync` too.
 import std.task.*
 
@@ -25,7 +25,7 @@ func start_cancelled() sync {
     t.cancel()
 }
 
-func start_joined() sync {
+func start_joined() {
     let t = Task.spawn(work(3))
     t.join()
 }
@@ -40,7 +40,7 @@ func value_cancelled() sync {
     t.cancel()
 }
 
-func value_joined() sync -> Int {
+func value_joined() -> Int {
     let t = Task.spawn(value(6))
     t.join()
 }

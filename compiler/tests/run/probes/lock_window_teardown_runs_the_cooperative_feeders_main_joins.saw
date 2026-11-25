@@ -1,0 +1,63 @@
+// probe: stated
+// about: the same feeders with `main` joining at once, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: got 4
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+import std.task.*
+
+func noop() -> Int {
+    0
+}
+
+func gather4(ch: Channel<Int>) -> Int {
+    var n = 0
+    var k = 0
+    while k < 4 {
+        n = n + try! ch.receive()
+        k = k + 1
+    }
+    n
+}
+
+func drain_inside(ch: Channel<Int>) sync -> Int {
+    var g = TaskGroup()
+    g.spawn(gather4(ch.copy()))
+    1
+}
+
+func holder(shared: Arc<Mutex<Int>>, ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(1))
+    let v = borrow var c = shared.value().lock() {
+        c = c + drain_inside(ch.copy())
+        c
+    }
+    v
+}
+
+func feeder(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(5))
+    try! ch.send(1)
+    var g = TaskGroup()
+    let c = g.spawn(noop())
+    c.join()
+}
+
+func main() {
+    let shared = try! Arc(value: Mutex(value: 0))
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 1)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 4 {
+        try! hs.push(pool.spawn(feeder(ch.copy())))
+        i = i + 1
+    }
+    try! hs.push(pool.spawn(holder(shared.copy(), ch.copy())))
+    var total = 0
+    while let h = hs.pop() {
+        total = total + h.join()
+    }
+    print("got {}", total + 3)
+}

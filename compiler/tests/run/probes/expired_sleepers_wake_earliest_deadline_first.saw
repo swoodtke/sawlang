@@ -156,7 +156,7 @@ func drive_case() {
     let _ = a.join() + h.join()
 }
 
-func main() {
+func main() blocking {
     group_case()
     equal_spans_case()
     background_case()

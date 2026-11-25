@@ -80,7 +80,7 @@ func gambient<T>(seed: T) -> Int {
     0
 }
 
-func main() {
+func main() blocking {
     var g = TaskGroup()
     let h = g.spawn(gworker(7))
     print("joined {h.join()}")

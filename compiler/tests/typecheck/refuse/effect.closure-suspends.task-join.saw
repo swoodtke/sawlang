@@ -1,0 +1,15 @@
+// refuses: effect.closure-suspends at 12:9
+// a task's join inside a closure body: the join parks, and a closure runs
+// wherever its value is called, so it may not suspend (conformance row K226)
+
+func work() -> Int {
+    4
+}
+
+func main() {
+    let f = { x: Int in
+        let t = Task.spawn(work())
+        t.join() + x
+    }
+    print(f(1))
+}

@@ -1,0 +1,33 @@
+// probe: panics
+// about: a deadlock among pool tasks pinned to several workers, joined by a `blocking` `main`, is reported by the deadlock walk: a worker counts a parked frame pinned to another worker as parked, conformance row K227 (SL-1161)
+// stage 0: refuses every frame that holds a `TaskGroup` across a suspension as not `Send`
+// speeds: -O0 -O2
+// panics: deadlock: every task is waiting to receive from a channel, and nothing in this program can send
+// Each task holds a `TaskGroup` across a receive nobody sends to, so each is
+// pinned to the worker that first resumed it, and `main` waits in the pool's
+// join outside every task.
+import std.channel.{Channel}
+
+func stuck(ch: Channel<Int>) -> Int {
+    var g = TaskGroup()
+    let v = match ch.receive() {
+        case Ok(x) -> x,
+        case Err(_) -> 0 - 1
+    }
+    v + g.count()
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 4)
+    var hs = Vector<Task<Int>>()
+    try! hs.push(pool.spawn(stuck(ch.copy())))
+    try! hs.push(pool.spawn(stuck(ch.copy())))
+    try! hs.push(pool.spawn(stuck(ch.copy())))
+    try! hs.push(pool.spawn(stuck(ch.copy())))
+    var total = 0
+    while let h = hs.pop() {
+        total = total + h.join()
+    }
+    print("{}", total)
+}

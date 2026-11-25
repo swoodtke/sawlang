@@ -1,0 +1,48 @@
+// probe: stated
+// about: a task that joins a task of its own parks, and the thread's other tasks take one turn each in the executor's order rather than running inside the join's turn, conformance row K226 (SL-1161)
+// stage 0: runs `c` and part of `b` inside `a`'s join, so its lines come in another order
+// speeds: -O0 -O2
+// prints: main joins a
+// prints: a1
+// prints: b1
+// prints: c1
+// prints: b2
+// prints: c2
+// prints: a2 got 3
+// prints: b3
+// prints: a=1
+// prints: b=2
+import std.task.*
+
+func c() -> Int {
+    print("c1")
+    yield_now()
+    print("c2")
+    3
+}
+
+func b() -> Int {
+    print("b1")
+    yield_now()
+    print("b2")
+    yield_now()
+    print("b3")
+    2
+}
+
+func a(t: Int) -> Int {
+    print("a1")
+    let h = Task.spawn(c())
+    let v = h.join()
+    print("a2 got {v}")
+    1
+}
+
+func main() {
+    var g = TaskGroup()
+    let ha = g.spawn(a(0))
+    let hb = g.spawn(b())
+    print("main joins a")
+    print("a={ha.join()}")
+    print("b={hb.join()}")
+}

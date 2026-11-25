@@ -50,7 +50,7 @@ func early(o: Outer?) -> Int {
     r ?? -1
 }
 
-func main() {
+func main() blocking {
     print("{}", __saw_drive(last(Outer(i: Inner(v: 5)))))
     print("{}", __saw_drive(last(Outer(i: None))))
     print("{}", __saw_drive(last(None)))

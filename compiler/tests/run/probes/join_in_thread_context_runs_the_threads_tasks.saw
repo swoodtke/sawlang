@@ -1,0 +1,40 @@
+// probe: stated
+// about: a `blocking` `main` that joins a task takes the `blocking` twin, which runs the thread's other tasks until the joined task finishes, conformance row K226 (SL-1161)
+// stage 0: spells no `blocking` `main`
+// speeds: -O0 -O2
+// prints: a1
+// prints: b1
+// prints: b2
+// prints: a2 got 3
+// prints: joined 1
+// The twin sweeps in `main`'s own turn, so `b` runs to its end while `main`
+// waits for `a`, as a join did before it parked.
+import std.task.*
+
+func c() -> Int {
+    yield_now()
+    3
+}
+
+func b() -> Int {
+    print("b1")
+    yield_now()
+    print("b2")
+    2
+}
+
+func a() -> Int {
+    print("a1")
+    let h = Task.spawn(c())
+    let v = h.join()
+    print("a2 got {v}")
+    1
+}
+
+func main() blocking {
+    var g = TaskGroup()
+    let ha = g.spawn(a())
+    let hb = g.spawn(b())
+    print("joined {ha.join()}")
+    let _ = hb.join()
+}

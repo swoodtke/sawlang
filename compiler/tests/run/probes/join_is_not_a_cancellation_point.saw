@@ -1,0 +1,27 @@
+// probe: stated
+// about: a task cancelled while it waits in a `join()` stays in the join until the joined task finishes and then returns its result, conformance row K226 (SL-1161)
+// stage 0: runs the join as a nested sweep, which panics at entry when the joined task cannot finish below it
+// speeds: -O0 -O2
+// prints: joiner got 5, cancelled=true
+// prints: joined 5
+import std.task.*
+
+func child() -> Int {
+    sleep(Duration.ms(10))
+    5
+}
+
+func joiner() -> Int {
+    let h = Task.spawn(child())
+    let v = h.join()
+    print("joiner got {v}, cancelled={cancelled()}")
+    v
+}
+
+func main() {
+    var g = TaskGroup()
+    let j = g.spawn(joiner())
+    yield_now()
+    j.cancel()
+    print("joined {j.join()}")
+}

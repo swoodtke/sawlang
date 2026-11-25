@@ -1,10 +1,11 @@
-// probe: panics
-// about: `join_inversion_main_inside_a_drive.saw` beside a sibling sleeping an hour, cancelled only after the join, panics at the join rather than waiting out the sleep, conformance row K200 (SL-809)
+// probe: stated
+// about: `join_inversion_main_inside_a_drive.saw` beside a sibling sleeping an hour, cancelled only after the join, parks and finishes rather than waiting out the sleep, conformance row K200 (SL-1161)
 // stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
 // speeds: -O0 -O2
 // prints: subject joins leaf
 // prints: main joins subject
-// panics: Task.join: the task cannot finish while this join waits for it
+// prints: leaf done
+// prints: never reached 2 0
 // `main` waits until `leaf` reports that it is waiting, so `subject`'s join of
 // `leaf` resumes it; `leaf` holds until `main` releases it just before the
 // join, so no timer decides which of the two moves first.

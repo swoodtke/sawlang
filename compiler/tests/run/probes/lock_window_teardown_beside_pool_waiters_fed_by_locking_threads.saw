@@ -1,0 +1,81 @@
+// probe: stated
+// about: pool tasks that join, in place, a child fed by `Thread.spawn` bodies blocked on a lock never run inside that lock's window, so the window's teardown ends and every send arrives, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: total 104 got 4
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+import std.task.*
+
+static M: Mutex<Int>
+static OPEN: Atomic<Int> = Atomic(0)
+
+func gather(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+// Parked on its sleep when the window opens; then holds a group across its
+// child's join, which its worker makes in place while the child waits for a
+// sender.
+func waiter(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(10))
+    var g = TaskGroup()
+    let c = g.spawn(gather(ch.copy()))
+    c.join()
+}
+
+func slow() -> Int {
+    sleep(Duration.ms(40))
+    1
+}
+
+func drop_live_group() sync {
+    let g = TaskGroup()
+    let h = g.spawn(slow())
+}
+
+func holder() -> Int {
+    sleep(Duration.ms(2))
+    borrow var m = M.lock() {
+        OPEN.store(1)
+        drop_live_group()
+        m = m + 100
+    }
+    0
+}
+
+func send_after_lock(ch: Channel<Int>) {
+    while OPEN.load() == 0 { }
+    borrow var m = M.lock() { m = m + 1 }
+    try! ch.send(1)
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 2)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 4 {
+        try! hs.push(pool.spawn(waiter(ch.copy())))
+        i = i + 1
+    }
+    let h = pool.spawn(holder())
+    let c1 = ch.copy()
+    let c2 = ch.copy()
+    let c3 = ch.copy()
+    let c4 = ch.copy()
+    var t1 = try! Thread.spawn { [c1] in send_after_lock(c1) }
+    var t2 = try! Thread.spawn { [c2] in send_after_lock(c2) }
+    var t3 = try! Thread.spawn { [c3] in send_after_lock(c3) }
+    var t4 = try! Thread.spawn { [c4] in send_after_lock(c4) }
+    let _ = h.join()
+    var got = 0
+    while let t = hs.pop() {
+        got = got + t.join()
+    }
+    t1.join()
+    t2.join()
+    t3.join()
+    t4.join()
+    print("total {} got {}", M.get(), got)
+}

@@ -1,0 +1,15 @@
+// refuses: effect.suspending-value at 13:13
+// a function that joins a task taken as a value: a suspending function is not
+// a value (conformance row K226)
+func writer() -> Int {
+    4
+}
+
+func settle() -> Int {
+    Task.spawn(writer()).join()
+}
+
+func main() {
+    let f = settle
+    print(f())
+}

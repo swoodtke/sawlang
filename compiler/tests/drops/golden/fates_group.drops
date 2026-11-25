@@ -69,7 +69,7 @@ fn fates_group.main() -> Void {
     bb6: {
         _14 = move _16;
         _17 = ref(shared, _14);
-        _18 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _17] -> [return: bb7];
+        _18 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _17] -> [return: bb7] suspends;
     }
 
     bb7: {

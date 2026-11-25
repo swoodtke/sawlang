@@ -79,7 +79,7 @@ fn spawn_loops.main() {
     bb6: {
         [W M W M UD W] {L2 L4} _7 = move _10;
         [W M W M W M] {L2 L4} _11 = ref(shared, _7);
-        [W M W M W M] {L3 L4} _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb7];
+        [W M W M W M] {L3 L4} _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb7] suspends;
     }
 
     bb7: {

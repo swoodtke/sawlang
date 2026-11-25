@@ -1,10 +1,11 @@
-// probe: panics
-// about: `join_inversion_main_inside_a_drive.saw` beside a sibling that ticks until it is cancelled, which keeps the sweep alive, panics at the join rather than hanging, conformance row K200 (SL-809)
+// probe: stated
+// about: `join_inversion_main_inside_a_drive.saw` beside a sibling that ticks until it is cancelled, which keeps the sweep alive, parks and finishes rather than hanging, conformance row K200 (SL-1161)
 // stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
 // speeds: -O0 -O2
 // prints: subject joins leaf
 // prints: main joins subject
-// panics: Task.join: the task cannot finish while this join waits for it
+// prints: leaf done
+// prints: never reached 2 2
 // The sibling is cancelled only after the join returns, so a sweep waiting
 // for every other task to stop would run it forever. `main` waits until `leaf`
 // reports that it is waiting, so `subject`'s join of `leaf` resumes it; `leaf`

@@ -42,7 +42,7 @@ func p(i: Int) -> Int {
     v
 }
 
-func main() {
+func main() blocking {
     var group = TaskGroup()
     let h = group.spawn(p(1))
     print("T {}", wait_for_thread())

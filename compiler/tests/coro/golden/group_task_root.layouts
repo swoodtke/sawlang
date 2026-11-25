@@ -1,8 +1,32 @@
+frame #0: group_task_root.main()  (size 352 align 8, lower bound 344)
+    suspend 1: bb2 call Task.join
+    suspend 2: bb5 call Task.join
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[352: Void]  size 0 align 1  _0 result
+    (*frame).[8: std.taskgroup.TaskGroup]  size 192 align 8  _1 group  (across 1 2)
+    (*frame).[264: std.taskgroup.Task<Int>]  size 40 align 8  _3 a  (across 1 2)
+    (*frame).[344: Int]  size 8 align 8  _7  (across 2)
+    (*frame).[304: std.taskgroup.Task<Void>]  size 40 align 8  _8 b  (across 2)
+    (*frame).[200: frame std.taskgroup.Task.join() args Int]  size 64 align 8  child  (across 1)
+    (*frame).[200: frame std.taskgroup.Task.join() args Void]  size 56 align 8  child  (across 2)
+    stack: _2 _4 _5 _6 _9 _10 _11
 frame #6: group_task_root.double(n: Int) task root  (size 24 align 8, lower bound 24)
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param n
     stack: _2
+frame #11: std.taskgroup.Task.join() args Int  (size 64 align 8, lower bound 57)
+    suspend 1: bb19 budget
+    suspend 2: bb21 call __saw_park_thread
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  op budget
+    (*frame).[16: Int]  size 8 align 8  _0 result
+    (*frame).[24: &std.taskgroup.Task<Int>]  size 8 align 8  _1 self  (across 1 2)
+    (*frame).[56: Bool]  size 1 align 1  _5 pooled  (across 1 2)
+    (*frame).[32: Int]  size 8 align 8  _9  (across 1 2)
+    (*frame).[40: Int]  size 8 align 8  _10 word  (across 1 2)
+    (*frame).[48: Int]  size 8 align 8  _15  (across 1 2)
+    stack: _2 _3 _4 _6 _7 _8 _11 _12 _13 _14 _16 _17 _18 _19 _20 _21 _22 _23
 frame #12: group_task_root.hello(name: String) task root  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call yield_now
     (*frame).[0: Int]  size 8 align 8  state
@@ -10,7 +34,19 @@ frame #12: group_task_root.hello(name: String) task root  (size 24 align 8, lowe
     (*frame).[8: String]  size 8 align 8  _1 param name  (across 1)
     (*frame).[16: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
     stack: _2
-frame #48: std.task.yield_now()  (size 8 align 8, lower bound 8)
+frame #14: std.taskgroup.Task.join() args Void  (size 56 align 8, lower bound 49)
+    suspend 1: bb19 budget
+    suspend 2: bb21 call __saw_park_thread
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  op budget
+    (*frame).[49: Void]  size 0 align 1  _0 result
+    (*frame).[16: &std.taskgroup.Task<Void>]  size 8 align 8  _1 self  (across 1 2)
+    (*frame).[48: Bool]  size 1 align 1  _5 pooled  (across 1 2)
+    (*frame).[24: Int]  size 8 align 8  _9  (across 1 2)
+    (*frame).[32: Int]  size 8 align 8  _10 word  (across 1 2)
+    (*frame).[40: Int]  size 8 align 8  _15  (across 1 2)
+    stack: _2 _3 _4 _6 _7 _8 _11 _12 _13 _14 _16 _17 _18 _19 _20 _21 _22 _23
+frame #43: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result

@@ -72,7 +72,7 @@ func r5(x: Int?) -> Int {
     return -1
 }
 
-func main() {
+func main() blocking {
     print("r1: {__saw_drive(r1(7))}")
     print("r2: {__saw_drive(r2())}")
     print("r3: {__saw_drive(outer(Step.Go(n: 4)))}")

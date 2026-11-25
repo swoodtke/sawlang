@@ -109,12 +109,12 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
             coro_add_value(&var coro, &lt, CoroValueKind.Offload, -1, offloaded, ty, s)
         }
     }
-    // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: lt.points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1))
+    // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: lt.points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1, thread_bound: false))
     let suspend_count = coro.suspends.len() - suspend_first
     let value_count = coro.values.len() - value_first
     try! coro.frames.push(CoroFrame(item: item, body: f, points: lt.points, suspend_first: suspend_first,
                                     suspend_count: suspend_count, value_first: value_first, value_count: value_count,
-                                    size: -1, align: -1, unsupported: -1))
+                                    size: -1, align: -1, unsupported: -1, thread_bound: false))
 }
 
 // Appends a frame value of kind `kind`, with its lifetime: `l` is its local

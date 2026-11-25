@@ -1,0 +1,17 @@
+// refuses: effect.sync at 12:5
+// a `sync` function that joins a task: `Task.join` is a pair whose default
+// parks, so the function suspends and may not be declared `sync` (conformance
+// row K226)
+
+func work() -> Int {
+    4
+}
+
+func joined() sync -> Int {
+    let t = Task.spawn(work())
+    t.join()
+}
+
+func main() {
+    print(joined())
+}

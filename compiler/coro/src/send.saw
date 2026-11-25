@@ -9,7 +9,9 @@
 // each reference it holds does; the spawn-borrow rules keep the referent
 // alive for the task's life. A function-typed parameter holds exactly the
 // value passed, so when that is a closure the parameter crosses when the
-// closure's captures prove `sendable`, whatever its written type says.
+// closure's captures prove `sendable`, whatever its written type says. A
+// `Task` or `TaskGroup` the frame made is held, not carried
+// (`coro_crosses_held`), so the frame may keep one across a suspension.
 //
 // ENTRY POINTS of the Send-on-frames gate:
 //   coro_check_frame_send
@@ -266,6 +268,13 @@ func coro_check_frame_values(coro: &var CoroProgram, root: Int, item: Int, rf: I
             if coro_crosses(&var coro, value.ty, viewer) {
                 continue
             }
+            // A thread-bound handle is held, never received: only the root's
+            // own parameters come from the spawner's thread.
+            if (pass == 1 || item != root) && coro_crosses_held(&var coro, value.ty, viewer) {
+                let root_frame = coro_frame_of(&coro, root)
+                coro.frames[root_frame].thread_bound = true
+                continue
+            }
             let local = coro.mono.dp.bc.mir.locals[info.local_first + value.local]
             coro_refuse_value(&var coro, root, item, pass == 0, local.name, value.ty)
             return true
@@ -359,6 +368,21 @@ func coro_send_lead(coro: &CoroProgram, root: Int) -> StringBuilder {
     try! msg.append(coro.item_label(root))
     try! msg.append("`: ")
     move msg
+}
+
+// THE THREAD-BOUND EXEMPTION: whether a value of type `t` that the frame
+// holds is `Send` were `Task` and `TaskGroup` too. Those two stay not `Send`
+// and not `Sync`, so nothing carries one to another thread, but a frame that
+// made one runs only on the thread that made it (a cooperative frame never
+// moves, a pool pins the frame, `FrameDescriptor.thread_bound`), so holding
+// it across a suspension is sound. A root parameter and the result come
+// from, or go to, another thread and never reach this.
+// ENTRY POINTS:
+//     coro_check_frame_values (a resident local, an embedded child's
+//     parameter or local)
+func coro_crosses_held(coro: &var CoroProgram, t: Int, viewer: Int) -> Bool {
+    let send = coro.mono.dp.bc.mir.tc.known.send
+    send >= 0 && coro.mono.dp.bc.mir.tc.satisfies_thread_bound(t, send, viewer)
 }
 
 // Whether a value of type `t` can cross to another thread: it is `Send`, as

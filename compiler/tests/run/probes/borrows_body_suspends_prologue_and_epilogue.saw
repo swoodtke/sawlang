@@ -15,8 +15,8 @@
 // prints: body 0
 // prints: epi 0 t=0
 // prints: drop tr 0
-// prints: P 11
 // prints: sib 2
+// prints: P 11
 // prints: sib 3
 // prints: S 3
 // prints: sib 1
@@ -38,8 +38,8 @@
 // prints: sib 2
 // prints: epi 0 end
 // prints: drop tr 0
-// prints: B 12
 // prints: sib 3
+// prints: B 12
 // prints: S 3
 // prints: name holder 12 21
 import std.task.*

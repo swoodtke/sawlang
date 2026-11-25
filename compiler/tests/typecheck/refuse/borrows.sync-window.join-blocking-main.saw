@@ -1,0 +1,21 @@
+// refuses: borrows.sync-window at 18:9
+// A lock's window around a `join()` made in thread context, where the join takes
+// its `blocking` twin: the call still may suspend as a pair, so the window is
+// refused there as in a task (conformance row K206).
+import std.mutex.{Mutex}
+
+static G: Mutex<Int>
+
+func take() -> Int {
+    G.get()
+}
+
+func main() blocking {
+    var group = TaskGroup()
+    let h = group.spawn(take())
+    let r = borrow var o = G.lock() {
+        o = 10
+        h.join()
+    }
+    print("joined {}", r)
+}

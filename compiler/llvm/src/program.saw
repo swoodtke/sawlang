@@ -487,7 +487,7 @@ extension LlEmitter {
     // size and alignment, the result's offset, size and alignment, a drop of
     // a result in place, and the backtrace index, the root's frame in the
     // program's backtrace table (`bt_index_of`), where a task dump's walk of
-    // the task starts. The two functions are function values, a code
+    // the task starts, and 1 when the frame is thread-bound. The two functions are function values, a code
     // pointer, a null environment and a null release, so each code pointer
     // is a thunk that takes the environment first, as a function value's call passes it: the
     // resume's calls the resume function, and the drop's runs the result
@@ -533,6 +533,8 @@ extension LlEmitter {
         try! out.append(w)
         try! out.append(", ptr, ptr, ptr, ")
         try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
         try! out.append(" \} \{ ptr ")
         try! out.append(ll_resume_value_symbol(&mono, k))
         try! out.append(", ptr null, ptr null, ")
@@ -561,6 +563,9 @@ extension LlEmitter {
         try! out.append(w)
         try! out.append(" ")
         try! out.append(self.bt_index_of(k))
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(if resume.thread_bound { " 1" } else { " 0" })
         try! out.append(" \}\n\n")
         out.build()
     }

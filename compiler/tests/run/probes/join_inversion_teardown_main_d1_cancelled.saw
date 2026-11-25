@@ -1,10 +1,10 @@
-// probe: panics
-// about: the teardown of a group whose own task is further up its thread's stack, made by a suspending `main` inside the drive one above the subject's own, beside a sleeping sibling it cancels first, panics at the teardown, before any other task runs, conformance row K200 (SL-809)
+// probe: stated
+// about: the teardown of a group whose own task is parked in a join, made by a suspending `main` inside the drive one above the subject's own, beside a sleeping sibling it cancels first, finishes, the join parked rather than nested, conformance row K200 (SL-1161)
 // stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
 // speeds: -O0 -O2
 // prints: J drops its group
 // prints: J returns 0
-// panics: TaskGroup: the group is torn down while one of its tasks is running further up this thread's stack
+// prints: leaf done
 // The joiner waits until the leaf reports that it is waiting, so the subject's
 // drive resumes it; the leaf holds until the joiner releases it just before the
 // teardown, so no timer decides which of the two moves first.

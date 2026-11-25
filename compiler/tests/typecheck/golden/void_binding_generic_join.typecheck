@@ -1,8 +1,8 @@
 (Module void_binding_generic_join
   (declarations
     (func nothing 5:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (func wait 7:6 private (signature (generics (R)) (params (h std.taskgroup.Task<R> owned)) -> R) (summary body (suspends no) (sync-callable yes)))
-    (func main 12:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+    (func wait 7:6 private (signature (generics (R)) (params (h std.taskgroup.Task<R> owned)) -> R) (summary body (suspends yes) (sync-callable no)))
+    (func main 12:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no))))
   (members)
   (views)
   (conformances)

@@ -43,7 +43,7 @@ func watcher() -> Int {
     0
 }
 
-func main() {
+func main() blocking {
     var g = TaskGroup()
     let a = g.spawn(worker(4))
     let b = g.spawn(watcher())

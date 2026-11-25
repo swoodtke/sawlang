@@ -68,7 +68,7 @@ fn spawn_site.main() -> Void {
     bb2: {
         _1 = move _3;
         _4 = ref(shared, _1);
-        _5 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _4] -> [return: bb3];
+        _5 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _4] -> [return: bb3] suspends;
     }
 
     bb3: {

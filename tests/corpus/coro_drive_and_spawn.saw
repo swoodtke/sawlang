@@ -29,7 +29,7 @@ func relay() -> Int {
     return inner + 12
 }
 
-func main() {
+func main() blocking {
     let a = __saw_drive(work(3))     // driven in place
     var group = TaskGroup()
     let h = group.spawn(work(4))     // spawned as a task root

@@ -1,0 +1,32 @@
+// refuses: borrows.sync-window at 28:9
+// A lock's window around a `join()` of a pool's task: the join suspends, and a
+// `borrows(sync)` accessor's borrow cannot be held across a suspension, so the
+// window is refused at compile time (conformance row K206).
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+
+static GUARD: Mutex<Int>
+
+func waited(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func coop(ch: Channel<Int>) -> Int {
+    let v = borrow var g = GUARD.lock() { g = g + 1; g }
+    try! ch.send(v)
+    v
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var group = TaskGroup()
+    let c = group.spawn(coop(ch))
+    var other = try! TaskGroup(threads: 2)
+    let p = other.spawn(waited(ch))
+    let got = borrow var o = GUARD.lock() {
+        o = 0
+        p.join()
+    }
+    print("joined {}", got)
+    print("coop {}", c.join())
+}

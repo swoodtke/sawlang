@@ -18,7 +18,7 @@
     (func tripled 48:6 private (signature (params (m Int owned)) (effects sync) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func pick 52:6 private (signature (params) -> (Int) sync -> Int) (summary body (suspends no) (sync-callable yes)))
     (func apply 56:6 private (signature (params (f (Int) sync -> Int owned) (m Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func main 60:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
+    (func main 60:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no))))
   (members
     (no_hidden_alloc_legal.Point
       (field x Int private declared)

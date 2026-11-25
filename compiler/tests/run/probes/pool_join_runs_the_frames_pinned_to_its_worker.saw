@@ -1,0 +1,55 @@
+// probe: stated
+// about: a pool task's join, which waits in place on its worker, also runs the pool's frames pinned to that worker, so a pinned feeder the joined task waits for still makes progress, conformance row K227 (SL-1161)
+// stage 0: refuses every frame that holds a `Task` across a suspension as not `Send`
+// speeds: -O0 -O2
+// prints: got 8
+// Feeders start first, so both workers resume some of them, and the ones
+// holding a `Task` across their sleep are pinned to that worker. The joiner
+// then joins a cooperative child in place on its worker; the child needs every
+// feeder's send, and a feeder pinned to the joiner's worker runs only there.
+import std.channel.{Channel}
+import std.task.*
+
+func noop() -> Int {
+    0
+}
+
+func feeder(ch: Channel<Int>) -> Int {
+    let t = Task.spawn(noop())
+    sleep(Duration.ms(30))
+    try! ch.send(1)
+    t.join()
+}
+
+func gather(ch: Channel<Int>, n: Int) -> Int {
+    var k = 0
+    var sum = 0
+    while k < n {
+        sum = sum + try! ch.receive()
+        k = k + 1
+    }
+    sum
+}
+
+func joiner(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(5))
+    var g = TaskGroup()
+    let c = g.spawn(gather(ch.copy(), 8))
+    c.join()
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 2)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 8 {
+        try! hs.push(pool.spawn(feeder(ch.copy())))
+        i = i + 1
+    }
+    let j = pool.spawn(joiner(ch.copy()))
+    print("got {}", j.join())
+    while let h = hs.pop() {
+        let _ = h.join()
+    }
+}

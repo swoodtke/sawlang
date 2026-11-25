@@ -131,6 +131,18 @@ func run_times(name: String, f: () -> Int) {
     print("{name} {total}")
 }
 
+// `task` joins, so it suspends and cannot be passed as `run_times`'s function
+// value.
+func run_task_times() {
+    var total = 0
+    var i = 0
+    while i < 1000 {
+        total = total + task()
+        i = i + 1
+    }
+    print("task {total}")
+}
+
 func main() {
     run_times("callee", callee)
     run_times("args", args)
@@ -143,5 +155,5 @@ func main() {
     run_times("match", matched)
     run_times("generic", generic_body)
     run_times("generic parameter", generic_parameter)
-    run_times("task", task)
+    run_task_times()
 }

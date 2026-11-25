@@ -1,10 +1,10 @@
-// probe: panics
-// about: a `join()` of a `TaskGroup(threads: 2)` task receiving what only the subject's continuation sends, made by a suspending `main` inside the drive two above the subject's own, beside a sleeping sibling it cancels first, is reported by the deadlock walk, conformance row K200 (SL-809)
+// probe: stated
+// about: a `join()` of a `TaskGroup(threads: 2)` task receiving what only the subject's continuation sends, made by a suspending `main` inside the drive two above the subject's own, beside a sleeping sibling it cancels first, parks until the subject finishes and then returns, conformance row K200 (SL-1161)
 // stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
 // speeds: -O0 -O2
 // prints: J joins the pool task
 // prints: leaf done
-// panics: deadlock: every task is waiting to receive from a channel, or to join a `TaskGroup(threads:)` task that is
+// prints: J returns 8
 // The joiner waits until the leaf reports that it is waiting, so the subject's
 // drive resumes it; the leaf holds until the joiner releases it just before the
 // join, so no timer decides which of the two moves first.

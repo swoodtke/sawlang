@@ -1,0 +1,89 @@
+// probe: stated
+// about: a pool task's lock window waits for pool feeders while pool lockers wait for its lock: other workers run both, and no locker runs inside the window, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: got 8
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+import std.task.*
+
+func noop() -> Int {
+    0
+}
+
+func own_child() -> Int {
+    var g = TaskGroup()
+    let c = g.spawn(noop())
+    c.join()
+}
+
+func gather(ch: Channel<Int>, n: Int) -> Int {
+    var sum = 0
+    var k = 0
+    while k < n {
+        sum = sum + try! ch.receive()
+        k = k + 1
+    }
+    sum
+}
+
+func drain_inside(ch: Channel<Int>) sync -> Int {
+    var g = TaskGroup()
+    g.spawn(gather(ch.copy(), 6))
+    1
+}
+
+func bump(shared: &Arc<Mutex<Int>>) sync -> Int {
+    let v = borrow var c = shared.value().lock() {
+        c = c + 1
+        c
+    }
+    v
+}
+
+func holder(shared: Arc<Mutex<Int>>, ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(5))
+    let v = borrow var c = shared.value().lock() {
+        c = c + drain_inside(ch.copy())
+        c
+    }
+    v * 0
+}
+
+func feeder(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(2))
+    let z = own_child()
+    sleep(Duration.ms(20))
+    try! ch.send(1)
+    z + 1
+}
+
+func locker(shared: Arc<Mutex<Int>>) -> Int {
+    sleep(Duration.ms(2))
+    let z = own_child()
+    sleep(Duration.ms(8))
+    bump(&shared) * 0 + z + 1
+}
+
+func main() {
+    let shared = try! Arc(value: Mutex(value: 0))
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 4)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 6 {
+        try! hs.push(pool.spawn(feeder(ch.copy())))
+        i = i + 1
+    }
+    i = 0
+    while i < 2 {
+        try! hs.push(pool.spawn(locker(shared.copy())))
+        i = i + 1
+    }
+    try! hs.push(pool.spawn(holder(shared.copy(), ch.copy())))
+    var total = 0
+    while let h = hs.pop() {
+        total = total + h.join()
+    }
+    print("got {}", total)
+}

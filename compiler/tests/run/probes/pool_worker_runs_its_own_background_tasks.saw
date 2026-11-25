@@ -1,0 +1,27 @@
+// probe: stated
+// about: a pool worker runs the cooperative tasks its pool's tasks spawned between its pool turns, so a pool task parked on a receive from a detached `Task.spawn` child of its own completes, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-1161)
+// speeds: -O0 -O2
+// prints: got 7
+// The parent holds no handle across its receive, so its frame is not pinned;
+// the child lives in its worker's background group, which only that worker
+// runs.
+import std.channel.{Channel}
+import std.task.*
+
+func child(ch: Channel<Int>) {
+    try! ch.send(7)
+}
+
+func parent() -> Int {
+    let ch = try! Channel<Int>()
+    let t = Task.spawn(child(ch.copy()))
+    t.detach()
+    try! ch.receive()
+}
+
+func main() {
+    var g = try! TaskGroup(threads: 2)
+    let h = g.spawn(parent())
+    print("got {}", h.join())
+}

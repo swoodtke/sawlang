@@ -1,0 +1,36 @@
+// probe: panics
+// about: a cooperative task of the window's thread that takes the lock, run inside the window by the window's teardown, panics at the re-entry, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// panics: Mutex.lock: this thread already holds the lock
+import std.mutex.{Mutex}
+import std.task.*
+
+static M: Mutex<Int>
+
+// Wakes while the window's teardown waits, which runs it.
+func locker() -> Int {
+    sleep(Duration.ms(1))
+    borrow var m = M.lock() { m = m + 1 }
+    0
+}
+
+func slow() -> Int {
+    sleep(Duration.ms(40))
+    0
+}
+
+func drop_live_group() sync {
+    let g = TaskGroup()
+    let h = g.spawn(slow())
+}
+
+func main() blocking {
+    let group = TaskGroup()
+    let l = group.spawn(locker())
+    borrow var m = M.lock() {
+        drop_live_group()
+        m = m + 100
+    }
+    print("total {}", M.get())
+}

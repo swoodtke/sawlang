@@ -24,7 +24,7 @@ func driver() {
     print("driver local={local}")
 }
 
-func main() {
+func main() blocking {
     var g = TaskGroup()
     let handle = g.spawn(run_across())
     print("spawn result={handle.join()}")

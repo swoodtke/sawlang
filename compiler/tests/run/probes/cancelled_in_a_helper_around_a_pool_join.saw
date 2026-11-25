@@ -1,5 +1,5 @@
 // probe: stated
-// about: a cancelled task's `sync` helper reads `cancelled()` as `true` before and after a `join()` of an uncancelled `TaskGroup(threads: 2)` task, a wait that drives the helper's thread, and the pool's task reads its own `false`, conformance row K201 (SL-810)
+// about: a cancelled task's helper reads `cancelled()` as `true` before and after a `join()` of an uncancelled `TaskGroup(threads: 2)` task, a wait that parks the task, and the pool's task reads its own `false`, conformance row K201 (SL-810)
 // stage 0: reads `false` in the helper on both sides of the join, since only a lowered frame reaches the task's cancel word there
 // speeds: -O0 -O2
 // prints: body before: true
@@ -16,7 +16,7 @@ func inner() -> Int {
     1
 }
 
-func join_a_pool_task() sync {
+func join_a_pool_task() {
     match TaskGroup(threads: 2) {
         case Ok(group) -> {
             let h = group.spawn(inner())
@@ -26,7 +26,7 @@ func join_a_pool_task() sync {
     }
 }
 
-func sync_helper() sync {
+func helper() {
     print("helper before the join: {}", cancelled())
     join_a_pool_task()
     print("helper after the join: {}", cancelled())
@@ -35,7 +35,7 @@ func sync_helper() sync {
 func body() {
     yield_now()
     print("body before: {}", cancelled())
-    sync_helper()
+    helper()
     print("body after: {}", cancelled())
 }
 

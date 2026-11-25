@@ -1,0 +1,36 @@
+// probe: stated
+// about: a task's `join()` parks instead of running the thread's other tasks in its own turn, so a suspending `main` that sends what the joined task waits for gets to run while the join waits, conformance row K226 (SL-1161)
+// stage 0: runs the join as a nested sweep, which keeps `main` from running until the join returns
+// speeds: -O0 -O2
+// prints: j joins
+// prints: main sends
+// prints: j joined 9
+// prints: main got 9
+// `j` joins `k`, which receives what only `main` sends, after a sleep. A join
+// that ran the thread's tasks in `j`'s turn would hold `main` below it on the
+// stack until the join returned, which it never could.
+import std.channel.{Channel}
+
+func k(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> 0 - 1
+    }
+}
+
+func j(orders: Channel<Int>) -> Int {
+    let t = Task.spawn(k(orders))
+    print("j joins")
+    let v = t.join()
+    print("j joined {v}")
+    v
+}
+
+func main() {
+    let orders = try! Channel<Int>()
+    let tj = Task.spawn(j(orders.copy()))
+    sleep(Duration.ms(5))
+    print("main sends")
+    try! orders.send(9)
+    print("main got {tj.join()}")
+}

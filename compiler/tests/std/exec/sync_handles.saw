@@ -1,7 +1,8 @@
-// `sync` functions that spawn a task and give its handle a fate: a join, a
-// cancel and a detach each run no suspension, so each is callable from a
-// `sync` body, and the tasks still run, the joined one at its join and the
-// others when the background group closes. `lang/sync_spawn` holds the
+// Functions that spawn a task and give its handle a fate: a cancel and a
+// detach run no suspension, so each is callable from a `sync` body, and a join
+// in thread context runs the thread's tasks, so a `blocking` body may make it.
+// The tasks still run, the joined one at its join and the others when the
+// background group closes. `lang/sync_spawn` holds the
 // `Task.spawn` form to the same answer at type checking.
 
 import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
@@ -38,7 +39,7 @@ func spawn_counter(d: UnsafePointer<FrameDescriptor>, name: Int) unsafe sync -> 
     Task<Void>.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
 }
 
-func start_joined(d: UnsafePointer<FrameDescriptor>) unsafe sync {
+func start_joined(d: UnsafePointer<FrameDescriptor>) unsafe blocking {
     let t = spawn_counter(d, 1)
     t.join()
 }
@@ -53,11 +54,11 @@ func start_detached(d: UnsafePointer<FrameDescriptor>) unsafe sync {
     t.detach()
 }
 
-func run() unsafe {
+func run() unsafe blocking {
     let counter = FrameDescriptor(resume: { f, c in counter_resume(f, c) }, size: sizeof<Counter>(),
                                   align: alignof<Counter>(), result_offset: 0, result_size: 0,
                                   result_align: 1, drop_result: { p in drop_nothing(p) },
-                                  backtrace: -1)
+                                  backtrace: -1, thread_bound: 0)
     let d = (&counter) as UnsafePointer<FrameDescriptor>
     start_joined(d)
     start_cancelled(d)
@@ -67,6 +68,6 @@ func run() unsafe {
     print("closed")
 }
 
-func main() {
+func main() blocking {
     run()
 }

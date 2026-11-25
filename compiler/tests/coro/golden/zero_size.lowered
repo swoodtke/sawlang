@@ -444,14 +444,14 @@ fn zero_size.result() -> [Int; 0] {
         return;
     }
 }
-spawner #0: zero_size.main()
+spawner #0: zero_size.main() blocking
     spawn bb9 task root #10 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root, descriptor _13, box _14
     drive bb0 task root #5 zero_size.at_end() task root, descriptor _17, frame _18
     drive bb2 task root #7 zero_size.mid() task root, descriptor _19, frame _20
     drive bb5 task root #9 zero_size.children() task root, descriptor _21, frame _22
     drive bb7 task root #10 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root, descriptor _23, frame _24
     drive bb12 task root #17 zero_size.enum_at_end() task root, descriptor _25, frame _26
-fn zero_size.main() -> Void {
+fn zero_size.main() blocking -> Void {
     let _0: Void;  // return
     let _1: Int;
     let _2: Int;

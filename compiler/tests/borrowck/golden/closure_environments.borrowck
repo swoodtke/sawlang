@@ -79,7 +79,7 @@ fn closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) {
     bb6: {
         [UD M W] {L3 L5} _7 = move _12;
         [W M M] {L3 L5} _13 = ref(shared, _7);
-        [W M M] {L4 L5} _14 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _13] -> [return: bb7];
+        [W M M] {L4 L5} _14 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _13] -> [return: bb7] suspends;
     }
 
     bb7: {
@@ -157,7 +157,7 @@ fn closure_environments.forward_closure(group: &var std.taskgroup.TaskGroup, f: 
     bb1: {
         [W U W] {L1 L3} _3 = move _5;
         [W W M] {L1 L3} _6 = ref(shared, _3);
-        [W W M] {L2 L3} _7 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb2];
+        [W W M] {L2 L3} _7 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb2] suspends;
     }
 
     bb2: {
@@ -186,7 +186,7 @@ fn closure_environments.forward_reference(group: &var std.taskgroup.TaskGroup, r
     bb1: {
         [U W] {L2 L4} _3 = move _6;
         [W M] {L2 L4} _7 = ref(shared, _3);
-        [W M] {L3 L4} _8 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _7] -> [return: bb2];
+        [W M] {L3 L4} _8 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _7] -> [return: bb2] suspends;
     }
 
     bb2: {
@@ -216,7 +216,7 @@ fn closure_environments.main() {
     bb1: {
         [U W U] {} _2 = move _3;
         [W M U] {} _4 = ref(exclusive, _2);
-        [W M U] {L0} _5 = call closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) [move _4] -> [return: bb2];
+        [W M U] {L0} _5 = call closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) [move _4] -> [return: bb2] suspends;
     }
 
     bb2: {
@@ -233,7 +233,7 @@ fn closure_environments.main() {
         [W M U] {L1 L2} _8 = (move _7,);
         [W M U] {L1 L2 L3} _9 = ref(exclusive, _8);
         [W M U] {L1 L2 L3 L4} _10 = closure#0 of closure_environments.main() [move _9];
-        [W M W] {L1 L2 L3 L4} _11 = call closure_environments.forward_closure(group: &var std.taskgroup.TaskGroup, f: () -> Int) [move _6, move _10] -> [return: bb5];
+        [W M W] {L1 L2 L3 L4} _11 = call closure_environments.forward_closure(group: &var std.taskgroup.TaskGroup, f: () -> Int) [move _6, move _10] -> [return: bb5] suspends;
     }
 
     bb5: {
@@ -243,7 +243,7 @@ fn closure_environments.main() {
     bb6: {
         [W M M] {} _12 = ref(exclusive, _2);
         [W M M] {L5} _13 = ref(shared, _1);
-        [W M M] {L5 L6} _14 = call closure_environments.forward_reference(group: &var std.taskgroup.TaskGroup, r: &Int) [move _12, move _13] -> [return: bb7];
+        [W M M] {L5 L6} _14 = call closure_environments.forward_reference(group: &var std.taskgroup.TaskGroup, r: &Int) [move _12, move _13] -> [return: bb7] suspends;
     }
 
     bb7: {

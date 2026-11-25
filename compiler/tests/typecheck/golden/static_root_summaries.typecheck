@@ -102,8 +102,8 @@
     (func stored_call 367:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no)))
     (func hand_on 373:6 private (signature (params (body () sync -> Int owned)) (effects sync) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func writer 378:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes) (roots (exclusive static_root_summaries.BOOT.count))))
-    (func spawner 385:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func main 390:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no) (roots (exclusive static_root_summaries.BOOT) (exclusive static_root_summaries.BOOT.tag) (shared static_root_summaries.BOOT.count)))))
+    (func spawner 385:6 private (signature (params) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (func main 390:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no) (roots (exclusive static_root_summaries.BOOT) (exclusive static_root_summaries.BOOT.tag) (shared static_root_summaries.BOOT.count)))))
   (members
     (static_root_summaries.Boot
       (field count Int private declared)

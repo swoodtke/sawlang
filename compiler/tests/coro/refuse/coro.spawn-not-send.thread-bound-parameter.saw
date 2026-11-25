@@ -1,0 +1,23 @@
+// refuses: coro.spawn-not-send at 12:1
+// message: cannot spawn `host`: parameter `inner` of type `&var std.taskgroup.TaskGroup` is not `Send`
+// A `TaskGroup` is thread-bound: a task holds one it made across a suspension,
+// but a root's parameter comes from the spawner's thread, so a task handed a
+// reference to the spawner's group is refused in every group form.
+import std.task.{yield_now}
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+func host(inner: &var TaskGroup, n: Int) -> Int {
+    let a = inner.spawn(square(n))
+    yield_now()
+    a.join()
+}
+
+func main() {
+    var shared = TaskGroup()
+    var group = TaskGroup()
+    let h = group.spawn(host(&var shared, 6))
+    print(h.join())
+}

@@ -4,7 +4,7 @@
     (func ping 12:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no)))
     (func peek 16:6 private (signature (params (v &std.vector.Vector<Int, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func start 20:6 private (signature (params) (effects sync) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (func main 27:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+    (func main 27:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no))))
   (members)
   (views)
   (conformances)

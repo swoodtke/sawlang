@@ -45,16 +45,16 @@ func unclaimed_at_completion() sync {
     h.cancel()
 }
 
-// The sibling's join drives the group until the task has finished, and the
-// handle's drop then drops the result.
-func dropped_through_the_handle_of_a_cancelled_task() sync {
+// The sibling's join parks until the sibling finishes, and the handle's drop
+// then drops the result.
+func dropped_through_the_handle_of_a_cancelled_task() {
     let group = TaskGroup()
     let h = group.spawn(until_cancelled(2))
     h.cancel()
     group.spawn(ticks()).join()
 }
 
-func dropped_through_the_handle_of_an_uncancelled_task() sync {
+func dropped_through_the_handle_of_an_uncancelled_task() {
     let group = TaskGroup()
     let h = group.spawn(after_a_yield(3))
     group.spawn(ticks()).join()

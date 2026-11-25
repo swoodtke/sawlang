@@ -29,7 +29,7 @@ func control(n: Int) sync -> Int {
     return n
 }
 
-func main() {
+func main() blocking {
     print("driven: {__saw_drive(driven(5))}")
     var group = TaskGroup()
     let h = group.spawn(spawned(5))

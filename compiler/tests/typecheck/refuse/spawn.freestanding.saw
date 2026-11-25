@@ -8,6 +8,6 @@ func work(n: Int) -> Int {
 }
 
 @export("entry")
-func entry(n: Int) -> Int {
+func entry(n: Int) blocking -> Int {
     Task.spawn(work(n)).join()
 }

@@ -1,0 +1,18 @@
+// refuses: effect.closure-suspends at 17:18
+// a closure that joins a task, passed to a parameter and called there: the
+// closure body may not suspend (conformance row K226)
+func writer() -> Int {
+    4
+}
+
+func settle() -> Int {
+    Task.spawn(writer()).join()
+}
+
+func call(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    print(call({ settle() }))
+}

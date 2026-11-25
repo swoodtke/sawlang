@@ -55,7 +55,7 @@ func run() unsafe {
     let sleeper = FrameDescriptor(resume: { f, c in sleeper_resume(f, c) },
                                   size: sizeof<Sleeper>(), align: alignof<Sleeper>(),
                                   result_offset: 0, result_size: 0, result_align: 1,
-                                  drop_result: { p in drop_nothing(p) }, backtrace: -1)
+                                  drop_result: { p in drop_nothing(p) }, backtrace: -1, thread_bound: 0)
     let d = (&sleeper) as UnsafePointer<FrameDescriptor>
     var storage = Sleeper(state: 0, deadline: 0)
     let frame = (&storage) as UnsafePointer<UInt8>

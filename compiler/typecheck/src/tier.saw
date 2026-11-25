@@ -729,6 +729,9 @@ struct TcSatisfyRun {
     in_test: Bool
     hidden: Int
     hidden_trait: Int
+    // Whether `Task` and `TaskGroup` answer `Send` and `Sync`: the question
+    // a thread-bound handle held by the frame that made it asks.
+    thread_bound: Bool
 }
 
 extension TcSatisfyRun: NoCopy {}
@@ -737,7 +740,7 @@ extension TcSatisfyRun {
     init(viewer: Int, in_test: Bool) -> TcSatisfyRun {
         TcSatisfyRun(states: tc_memo(), leaning_types: Vector<Int>(), leaning_traits: Vector<Int>(), leaning: 0,
                      frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1,
-                     viewer: viewer, in_test: in_test, hidden: -1, hidden_trait: -1)
+                     viewer: viewer, in_test: in_test, hidden: -1, hidden_trait: -1, thread_bound: false)
     }
 
 
@@ -836,6 +839,19 @@ extension TcProgram {
                           in_test: Bool) -> Bool {
         var run = TcSatisfyRun(viewer: viewer, in_test: in_test)
         let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
+        if run.overflow >= 0 {
+            self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
+        }
+        answer
+    }
+
+    // Whether `t` is `Send` were `Task` and `TaskGroup` too: a value of it may
+    // be held by the frame that made it, though no frame may be handed one
+    // (`Task` and `TaskGroup` are thread-bound; SL-1161).
+    public func satisfies_thread_bound(&var self, t: Int, tr: Int, viewer: Int) -> Bool {
+        var run = TcSatisfyRun(viewer: viewer, in_test: false)
+        run.thread_bound = true
+        let answer = self.satisfies_in(t, tr, -1, -1, &var run)
         if run.overflow >= 0 {
             self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
         }
@@ -1045,6 +1061,9 @@ extension TcProgram {
         let info = self.types.ty(t)
         let d = info.decl
         if d == self.known.never {
+            return true
+        }
+        if run.thread_bound && (tr == self.known.send || tr == self.known.sync) && (d == self.known.task || d == self.known.task_group) {
             return true
         }
         if tr == self.known.copy {

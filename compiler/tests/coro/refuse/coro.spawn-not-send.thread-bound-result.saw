@@ -1,0 +1,25 @@
+// refuses: coro.spawn-not-send at 12:1
+// message: cannot spawn `make`: its result type `std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>` is not `Send`
+// A `Task` is thread-bound: a task holds one it made across a suspension, but
+// a root's result goes back to the joiner's thread, so a result that holds a
+// handle is refused in every group form.
+import std.task.{yield_now}
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+func make(n: Int) -> Vector<Task<Int>> {
+    var v = Vector<Task<Int>>()
+    try! v.push(Task.spawn(square(n)))
+    yield_now()
+    move v
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(make(6))
+    var handles = h.join()
+    let t = handles.pop()!
+    print(t.join())
+}

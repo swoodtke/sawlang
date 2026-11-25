@@ -211,7 +211,7 @@ func r10() {
     }
 }
 
-func main() {
+func main() blocking {
     __saw_drive(r1())
     __saw_drive(r2())
     __saw_drive(r3())

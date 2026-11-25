@@ -5,8 +5,8 @@
 // prints: saw tasks: 2 live (unsynchronized snapshot)
 // prints:   task group 1 slot 0 gen 1 running
 // prints:     at running_task_dump_joined_panics_coop.saw:21 in panicker
-// prints:   task group 2 slot 0 gen 1 running
-// prints:     at running_task_dump_joined_panics_coop.saw:30 in p
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at running_task_dump_joined_panics_coop.saw:32 in p
 // panics: the joined task panics
 import std.task.*
 

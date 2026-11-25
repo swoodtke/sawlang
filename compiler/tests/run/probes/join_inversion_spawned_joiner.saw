@@ -1,0 +1,33 @@
+// probe: stated
+// about: a spawned task that holds its group and the handle across a suspension, and then joins a task of that group, parks until the subject finishes and returns its value instead of nesting a drive, conformance rows K200 and K227 (SL-1161)
+// stage 0: refuses the joiner's frame, since a `TaskGroup` it holds across a suspension is not `Send` (SL-1161)
+// speeds: -O0 -O2
+// prints: 2
+// `joiner` holds its group and the handle across a sleep, so `subject`'s drive
+// resumes it, and its join of `subject` parks: the thread's other tasks run
+// meanwhile, and nothing waits further up the stack.
+import std.task.*
+
+func leaf() -> Int {
+    sleep(Duration.ms(50))
+    1
+}
+
+func subject() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(leaf())
+    h.join() + 1
+}
+
+func joiner() -> Int {
+    var g = TaskGroup()
+    let h = g.spawn(subject())
+    sleep(Duration.ms(10))
+    h.join()
+}
+
+func main() {
+    var outer = TaskGroup()
+    let j = outer.spawn(joiner())
+    print(j.join())
+}

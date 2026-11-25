@@ -1,17 +1,19 @@
 // probe: stated
-// about: a task of `main`'s group finishes, and its result, whose handle was dropped, is dropped at once by a deinit that joins a task of its own; that join's sweep resumes `main`, which drops the group, and neither the finished turn's bookkeeping nor the walk reads the group again (SL-1109)
+// about: a task of `main`'s group finishes, and its result, whose handle was dropped, is dropped at once by a deinit that tears down a group of its own; the teardown's sweep resumes `main`, which drops the group, and neither the finished turn's bookkeeping nor the walk reads the group again (SL-1109)
 // stage 0: runs it on its own std's executor, whose teardown and result drops differ (SL-1109)
 // speeds: -O0 -O2
 // prints: waited 1
 // No turn here goes by the sleep order: the walk resumes `maker` at its own
 // slot. `maker` ends 2 ms in, before `main`'s 3 ms sleep, and its result's
-// deinit waits 6 ms on a task of its own, during which `main` wakes, returns
-// from `one_round` and drops the group.
+// deinit drops a group whose task sleeps 6 ms, during which `main` wakes,
+// returns from `one_round` and drops the group. A `deinit` cannot join, since
+// a join suspends, so the group's teardown is the wait.
 
 static WAITED: Atomic<Int> = Atomic(0)
 
 func pause() -> Int {
     sleep(Duration.ms(6))
+    let _ = WAITED.fetch_add(1)
     1
 }
 
@@ -20,8 +22,7 @@ struct Noisy { n: Int }
 extension Noisy: NoCopy {
     func deinit(&var self) {
         var inner = TaskGroup()
-        let t = inner.spawn(pause())
-        let _ = WAITED.fetch_add(t.join())
+        let _ = inner.spawn(pause())
     }
 }
 

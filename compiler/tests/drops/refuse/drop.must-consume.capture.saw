@@ -9,6 +9,6 @@ func work(n: Int) -> Int {
 
 func main() {
     let t = Task.spawn(work(1))
-    let finish = { [move t] in print("{}", t.join()) }
+    let finish = { [move t] in t.cancel() }
     finish()
 }

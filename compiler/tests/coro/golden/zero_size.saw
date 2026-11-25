@@ -88,7 +88,7 @@ func indexed() unsafe {
     print(__saw_drive(before_index(qp)))
 }
 
-func main() {
+func main() blocking {
     print(__saw_drive(at_end()))
     print(__saw_drive(mid()))
     indexed()

@@ -199,7 +199,7 @@ func nested_in_for(v: &Vector<Int>, outer: &Vector<Int>) -> Int {
     total
 }
 
-func main() {
+func main() blocking {
     let v: Vector<Int> = [1, 2, 3]
     print("iter sync {iter_sync(&v)}")
     print("iter driven {__saw_drive(iter_driven(&v))}")

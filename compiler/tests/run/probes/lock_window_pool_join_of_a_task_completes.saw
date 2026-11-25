@@ -1,0 +1,37 @@
+// probe: stated
+// about: a blocking `main`'s lock window that joins, through a `blocking` helper that drives the executor, a pool task that never takes the lock completes, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: got 3
+import std.mutex.{Mutex}
+
+static M: Mutex<Int>
+static LOCKS: Bool = false
+
+func locker() -> Int {
+    if LOCKS {
+        borrow var m = M.lock() { m = m + 1 }
+    }
+    3
+}
+
+func nap() -> Int {
+    sleep(Duration.ms(5))
+    0
+}
+
+func wait_task(h: Task<Int>) blocking -> Int {
+    h.join()
+}
+
+func main() blocking {
+    var pool = try! TaskGroup(threads: 2)
+    let group = TaskGroup()
+    let n = group.spawn(nap())
+    let v = borrow var m = M.lock() {
+        let h = pool.spawn(locker())
+        m = m + wait_task(move h)
+        m
+    }
+    print("got {}", v)
+}

@@ -325,8 +325,8 @@ conformance/K123_every_window_opener_reads_the_declared_mode.saw	pass	judged by 
 conformance/K127_conditional_lend_modes.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
-conformance/K133_window_spans_a_suspension.saw	pass	-	-
-conformance/K135_window_conflicts_that_compose.saw	pass	-	-
+conformance/K133_window_spans_a_suspension.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K135_window_conflicts_that_compose.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K136_window_release_routes.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/K137_window_destruction_order.saw	pass	-	-
 conformance/K138_window_acquire_sequence.saw	pass	-	-
@@ -353,7 +353,7 @@ conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.un
 conformance/K29_copy_policy_hook_must_be_sync.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 conformance/K30_generic_container_of_pinned_is_pinned.saw	pass	judged by its own directives (edited since its oracle)	transfer.no-move: cannot `move` `w`: `K30_generic_container_of_pinned_is_pinned.Wrap<std.taskgroup.TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&
 conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	judged by its own directives (edited since its oracle)	coro.spawn-not-send: cannot spawn `bump_many`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Sha
-conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc meets its directives
+conformance/K32_task_cell_result_and_cancel.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	pass	-	-
 conformance/K35_suspending_generic_method_embedded.saw	pass	-	-
@@ -681,14 +681,14 @@ coro_bind_id_iflet_nonspanning.saw	pass	-	-
 coro_bind_id_match_arm_later_local.saw	pass	-	-
 coro_bind_id_match_arms_same_name.saw	pass	-	-
 coro_bind_id_nested_block_shadow.saw	pass	-	-
-coro_bind_id_param_shadow.saw	pass	-	-
+coro_bind_id_param_shadow.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_bind_id_scopes_stress.saw	pass	-	-
-coro_bind_id_shadow_regressions.saw	pass	-	-
+coro_bind_id_shadow_regressions.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_bind_id_sibling_scopes.saw	pass	-	-
 coro_break_reentered_in_loop.saw	pass	-	-
 coro_channel_receive_moves_element.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_closure_capture_positions.saw	pass	-	-
-coro_closure_capture_reads_by_policy.saw	pass	-	-
+coro_closure_capture_reads_by_policy.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_closure_captures_self_nested.saw	pass	-	-
 coro_closure_deinit_once.saw	pass	-	-
 coro_closure_local_call.saw	pass	-	-
@@ -713,7 +713,7 @@ coro_discarded_tail_move_cross_module.saw	pass	-	-
 coro_discarded_tail_move_in_nested_block.saw	pass	-	-
 coro_discarded_tail_move_in_nested_control_flow.saw	pass	-	-
 coro_done_path_releases_in_scope_order.saw	pass	-	-
-coro_drive_and_spawn.saw	pass	-	-
+coro_drive_and_spawn.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_drive_void_body.saw	pass	-	-
 coro_driven_match_move_out_releases_once.saw	pass	-	-
 coro_driving_method_self.saw	pass	-	-
@@ -731,7 +731,7 @@ coro_generic_call_in_an_expression_position.saw	pass	-	-
 coro_generic_driven_both.saw	pass	-	-
 coro_generic_method_self.saw	pass	-	-
 coro_generic_mono_type_subst.saw	pass	-	-
-coro_generic_spawn_root_nested_suspending_call.saw	pass	-	-
+coro_generic_spawn_root_nested_suspending_call.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_generic_struct_and_method.saw	pass	-	-
 coro_generic_struct_method.saw	pass	-	-
 coro_guardlet_over_suspending.saw	pass	-	-
@@ -763,7 +763,7 @@ coro_match_arm_binding_patterns.saw	pass	-	-
 coro_match_arm_binding_positions.saw	pass	-	-
 coro_match_arm_payload_drops.saw	pass	-	-
 coro_match_binds_scrutinee.saw	pass	-	-
-coro_match_move_out_releases_once_in_loop_try_and_task.saw	pass	-	-
+coro_match_move_out_releases_once_in_loop_try_and_task.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_match_moved_payload_survives_return.saw	pass	-	-
 coro_method_root_and_embedded.saw	pass	-	-
 coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc meets its directives
@@ -779,12 +779,12 @@ coro_moved_arc_param_deinit_once.saw	pass	-	-
 coro_nested_generic_call.saw	pass	-	-
 coro_nested_generic_call_parks.saw	pass	-	-
 coro_nested_generic_deep.saw	pass	-	-
-coro_nested_generic_tail.saw	pass	-	-
+coro_nested_generic_tail.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_nested_iflet_struct_init.saw	pass	-	-
 coro_nested_suspend_method.saw	pass	-	-
 coro_nested_suspend_two_deep.saw	pass	-	-
 coro_nested_yield_wrapper.saw	pass	-	-
-coro_omitted_default_arguments.saw	pass	-	-
+coro_omitted_default_arguments.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_optbind_loop_control.saw	pass	-	-
 coro_optbind_loop_control_spawned.saw	pass	-	-
 coro_optbind_split_in_try.saw	pass	-	-
@@ -804,7 +804,7 @@ coro_ref_self_method.saw	pass	-	-
 coro_result_array_and_closure.saw	pass	-	-
 coro_return_autowrap_result_suspending.saw	pass	-	-
 coro_return_in_expression_block.saw	pass	-	-
-coro_same_scope_redefinition_owning_slots.saw	pass	-	-
+coro_same_scope_redefinition_owning_slots.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_spawn_and_embed.saw	pass	-	-
 coro_spawn_and_embed_cancel.saw	pass	-	-
 coro_spawn_and_embed_generic.saw	pass	-	-
@@ -2237,7 +2237,7 @@ ref_into_array_element_addresses_real_storage.saw	pass	-	-
 ref_no_escape_alias_boundary.saw	pass	-	-
 ref_parameter_positions.saw	pass	judged by its own directives (edited since its oracle)	-
 ref_pointer_cast_blessed.saw	pass	-	-
-ref_replace_across_suspend.saw	pass	-	-
+ref_replace_across_suspend.saw	pass	judged by its own directives (edited since its oracle)	-
 ref_replace_bare_trait_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
 ref_replace_bare_trait_shared_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
 ref_replace_box_swap.saw	pass	-	-
@@ -2472,7 +2472,7 @@ taskgroup_join_typed.saw	pass	-	-
 taskgroup_move_live.saw	pass	-	transfer.no-move: cannot `move` `group`: `std.taskgroup.TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the value where it
 taskgroup_mt_join_then_respawn.saw	pass	-	-
 taskgroup_mt_live_pool_soak.saw	pass	judged by its own directives (edited since its oracle)	-
-taskgroup_nested_ambient.saw	pass	-	-
+taskgroup_nested_ambient.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_nested_groups.saw	pass	-	-
 taskgroup_producer_consumer.saw	pass	-	-
 taskgroup_result_joined_once.saw	pass	-	-
@@ -2530,7 +2530,7 @@ try_catch_union_conformance.saw	refused	typecheck slice.not-yet	a `try` block wh
 try_catch_union_escape_error.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`try_catch_union_escape_error.ParseError`, `try_catch_union_escape_error.FileError`), which its `error` holds as their union, is not in t
 try_catch_union_nonexhaustive_error.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`try_catch_union_nonexhaustive_error.ParseError`, `try_catch_union_nonexhaustive_error.FileError`), which its `error` holds as their unio
 try_catch_void_result.saw	pass	-	-
-try_catch_void_result_spawned.saw	pass	-	-
+try_catch_void_result_spawned.saw	pass	judged by its own directives (edited since its oracle)	-
 try_force.saw	pass	-	-
 try_force_panic.saw	pass	-	-
 try_force_panic_names_the_error.saw	pass	-	-
@@ -2687,9 +2687,9 @@ while_let_no_else_clause.saw	pass	-	resolve.parse-refused: a `while let` loop ta
 while_let_non_optional_scrutinee.saw	pass	-	operator.undefined: an optional binding unwraps an Optional, and this is `Int`
 while_let_payload_read_tier.saw	pass	-	transfer.implicit-copy: this reads a place of type `while_let_payload_read_tier.Token`, which is NoCopy, by value: only a Copy type copies silently; match a `move` of the value when its binding owns i
 while_let_shadow_rules.saw	pass	-	name.shadowing: `x` shadows the binding declared at tests/corpus/while_let_shadow_rules.saw:14:9 without deriving from it; pick another name, or mention `x` in the initializer
-while_let_suspending.saw	pass	-	-
+while_let_suspending.saw	pass	judged by its own directives (edited since its oracle)	-
 while_let_suspending_mt.saw	pass	-	-
-while_let_suspending_try_catch.saw	pass	-	-
+while_let_suspending_try_catch.saw	pass	judged by its own directives (edited since its oracle)	-
 while_let_tuple_over_suspension_refused.saw	stage0-wrong	annotated SL-566	sawc builds it, and its run exits 0
 while_let_value_position_refused.saw	pass	-	type.void-binding: cannot bind `r` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or ca
 while_nested.saw	pass	-	-

@@ -187,6 +187,13 @@ func c8_driven() {
     g()
 }
 
+// The group's teardown at the function's end runs the task, so `main` neither
+// joins nor suspends.
+func run_c7() {
+    var group = TaskGroup()
+    let _ = group.spawn(c7_spawned())
+}
+
 func main() {
     c1_plain()
     __saw_drive(c1_driven())
@@ -202,9 +209,7 @@ func main() {
     c6_plain()
     __saw_drive(c6_driven())
     print("c6 live {LIVE.load()}")
-    var group = TaskGroup()
-    let h = group.spawn(c7_spawned())
-    let _ = h.join()
+    run_c7()
     print("c7 live {LIVE.load()}")
     c8_plain()
     __saw_drive(c8_driven())

@@ -33,7 +33,7 @@ func worker() -> Int {
     step(2)            // tail nested suspending call, value result
 }
 
-func main() {
+func main() blocking {
     var group = TaskGroup()
     let h = group.spawn(worker())
     print(h.join())    // handle prints 7, worker returns step(2)=3

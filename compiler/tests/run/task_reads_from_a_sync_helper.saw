@@ -1,7 +1,7 @@
 // `dump_tasks()` and `Task.spawn` read no current task, so from a task's
 // `sync` helper the dump is the body's, and a background task spawned there
-// joins as one the body spawns does: the controls of conformance row K201
-// (SL-810).
+// runs as one the body spawns does: the controls of conformance row K201
+// (SL-810). A join suspends, so the helper detaches its task.
 import std.task.*
 
 func square(n: Int) -> Int {
@@ -14,9 +14,13 @@ func dump_sync() sync {
     dump_tasks()
 }
 
-func spawn_sync() sync -> Int {
-    let t = Task.spawn(square(5))
-    t.join()
+func report() {
+    print("sync helper's Task.spawn ran {}", square(5))
+}
+
+func spawn_sync() sync {
+    let t = Task.spawn(report())
+    t.detach()
 }
 
 func body() -> Int {
@@ -26,7 +30,8 @@ func body() -> Int {
     dump_sync()
     let a = Task.spawn(square(4)).join()
     print("body's Task.spawn joined {}", a)
-    print("sync helper's Task.spawn joined {}", spawn_sync())
+    spawn_sync()
+    sleep(Duration.ms(20))
     0
 }
 

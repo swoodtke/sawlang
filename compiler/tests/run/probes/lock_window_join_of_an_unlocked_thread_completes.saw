@@ -1,0 +1,39 @@
+// probe: stated
+// about: a blocking `main`'s lock window that joins, through a `blocking` helper that drives the executor, a `Thread.spawn` body that never takes the lock completes, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: got 7
+import std.mutex.{Mutex}
+
+static M: Mutex<Int>
+static OPEN: Atomic<Int> = Atomic(0)
+static LOCKS: Bool = false
+
+func spawn_and_join() blocking -> Int {
+    var t = try! Thread.spawn { lock_then() }
+    t.join()
+}
+
+func nap() -> Int {
+    sleep(Duration.ms(5))
+    0
+}
+
+func lock_then() -> Int {
+    while OPEN.load() == 0 { }
+    if LOCKS {
+        borrow var m = M.lock() { m = m + 1 }
+    }
+    7
+}
+
+func main() blocking {
+    let group = TaskGroup()
+    let n = group.spawn(nap())
+    let v = borrow var m = M.lock() {
+        OPEN.store(1)
+        m = m + spawn_and_join()
+        m
+    }
+    print("got {}", v)
+}

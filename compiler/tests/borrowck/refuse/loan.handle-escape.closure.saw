@@ -9,7 +9,7 @@ func work(n: Int) -> Int {
 func deferred() -> () -> Int {
     var g = TaskGroup()
     let h = g.spawn(work(2))
-    { [move h] in h.join() }
+    { [move h] in h.cancel(); 2 }
 }
 
 func main() {

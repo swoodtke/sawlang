@@ -14,7 +14,7 @@ ERROR	effect.blocking-conformance	compiler/tests/typecheck/golden/blocking_confo
     (func fill 36:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func work 42:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func direct 46:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
-    (func main 52:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+    (func main 52:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no))))
   (members
     (blocking_conformance_cascade.Key
       (field id Int private declared)

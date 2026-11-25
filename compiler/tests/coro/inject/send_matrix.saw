@@ -6,7 +6,8 @@
 // a parameter, `l` a resident local, `c` an embedded child's, `r` the
 // result), the value, and `ok` or `no`. A root spawning a borrow is spawned
 // into the three groups only, since `Task.spawn` accepts no borrows.
-import std.task.{yield_now}
+import std.channel.{Channel}
+import std.task.*
 
 struct G {}
 struct T1 {}
@@ -336,22 +337,22 @@ func r_error_ok<F>(form: F) -> Result<Int, Box<any Error>> {
     failed()
 }
 
-func l_group_no<F>(form: F) -> Int {
+func l_group_ok<F>(form: F) -> Int {
     var inner = TaskGroup()
     let a = inner.spawn(one())
     yield_now()
     a.join()
 }
 
-func c_group_no_child() -> Int {
+func c_group_ok_child() -> Int {
     var inner = TaskGroup()
     let a = inner.spawn(one())
     yield_now()
     a.join()
 }
 
-func c_group_no<F>(form: F) -> Int {
-    c_group_no_child()
+func c_group_ok<F>(form: F) -> Int {
+    c_group_ok_child()
 }
 
 func p_closure_ok<F>(f: () -> Int, form: F) -> Int {
@@ -416,10 +417,102 @@ func p_closure_field_no<F>(h: Holder, form: F) -> Int {
     1
 }
 
+// A `Task` or a `TaskGroup` is thread-bound (SL-1161): a frame holds one it
+// made across any suspension, and never receives one or returns one.
+func l_task_yield_ok<F>(form: F) -> Int {
+    let t = Task.spawn(one())
+    yield_now()
+    t.join()
+}
+
+func l_task_sleep_ok<F>(form: F) -> Int {
+    let t = Task.spawn(one())
+    sleep(Duration.ms(1))
+    t.join()
+}
+
+func l_task_receive_ok<F>(form: F) -> Int {
+    let ch = try! Channel<Int>()
+    try! ch.send(1)
+    let t = Task.spawn(one())
+    let v = try! ch.receive()
+    t.join() + v
+}
+
+func l_task_void_ok<F>(form: F) -> Int {
+    let t = Task.spawn(nothing())
+    yield_now()
+    t.join()
+    1
+}
+
+func l_task_optional_ok<F>(form: F) -> Int {
+    let o: Task<Int>? = Task.spawn(one())
+    yield_now()
+    let t = move o!
+    t.join()
+}
+
+func l_task_vector_ok<F>(form: F) -> Int {
+    var v = Vector<Task<Int>>()
+    try! v.push(Task.spawn(one()))
+    yield_now()
+    let t = v.pop()!
+    t.join()
+}
+
+func c_task_ok_child() -> Int {
+    let t = Task.spawn(one())
+    yield_now()
+    t.join()
+}
+
+func c_task_ok<F>(form: F) -> Int {
+    c_task_ok_child()
+}
+
+func c_group_ref_ok_child(g: &var TaskGroup) -> Int {
+    let a = g.spawn(one())
+    yield_now()
+    a.join()
+}
+
+func c_group_ref_ok<F>(form: F) -> Int {
+    var inner = TaskGroup()
+    c_group_ref_ok_child(&var inner)
+}
+
+func c_task_ref_ok_child(t: &Task<Int>) -> Int {
+    yield_now()
+    1
+}
+
+func c_task_ref_ok<F>(form: F) -> Int {
+    let t = Task.spawn(one())
+    let r = c_task_ref_ok_child(&t)
+    t.join() + r
+}
+
+func p_group_ref_no<F>(g: &var TaskGroup, form: F) -> Int {
+    yield_now()
+    1
+}
+
+func r_task_vector_no<F>(form: F) -> Vector<Task<Int>> {
+    var v = Vector<Task<Int>>()
+    try! v.push(Task.spawn(one()))
+    yield_now()
+    move v
+}
+
+func nothing() {
+}
+
 func main() unsafe {
     let n = 1
     var c = make_cell()
     var raw = make_raw()
+    var held = TaskGroup()
     var g = TaskGroup()
     var t1 = try! TaskGroup(threads: 1)
     var t2 = try! TaskGroup(threads: 2)
@@ -695,23 +788,23 @@ func main() unsafe {
     let h_r_error_ok_ts = Task.spawn(r_error_ok(TS()))
     let _ = h_r_error_ok_ts.join()
 
-    let h_l_group_no_g = g.spawn(l_group_no(G()))
-    let _ = h_l_group_no_g.join()
-    let h_l_group_no_t1 = t1.spawn(l_group_no(T1()))
-    let _ = h_l_group_no_t1.join()
-    let h_l_group_no_t2 = t2.spawn(l_group_no(T2()))
-    let _ = h_l_group_no_t2.join()
-    let h_l_group_no_ts = Task.spawn(l_group_no(TS()))
-    let _ = h_l_group_no_ts.join()
+    let h_l_group_ok_g = g.spawn(l_group_ok(G()))
+    let _ = h_l_group_ok_g.join()
+    let h_l_group_ok_t1 = t1.spawn(l_group_ok(T1()))
+    let _ = h_l_group_ok_t1.join()
+    let h_l_group_ok_t2 = t2.spawn(l_group_ok(T2()))
+    let _ = h_l_group_ok_t2.join()
+    let h_l_group_ok_ts = Task.spawn(l_group_ok(TS()))
+    let _ = h_l_group_ok_ts.join()
 
-    let h_c_group_no_g = g.spawn(c_group_no(G()))
-    let _ = h_c_group_no_g.join()
-    let h_c_group_no_t1 = t1.spawn(c_group_no(T1()))
-    let _ = h_c_group_no_t1.join()
-    let h_c_group_no_t2 = t2.spawn(c_group_no(T2()))
-    let _ = h_c_group_no_t2.join()
-    let h_c_group_no_ts = Task.spawn(c_group_no(TS()))
-    let _ = h_c_group_no_ts.join()
+    let h_c_group_ok_g = g.spawn(c_group_ok(G()))
+    let _ = h_c_group_ok_g.join()
+    let h_c_group_ok_t1 = t1.spawn(c_group_ok(T1()))
+    let _ = h_c_group_ok_t1.join()
+    let h_c_group_ok_t2 = t2.spawn(c_group_ok(T2()))
+    let _ = h_c_group_ok_t2.join()
+    let h_c_group_ok_ts = Task.spawn(c_group_ok(TS()))
+    let _ = h_c_group_ok_ts.join()
 
     let h_p_closure_ok_g = g.spawn(p_closure_ok({ 1 }, G()))
     let _ = h_p_closure_ok_g.join()
@@ -780,4 +873,109 @@ func main() unsafe {
     let _ = h_p_closure_field_no_t2.join()
     let h_p_closure_field_no_ts = Task.spawn(p_closure_field_no(Holder(f: { 1 }), TS()))
     let _ = h_p_closure_field_no_ts.join()
+
+    let h_l_task_yield_ok_g = g.spawn(l_task_yield_ok(G()))
+    let _ = h_l_task_yield_ok_g.join()
+    let h_l_task_yield_ok_t1 = t1.spawn(l_task_yield_ok(T1()))
+    let _ = h_l_task_yield_ok_t1.join()
+    let h_l_task_yield_ok_t2 = t2.spawn(l_task_yield_ok(T2()))
+    let _ = h_l_task_yield_ok_t2.join()
+    let h_l_task_yield_ok_ts = Task.spawn(l_task_yield_ok(TS()))
+    let _ = h_l_task_yield_ok_ts.join()
+
+    let h_l_task_sleep_ok_g = g.spawn(l_task_sleep_ok(G()))
+    let _ = h_l_task_sleep_ok_g.join()
+    let h_l_task_sleep_ok_t1 = t1.spawn(l_task_sleep_ok(T1()))
+    let _ = h_l_task_sleep_ok_t1.join()
+    let h_l_task_sleep_ok_t2 = t2.spawn(l_task_sleep_ok(T2()))
+    let _ = h_l_task_sleep_ok_t2.join()
+    let h_l_task_sleep_ok_ts = Task.spawn(l_task_sleep_ok(TS()))
+    let _ = h_l_task_sleep_ok_ts.join()
+
+    let h_l_task_receive_ok_g = g.spawn(l_task_receive_ok(G()))
+    let _ = h_l_task_receive_ok_g.join()
+    let h_l_task_receive_ok_t1 = t1.spawn(l_task_receive_ok(T1()))
+    let _ = h_l_task_receive_ok_t1.join()
+    let h_l_task_receive_ok_t2 = t2.spawn(l_task_receive_ok(T2()))
+    let _ = h_l_task_receive_ok_t2.join()
+    let h_l_task_receive_ok_ts = Task.spawn(l_task_receive_ok(TS()))
+    let _ = h_l_task_receive_ok_ts.join()
+
+    let h_l_task_void_ok_g = g.spawn(l_task_void_ok(G()))
+    let _ = h_l_task_void_ok_g.join()
+    let h_l_task_void_ok_t1 = t1.spawn(l_task_void_ok(T1()))
+    let _ = h_l_task_void_ok_t1.join()
+    let h_l_task_void_ok_t2 = t2.spawn(l_task_void_ok(T2()))
+    let _ = h_l_task_void_ok_t2.join()
+    let h_l_task_void_ok_ts = Task.spawn(l_task_void_ok(TS()))
+    let _ = h_l_task_void_ok_ts.join()
+
+    let h_l_task_optional_ok_g = g.spawn(l_task_optional_ok(G()))
+    let _ = h_l_task_optional_ok_g.join()
+    let h_l_task_optional_ok_t1 = t1.spawn(l_task_optional_ok(T1()))
+    let _ = h_l_task_optional_ok_t1.join()
+    let h_l_task_optional_ok_t2 = t2.spawn(l_task_optional_ok(T2()))
+    let _ = h_l_task_optional_ok_t2.join()
+    let h_l_task_optional_ok_ts = Task.spawn(l_task_optional_ok(TS()))
+    let _ = h_l_task_optional_ok_ts.join()
+
+    let h_l_task_vector_ok_g = g.spawn(l_task_vector_ok(G()))
+    let _ = h_l_task_vector_ok_g.join()
+    let h_l_task_vector_ok_t1 = t1.spawn(l_task_vector_ok(T1()))
+    let _ = h_l_task_vector_ok_t1.join()
+    let h_l_task_vector_ok_t2 = t2.spawn(l_task_vector_ok(T2()))
+    let _ = h_l_task_vector_ok_t2.join()
+    let h_l_task_vector_ok_ts = Task.spawn(l_task_vector_ok(TS()))
+    let _ = h_l_task_vector_ok_ts.join()
+
+    let h_c_task_ok_g = g.spawn(c_task_ok(G()))
+    let _ = h_c_task_ok_g.join()
+    let h_c_task_ok_t1 = t1.spawn(c_task_ok(T1()))
+    let _ = h_c_task_ok_t1.join()
+    let h_c_task_ok_t2 = t2.spawn(c_task_ok(T2()))
+    let _ = h_c_task_ok_t2.join()
+    let h_c_task_ok_ts = Task.spawn(c_task_ok(TS()))
+    let _ = h_c_task_ok_ts.join()
+
+    let h_c_group_ref_ok_g = g.spawn(c_group_ref_ok(G()))
+    let _ = h_c_group_ref_ok_g.join()
+    let h_c_group_ref_ok_t1 = t1.spawn(c_group_ref_ok(T1()))
+    let _ = h_c_group_ref_ok_t1.join()
+    let h_c_group_ref_ok_t2 = t2.spawn(c_group_ref_ok(T2()))
+    let _ = h_c_group_ref_ok_t2.join()
+    let h_c_group_ref_ok_ts = Task.spawn(c_group_ref_ok(TS()))
+    let _ = h_c_group_ref_ok_ts.join()
+
+    let h_c_task_ref_ok_g = g.spawn(c_task_ref_ok(G()))
+    let _ = h_c_task_ref_ok_g.join()
+    let h_c_task_ref_ok_t1 = t1.spawn(c_task_ref_ok(T1()))
+    let _ = h_c_task_ref_ok_t1.join()
+    let h_c_task_ref_ok_t2 = t2.spawn(c_task_ref_ok(T2()))
+    let _ = h_c_task_ref_ok_t2.join()
+    let h_c_task_ref_ok_ts = Task.spawn(c_task_ref_ok(TS()))
+    let _ = h_c_task_ref_ok_ts.join()
+
+    let h_r_task_vector_no_g = g.spawn(r_task_vector_no(G()))
+    var inner_r_task_vector_no_g = h_r_task_vector_no_g.join()
+    let last_r_task_vector_no_g = inner_r_task_vector_no_g.pop()!
+    let _ = last_r_task_vector_no_g.join()
+    let h_r_task_vector_no_t1 = t1.spawn(r_task_vector_no(T1()))
+    var inner_r_task_vector_no_t1 = h_r_task_vector_no_t1.join()
+    let last_r_task_vector_no_t1 = inner_r_task_vector_no_t1.pop()!
+    let _ = last_r_task_vector_no_t1.join()
+    let h_r_task_vector_no_t2 = t2.spawn(r_task_vector_no(T2()))
+    var inner_r_task_vector_no_t2 = h_r_task_vector_no_t2.join()
+    let last_r_task_vector_no_t2 = inner_r_task_vector_no_t2.pop()!
+    let _ = last_r_task_vector_no_t2.join()
+    let h_r_task_vector_no_ts = Task.spawn(r_task_vector_no(TS()))
+    var inner_r_task_vector_no_ts = h_r_task_vector_no_ts.join()
+    let last_r_task_vector_no_ts = inner_r_task_vector_no_ts.pop()!
+    let _ = last_r_task_vector_no_ts.join()
+
+    let h_p_group_ref_no_g = g.spawn(p_group_ref_no(&var held, G()))
+    let _ = h_p_group_ref_no_g.join()
+    let h_p_group_ref_no_t1 = t1.spawn(p_group_ref_no(&var held, T1()))
+    let _ = h_p_group_ref_no_t1.join()
+    let h_p_group_ref_no_t2 = t2.spawn(p_group_ref_no(&var held, T2()))
+    let _ = h_p_group_ref_no_t2.join()
 }

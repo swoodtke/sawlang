@@ -125,7 +125,7 @@ func spawned_all() -> Int {
     a + b + c + d + e + f + g
 }
 
-func main() {
+func main() blocking {
     print("susp scrutinee {__saw_drive(susp_scrutinee())}")
     print("susp args {__saw_drive(susp_args())}")
     print("susp body {__saw_drive(susp_body())}")

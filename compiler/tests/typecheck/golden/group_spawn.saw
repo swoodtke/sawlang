@@ -2,7 +2,7 @@
 // the spawn, through a local, a field or a `&TaskGroup` parameter, and the
 // form hands back `Task<Int>` for an `Int` root and `Task<Void>` for a
 // `Void` one. The root is the task's call, so a spawner that never suspends itself
-// stays sync-callable.
+// stays sync-callable; its handle's join is made by the caller.
 import std.task.*
 
 func work(n: Int) -> Int {
@@ -21,9 +21,8 @@ struct Holder {
 extension Holder: NoCopy {}
 extension Holder: NoMove {}
 
-func into(group: &TaskGroup) sync -> Int {
+func into(group: &TaskGroup) sync {
     let t = group.spawn(work(2))
-    t.join()
 }
 
 func main() {
@@ -32,6 +31,7 @@ func main() {
     let v = group.spawn(ping())
     var holder = Holder(group: TaskGroup())
     let f = holder.group.spawn(work(3))
-    print("{} {} {}", t.join(), f.join(), into(&group))
+    into(&group)
+    print("{} {}", t.join(), f.join())
     v.join()
 }

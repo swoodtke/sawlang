@@ -1,0 +1,53 @@
+// probe: stated
+// about: a pool task's lock window whose own body drops a cooperative group with a live task runs no pool frame that left its worker free, so pool lockers that held a group across a join wait for the lock instead of re-entering it, conformance row K227 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: total 106
+import std.mutex.{Mutex}
+import std.task.*
+
+static M: Mutex<Int>
+
+func leaf() -> Int {
+    1
+}
+
+func pinned() -> Int {
+    sleep(Duration.ms(10))
+    var g = TaskGroup()
+    let c = g.spawn(leaf())
+    let v = c.join()
+    borrow var m = M.lock() { m = m + v }
+    v
+}
+
+func slow() -> Int {
+    sleep(Duration.ms(40))
+    1
+}
+
+func holder() -> Int {
+    sleep(Duration.ms(2))
+    borrow var m = M.lock() {
+        let g = TaskGroup()
+        let h = g.spawn(slow())
+        m = m + 100
+    }
+    0
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var hs = Vector<Task<Int>>()
+    var i = 0
+    while i < 6 {
+        try! hs.push(pool.spawn(pinned()))
+        i = i + 1
+    }
+    let h = pool.spawn(holder())
+    let _ = h.join()
+    while let t = hs.pop() {
+        let _ = t.join()
+    }
+    print("total {}", M.get())
+}

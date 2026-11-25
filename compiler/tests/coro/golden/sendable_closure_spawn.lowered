@@ -1,6 +1,7 @@
-resume #0: sendable_closure_spawn.main()  (frame size 456 align 8, pointer _20)
+resume #0: sendable_closure_spawn.main()  (frame size 536 align 8, pointer _20)
     state 0: bb0
-    state 1: bb2 drive #16 std.task.yield_now() at (*frame).[448]
+    state 1: bb2 drive #16 std.task.yield_now() at (*frame).[400]
+    state 2: bb3 drive #17 std.taskgroup.Task.join() args Int at (*frame).[400]
     spawn bb1 task root #11 sendable_closure_spawn.run(f: () -> Int) task root, descriptor _16, box _17
 fn sendable_closure_spawn.main() -> Void {
     let _0: Void;  // return
@@ -26,32 +27,34 @@ fn sendable_closure_spawn.main() -> Void {
     let _20: &var Int;
 
     bb0: {
-        (*_20).[432: Int] = const 7: Int;
-        (*_20).[440: Int] = const 100: Int;
+        (*_20).[520: Int] = const 7: Int;
+        (*_20).[528: Int] = const 100: Int;
         (*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] = call std.taskgroup.TaskGroup.init(threads: Int) (owner std.taskgroup.TaskGroup) [const 2: Int] -> [return: bb1];
     }
 
     bb1: {
         _5 = move ((*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] as Ok!).0;
-        (*_20).[200: std.taskgroup.TaskGroup] = move _5;
-        _7 = ref(shared, (*_20).[432: Int]);
-        _8 = ref(shared, (*_20).[440: Int]);
-        (*_20).[416: (&Int, &Int)] = (move _7, move _8);
-        _10 = ref(shared, (*_20).[416: (&Int, &Int)]);
+        (*_20).[208: std.taskgroup.TaskGroup] = move _5;
+        _7 = ref(shared, (*_20).[520: Int]);
+        _8 = ref(shared, (*_20).[528: Int]);
+        (*_20).[504: (&Int, &Int)] = (move _7, move _8);
+        _10 = ref(shared, (*_20).[504: (&Int, &Int)]);
         _11 = closure#0 of sendable_closure_spawn.main() [move _10];
-        _12 = ref(shared, (*_20).[200: std.taskgroup.TaskGroup]);
+        _12 = ref(shared, (*_20).[208: std.taskgroup.TaskGroup]);
         _16 = spawn group sendable_closure_spawn.run(f: () -> Int) [] -> [return: bb6];
     }
 
     bb2: {
-        (*_20).[384: std.taskgroup.Task<Int>] = move _13;
+        (*_20).[464: std.taskgroup.Task<Int>] = move _13;
         (*_20).[0: Int] = const 1: Int;
         call std.task.yield_now() [] -> [return: bb8] suspends;
     }
 
     bb3: {
-        _14 = ref(shared, (*_20).[384: std.taskgroup.Task<Int>]);
-        _15 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _14] -> [return: bb4];
+        _14 = ref(shared, (*_20).[464: std.taskgroup.Task<Int>]);
+        (*_20).[424: &std.taskgroup.Task<Int>] = move _14;
+        (*_20).[0: Int] = const 2: Int;
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [] -> [return: bb10] suspends;
     }
 
     bb4: {
@@ -59,8 +62,8 @@ fn sendable_closure_spawn.main() -> Void {
     }
 
     bb5: {
-        drop((*_20).[384: std.taskgroup.Task<Int>]);
-        drop((*_20).[200: std.taskgroup.TaskGroup]);
+        drop((*_20).[464: std.taskgroup.Task<Int>]);
+        drop((*_20).[208: std.taskgroup.TaskGroup]);
         return;
     }
 
@@ -79,6 +82,16 @@ fn sendable_closure_spawn.main() -> Void {
     bb8: {
         (*_20).[0: Int] = const -3: Int;
         goto -> bb3;
+    }
+
+    bb9: {
+        _15 = move (*_20).[416: Int];
+        goto -> bb4;
+    }
+
+    bb10: {
+        (*_20).[0: Int] = const -4: Int;
+        goto -> bb9;
     }
 }
 resume #11: sendable_closure_spawn.run(f: () -> Int) task root  (frame size 40 align 8, pointer _3)
@@ -125,5 +138,176 @@ fn std.task.yield_now() -> Void {
 
     bb1: {
         return;
+    }
+}
+resume #17: std.taskgroup.Task.join() args Int  (frame size 64 align 8, pointer _24, context _25)
+    state 0: bb0
+    state 1: bb28 park ready
+    state 2: bb21 park thread
+fn std.taskgroup.Task.join() -> Int {
+    let _0: Int;  // return
+    let _1: &std.taskgroup.Task<Int>;  // self
+    let _2: &std.taskgroup.Task<Int>;
+    let _3: Bool;
+    let _4: &std.taskgroup.Task<Int>;
+    let _5: Bool;  // pooled
+    let _6: &std.taskgroup.Task<Int>;
+    let _7: Bool;
+    let _8: &Atomic<Int>;
+    let _9: Int;
+    let _10: Int;  // word
+    let _11: Int;
+    let _12: Bool;
+    let _13: Bool;
+    let _14: UnsafePointer<Int>;
+    let _15: Int;
+    let _16: Bool;
+    let _17: UnsafePointer<Int>;
+    let _18: Int;
+    let _19: Int;
+    let _20: &Atomic<Int>;
+    let _21: Int;
+    let _22: &std.taskgroup.Task<Int>;
+    let _23: Int;
+    let _24: &var Int;
+    let _25: &var std.taskgroup.TaskContext;
+    let _26: Bool;
+
+    bb0: {
+        (*_24).[8: Int] = const 128: Int;
+        _2 = ref(shared, (*(*_24).[24: &std.taskgroup.Task<Int>]));
+        call std.taskgroup.Task.__join_check() (owner std.taskgroup.Task<Int>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = call std.taskgroup.on_pool_worker() [] -> [return: bb3];
+    }
+
+    bb2: {
+        _22 = ref(shared, (*(*_24).[24: &std.taskgroup.Task<Int>]));
+        _23 = call std.taskgroup.Task.__join_take() (owner std.taskgroup.Task<Int>) [move _22] -> [return: bb27];
+    }
+
+    bb3: {
+        switch move _3 -> [true: bb4, false: bb5];
+    }
+
+    bb4: {
+        _4 = ref(shared, (*(*_24).[24: &std.taskgroup.Task<Int>]));
+        call std.taskgroup.Task.__join_wait() (owner std.taskgroup.Task<Int>) [move _4] -> [return: bb6];
+    }
+
+    bb5: {
+        _6 = ref(shared, (*(*_24).[24: &std.taskgroup.Task<Int>]));
+        _7 = call std.taskgroup.Task.__join_pooled() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb7];
+    }
+
+    bb6: {
+        goto -> bb2;
+    }
+
+    bb7: {
+        (*_24).[56: Bool] = move _7;
+        switch copy (*_24).[56: Bool] -> [true: bb9, false: bb10];
+    }
+
+    bb8: {
+        _11 = call std.taskgroup.join_word(at: UnsafePointer<std.taskgroup.TaskGroup>, slot: Int, generation: Int) [copy (*(*_24).[24: &std.taskgroup.Task<Int>]).group, copy (*(*_24).[24: &std.taskgroup.Task<Int>]).slot, copy (*(*_24).[24: &std.taskgroup.Task<Int>]).generation] -> [return: bb12];
+    }
+
+    bb9: {
+        _8 = ref(shared, static std.taskgroup.POOL_DRIVES);
+        (*_24).[32: Int] = call Atomic.fetch_add(v: Int) (owner Atomic<Int>) [move _8, const 1: Int] -> [return: bb11];
+    }
+
+    bb10: {
+        goto -> bb8;
+    }
+
+    bb11: {
+        goto -> bb8;
+    }
+
+    bb12: {
+        (*_24).[40: Int] = move _11;
+        goto -> bb13;
+    }
+
+    bb13: {
+        _13 = Ne(copy (*_24).[40: Int], const 0: Int);
+        switch move _13 -> [true: bb16, false: bb17];
+    }
+
+    bb14: {
+        switch copy (*_24).[56: Bool] -> [true: bb24, false: bb25];
+    }
+
+    bb15: {
+        switch move _12 -> [true: bb19, false: bb14];
+    }
+
+    bb16: {
+        _14 = cast(copy (*_24).[40: Int] as UnsafePointer<Int>);
+        (*_24).[48: Int] = call builtin __saw_atomic_load_i64_seq_cst [move _14] -> [return: bb18];
+    }
+
+    bb17: {
+        _12 = const false: Bool;
+        goto -> bb15;
+    }
+
+    bb18: {
+        _16 = Ge(copy (*_24).[48: Int], const 0: Int);
+        _12 = move _16;
+        goto -> bb15;
+    }
+
+    bb19: {
+        (*_24).[8: Int] = SubWrapping(copy (*_24).[8: Int], const 1: Int);
+        _26 = Le(copy (*_24).[8: Int], const 0: Int);
+        switch move _26 -> [true: bb28, false: bb20];
+    }
+
+    bb20: {
+        _17 = cast(copy (*_24).[40: Int] as UnsafePointer<Int>);
+        _18 = call std.thread.thread_join_park(word: UnsafePointer<Int>) [move _17] -> [return: bb21];
+    }
+
+    bb21: {
+        (*(*_25).park) = move _18;
+        call std.thread.__saw_park_thread(word: Int) [] -> [return: bb22] suspends;
+    }
+
+    bb22: {
+        goto -> bb13;
+    }
+
+    bb23: {
+        goto -> bb2;
+    }
+
+    bb24: {
+        _19 = Neg(const 1: Int);
+        _20 = ref(shared, static std.taskgroup.POOL_DRIVES);
+        _21 = call Atomic.fetch_add(v: Int) (owner Atomic<Int>) [move _20, move _19] -> [return: bb26];
+    }
+
+    bb25: {
+        goto -> bb23;
+    }
+
+    bb26: {
+        goto -> bb23;
+    }
+
+    bb27: {
+        (*_24).[16: Int] = move _23;
+        return;
+    }
+
+    bb28: {
+        (*_24).[8: Int] = const 128: Int;
+        (*(*_25).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb20] suspends;
     }
 }

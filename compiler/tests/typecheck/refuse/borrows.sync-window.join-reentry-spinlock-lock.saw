@@ -1,0 +1,21 @@
+// refuses: borrows.sync-window at 18:9
+// A lock's window around a `join()` of a cooperative task: the join suspends, and a
+// `borrows(sync)` accessor's borrow cannot be held across a suspension, so the
+// window is refused at compile time (conformance row K206).
+import std.spinlock.{SpinLock}
+
+static G: SpinLock<Int>
+
+func take() -> Int {
+    borrow var g = G.lock() { g = g + 1; g }
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(take())
+    let r = borrow var o = G.lock() {
+        o = 10
+        h.join()
+    }
+    print("joined {}", r)
+}

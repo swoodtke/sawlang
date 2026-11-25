@@ -29,7 +29,7 @@ func run() unsafe {
     let answer = FrameDescriptor(resume: { f, c in answer_resume(f, c) }, size: sizeof<Answer>(),
                                  align: alignof<Answer>(), result_offset: 0,
                                  result_size: sizeof<Int>(), result_align: alignof<Int>(),
-                                 drop_result: { p in drop_nothing(p) }, backtrace: -1)
+                                 drop_result: { p in drop_nothing(p) }, backtrace: -1, thread_bound: 0)
     let d = (&answer) as UnsafePointer<FrameDescriptor>
     let frame = __saw_exec_task_box(d)
     let f = frame as UnsafePointer<Answer>

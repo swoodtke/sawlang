@@ -298,7 +298,7 @@ def check_bt_stage0(failures, counts):
 
 _BT_GLOBAL = re.compile(r'^@__saw_bt_table = constant \[(\d+) x i8\] c".*", section "([^"]+)", align 8$')
 _BT_USED = "@llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section \"llvm.metadata\""
-_DESCRIPTOR = re.compile(r'^@"saw frame (.+)" = private unnamed_addr constant \{.*\} \{.* i64 (-?\d+) \}$')
+_DESCRIPTOR = re.compile(r'^@"saw frame (.+)" = private unnamed_addr constant \{.*\} \{.* i64 (-?\d+), i64 [01] \}$')
 # Each object format's section for the table, as Stage 0 places it.
 BT_SECTIONS = (("arm64-apple-darwin", "__TEXT,__sawbt"), ("x86_64-unknown-linux-gnu", ".saw_bt"))
 

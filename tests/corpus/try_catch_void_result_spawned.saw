@@ -2,8 +2,8 @@
 // in a spawned body — the coroutine transform's lowering reaches the same
 // codegen merge, so it crashed identically and is covered by the same guard.
 // EXPECT: success
-// EXPECT-OUTPUT: 1
 // EXPECT-OUTPUT: worker: refused
+// EXPECT-OUTPUT: 1
 // EXPECT-OUTPUT: -1
 
 import std.task.*

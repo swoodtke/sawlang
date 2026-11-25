@@ -1,8 +1,8 @@
 // probe: panics
-// about: a `join()` of a `TaskGroup(threads: 2)` task made by a `main` that never suspends with no cooperative task on its thread, waiting for a pool task that receives from a channel nothing sends to, is reported by the deadlock walk, conformance row K205 (SL-821)
+// about: a `join()` of a `TaskGroup(threads: 2)` task made by a `main` that parks in the join with no cooperative task on its thread, waiting for a pool task that receives from a channel nothing sends to, is reported by the deadlock walk, conformance row K205 (SL-821)
 // stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
 // speeds: -O0 -O2
-// panics: deadlock: every task is waiting to receive from a channel, and nothing in this program can send
+// panics: deadlock: every task is waiting to receive from a channel, or to join a `TaskGroup(threads:)` task that is, and nothing in this program can send
 import std.channel.{Channel}
 
 func pool_receive(ch: Channel<Int>) -> Int {

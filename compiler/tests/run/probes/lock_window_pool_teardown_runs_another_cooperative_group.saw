@@ -1,0 +1,38 @@
+// probe: stated
+// about: a pool's teardown inside a lock window runs the thread's cooperative tasks, so a pool task that waits for one of them finishes, conformance row K205 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: got 5 total 1
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+import std.task.*
+
+static M: Mutex<Int>
+static GOT: Atomic<Int> = Atomic(0)
+
+func producer(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(20))
+    try! ch.send(5)
+    0
+}
+
+func consumer(ch: Channel<Int>) -> Int {
+    GOT.store(try! ch.receive())
+    0
+}
+
+func drop_consumer_pool(ch: Channel<Int>) sync {
+    let g = try! TaskGroup(threads: 2)
+    let h = g.spawn(consumer(ch))
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    let group = TaskGroup()
+    let p = group.spawn(producer(ch.copy()))
+    borrow var m = M.lock() {
+        drop_consumer_pool(ch.copy())
+        m = m + 1
+    }
+    print("got {} total {}", GOT.load(), M.get())
+}

@@ -1,0 +1,51 @@
+// probe: stated
+// about: `Thread.spawn` bodies blocked on a lock whose holder waits in place are not reported while a pool task computes toward the send the holder waits for, conformance row K206 (SL-1161)
+// stage 0: runs it on its own std's executor, which this rule is not part of
+// speeds: -O0 -O2
+// prints: total 102 got 9
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+
+static M: Mutex<Int>
+static OPEN: Atomic<Int> = Atomic(0)
+static SPIN: Atomic<Int> = Atomic(0)
+static GOT: Atomic<Int> = Atomic(0)
+
+func take_one(ch: Channel<Int>) -> Int {
+    GOT.store(try! ch.receive())
+    0
+}
+
+func drain_inside(ch: Channel<Int>) sync {
+    let g = TaskGroup()
+    let h = g.spawn(take_one(ch))
+}
+
+func slow_sender(ch: Channel<Int>) -> Int {
+    while OPEN.load() == 0 { }
+    while SPIN.fetch_add(1) < 30_000_000 { }
+    try! ch.send(9)
+    0
+}
+
+func locker() {
+    while OPEN.load() == 0 { }
+    borrow var m = M.lock() { m = m + 1 }
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(slow_sender(ch.copy()))
+    var t1 = try! Thread.spawn { locker() }
+    var t2 = try! Thread.spawn { locker() }
+    borrow var m = M.lock() {
+        OPEN.store(1)
+        drain_inside(ch.copy())
+        m = m + 100
+    }
+    let _ = p.join()
+    t1.join()
+    t2.join()
+    print("total {} got {}", M.get(), GOT.load())
+}
