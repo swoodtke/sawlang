@@ -582,8 +582,8 @@ modules do.
 - **String**, **StringBuilder**: immutable, reference-counted UTF-8 text, and a
   growable builder whose fixed-capacity mode allocates nothing.
 - **Byte**: `type Byte = UInt8`, the type of every byte a std API hands back.
-  It reads as its `UInt8`, and a plain integer never becomes one implicitly
-  (not enforced by `sawc` yet, SL-1012).
+  It reads as its `UInt8`, and a plain integer enters one through `Byte(65)`
+  (or a `static` initializer), not implicitly.
 - **Scalar**: a Unicode scalar value, checked at construction:
 
   ```saw-body

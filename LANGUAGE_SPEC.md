@@ -1282,8 +1282,7 @@ the prelude, so it needs no import and follows the ordinary one-way flow
 wherever an integer is wanted — comparisons, masks, arithmetic, a `UInt8`
 parameter — and the way back in is `Byte(...)` or an API that produces bytes.
 
-```saw-pending SL-48
-// error-contains: cannot assign `UInt8` to variable of type `Byte`
+```saw-body
 import std.data.{Data}
 
 let b = "hi".byte_at(0)      // Byte
@@ -1292,9 +1291,16 @@ let n = b as Int             // 0..255 — a byte is unsigned, so 0xC3 widens to
 let u: UInt8 = b             // flows out with nothing written
 var d = try! Data(capacity: 1)
 let _ = try! d.push(b)       // a UInt8 parameter takes it
-
-let bad: Byte = 65           // error: cannot assign `UInt8` to variable of type `Byte`
 let ok = Byte(65)            // the constructor is the way in
+print(n)                     // prints: 104
+print(u)                     // prints: 104
+print(ok)                    // prints: 65
+```
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: write `Byte(65)`
+let bad: Byte = 65           // error: a bare literal does not enter a Byte at a let
 ```
 
 Every byte-valued surface in std speaks it: `String.byte_at` and `bytes()`,
@@ -1306,8 +1312,8 @@ passes, a bare literal adopts) and a byte buffer has no second reading for a
 number. A `Byte`-typed parameter appears only where an integer-rendering
 sibling shares the name; `StringBuilder.append` is that case.
 
-Two consequences. A bare literal never becomes a `Byte` (not enforced by
-`sawc` yet, SL-48), which is what makes `append(65)`-renders-digits and
+Two consequences. A bare literal becomes a `Byte` only at a `static`, never at a
+`let` or an argument, which is what makes `append(65)`-renders-digits and
 `append(Byte(65))`-writes-a-raw-byte an unambiguous pair rather than a trap.
 And `Byte` may not be an enum's raw backing (`enum E: Byte` is an error, since
 a raw backing is a fixed-width integer), so wire enums keep `UInt8`.
@@ -3483,8 +3489,7 @@ func parse(ok: Bool) -> Result<Int, Box<any Error>> {
 
 **Status: implemented** for distinct `type` aliases with one-way flow (alias →
 underlying allowed, the reverse requires explicit construction) and function-type
-aliases (not enforced by `sawc` yet, SL-1012). Generic type aliases
-(`type Handler<T> = ...`) are *planned*.
+aliases. Generic type aliases (`type Handler<T> = ...`) are *planned*.
 
 The underlying type may not be an **enum**. An alias exists to be read back to
 what it names, and `as` has no enum reading — so an enum alias would be a name
@@ -3513,7 +3518,9 @@ struct ParseErr { code: Int }
 type Outcome = Result<Int, ParseErr>   // Error! Result is an enum
 ```
 
-```saw-fragment
+```saw-error
+// error-rule: type.mismatch
+// error-contains: an alias is entered by its construction, not by a conversion
 // Type definitions create distinct types (not interchangeable aliases)
 type UserId = Int
 type OrderId = Int
@@ -3531,17 +3538,122 @@ let k: Kilometers = m  // Error! Can't mix miles and kilometers
 ```
 
 `Alias(value)` is the way INTO a distinct type. It takes exactly one unlabeled
-argument, which is checked against the underlying type — so a bare literal
+argument, which is checked against the type the alias names — so a bare literal
 adopts that type and is range-checked there, and a value of an unrelated type is
 a clean error. The construction is representationally free: an alias is its
 underlying at runtime, and the distinction is the typechecker's alone.
 
-An alias over an unsigned or fixed-width underlying has no other spelling. An
-annotated `let` accepts an underlying-typed initializer only for the four
-primitive kinds (`Int`, `Float`, `Bool`, `String`), so `type Handle = UInt` is
-constructible through `Handle(...)` and nothing else. A module `static` is the
-one slot that differs: a bare literal DOES adopt there, so
-`static MINUS_SIGN: Byte = 45` is legal while `let m: Byte = 45` is not.
+The argument may be the type the alias names, or an alias on the same chain,
+above or below. A sibling alias over the same underlying is refused, so two
+siblings never meet unseen even through a construction: step out of the sibling
+first, with `as`. The construction is written, so the conversion is visible
+where it happens.
+
+```saw-body
+type UserId = Int
+type OrderId = Int
+type Handle = UserId
+
+let user = UserId(42)
+let order = OrderId(user as Int)    // a sibling steps out to Int first
+let handle = Handle(user)    // Handle names UserId
+let again = UserId(handle)
+print(order as Int)          // prints: 42
+print(again as Int)          // prints: 42
+```
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: an alias of its own: write `OrderId(user as Int)`
+type UserId = Int
+type OrderId = Int
+
+let user = UserId(42)
+let order = OrderId(user)
+// error: expected a `OrderId` or a type below it, and found `UserId`, an alias of its own: write `OrderId(user as Int)`
+```
+
+An alias of a struct is constructed from a value of the struct, never from its
+fields: `Position(x: 3, y: 4)` is a `call.arity` error whose fix-it spells
+`Position(Point(x: 3, y: 4))`. Once built, the alias reads through to the
+struct for its fields, its methods and its statics (an extension is another
+matter, below).
+
+```saw-error
+// error-rule: call.arity
+// error-contains: an alias is constructed from one unlabeled value of the type it names
+struct Point {
+    x: Int,
+    y: Int
+}
+
+type Position = Point
+
+func main() {
+    let p = Position(x: 3, y: 4)   // Error! write Position(Point(x: 3, y: 4))
+}
+```
+
+```saw
+struct Point {
+    x: Int,
+    y: Int
+}
+
+extension Point {
+    func sum(&self) -> Int { self.x + self.y }
+    static func origin() -> Point { Point(x: 0, y: 0) }
+}
+
+type Position = Point
+
+func main() {
+    let p = Position(Point(x: 3, y: 4))
+    print(p.x)                        // prints: 3
+    print(p.sum())                    // prints: 7
+    print(Position.origin().sum())    // prints: 0
+}
+```
+
+A static called through an alias dispatches on the type the alias names, with
+the alias's own arguments, and is typed as that type declares it: `Position.origin()`
+is a `Point`, and `JobBox.make(...)` in the [slab example](#slab-allocators-the-kernel-idiom)
+is a `Box<Job, JobSlab>`. An integer's limit is the one static that comes back
+as the alias: `Small.max` over `type Small = UInt8` is a `Small`. An alias takes
+no extension of its own. `extension Position` is refused, so add the method to
+the type the alias names.
+
+**A literal enters an alias only where the alias is written.** A bare literal,
+or a negated number (`-1`), adopts the alias at a `static` and at an annotated
+`let` or `var`: `let id: UserId = 5` and `static NONE_YET: UserId = -1` both
+compile. A parameter, a `return` or tail, a field, an assignment and the
+element of an outer literal take no literal; there the construction is written,
+`UserId(5)`. A computed value is never adopted, even a constant one: `2 + 3`,
+`1 << 3` and `n + 1` are the underlying's, so `let a: UserId = 2 + 3` is
+refused and `UserId(2 + 3)` is the spelling. At a `let` or `var` the literal
+must also be the alias's own representation: an integer literal adopts an alias
+over `Int`, a float literal one over `Float`, `true` and `false` one over `Bool`,
+a string literal one over `String`, and an array, repeat, `Vector`, `Map` or
+`Set` literal one over that collection.
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: write `UserId(5)`
+type UserId = Int
+
+func show(id: UserId) {}
+
+func main() {
+    let ok: UserId = 5         // an annotated let adopts the literal
+    show(5)                    // Error! a parameter does not: write UserId(5)
+}
+```
+
+An alias over a fixed-width or unsigned underlying has no literal spelling at a
+`let` or `var`, so `type Handle = UInt` is constructible through `Handle(...)`
+there and nothing else. A module `static` is the one slot that adopts at every
+width: a bare literal DOES adopt there, so `static MINUS_SIGN: Byte = 45` is
+legal while `let m: Byte = 45` is not.
 `static MINUS_SIGN: Byte = Byte(45)` is legal too: an alias's construction over
 a constant expression is itself a constant expression, the identity at the
 underlying type, so it is accepted in the positions whose grammar is the
@@ -3569,6 +3681,149 @@ let h = Handle(7)        // the only spelling for an unsigned underlying
 let s = Small(99)        // the literal adopts Int64 and is checked there
 ```
 
+**Operators read an alias as the type it names and yield that type** (as
+`Byte` does, below). `user + 1` is an `Int`, so storing it back into a
+`UserId` takes the construction, `UserId(user + 1)`, and a compound assignment
+on an alias place is refused for the same reason: `id += 1` is an
+`operator.undefined` error, and `id = UserId(id + 1)` is the spelling. A
+comparison gives a `Bool`. Operands on one chain are peers, so `id == handle`
+works when `Handle` names `UserId`; two sibling aliases are not peers, and
+`user == order` is refused, as is a range `user..order` between them.
+
+```saw-body
+type UserId = Int
+type Handle = UserId
+
+var id = UserId(1)
+id = UserId(id + 1)        // the sum is an Int: construct it to store it
+let handle = Handle(id)
+print(id == handle)        // prints: true
+print(id + 1)              // prints: 3
+```
+
+```saw-error
+// error-rule: operator.undefined
+// error-contains: its result does not flow back into a
+type UserId = Int
+
+func main() {
+    var id = UserId(1)
+    id += 1                // Error! write id = UserId(id + 1)
+}
+```
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: an operator's operands agree on one type
+type UserId = Int
+type OrderId = Int
+
+func main() {
+    let user = UserId(1)
+    let order = OrderId(2)
+    print(user == order)   // Error! siblings are not peers
+}
+```
+
+**Joins follow the same line.** Where the checker joins two types, an alias and
+a type on its chain join at the type the alias names, and two siblings join
+nothing. The positions are the arms of an `if` or `match`, the two sides of
+`??`, the elements of an array, `Vector`, `Set` or `Map` literal, and the arms
+of a `try` block and an inline `catch`. A closure's result is not a join: its
+first `return` types it, as it does for plain integer widths, so a later
+`return` of the alias after a first `return` of the underlying is fine and the
+reverse order is refused.
+
+```saw-body
+type UserId = Int
+
+let u = UserId(1)
+let n = 2
+let flag = true
+let joined = if flag { u } else { n }    // an Int
+let missing: UserId? = None
+let fallback = missing ?? n              // an Int
+let ids = [u, n]                         // an array of Int
+let pick = { b: Bool in
+    if b {
+        return n                         // the first return types the result
+    }
+    return u                             // an Int, so the alias flows out
+}
+print(joined)                            // prints: 1
+print(fallback)                          // prints: 2
+print(ids.len())                         // prints: 2
+print(pick(false))                       // prints: 1
+```
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: which are distinct aliases: neither flows into the other
+type UserId = Int
+type OrderId = Int
+
+func main() {
+    let user = UserId(1)
+    let order = OrderId(2)
+    let flag = true
+    let both = if flag { user } else { order }   // Error! write one arm with as
+}
+```
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: the type of the function's result
+type UserId = Int
+
+func main() {
+    let u = UserId(1)
+    let n = 2
+    let pick = { b: Bool in
+        if b {
+            return u                 // the result is a UserId
+        }
+        return n                     // Error! an Int does not flow in
+    }
+}
+```
+
+A call ranks an alias argument by what it fits. An overload on the alias itself
+fits exactly, one on a type further down the chain fits by projection alone and
+ranks above a type only reached by a widening on top of it, and a bare literal
+enters no alias, so it picks the underlying's overload.
+
+```saw-body
+type Small = UInt8
+
+func own(p: Int) -> Int { 1 }
+func own(p: Small) -> Int { 2 }
+
+func projects(p: Int) -> Int { 1 }
+func projects(p: UInt8) -> Int { 2 }
+
+let s = Small(7)
+print(own(7))            // prints: 1
+print(own(s))            // prints: 2
+print(projects(s))       // prints: 2
+```
+
+A generic argument is part of the type's identity, so an alias inside one is
+not its underlying: `Vector<UserId>` and `Vector<Int>` are two types, and
+neither flows into the other.
+
+```saw-error
+// error-rule: type.mismatch
+// error-contains: the type of the parameter
+type UserId = Int
+
+func total(ids: Vector<Int>) -> Int { ids.len() }
+
+func main() {
+    let ids: Vector<UserId> = [UserId(1)]
+    print(total(move ids))   // Error! Vector<UserId> is not Vector<Int>
+}
+```
+
 **`Byte` is std's own distinct alias**: `type Byte = UInt8` (see
 [`Byte`](#byte)). It shows what the rule buys. Because a byte flows OUT freely,
 decoding code pays no tax: `b == 0x0A`, `b & 0x1F`, `b - 32` and a `UInt8`
@@ -3578,19 +3833,45 @@ under one name without ambiguity. That pair is what a distinct alias is for — 
 type that costs nothing to read and cannot be entered by accident.
 
 Going the other way needs no ceremony. A distinct type flows to its underlying
-implicitly at a call site or an annotation, and `as` projects it explicitly:
+implicitly at a call site or an annotation, and `as` projects it explicitly. The
+cast is ONE-DIRECTIONAL (toward the underlying): there is no `.value` accessor,
+`42 as UserId` is an error (that is what `UserId(42)` is for), and so is a
+sibling-alias cast (`user as OrderId`). A partial projection to an intermediate
+alias on the chain is allowed.
 
-```saw-fragment
-// Project a distinct type TO its underlying with an explicit cast. There is no
-// `.value` accessor. The cast is ONE-DIRECTIONAL (toward the underlying):
-// `42 as UserId` stays an error — that is what `UserId(42)` is for — and a
-// sibling-alias cast (`user as OrderId`) is rejected too. A partial projection
-// to an intermediate alias on the chain is allowed.
+```saw-body
+type UserId = Int
+type Miles = Float
+
+let user = UserId(42)
+let m = Miles(100.0)
 let raw: Float = m as Float
 let uid: Int = user as Int
+print(raw)               // prints: 100.0
+print(uid)               // prints: 42
+```
 
-// Type definitions for function signatures
+```saw-error
+// error-rule: type.cast
+// error-contains: an alias is entered by its construction, not by a cast
+type UserId = Int
+
+func main() {
+    let x = 42 as UserId     // Error! write UserId(42)
+}
+```
+
+A function type may be aliased too. The function value is wrapped by the
+construction like any other:
+
+```saw-body
 type Callback = (Int) -> Bool
+
+let positive = Callback({ x in x > 0 })
+print(positive(3))       // prints: true
+```
+
+```saw-fragment
 // planned: generic aliases
 type Handler<T> = (T) -> Result<(), Error>
 ```
@@ -17919,7 +18200,22 @@ extension JobSlab: Allocator {
     }
 }
 type JobBox = Box<Job, JobSlab>          // the kernel idiom
+
+func read(job: &JobBox) -> Int {
+    job.value().n
+}
+
+func main() {
+    let made = try! JobBox.make(Job(n: 7))   // a Box<Job, JobSlab>
+    let job = JobBox(move made)              // named as the kernel's type
+    print(read(&job))                        // prints: 7
+}
 ```
+
+`JobBox` is a distinct alias (see [Type Definitions](#type-definitions)): the
+`make` static dispatches on the `Box` it names and returns a plain
+`Box<Job, JobSlab>`, so the construction `JobBox(move made)` is what enters the
+alias, and a `&JobBox` parameter takes `&job` and not a reference to the plain box.
 
 The region reaches the slab as `(&STATIC) as UnsafePointer<Int8>` — a reference,
 cast to a raw pointer, over a bare-declared (writable `.bss`) static. `alloc`

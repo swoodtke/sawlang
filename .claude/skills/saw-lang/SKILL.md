@@ -5179,6 +5179,37 @@ construct in the owner and lend `&driver` down.
   when the bounds prove every instantiation copies (`K: Copy`). The error names
   the parameter and arrives in the generic body, never at one caller. Reach the
   place through a borrow if you cannot bound it.
+- **A `type` ALIAS IS A DISTINCT TYPE (SL-1012; spec Type Definitions).** It
+  flows OUT to the type it names and IN only through `Alias(x)`, which takes ONE
+  unlabeled value that reads as the target: the target, or an alias on its
+  chain. A sibling over the same underlying is refused; step out first
+  (`OrderId(c as Int)`).
+  ```saw-body
+  type UserId = Int
+  type OrderId = Int
+
+  let a: UserId = 5               // a literal adopts at an annotated let or a static
+  let b = UserId(6)               // anywhere else, construct
+  let n: Int = a + b              // an operator reads the alias as Int
+  let c = UserId(a + b)           // …and yields Int, so construct to store it
+  let o = OrderId(c as Int)       // a sibling steps out first; it never flows
+  print(n)                        // prints: 11
+  print(o as Int)                 // prints: 11
+  ```
+  A literal adopts only at a `static` or an annotated `let`/`var`, only as a
+  bare or negated literal (`2 + 3` is computed: write `UserId(2 + 3)`), and at a
+  `let` only when the alias's representation is the literal's own: `Int`,
+  `Float`, `Bool`, `String` and collections. A fixed-width alias (`Byte`,
+  `Int64`, `UInt`) takes a number at a `static` and through its constructor.
+  Refused, each with the construction spelled in the message: a computed value
+  at an alias slot, `id += 1` (`operator.undefined`; write `id = UserId(id + 1)`),
+  an operator, range or join (`if`/`match` arms, `??`, literal elements) between
+  two SIBLINGS, `42 as UserId`, and `Vector<UserId>` where `Vector<Int>` is
+  expected. A closure's result is its first `return`'s type, not a join. An
+  alias of a struct is built from the struct (`Position(Point(x: 3, y: 4))`, not
+  `Position(x: 3, y: 4)`) and reads through to its fields, methods and statics,
+  `Position.origin()` returning the target's type; it takes no `extension`
+  (extend the target). An alias of an enum is refused at the declaration.
 - **BYTE — the prelude type of a byte value (design 250).** `type Byte = UInt8`,
   a distinct alias, no import. It flows OUT freely (equality, ordered
   comparison, mask, arithmetic, a `UInt8` parameter, `as Int`) and IN only
@@ -5218,9 +5249,10 @@ construct in the owner and lend `&driver` down.
   renderers). `enum E: Byte` is refused; a raw backing is a fixed-width integer,
   so wire enums stay `UInt8`. `extension Byte` is refused too — an alias carries
   no methods.
-  GOTCHA: `Vector<Byte>` where `Vector<UInt8>` is expected type-checks and then
-  ICEs in codegen (a `let` transfer silently succeeds) — byte BUFFERS are
-  `Data`, and there is no `Vector<UInt8>` in the tree for that reason.
+  GOTCHA: `Vector<Byte>` is not `Vector<UInt8>` — a generic argument is part
+  of the type, so one where the other is expected is `type.mismatch` (older
+  builds accepted it and ICEd in codegen). Byte BUFFERS are `Data`, and there is
+  no `Vector<UInt8>` in the tree for that reason.
 - `index_of_char`/`last_index_of_char`/`append_char` are GONE (design 250):
   `index_of(b: UInt8)`, `last_index_of(b: UInt8)`, `append(b: Byte)`. The
   "char" names lied — each was one byte of a possibly multi-byte scalar.
