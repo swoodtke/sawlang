@@ -900,6 +900,13 @@ extension LlEmitter {
             self.operand_into(&var mono, &var target, a, dest, to, node)
             return
         }
+        if (word.equals("cast") || word.equals("adopt")) && mono.dp.bc.mir.tc.same_representation(from, to) {
+            // A cast out of an alias to a type it stands for, and a literal
+            // adopted by an alias, change the type alone, so the value is
+            // stored as it is, whatever its kind.
+            self.operand_into(&var mono, &var target, a, dest, to, node)
+            return
+        }
         if word.equals("interior") || word.equals("atomic") || word.equals("memory") {
             // A cell is layout-transparent, and a view is its one address
             // word: the value is stored where the wrapper begins, at its own

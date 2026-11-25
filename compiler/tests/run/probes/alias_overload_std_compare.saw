@@ -1,0 +1,18 @@
+// probe: stated
+// about: std's `String.compare(other: String)` and `compare(other: &String)` resolve through an alias receiver and a `&Alias` argument as they do for a `String`, to the by-reference one (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own ranking
+// speeds: -O0 -O2
+// leaks: none
+// prints: true
+// prints: true
+
+type Name = String
+
+func main() {
+    let s: String = "ab"
+    let t: String = "ac"
+    print(s.compare(&t) == Ordering.Less)
+    let n = Name("ab")
+    let m = Name("ac")
+    print(n.compare(&m) == Ordering.Less)
+}

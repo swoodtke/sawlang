@@ -7,7 +7,7 @@
     (case Code.A 11:25)
     (case Code.B 11:37)
     (static WORD 13:8 private Int)
-    (static LETTER 14:8 private UInt8)
+    (static LETTER 14:8 private Byte)
     (static ORIGIN 15:8 private constant_positions.Point)
     (static SPARE 16:8 private constant_positions.Point)
     (static TABLE 17:8 private [Int; 3])
@@ -52,12 +52,12 @@
     (Code.A 11:25
       (11:29-11:30 IntLit Int (adopt UInt8) value temp))
     (Code.B 11:37
-      (11:41-11:48 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (11:41-11:48 Call.paren Byte (project UInt8) value temp (conversion Byte alias (owner UInt8)))
       (11:46-11:47 IntLit Int (adopt UInt8) value temp))
     (WORD 13:8
       (13:20-13:36 Call.paren Int value temp (builtin sizeof)))
     (LETTER 14:8
-      (14:23-14:31 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (14:23-14:31 Call.paren Byte value temp (conversion Byte alias (owner UInt8)))
       (14:28-14:30 IntLit Int (adopt UInt8) value temp))
     (ORIGIN 15:8
       (15:24-15:44 Call.paren constant_positions.Point value temp (memberwise constant_positions.Point (owner constant_positions.Point)))
@@ -95,7 +95,7 @@
       (33:19-33:23 Name Int place copy))
     (Holder.get 36:10
       (37:23-37:34 Binary.pair Bool value temp (op <))
-      (37:23-37:30 Call.paren UInt8 value borrow (conversion Byte alias (owner UInt8)))
+      (37:23-37:30 Call.paren Byte (project UInt8) value borrow (conversion Byte alias (owner UInt8)))
       (37:28-37:29 IntLit Int (adopt UInt8) value temp)
       (37:33-37:34 IntLit Int (adopt UInt8) value borrow)
       (38:9-38:15 Member Int place copy)
@@ -144,7 +144,7 @@
       (74:41-74:42 IntLit Int value temp))
     (item 26:15
       (26:15-26:27 Binary.pair Bool value temp (op ==))
-      (26:15-26:21 Name UInt8 place borrow)
+      (26:15-26:21 Name Byte (project UInt8) place borrow)
       (26:25-26:27 IntLit Int (adopt UInt8) value borrow))
     (item 68:16
       (69:19-69:27 Binary.pair Bool value temp (op >))

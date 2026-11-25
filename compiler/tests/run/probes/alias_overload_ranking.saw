@@ -1,0 +1,37 @@
+// probe: stated
+// about: an argument read up an alias's chain ranks among overloads as the type it names would, so a by-value and a by-reference overload are picked as for the plain type, and std's own `String.compare` pair resolves through an alias receiver (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own ranking
+// speeds: -O0 -O2
+// leaks: none
+// prints: ref ref
+// prints: value value
+// prints: ref ref
+// prints: value value
+// prints: true true
+// prints: ref value
+
+type Name = String
+type UserId = Int
+
+func f(x: String) -> String { "value" }
+func f(x: &String) -> String { "ref" }
+
+func g(x: Int) -> String { "value" }
+func g(x: &Int) -> String { "ref" }
+
+func through(r: &Name) -> String { f(&r) }
+func read(r: &Name) -> String { f(r) }
+
+func main() {
+    let s: String = "ab"
+    let n = Name("ab")
+    print("{} {}", f(&s), f(&n))
+    print("{} {}", f(s), f(n))
+    let i: Int = 3
+    let u = UserId(3)
+    print("{} {}", g(&i), g(&u))
+    print("{} {}", g(i), g(u))
+    let m = Name("ac")
+    print("{} {}", n.compare(&m) == Ordering.Less, s.compare(&m) == Ordering.Less)
+    print("{} {}", through(&n), read(&n))
+}

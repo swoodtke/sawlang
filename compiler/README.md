@@ -405,7 +405,7 @@ it, the part and image formats, the layer's name and kind,
 `--no-hidden-alloc`, each mapping it adds and each of its modules' name, file
 as spelled, real path, package and bytes. So an edit recomputes its own layer
 and every later one, and a build of another program that shares a prefix of
-packages loads it. A part is a `sawc-front-part 1 LENGTH DIGEST` line and the
+packages loads it. A part is a `sawc-front-part 2 LENGTH DIGEST` line and the
 derived CBOR of `FrontPart`: every table's entries the layer appended, and for
 a table rewritten in place the entries it changed. A layer is stored only when
 nothing left it blocked and it loaded the modules the scan expected. At the end

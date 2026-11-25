@@ -1,0 +1,37 @@
+// A value branch whose arms are an alias and a type on its chain merges to
+// that type, since the projection loses nothing (SL-1012 U3a, design 4.3).
+// Two arms of distinct aliases merge to nothing:
+// refuse/type.mismatch.alias-branch-siblings.saw.
+
+type UserId = Int
+type Handle = UserId
+
+func alias_then_underlying(c: Bool, u: UserId, i: Int) -> Int {
+    let a = if c { u } else { i }
+    a
+}
+
+func underlying_then_alias(c: Bool, u: UserId, i: Int) -> Int {
+    let a = if c { i } else { u }
+    a
+}
+
+func chain(c: Bool, h: Handle, u: UserId) -> Int {
+    let a = if c { h } else { u }
+    a as Int
+}
+
+func by_match(c: Bool, u: UserId, i: Int) -> Int {
+    let a = match c {
+        case true -> u,
+        case false -> i
+    }
+    a
+}
+
+func three_arms(n: Int, u: UserId, i: Int) -> Int {
+    let a = if n == 0 { u } else if n == 1 { i } else { u }
+    a
+}
+
+func main() {}

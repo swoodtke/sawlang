@@ -1,0 +1,74 @@
+// probe: stated
+// about: a comparison reads an alias operand reached through a field, a vector element, an Optional's payload, the present-and-equal comparison and a match guard where it is, as the type the alias names, and copies nothing out of the place and drops nothing (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own projection
+// speeds: -O0 -O2
+// leaks: none
+// prints: true false
+// prints: true false
+// prints: true false
+// prints: true true
+// prints: guard 3
+// prints: v1 w2
+// prints: true false
+// prints: true true
+// prints: true true
+// prints: drop 5
+// prints: drop 4
+// prints: drop 2
+// prints: drop 1
+
+type Name = String
+
+func heap(s: String, n: Int) -> String { "{s}{n}" }
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Res: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Res: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less } else if self.id > other.id { Ordering.Greater } else { Ordering.Equal }
+    }
+}
+type Handle = Res
+
+struct Held { n: Name }
+
+struct Owner { h: Handle }
+extension Owner: NoCopy {}
+
+func strings() {
+    let h = Held(n: Name(heap("v", 1)))
+    print("{} {}", h.n == h.n, h.n < h.n)
+    var v = Vector<Name>()
+    try! v.push(Name(heap("w", 2)))
+    print("{} {}", v[0] == v[0], v[0] == h.n)
+    let o: String? = heap("v", 1)
+    print("{} {}", o == h.n, o != h.n)
+    let p: Name? = Name(heap("v", 1))
+    print("{} {}", p! == h.n, p! <= h.n)
+    match 3 {
+        case n if h.n == h.n -> print("guard {}", n),
+        case _ -> print("no")
+    }
+    print("{} {}", h.n, v[0])
+}
+
+func handles() {
+    let w = Owner(h: Handle(Res(id: 1)))
+    print("{} {}", w.h == w.h, w.h < w.h)
+    var v = Vector<Handle>()
+    try! v.push(Handle(Res(id: 2)))
+    print("{} {}", v[0] == v[0], v[0] > w.h)
+    let o: Res? = Res(id: 4)
+    let p: Handle? = Handle(Res(id: 5))
+    print("{} {}", o != w.h, p! == p!)
+}
+
+func main() {
+    strings()
+    handles()
+}

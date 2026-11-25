@@ -1,0 +1,39 @@
+// probe: stated
+// about: one generic function, collection, struct and rendering used at an alias and at the type it names in one program build once per representation, with no clang redefinition (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own items
+// speeds: -O0 -O2
+// leaks: none
+// prints: 65 65
+// prints: 2 2
+// prints: 7 7
+// prints: A A
+// prints: 3
+
+type Octet = Byte
+
+struct Holder<T> {
+    value: T
+}
+
+func ident<T>(x: T) -> T { x }
+
+func main() {
+    let a = Byte(65)
+    let b: UInt8 = 65
+    print("{} {}", ident(a) as Int, ident(b) as Int)
+
+    let va: Vector<Byte> = [Byte(1), Byte(2)]
+    let vb: Vector<UInt8> = [1, 2]
+    print("{} {}", va.len(), vb.len())
+
+    let ha = Holder<Octet>(value: Octet(Byte(7)))
+    let hb = Holder<UInt8>(value: 7)
+    print("{} {}", ha.value as Int, hb.value as Int)
+
+    var sa = StringBuilder()
+    try! sa.append(a)
+    var sb = StringBuilder()
+    try! sb.append(Byte(b))
+    print("{} {}", sa.build(), sb.build())
+    print("{}", va.len() + vb.len() - 1)
+}

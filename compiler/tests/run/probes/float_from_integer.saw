@@ -77,7 +77,7 @@ func main() {
     print("as UInt64.max {}", UInt64.max as Float)
     let small: Int8 = -128
     let byte: UInt8 = 200
-    let letter: Byte = 65
+    let letter: Byte = Byte(65)
     print("as Int8 -128 {}", small as Float)
     print("as UInt8 200 {}", byte as Float)
     print("as Byte 65 {}", letter as Float)

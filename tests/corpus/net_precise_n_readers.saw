@@ -23,7 +23,7 @@ func reader(stream: TcpStream) -> Int {
 
 func writer(stream: TcpStream, b: Int) -> Int {
     var bytes = Data()
-    try! bytes.push(b as Byte)
+    try! bytes.push(Byte(b as UInt8))
     try! stream.write(move bytes)
     return 1
 }

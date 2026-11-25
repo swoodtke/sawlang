@@ -1,0 +1,33 @@
+// probe: stated
+// about: a value whose type is an alias of an erased type, `any Printable` behind a reference or a `Box`, renders through the vtable slot mono found at the representation, as a format argument and interpolated (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own items
+// speeds: -O0 -O2
+// leaks: none
+// prints: P1
+// prints: P1
+// prints: <P1>
+// prints: P2
+// prints: P2
+
+struct P { x: Int }
+extension P: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("P"); try! into.append(self.x) }
+}
+
+type Dyn = any Printable
+type BoxDyn = Box<any Printable>
+
+func show(x: &Dyn) {
+    print("{}", x)
+    print("{x}")
+    let s = "<{x}>"
+    print(s)
+}
+
+func main() {
+    let p = P(x: 1)
+    show(&p)
+    let bx = BoxDyn(Box<any Printable>.make(P(x: 2)))
+    print("{}", bx)
+    print("{bx}")
+}

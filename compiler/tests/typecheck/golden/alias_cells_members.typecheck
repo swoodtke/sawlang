@@ -1,3 +1,5 @@
+ERROR	conformance.signature	compiler/tests/typecheck/golden/alias_cells_members.saw:87:10	`Source.read` does not meet `Reader.read`, as `Source` conforms to `Reader` needs: its result type differs
+ERROR	call.ambiguous	compiler/tests/typecheck/golden/alias_cells_members.saw:70:10	ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(value: UInt) [std.stringbuilder]
 (Module alias_cells_members
   (declarations
     (alias UserId 9:6 private Int)
@@ -13,7 +15,7 @@
     (func integer_methods 33:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func limits 39:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func pick 46:6 private (signature (params (p Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func pick 47:6 private (signature (params (p UInt8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func pick 47:6 private (signature (params (p alias_cells_members.Small owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func overload_picks 49:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func narrow 54:6 private (signature (params (p Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func narrow 55:6 private (signature (params (p UInt8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
@@ -23,12 +25,12 @@
     (func size 74:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (alias Handle 78:6 private Int)
     (trait Reader 80:7 private)
-    (requirement Reader.read 81:10 (signature (receiver shared) (params) -> Int))
+    (requirement Reader.read 81:10 (signature (receiver shared) (params) -> alias_cells_members.Handle))
     (struct Source 84:8 private)
     (extension 86:1 (target alias_cells_members.Source) (conforms alias_cells_members.Reader))
     (method Source.read 87:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
     (alias Hidden 90:6 private Int)
-    (func take 92:13 public (signature (params (h Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func take 92:13 public (signature (params (h alias_cells_members.Hidden owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func main 94:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (alias_cells_members.Wrapped
@@ -40,7 +42,7 @@
     (alias_cells_members.Wrapped n twice)
     (alias_cells_members.Source read))
   (conformances
-    (alias_cells_members.Source alias_cells_members.Reader 86:19 (read written)))
+    (alias_cells_members.Source alias_cells_members.Reader 86:19 (read missing)))
   (copy-tier
     (alias_cells_members.Wrapped Copy)
     (alias_cells_members.Source Copy))
@@ -51,39 +53,41 @@
       (18:32-18:36 SelfExpr alias_cells_members.Wrapped place project)
       (18:41-18:42 IntLit Int value temp))
     (field_through_alias 23:6
-      (24:9-24:10 BindingName alias_cells_members.Wrapped place temp)
-      (24:20-24:33 Call.paren alias_cells_members.Wrapped value temp (memberwise alias_cells_members.Wrapped (owner alias_cells_members.Wrapped)))
-      (24:31-24:32 IntLit Int value temp)
+      (24:9-24:10 BindingName alias_cells_members.Owned place temp)
+      (24:13-24:33 Call.paren alias_cells_members.Owned value temp (conversion alias_cells_members.Owned alias (owner alias_cells_members.Wrapped)))
+      (24:19-24:32 Call.paren alias_cells_members.Wrapped value temp (memberwise alias_cells_members.Wrapped (owner alias_cells_members.Wrapped)))
+      (24:30-24:31 IntLit Int value temp)
       (25:5-25:15 Call.paren Void value temp (builtin print))
       (25:11-25:14 Member Int place borrow)
-      (25:11-25:12 Name alias_cells_members.Wrapped place project))
+      (25:11-25:12 Name alias_cells_members.Owned place project))
     (method_through_alias 28:6
-      (29:9-29:10 BindingName alias_cells_members.Wrapped place temp)
-      (29:20-29:33 Call.paren alias_cells_members.Wrapped value temp (memberwise alias_cells_members.Wrapped (owner alias_cells_members.Wrapped)))
-      (29:31-29:32 IntLit Int value temp)
+      (29:9-29:10 BindingName alias_cells_members.Owned place temp)
+      (29:13-29:33 Call.paren alias_cells_members.Owned value temp (conversion alias_cells_members.Owned alias (owner alias_cells_members.Wrapped)))
+      (29:19-29:32 Call.paren alias_cells_members.Wrapped value temp (memberwise alias_cells_members.Wrapped (owner alias_cells_members.Wrapped)))
+      (29:30-29:31 IntLit Int value temp)
       (30:5-30:21 Call.paren Void value temp (builtin print))
-      (30:11-30:20 Call.paren Int value borrow (call alias_cells_members.Wrapped.twice() (owner alias_cells_members.Wrapped)))
-      (30:11-30:12 Name alias_cells_members.Wrapped (borrow &alias_cells_members.Wrapped) place borrow))
+      (30:11-30:20 Call.paren Int value borrow (call alias_cells_members.Wrapped.twice() (owner alias_cells_members.Owned)))
+      (30:11-30:12 Name alias_cells_members.Owned (borrow &alias_cells_members.Owned) place borrow))
     (integer_methods 33:6
-      (34:9-34:10 BindingName Int place temp)
-      (34:13-34:22 Call.paren Int value temp (conversion alias_cells_members.UserId alias (owner Int)))
+      (34:9-34:10 BindingName alias_cells_members.UserId place temp)
+      (34:13-34:22 Call.paren alias_cells_members.UserId value temp (conversion alias_cells_members.UserId alias (owner Int)))
       (34:20-34:21 IntLit Int value temp)
       (35:5-35:25 Call.paren Void value temp (builtin print))
-      (35:11-35:24 Call.paren String value temp (call Printable.to_string() (owner Int)))
-      (35:11-35:12 Name Int (borrow &Int) place borrow)
+      (35:11-35:24 Call.paren String value temp (call Printable.to_string() (owner alias_cells_members.UserId)))
+      (35:11-35:12 Name alias_cells_members.UserId (borrow &alias_cells_members.UserId) place borrow)
       (36:5-36:17 Call.paren Void value temp (builtin print))
       (36:11-36:16 Interp String value temp)
-      (36:13-36:14 Name Int place borrow))
+      (36:13-36:14 Name alias_cells_members.UserId place borrow))
     (limits 39:6
       (40:5-40:21 Call.paren Void value temp (builtin print))
-      (40:11-40:20 Member UInt8 value borrow)
-      (41:9-41:10 BindingName UInt8 place temp)
-      (41:20-41:29 Member UInt8 value temp)
+      (40:11-40:20 Member alias_cells_members.Small value borrow)
+      (41:9-41:10 BindingName alias_cells_members.Small place temp)
+      (41:20-41:29 Member alias_cells_members.Small value temp)
       (42:5-42:22 Call.paren Void value temp (builtin print))
       (42:11-42:21 Cast UInt8 value borrow)
-      (42:11-42:12 Name UInt8 place copy)
+      (42:11-42:12 Name alias_cells_members.Small place copy)
       (43:5-43:21 Call.paren Void value temp (builtin print))
-      (43:11-43:20 Member Int16 value borrow))
+      (43:11-43:20 Member alias_cells_members.Count value borrow))
     (pick 46:6
       (46:28-46:29 IntLit Int value temp))
     (pick 47:6
@@ -93,8 +97,8 @@
       (50:11-50:21 Call.paren Int value borrow (call alias_cells_members.pick(p: Int)))
       (50:19-50:20 IntLit Int value temp)
       (51:5-51:29 Call.paren Void value temp (builtin print))
-      (51:11-51:28 Call.paren Int value borrow (call alias_cells_members.pick(p: UInt8)))
-      (51:19-51:27 Call.paren UInt8 value temp (conversion alias_cells_members.Small alias (owner UInt8)))
+      (51:11-51:28 Call.paren Int value borrow (call alias_cells_members.pick(p: alias_cells_members.Small)))
+      (51:19-51:27 Call.paren alias_cells_members.Small value temp (conversion alias_cells_members.Small alias (owner UInt8)))
       (51:25-51:26 IntLit Int (adopt UInt8) value temp))
     (narrow 54:6
       (54:30-54:31 IntLit Int value temp))
@@ -103,7 +107,7 @@
     (projection_beats_widening 57:6
       (58:5-58:31 Call.paren Void value temp (builtin print))
       (58:11-58:30 Call.paren Int value borrow (call alias_cells_members.narrow(p: UInt8)))
-      (58:21-58:29 Call.paren UInt8 value temp (conversion alias_cells_members.Small alias (owner UInt8)))
+      (58:21-58:29 Call.paren alias_cells_members.Small (project UInt8) value temp (conversion alias_cells_members.Small alias (owner UInt8)))
       (58:27-58:28 IntLit Int (adopt UInt8) value temp))
     (append_byte_and_digits 61:6
       (62:9-62:11 BindingName std.stringbuilder.StringBuilder place temp)
@@ -113,9 +117,9 @@
       (63:10-63:12 Name std.stringbuilder.StringBuilder (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
       (63:20-63:22 IntLit Int value temp)
       (64:5-64:29 Try.force Void value temp)
-      (64:10-64:29 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(b: UInt8) (owner std.stringbuilder.StringBuilder)))
+      (64:10-64:29 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(b: Byte) (owner std.stringbuilder.StringBuilder)))
       (64:10-64:12 Name std.stringbuilder.StringBuilder (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
-      (64:20-64:28 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (64:20-64:28 Call.paren Byte value temp (conversion Byte alias (owner UInt8)))
       (64:25-64:27 IntLit Int (adopt UInt8) value temp)
       (65:5-65:22 Call.paren Void value temp (builtin print))
       (65:11-65:21 Call.paren String value temp (call std.stringbuilder.StringBuilder.build() (owner std.stringbuilder.StringBuilder)))
@@ -123,9 +127,9 @@
     (append_unsigned_byte 68:6
       (69:9-69:11 BindingName std.stringbuilder.StringBuilder place temp)
       (69:14-69:29 Call.paren std.stringbuilder.StringBuilder value temp (call std.stringbuilder.StringBuilder.init() (owner std.stringbuilder.StringBuilder)))
-      (70:5-70:22 Try.force Void value temp)
-      (70:10-70:22 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(b: UInt8) (owner std.stringbuilder.StringBuilder)))
-      (70:10-70:12 Name std.stringbuilder.StringBuilder (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (70:5-70:22 Try.force (error) value temp)
+      (70:10-70:22 Call.paren (error) value temp)
+      (70:10-70:12 Name std.stringbuilder.StringBuilder place borrow)
       (70:20-70:21 Name UInt8 place copy)
       (71:5-71:22 Call.paren Void value temp (builtin print))
       (71:11-71:21 Call.paren String value temp (call std.stringbuilder.StringBuilder.build() (owner std.stringbuilder.StringBuilder)))
@@ -137,7 +141,7 @@
       (87:31-87:32 IntLit Int value temp))
     (take 92:13
       (92:38-92:46 Cast Int value temp)
-      (92:38-92:39 Name Int place copy))
+      (92:38-92:39 Name alias_cells_members.Hidden place copy))
     (main 94:6))
   (string-positions
     (35:11 argument std.string.string_bytes std.string.string_length)

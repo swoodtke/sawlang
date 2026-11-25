@@ -6,7 +6,7 @@
 
 type MyInt = Int
 func double(x: MyInt) -> MyInt {
-    x * 2
+    MyInt(x * 2)
 }
 func main() {
     let x: MyInt = 21

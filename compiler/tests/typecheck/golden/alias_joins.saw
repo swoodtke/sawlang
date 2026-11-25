@@ -1,0 +1,86 @@
+// Every position the checker joins peers' types merges an alias with a type
+// on its chain to that type, the alias's value projected (SL-1012): an
+// `if`/`match` arm at any type, `??`, an array, set and map literal's
+// elements, a `try` block's arms and an inline `catch`. Operands on one
+// alias chain are peers, compared and combined at the representation. The
+// sibling twins are refused: refuse/type.mismatch.alias-coalesce-siblings.saw,
+// type.mismatch.alias-element-siblings.saw and
+// type.mismatch.alias-branch-siblings.saw; the sibling operators are
+// alias_cells_operators.saw's.
+
+type UserId = Int
+type Handle = UserId
+type Name = String
+
+enum Bad { case Bad }
+
+func coalesce_underlying(o: UserId?, n: Int) -> Int {
+    let r = o ?? n
+    r
+}
+
+func coalesce_chain(o: Handle?, u: UserId) -> UserId {
+    let r = o ?? u
+    r
+}
+
+func array_underlying(a: UserId, n: Int) -> Int {
+    let xs = [a, n]
+    xs[0] + xs[1]
+}
+
+func array_chain(h: Handle, u: UserId, n: Int) -> Int {
+    let xs = [h, u, n]
+    xs[2]
+}
+
+func set_underlying(a: UserId, n: Int) -> Int {
+    let s = {a, n}
+    s.len()
+}
+
+func map_underlying(a: UserId, n: Int) -> Int {
+    let m = {a: a, n: n}
+    m.len()
+}
+
+func string_branch(c: Bool, a: Name, s: String) -> Int {
+    let t = if c { a } else { s }
+    t.len()
+}
+
+func string_match(c: Bool, a: Name, s: String) -> Int {
+    let t = match c {
+        case true -> a,
+        case false -> s
+    }
+    t.len()
+}
+
+func fetch(a: UserId) -> Result<UserId, Bad> { a }
+
+func catch_underlying(a: UserId, n: Int) -> Int {
+    let r = try fetch(a) catch { n }
+    r
+}
+
+func block_underlying(a: UserId, n: Int) -> Int {
+    let r = try {
+        let x = try fetch(a)
+        x
+    } catch {
+        n
+    }
+    r
+}
+
+func chain_operators(h: Handle, u: UserId) -> Bool {
+    let sum = h + u
+    var total = 0
+    for k in h..u {
+        total = total + k
+    }
+    h == u && h < u && sum > total
+}
+
+func main() {}

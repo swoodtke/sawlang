@@ -1,0 +1,39 @@
+// refuses: type.mismatch at 17:10
+// errors: 6
+// a bracket literal enters an alias of a Vector only at an annotated let or var (golden alias_literal_positions; a static holds no Vector); every other position takes the construction
+// message: write `Vec([1, 2, 3])`
+
+type Vec = Vector<Int>
+
+struct Holder {
+    v: Vec
+}
+
+extension Holder: NoCopy {}
+
+func take(v: Vec) {}
+
+func parameter() {
+    take([1, 2, 3])
+}
+
+func tail() -> Vec { [1, 2, 3] }
+
+func early() -> Vec {
+    return [1, 2, 3]
+}
+
+func field() {
+    let h = Holder(v: [1, 2, 3])
+}
+
+func assignment() {
+    var x: Vec = [0]
+    x = [1, 2, 3]
+}
+
+func element() {
+    let v: Vector<Vec> = [[1, 2, 3]]
+}
+
+func main() {}

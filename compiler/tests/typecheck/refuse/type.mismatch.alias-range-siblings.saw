@@ -1,0 +1,39 @@
+// refuses: type.mismatch at 10:18
+// errors: 3
+// a range is an operator like the others: two bounds that are distinct aliases are no peers, and an alias with the type it names or with itself is
+// message: an operator's operands agree on one type
+
+type UserId = Int
+type OrderId = Int
+
+func closed(a: UserId, o: OrderId) {
+    for k in (a..o) {
+        print(k)
+    }
+}
+
+func inclusive(a: UserId, o: OrderId) {
+    for k in (a..=o) {
+        print(k)
+    }
+}
+
+func through_references(a: &UserId, o: &OrderId) {
+    for k in (a..o) {
+        print(k)
+    }
+}
+
+func accepted(a: UserId, b: UserId, i: Int) {
+    for k in (a..b) {
+        print(k)
+    }
+    for k in (a..i) {
+        print(k)
+    }
+    for k in (i..=b) {
+        print(k)
+    }
+}
+
+func main() {}

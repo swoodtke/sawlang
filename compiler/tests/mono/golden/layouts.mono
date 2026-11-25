@@ -1108,7 +1108,7 @@ fn -> Result<Void, std.alloc.AllocError> {
     let _25: Int;
     let _26: Int;
     let _27: &String;
-    let _28: UInt8;
+    let _28: Byte;
     let _29: Int8;
     let _30: Int;
     let _31: Int;
@@ -1686,7 +1686,7 @@ fn -> Void {
     let _11: Bool;
     let _12: Int;
     let _13: &String;
-    let _14: UInt8;
+    let _14: Byte;
     let _15: Int;
     let _16: &std.stringbuilder.StringBuilder;
     let _17: Bool;
@@ -1696,7 +1696,7 @@ fn -> Void {
     let _21: Int;
     let _22: Int;
     let _23: &String;
-    let _24: UInt8;
+    let _24: Byte;
     let _25: Int8;
     let _26: Int;
     let _27: Int;
@@ -1834,8 +1834,8 @@ fn -> Void {
 }
 
 item #40: std.string.String.byte_at(index: Int)  (from #30)
-fn -> UInt8 {
-    let _0: UInt8;  // return
+fn -> Byte {
+    let _0: Byte;  // return
     let _1: &String;  // self
     let _2: Int;  // param index
     let _3: Bool;
@@ -1849,7 +1849,7 @@ fn -> UInt8 {
     let _11: Int;
     let _12: Int;
     let _13: UInt8;
-    let _14: UInt8;
+    let _14: Byte;
 
     bb0: {
         _4 = Lt(copy _2, const 0: Int);
@@ -1859,7 +1859,7 @@ fn -> UInt8 {
     bb1: {
         _12 = copy _2;
         _13 = from(truncating:)(copy (*_1).bytes[_12] as UInt8);
-        _14 = alias(move _13 as UInt8);
+        _14 = alias(move _13 as Byte);
         _0 = move _14;
         return;
     }

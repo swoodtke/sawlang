@@ -1890,8 +1890,78 @@ extension MirProgram {
                 MirVal(operand: self.op_move(p))
             },
             case Payload -> self.payload_val(v, u, e, adj.to),
-            case PayloadVar -> self.payload_val(v, u, e, adj.to)
+            case PayloadVar -> self.payload_val(v, u, e, adj.to),
+            case Project -> self.projected(v, &adj, u, e)
         }
+    }
+
+    // THE ALIAS PROJECTION FUNNEL: lowered value `v`, of an alias type, read
+    // as `adj.to`, the type one link up its chain. The two share one
+    // representation, so the projection builds nothing. A place the position
+    // only borrows stays that place: it is read through a reference retyped
+    // to `adj.to`, so the owner keeps the value and nothing is copied out of
+    // it or dropped. A value the position takes over, by a move, a copy, an
+    // operand or a fresh temporary, is retyped as an alias's construction
+    // retypes its operand, and the retyped value is the position's to drop.
+    // A copy and a borrow of a trivially copied value read alike, so one
+    // takes the value path, as `borrowed_value` copies it (SL-1012).
+    // ENTRY POINTS:
+    //     adjust
+    func projected(&var self, v: MirVal, adj: &TcAdjust, u: TcUse, e: Int) -> MirVal {
+        let step = self.borrow_after_projections(adj.next)
+        let takes_place = step >= 0
+        let borrowing = u == TcUse.Borrow || u == TcUse.BorrowVar
+        if v.place >= 0 && (takes_place || (borrowing && not v.fresh && self.borrows_by_reference(v.place, u))) {
+            let p = self.as_place(v, e)
+            let exclusive = step == 1 || (u == TcUse.BorrowVar && not takes_place)
+            let r = self.temp_operand(self.rv_ref(exclusive, p))
+            let rt = self.tc.mk_ref(exclusive, adj.to)
+            let retyped = self.temp_of(self.rv_one(MirRvalueKind.Conversion, rt, "alias", r))
+            let q = self.project(self.place_local(retyped), MirProjKind.Deref, -1, -1, adj.to)
+            return MirVal(place: q, fresh: false)
+        }
+        var o = v.operand
+        if o < 0 && v.fresh {
+            o = self.op_move(v.place)
+        } else if o < 0 && borrowing {
+            o = self.borrowed_value(v.place)
+        } else if o < 0 {
+            o = self.transfer(v, u, e, false)
+        }
+        let rv = self.rv_one(MirRvalueKind.Conversion, adj.to, "alias", o)
+        MirVal(operand: self.temp_operand(rv))
+    }
+
+    // Whether the first step from adjustment `a` on that is no further
+    // projection borrows the projected value: 0 shared, 1 exclusive, -1 when
+    // it is no borrow or the chain ends first.
+    func borrow_after_projections(&self, a: Int) -> Int {
+        var at = a
+        while at >= 0 {
+            let adj = self.tc.adjusts[at]
+            if adj.kind == TcAdjustKind.Borrow {
+                return 0
+            }
+            if adj.kind == TcAdjustKind.BorrowVar {
+                return 1
+            }
+            if adj.kind != TcAdjustKind.Project {
+                return -1
+            }
+            at = adj.next
+        }
+        -1
+    }
+
+    // Whether a position borrowing place `p` by use `u` reads it through a
+    // reference, which `borrowed_value` takes for anything it does not copy.
+    func borrows_by_reference(&var self, p: Int, u: TcUse) -> Bool {
+        if u == TcUse.BorrowVar {
+            return true
+        }
+        let t = self.place_type(p)
+        let kind = self.tc.kind_of(t)
+        not (kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func || self.tc.is_trivial(t))
     }
 
     // A `?.` hop's base `e`, lowered to `v`, read as its payload of type `t`
@@ -5296,6 +5366,29 @@ extension MirProgram {
         self.temp_operand(rv)
     }
 
+    // The payload at place `value` moved out as a value of type `t`: the
+    // construct's type, which typecheck's alias join may have put one or
+    // more links up the payload's chain, so the move is retyped as an
+    // alias's construction retypes its operand (SL-1012).
+    // ENTRY POINTS:
+    //     coalesce
+    //     lower_try_catch
+    //     try_catch_place (joined_use)
+    func joined_move(&var self, value: Int, t: Int) -> Int {
+        if self.place_type(value) == t {
+            return self.rv_move(value)
+        }
+        self.joined_use(self.op_move(value), t)
+    }
+
+    // `joined_move` for an operand `o` already taken out of the payload.
+    func joined_use(&var self, o: Int, t: Int) -> Int {
+        if self.operands[o].ty == t {
+            return self.rv_use(o)
+        }
+        self.rv_one(MirRvalueKind.Conversion, t, "alias", o)
+    }
+
     // `a ?? b ?? c`: each operand but the last tested in turn, the first
     // present one's payload, or the whole Optional when the result is one.
     func coalesce(&var self, e: Int) -> Int {
@@ -5347,8 +5440,9 @@ extension MirProgram {
                 let rv = self.rv_move(p)
                 self.assign(rp, rv)
             } else {
-                let payload = self.project(p, MirProjKind.Payload, some, 0, t)
-                let rv = self.rv_move(payload)
+                let pt = self.tc.arg_of(self.place_type(p), 0)
+                let payload = self.project(p, MirProjKind.Payload, some, 0, pt)
+                let rv = self.joined_move(payload, t)
                 self.assign(rp, rv)
                 if consuming {
                     self.begin_taking()
@@ -5817,7 +5911,7 @@ extension MirProgram {
         self.enter(good)
         if dest >= 0 && not self.is_unit_type(t) {
             let value = self.project(p, MirProjKind.Payload, ok, 0, t)
-            let rv = self.rv_use(self.copied_part(value))
+            let rv = self.joined_use(self.copied_part(value), self.place_type(dest))
             self.assign(dest, rv)
         }
         self.close_try_windows(&windows)
@@ -6966,7 +7060,7 @@ extension MirProgram {
         let value = self.project(p, MirProjKind.Payload, ok, 0, t)
         self.begin_taking()
         if dest >= 0 && not self.is_unit_type(t) {
-            let rv = self.rv_move(value)
+            let rv = self.joined_move(value, self.place_type(dest))
             self.assign(dest, rv)
             self.note_taken(value)
         }

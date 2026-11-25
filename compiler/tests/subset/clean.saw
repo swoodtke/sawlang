@@ -43,5 +43,5 @@ func clean_absent(v: Int?) -> Bool {
 }
 
 func clean_offset(at: Offset) -> Offset {
-    at + 1
+    Offset(at + 1)
 }

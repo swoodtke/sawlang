@@ -1,0 +1,29 @@
+// refuses: type.mismatch at 10:18
+// errors: 3
+// the elements of an array, set or map literal that are two distinct aliases join nothing, where an alias and a type on its chain join at that type
+// message: an alias is entered by its construction, not by a conversion
+
+type UserId = Int
+type OrderId = Int
+
+func array(a: UserId, d: OrderId) -> Int {
+    let xs = [a, d]
+    xs.len()
+}
+
+func set(a: UserId, d: OrderId) -> Int {
+    let s = {a, d}
+    s.len()
+}
+
+func map(a: UserId, d: OrderId) -> Int {
+    let m = {a: 1, d: 2}
+    m.len()
+}
+
+func chained(a: UserId, n: Int) -> Int {
+    let xs = [a, n]
+    xs.len()
+}
+
+func main() {}

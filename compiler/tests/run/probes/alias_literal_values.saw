@@ -1,0 +1,50 @@
+// probe: stated
+// about: a literal adopted by an alias at a static or an annotated let, a computed value built by the construction, and a cast out of an alias of a String, a struct, an array and a tuple each print the value they hold (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own entry rules
+// speeds: -O0 -O2
+// leaks: none
+// prints: 5 -7 8 6
+// prints: 1 4 3
+// prints: 2 2 1
+// prints: abc 3 2 9
+
+type UserId = Int
+type Arr = [Int; 3]
+type Vec = Vector<Int>
+type Dict = Map<String, Int>
+type Bag = Set<Int>
+type Name = String
+type Place = Point
+type Pair = (Int, Int)
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+static BASE: Int = 5
+static FIRST: UserId = -1
+static CELLS: Arr = [1, 2, 3]
+
+func main() {
+    let a: UserId = 5
+    var b: UserId = -7
+    let c = UserId(1 << 3)
+    let d = UserId(BASE + 1)
+    print("{} {} {} {}", a as Int, b as Int, c as Int, d as Int)
+    b = UserId(b as Int + 1)
+
+    let v: Vec = [4, 5, 6]
+    let m: Dict = {"k": 1, "l": 2}
+    let s: Bag = {7, 8}
+    print("{} {} {}", CELLS[0], v[0], FIRST as Int + 4)
+    print("{} {} {}", m.len(), s.len(), CELLS[0])
+
+    let n = Name("abc")
+    let p = Place(Point(x: 1, y: 2))
+    let t = Pair((4, 5))
+    let q = p as Point
+    let u = t as (Int, Int)
+    let w = CELLS as [Int; 3]
+    print("{} {} {} {}", n as String, q.x + q.y, w[1], u.0 + u.1)
+}

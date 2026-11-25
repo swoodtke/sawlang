@@ -1,0 +1,33 @@
+// probe: stated
+// about: a requirement called directly on a scalar alias receiver, `compare`, `equals`, `hash` and `copy`, runs the member glue mono keys at the representation, so an alias and the type it names share one glue item and hash alike (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own items
+// speeds: -O0 -O2
+// leaks: none
+// prints: true
+// prints: false
+// prints: true
+// prints: 7
+// prints: true
+
+type UserId = Int
+type Flag = Bool
+
+func main() {
+    let u = UserId(7)
+    let v = UserId(9)
+    print(u.compare(&v) == Ordering.Less)
+    print(u.equals(&v))
+    let f = Flag(true)
+    print(f.equals(&f))
+    let c = u.copy()
+    print(c)
+    var h = Hasher()
+    u.hash(&var h)
+    f.hash(&var h)
+    var g = Hasher()
+    let w: Int = 7
+    w.hash(&var g)
+    let b: Bool = true
+    b.hash(&var g)
+    print(h.finish() == g.finish())
+}

@@ -11,6 +11,9 @@
 //     type, and a call's argument the type its target takes at the call's
 //     own instantiation, synthesized calls and externs included (a builtin
 //     declares no signature, and a C variadic tail no type);
+//   - an alias retype (a Conversion spelled `alias`) changes the type alone:
+//     its operand and its result have one representation, so a reference
+//     is never retyped as the value it refers to;
 //   - every aggregate's operand has exactly the type its part declares
 //     at the aggregate's own type: a case's payload field, a struct's
 //     field, a tuple's, an array's or a collection literal's element;
@@ -1659,6 +1662,22 @@ extension MirProgram {
             let o = self.lists[info.first]
             if self.operands[o].ty != info.ty {
                 self.problem(f, &var out, "a use changes its operand's type")
+            }
+        }
+        if info.kind == MirRvalueKind.Conversion && info.count == 1 && info.op >= 0 &&
+            self.tc.name_text(info.op).equals("alias") {
+            let from = self.operands[self.lists[info.first]].ty
+            // `ForgetSendable` retypes a function value whose type drops a
+            // word, which is no alias.
+            let functions = self.tc.kind_of(from) == TcKind.Func && self.tc.kind_of(info.ty) == TcKind.Func
+            if not functions && not self.tc.same_representation(from, info.ty) {
+                var text = StringBuilder()
+                try! text.append("an alias retype reads a `")
+                try! text.append(self.tc.type_text(from))
+                try! text.append("` as a `")
+                try! text.append(self.tc.type_text(info.ty))
+                try! text.append("`, which has another representation")
+                self.problem(f, &var out, text.build())
             }
         }
     }

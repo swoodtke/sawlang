@@ -788,7 +788,14 @@ nowhere, and checks, from the MIR alone:
   one width into another. The unit program
   `compiler/mir/tests/verify_default_result.saw` lowers
   `inject/default_result.saw` clean, retypes its generic default's return to
-  `Int` and requires the one report.
+  `Int` and requires the one report;
+- an alias retype (a Conversion spelled `alias`) changes the type alone: its
+  source and result share a representation, so a reference is never retyped
+  as the value it refers to (SL-1012). The unit program
+  `compiler/mir/tests/verify_alias_retype.saw` lowers `inject/alias_retype.saw`
+  clean, edits its projection of a `&Name` onto a `&String` to read the
+  reference as `Name`, and requires the retype's report and its one
+  consequence.
 
 ## Source nodes
 

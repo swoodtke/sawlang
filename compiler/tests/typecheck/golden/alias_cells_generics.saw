@@ -1,8 +1,8 @@
-// The alias matrix's generics and patterns (SL-1012 U1, design 4.3),
-// recorded at today's verdicts: `Vector<UserId>` and `Vector<Int>` are one
-// type, and so are `UserId?` and `Int?`. The spec keeps a generic's arguments
-// distinct, so each cross-flow below is refused once aliases are distinct.
-// The inference, bound and pattern cells stay accepted.
+// The alias matrix's generics and patterns (SL-1012 U3a, design 4.3),
+// recorded at the distinct-alias verdicts: `Vector<UserId>` and `Vector<Int>`
+// are two types, and so are `UserId?` and `Int?`, so each cross-flow below is
+// an ERROR (the invariance of a generic's arguments). The inference, bound
+// and pattern cells stay accepted.
 
 type UserId = Int
 type Handle = UInt

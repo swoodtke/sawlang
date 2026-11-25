@@ -1,10 +1,10 @@
 // The alias matrix's members, limits, overloads and declaration cells at
-// today's verdicts (SL-1012 U1, design 4.3). An alias reads through to its
-// target for members and limits; an overload on an alias and on its
-// underlying are distinct candidates by their types alone, so the picks below
-// hold. The refusals the spec adds (a public signature
-// naming a private alias, a conformance body naming the underlying) are
-// accepted here; an alias of an enum is refused (refuse/type.alias-of-enum*).
+// the distinct-alias verdicts (SL-1012 U3a, design 4.3). An alias reads through
+// to its target for members, and its limit is a value of the alias; an
+// overload on an alias and on its underlying are distinct candidates by their
+// types alone. A conformance body naming the underlying and an `append` of a
+// `UInt8` are ERRORs; a public signature naming a private alias is still
+// accepted (U5).
 
 type UserId = Int
 type Small = UInt8
@@ -21,12 +21,12 @@ extension Wrapped {
 type Owned = Wrapped
 
 func field_through_alias() {
-    let o: Owned = Wrapped(n: 3)
+    let o = Owned(Wrapped(n: 3))
     print(o.n)
 }
 
 func method_through_alias() {
-    let o: Owned = Wrapped(n: 3)
+    let o = Owned(Wrapped(n: 3))
     print(o.twice())
 }
 

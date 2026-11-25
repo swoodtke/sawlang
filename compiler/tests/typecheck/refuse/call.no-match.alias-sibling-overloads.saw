@@ -1,0 +1,14 @@
+// refuses: call.no-match at 13:11
+// errors: 1
+// an argument of one alias fits no overload whose parameter is a sibling alias of the same underlying type, however the projection ranks
+// message: no candidate
+
+type UserId = Int
+type OrderId = Int
+
+func h(x: OrderId) -> Int { 1 }
+func h(x: String) -> Int { 2 }
+
+func main() {
+    print(h(UserId(3)))
+}

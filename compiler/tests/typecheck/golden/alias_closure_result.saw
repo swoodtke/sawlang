@@ -1,0 +1,17 @@
+// A closure cannot annotate its result, so its returns are peers none of
+// which is expected of another, and the first return types the result, as it
+// does for plain widths. A return of the type an alias names after a return of
+// the alias is refused: refuse/type.mismatch.alias-closure-result.saw.
+
+type UserId = Int
+
+func underlying_first() {
+    let f = { b: Bool, u: UserId, n: Int in
+        if b {
+            return n
+        }
+        return u
+    }
+}
+
+func main() {}

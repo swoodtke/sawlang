@@ -1,9 +1,9 @@
-// The alias matrix's construction cells that today's `sawc` and the spec
-// agree on (SL-1012 U1, design 4.3): `Alias(value)` over a primitive, a
-// boolean, a chain, a function type and a constant, and the construction of an
-// alias over a primitive in a constant position. The cells they disagree on
-// are the refusal fixtures `type.mismatch.alias-*`, `call.no-match.alias-*`
-// and the golden `alias_construct_wrong_instance`.
+// The alias matrix's construction cells (SL-1012 U3a, design 4.3):
+// `Alias(value)` over a primitive, a boolean, a chain, a function type and a
+// constant, and the construction of an alias over a primitive in a constant
+// position, are accepted; a function value into a function type's alias is
+// an ERROR. The other cells are the refusal fixtures `type.mismatch.alias-*`
+// and `call.arity.alias-*`.
 
 type UserId = Int
 type Small = UInt8

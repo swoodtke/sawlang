@@ -14,7 +14,7 @@ func double(x: Int) -> Int {
 }
 
 func triple(x: BaseInt) -> BaseInt {
-    x * 3
+    BaseInt(x * 3)
 }
 
 func main() {

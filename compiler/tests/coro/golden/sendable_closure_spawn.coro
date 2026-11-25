@@ -299,7 +299,7 @@ item #297: std.vector.Vector.grow_target(wanted: Int) args UInt64 std.alloc.Glob
 item #298: std.mem.drop_in_place(at: UnsafePointer<T>) inst UInt64  (frame no)
 item #299: std.taskgroup.worker_turn(at: UnsafePointer<std.taskgroup.TaskGroup>, record: UnsafePointer<std.taskgroup.ExecutorRecord>)  (frame no)
 item #300: std.systemerror.system_error_kind(tag: Int)  (frame no)
-item #301: std.stringbuilder.StringBuilder.append(b: UInt8)  (frame no)
+item #301: std.stringbuilder.StringBuilder.append(b: Byte)  (frame no)
 item #302: std.taskgroup.park_on(address: Int, tag: Int, what: String)  (frame no)
 item #303: std.thread.reap_thread_block(block: UnsafePointer<std.thread.ThreadControlBlock<T>>) inst Void  (frame no)
 item #304: std.thread.thread_exit_word(block: UnsafePointer<std.thread.ThreadControlBlock<T>>) inst Void  (frame no)

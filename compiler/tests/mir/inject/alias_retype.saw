@@ -1,0 +1,15 @@
+// The program compiler/mir/tests/verify_alias_retype.saw lowers, then edits:
+// `len_of` passes a reference to an alias where a reference to the type the
+// alias names is expected, which lowers to a retype that changes the type
+// alone, and the program edits that retype into a read of the reference as its
+// referent's value.
+
+type Name = String
+
+func size(s: &String) -> Int {
+    s.len()
+}
+
+func len_of(n: &Name) -> Int {
+    size(&n)
+}

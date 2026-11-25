@@ -1,0 +1,68 @@
+// The positions where a literal enters an alias (SL-1012 U3a, design 4.3):
+// a static, and an annotated let or var, for every literal shape whose type
+// is the alias's representation. The refused positions are
+// refuse/type.mismatch.alias-literal-position.*.saw; a static holds no Vector,
+// Map or Set (refuse/static.not-constant.alias-collection-literal.saw).
+
+type UserId = Int
+type Small = UInt8
+type Ratio = Float
+type Flag = Bool
+type Label = String
+type Arr = [Int; 2]
+type Vec = Vector<Int>
+type Dict = Map<String, Int>
+type Bag = Set<Int>
+
+static SCALAR: Small = 3
+static NEGATIVE: UserId = -1
+static ARRAY: Arr = [1, 2]
+static REPEAT: Arr = [7; 2]
+
+func scalars() {
+    let a: UserId = 5
+    var b: UserId = -7
+    let c: Ratio = 1.5
+    let d: Flag = true
+    let e: Label = "text"
+    b = UserId(b as Int + 1)
+    print("{} {} {} {} {}", a as Int, b as Int, c as Float, d as Bool, e as String)
+}
+
+func arrays() {
+    let a: Arr = [1, 2]
+    var b: Arr = [3, 4]
+    let c: Arr = [5; 2]
+    var d: Arr = [6; 2]
+    b = Arr([8, 9])
+    d = c
+    print("{} {} {} {}", a[0], b[0], c[1], d[1])
+}
+
+func vectors() {
+    let a: Vec = [1, 2, 3]
+    var b: Vec = []
+    b = Vec([4])
+    print("{} {}", a.len(), b.len())
+}
+
+func maps() {
+    let a: Dict = {"a": 1}
+    let b: Dict = {:}
+    var c: Dict = {:}
+    c = Dict({"b": 2})
+    print("{} {} {}", a.len(), b.len(), c.len())
+}
+
+func sets() {
+    let a: Bag = {1, 2}
+    var b: Bag = {3, 6}
+    b = Bag({4, 5})
+    print("{} {}", a.len(), b.len())
+}
+
+func statics() {
+    print("{} {} {} {}", SCALAR as UInt8, NEGATIVE as Int, ARRAY[0], REPEAT[1])
+}
+
+func main() {}

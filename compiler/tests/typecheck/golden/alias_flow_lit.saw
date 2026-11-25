@@ -1,7 +1,7 @@
-// The alias position matrix at its "lit" column (SL-1012 U1): a bare literal into an alias of `Int`,
-// at each position `sawc` checks a transfer, recorded at today's
-// verdict: transparent aliases, so every cell is accepted. A distinct alias
-// would turn away the cells the spec does (LANGUAGE_SPEC.md, Type Definitions).
+// The alias position matrix at its "lit" column (SL-1012 U3a): a bare literal into an alias of `Int`,
+// at each position `sawc` checks a transfer, recorded at the distinct-alias
+// verdict (LANGUAGE_SPEC.md, Type Definitions): an annotated `let` or `var`
+// and a module `static` adopt the literal, every other position is an ERROR.
 
 type UserId = Int
 type OrderId = Int

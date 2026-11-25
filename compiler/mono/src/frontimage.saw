@@ -42,8 +42,8 @@ extension FrontCut {
 // Why an image could not be written or read. Each is the caller's to report;
 // none is a panic.
 public enum FrontImageError {
-    // The first line is not `sawc-front 3 LENGTH DIGEST`, or a part's
-    // `sawc-front-part 1 LENGTH DIGEST`.
+    // The first line is not `sawc-front 4 LENGTH DIGEST`, or a part's
+    // `sawc-front-part 2 LENGTH DIGEST`.
     case Header,
     // The body is not the length the first line declares: a truncated or
     // extended image.
@@ -98,7 +98,7 @@ public static FRONT_IMAGE_DEPTH: Int = 16
 // The image's format number, its first line's second field: a reader
 // requires its own, and the std front cache's key carries it, so an image of
 // another layout is never looked up.
-public static FRONT_IMAGE_FORMAT: Int = 3
+public static FRONT_IMAGE_FORMAT: Int = 4
 
 static FRONT_IMAGE_NEWLINE: UInt8 = 10
 // The digest's starting value, and SplitMix64's finalizer constants
@@ -110,7 +110,7 @@ static FRONT_HEX_ZERO: Int = 48
 static FRONT_HEX_TEN: Int = 87
 
 // THE IMAGE CODEC: one encode and one decode over a FrontCut. The image is a
-// first line, `sawc-front 3 LENGTH DIGEST`, then one std.cbor item of LENGTH
+// first line, `sawc-front 4 LENGTH DIGEST`, then one std.cbor item of LENGTH
 // bytes whose digest is DIGEST, in sixteen hex digits (`front_digest`). The
 // digest is for damage, not for an adversary: a change confined to one 64-bit
 // word of the body always changes it, any other change collides with a chance

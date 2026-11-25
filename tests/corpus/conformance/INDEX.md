@@ -6,6 +6,9 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
+**889 rows**, counted from the table when SL-1012 added Y13, an implicit projection of an
+alias place reading the owner's storage where it is, covered outside this directory by
+run probes; previously
 **888 rows**, counted from the table when SL-1159 added N16-N20, the `@weak` attribute's
 signature agreement, same-compile replacement, position matrix, precedence and reserved
 names, and gave N15 its pin, each covered outside this directory by the run lane and the
@@ -1335,6 +1338,7 @@ and move with it. The position matrix itself (18 positions by six sources) is th
 | Y10 | a projection cast out of a distinct alias forwards the operand's storage and takes the move checkpoint, in both spellings | `V66_alias_projection_cast_forwards.saw` | restated from V66 (DF-299a) for the alias family: it stays a real pass through U2, where `Alias(value)` over a struct builds |
 | Y11 | an alias is an operator's underlying and its members' and limits' target: `==`, `<`, `&` read the underlying, `Small.max` is the underlying's limit, a method or field on a struct alias value reads through | `compiler/tests/typecheck/golden/alias_cells_operators.saw` + `alias_cells_members.saw` | SL-1012 / design 250 — controls that hold both ways; the operator-result cells (`let b: UserId = a + 1`) are accepted today and refused by the design's Q2 default in U3 |
 | Y12 | an alias of an enum (direct, through a chain, `Optional`, `Result`) is refused at its declaration | `type_alias_of_enum_error.saw`; `compiler/tests/typecheck/refuse/type.alias-of-enum*` (direct, `.chain`, `.raw-backed`, `.qualified`, `.result`, `.optional`, `.optional-suffix`, `.generic`) | SL-876, SL-1012 U4 — `type.alias-of-enum` at the declaration |
+| Y13 | an implicit projection of an alias place reads the owner's storage where it is: an operand of `==` `!=` `<` `<=` `>` `>=` read as the type the alias names (a local, a field, an element, an Optional's payload, the present-and-equal comparison, a `match` guard), at every copy tier (a `String`, a `@synthesize`d struct holding one, a NoCopy type with a hand-written comparison), neither copies the value out nor drops it; a projection that takes the value over (an argument, a `let`, a `return`, a cast, a `??` fallback, a capture, a branch arm, an element) moves it or retains a copy exactly as the plain type does | run probes `compiler/tests/run/probes/alias_projection_operands.saw` and `alias_projection_place_operands.saw`, built under AddressSanitizer by the sanitize lane too; the MIR verifier refuses an alias retype whose operand has another representation | SL-1012 — the projection of a borrowed place retyped a reference as the value, copied it out and dropped the copy, a double free at every comparison of an owning alias; the obligation-4 sweep's matrix holds the takeover positions |
 
 ## Cross-cutting soundness smoke
 

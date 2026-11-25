@@ -153,7 +153,9 @@ extension TcProgram {
                 return TC_FIT_CONVERTED
             }
         }
-        if allow.widens && self.widens_losslessly(from, to) {
+        // A widening never enters an alias, and leaves one by its projection
+        // first (below), so each step is one link.
+        if allow.widens && not self.is_alias(from) && not self.is_alias(to) && self.widens_losslessly(from, to) {
             if record {
                 self.add_adjust(e, TcAdjustKind.Widen, to)
             }
@@ -169,7 +171,11 @@ extension TcProgram {
         }
         let fi = self.types.ty(from)
         let ti = self.types.ty(to)
-        if ti.kind == TcKind.Slice && fi.kind == TcKind.Ref && (fi.a == 1 || ti.a == 0) {
+        // A reference alias accepts only its construction, so no step below
+        // (slice, shared, erase, re-borrow) builds one: its target kind is
+        // the twin's structural kind, and each test would otherwise read it.
+        let into_alias = ti.alias >= 0
+        if not into_alias && ti.kind == TcKind.Slice && fi.kind == TcKind.Ref && (fi.a == 1 || ti.a == 0) {
             if self.element_of_sequence(fi.b) == ti.b && ti.b >= 0 {
                 if record {
                     self.add_adjust(e, TcAdjustKind.Slice, to)
@@ -177,7 +183,7 @@ extension TcProgram {
                 return TC_FIT_CONVERTED
             }
         }
-        if ti.kind == TcKind.Ref && fi.kind == TcKind.Ref && ti.a == 0 && fi.a == 1 && ti.b == fi.b {
+        if not into_alias && ti.kind == TcKind.Ref && fi.kind == TcKind.Ref && ti.a == 0 && fi.a == 1 && ti.b == fi.b {
             if record {
                 self.add_adjust(e, TcAdjustKind.Shared, to)
             }
@@ -187,7 +193,7 @@ extension TcProgram {
         // never erased into a bare `any Trait` (spec, `any Trait`
         // existentials).
         let behind = ti.kind == TcKind.Ref || (boxes && self.is_error_box(to))
-        if behind && self.erases_to(from, to) {
+        if not into_alias && behind && self.erases_to(from, to) {
             if record {
                 self.add_adjust(e, TcAdjustKind.Erase, to)
                 self.refuse_primitive_erasure(e, from, to)
@@ -199,6 +205,51 @@ extension TcProgram {
                 self.add_adjust(e, TcAdjustKind.Deref, to)
             }
             return TC_FIT_CONVERTED
+        }
+        // A reference to an alias value passes as a reference, in its own mode,
+        // to a type on the alias's chain: the referent is the target's own
+        // storage, and the target's own code is its only writer (SL-1012).
+        if not into_alias && fi.kind == TcKind.Ref && ti.kind == TcKind.Ref && fi.b != ti.b && self.is_alias(fi.b) && self.on_alias_chain(fi.b, ti.b) {
+            let mid = self.mk_ref(fi.a == 1, ti.b)
+            if mid == to || (ti.a == 0 && fi.a == 1) {
+                if record {
+                    self.add_adjust(e, TcAdjustKind.Project, mid)
+                    if mid != to {
+                        self.add_adjust(e, TcAdjustKind.Shared, to)
+                    }
+                }
+                return TC_FIT_CONVERTED
+            }
+        }
+        // A reference to an alias value reads through to the value, which
+        // then projects.
+        if fi.kind == TcKind.Ref && self.is_alias(fi.b) {
+            let how = self.convert(e, fi.b, to, allow, boxes, false)
+            if how > TC_FIT_NONE {
+                if record {
+                    self.add_adjust(e, TcAdjustKind.Deref, fi.b)
+                    let _ = self.convert(e, fi.b, to, allow, boxes, true)
+                }
+                return TC_FIT_CONVERTED
+            }
+        }
+        // THE PROJECTION: an alias value flows to the type it names, one link
+        // of its chain at a time, then through any further step (spec, Type
+        // Definitions). Nothing flows the other way.
+        if fi.alias >= 0 {
+            let up = self.alias_parent(from)
+            if up >= 0 && up != from {
+                let how = self.convert(e, up, to, allow, boxes, false)
+                if how > TC_FIT_NONE {
+                    if record {
+                        self.add_adjust(e, TcAdjustKind.Project, up)
+                        if up != to {
+                            let _ = self.convert(e, up, to, allow, boxes, true)
+                        }
+                    }
+                    return TC_FIT_CONVERTED
+                }
+            }
         }
         TC_FIT_NONE
     }
@@ -310,6 +361,12 @@ extension TcProgram {
     // Whether type `t` takes a client of `kind` as it is, with no peeling:
     // `name` is the implicit member's name, `d` the constructed declaration.
     public func takes(&self, t: Int, kind: TcClient, name: Int, d: Int) -> Bool {
+        // Nothing is typed AS an alias from its slot: a distinct type is
+        // entered by its construction, `Alias(x)`, and by the two literal
+        // slots the funnel names (`adopts_alias_literal`).
+        if self.is_alias(t) {
+            return false
+        }
         match kind {
             case Integer -> self.is_integer(t),
             case Floating -> self.is_float(t),

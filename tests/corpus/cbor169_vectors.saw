@@ -74,7 +74,7 @@ func same_bytes(a: &Data, b: &Data) -> Bool {
     }
     var i = 0
     while i < a.len() {
-        if (a.get(i) ?? 0u8) != (b.get(i) ?? 0u8) {
+        if (a.get(i) ?? Byte(0)) != (b.get(i) ?? Byte(0)) {
             return false
         }
         i = i + 1

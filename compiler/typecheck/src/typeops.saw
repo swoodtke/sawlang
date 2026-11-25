@@ -12,8 +12,8 @@ import sawtypecheck.program.{TcKnown, TcProgram}
 import sawtypecheck.signatures.{TcContext}
 // For the extension writing `tier_of_decl`.
 import sawtypecheck.tier.{tc_max}
-import sawtypecheck.types.{TC_HOLDS_ERROR, TcKind, TcType}
-import sawtypecheck.walks.{TC_WALK_COPIES}
+import sawtypecheck.types.{TC_HOLDS_ERROR, TcKind, TcType, tc_kind_wraps}
+import sawtypecheck.walks.{TC_WALK_COPIES, TC_WALK_REPRESENTATION}
 
 // What asks an expected type to be peeled: each takes some types as they are
 // and looks through the rest (SL:architecture §3.4, "Peeling").
@@ -73,6 +73,146 @@ extension TcProgram {
         try! args.push(err)
         let d = self.known.result
         self.mk_nominal(d, &args)
+    }
+
+    // Whether `t` is the twin of a distinct alias (design 250).
+    public func is_alias(&self, t: Int) -> Bool {
+        t >= 0 && self.types.ty(t).alias >= 0
+    }
+
+    // The type one link up an alias's chain: what alias type `t` names, itself
+    // a twin when that is an alias; -1 for a type that is no alias.
+    public func alias_parent(&var self, t: Int) -> Int {
+        if t < 0 {
+            return -1
+        }
+        let d = self.types.ty(t).alias
+        if d < 0 {
+            return -1
+        }
+        self.alias_type(d, -1)
+    }
+
+    // Whether `up` is on alias type `t`'s chain: `t` itself or a type it
+    // stands for, one link at a time.
+    public func on_alias_chain(&var self, t: Int, up: Int) -> Bool {
+        var at = t
+        while at >= 0 {
+            if at == up {
+                return true
+            }
+            at = self.alias_parent(at)
+        }
+        false
+    }
+
+    // Whether `x` and `y` are one type once every alias is cleared, at every
+    // depth: `representation` for a program that cannot intern (MIR, eval).
+    public func same_representation(&self, x: Int, y: Int) -> Bool {
+        if x == y {
+            return true
+        }
+        if x < 0 || y < 0 {
+            return false
+        }
+        let a = self.types.ty(x)
+        let b = self.types.ty(y)
+        if a.kind != b.kind || a.decl != b.decl || a.a != b.a || a.count != b.count {
+            return false
+        }
+        let structural = a.kind == TcKind.Nominal || a.kind == TcKind.Tuple || a.kind == TcKind.Func || a.kind == TcKind.Ref || a.kind == TcKind.Slice || a.kind == TcKind.Array
+        if not structural {
+            return a.b == b.b && a.alias == b.alias
+        }
+        if tc_kind_wraps(a.kind) && not self.same_representation(a.b, b.b) {
+            return false
+        }
+        var k = 0
+        while k < a.count {
+            if not self.same_representation(self.types.arg(x, k), self.types.arg(y, k)) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // `on_alias_chain` over the aliases already built, which asks nothing of
+    // the program but its tables (the body verifier's).
+    public func built_chain_has(&self, t: Int, up: Int) -> Bool {
+        var at = t
+        var hops = 0
+        while at >= 0 && hops <= self.res.decls.len() {
+            if at == up {
+                return true
+            }
+            let d = self.types.ty(at).alias
+            at = if d >= 0 { self.sigs[d].result } else { -1 }
+            hops = hops + 1
+        }
+        false
+    }
+
+    // `representation(t)` where it is already known, and `t` where it is
+    // not, for a lookup that cannot intern. A type a funnel keyed was
+    // represented when it was added.
+    public func represented(&self, t: Int) -> Int {
+        if t < 0 {
+            return t
+        }
+        let known = self.walks.get(t, TC_WALK_REPRESENTATION)
+        if known >= 0 {
+            return known
+        }
+        t
+    }
+
+    // The type every layer of alias is read through: `t` with its alias
+    // cleared at every depth (`Vector<Byte>` is a `Vector<UInt8>`), interned
+    // once. What mono keys its items by, and what the layout, the members and
+    // the operators of an alias are those of.
+    public func representation(&var self, t: Int) -> Int {
+        if t < 0 {
+            return t
+        }
+        let known = self.walks.get(t, TC_WALK_REPRESENTATION)
+        if known >= 0 {
+            return known
+        }
+        let info = self.types.ty(t)
+        var changed = info.alias >= 0
+        let structural = info.kind == TcKind.Nominal || info.kind == TcKind.Tuple || info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
+        var args = Vector<Int>()
+        var labels = Vector<Int>()
+        var b = info.b
+        if structural {
+            var k = 0
+            while k < info.count {
+                let part = self.types.arg(t, k)
+                let inner = self.representation(part)
+                if inner != part {
+                    changed = true
+                }
+                try! args.push(inner)
+                if info.labeled {
+                    try! labels.push(self.types.label(t, k))
+                }
+                k = k + 1
+            }
+            if tc_kind_wraps(info.kind) && b >= 0 {
+                let inner = self.representation(b)
+                if inner != b {
+                    changed = true
+                    b = inner
+                }
+            }
+        }
+        var result = t
+        if changed {
+            result = self.types.intern(info.kind, info.decl, info.a, b, &args, &labels)
+        }
+        self.walks.set(t, TC_WALK_REPRESENTATION, result)
+        result
     }
 
     // Whether `t` is nominal declaration `d` applied to any arguments.
@@ -149,6 +289,11 @@ extension TcProgram {
     // convert implicitly.
     public func widens_losslessly(&self, from: Int, to: Int) -> Bool {
         if from == to || not self.is_integer(from) || not self.is_integer(to) {
+            return false
+        }
+        // An alias neither widens into another type nor out of it: it
+        // projects first, then the underlying widens.
+        if self.is_alias(from) || self.is_alias(to) {
             return false
         }
         if not self.is_platform_int(from) && not self.is_platform_int(to) {

@@ -16,7 +16,7 @@ import std.task
 // Type annotation position, by value and behind a reference.
 func has_elapsed(t: time.Instant) -> Bool { t.elapsed().as_nanos() >= (0 as UInt64) }
 
-func first_byte(d: &data.Data) -> Int { d.get(0) ?? 0 }
+func first_byte(d: &data.Data) -> Int { d.get(0) ?? Byte(0) }
 
 // Return position, with a static method reached through the qualifier.
 func origin() -> time.Instant { time.Instant.now() }

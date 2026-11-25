@@ -22,7 +22,7 @@ fn std.string.String.hash(h: &var Hasher) -> Void {
     let _7: Bool;
     let _8: Int;
     let _9: &String;
-    let _10: UInt8;
+    let _10: Byte;
     let _11: Int;
     let _12: &var Hasher;
     let _13: Int;

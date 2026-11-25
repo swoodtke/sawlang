@@ -505,8 +505,11 @@ extension EvalProgram {
                 return v
             }
         }
-        if v.ty == rv.ty {
-            return v
+        // An alias and the type it names share one value (design 250).
+        if mir.tc.same_representation(v.ty, rv.ty) {
+            var same = v
+            same.ty = rv.ty
+            return same
         }
         if v.kind != EvalKind.Integer || not mir.tc.is_integer(rv.ty) {
             return self.not_yet(&mir, f, "a conversion between types that are no integers")

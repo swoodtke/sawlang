@@ -1,0 +1,44 @@
+// probe: stated
+// about: a `try!` on a `Result` whose error type is an alias judges the error at its representation, in a function and through an erased `try`, with no `try!` at the type it names to judge it first (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own items
+// speeds: -O0 -O2
+// leaks: none
+// prints: drop oops bad
+// prints: 7 -1
+// prints: 8
+// prints: 9
+
+struct Oops { m: String }
+extension Oops: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.m) }
+}
+
+extension Oops: NoCopy {
+    func deinit(&var self) { print("drop oops {self.m}") }
+}
+
+type OA = Oops
+
+func source(flag: Bool) -> Result<Int, OA> {
+    if flag { return OA(Oops(m: "bad")) }
+    return 7
+}
+
+func erased(flag: Bool) -> Result<Int, Box<any Error>> {
+    let v = try source(flag)
+    v + 1
+}
+
+func caught(flag: Bool) -> Int {
+    match source(flag) {
+        case Ok(v) -> v,
+        case Err(_) -> -1
+    }
+}
+
+func main() {
+    print("{} {}", caught(false), caught(true))
+    print("{}", try! erased(false))
+    let v: Int = try! source(false) + 2
+    print("{}", v)
+}

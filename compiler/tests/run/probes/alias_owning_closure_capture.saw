@@ -1,0 +1,35 @@
+// probe: stated
+// about: an escaping closure that captures an owning value held at an alias keeps it in a heap environment whose drop glue is found at the representation, so the capture is dropped once, when the closure is (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own items
+// speeds: -O0 -O2
+// leaks: none
+// prints: made
+// prints: 34
+// prints: 40
+// prints: end
+// prints: drop 20
+// prints: drop 17
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+type RA = Res
+
+func make(r: RA) -> () -> Int {
+    { [move r] in r.id * 2 }
+}
+
+func make_target(r: Res) -> () -> Int {
+    { [move r] in r.id * 2 }
+}
+
+func main() {
+    let f = make(RA(Res(id: 17)))
+    print("made")
+    print("{}", f())
+    let g = make_target(Res(id: 20))
+    print("{}", g())
+    print("end")
+}

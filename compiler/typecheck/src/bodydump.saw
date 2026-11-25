@@ -50,7 +50,8 @@ public func tc_adjust_text(k: TcAdjustKind) -> String {
         case Widen -> "widen",
         case ForgetSendable -> "forget-sendable",
         case Payload -> "payload",
-        case PayloadVar -> "payload-var"
+        case PayloadVar -> "payload-var",
+        case Project -> "project"
     }
 }
 

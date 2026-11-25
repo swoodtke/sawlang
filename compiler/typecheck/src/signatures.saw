@@ -1456,6 +1456,9 @@ extension TcProgram {
                 self.refuse_arguments_on(leaf)
                 return self.error_type
             }
+            if info.kind == ResDeclKind.Alias {
+                return self.alias_twin(d, leaf)
+            }
             return self.aliased_type(d, leaf)
         }
         if info.kind == ResDeclKind.AssocType {
@@ -1469,10 +1472,18 @@ extension TcProgram {
         self.error_type
     }
 
-    // The type an alias or a type assignment stands for. An alias is
-    // transparent: its canonical form is the type it names.
+    // The type a type assignment stands for: the type it names. An associated
+    // type is bound, not declared, so it stays transparent.
     func aliased_type(&var self, d: Int, leaf: Int) -> Int {
         self.alias_type(d, leaf)
+    }
+
+    // The distinct type alias `d` is: a twin of the type it names, another id
+    // with the same structure. Its parent, one link up, is `alias_type(d)`
+    // (design 250)
+    public func alias_twin(&var self, d: Int, leaf: Int) -> Int {
+        let target = self.alias_type(d, leaf)
+        self.types.twin(target, d)
     }
 
     // The type alias or type assignment `d` stands for, built once, in `d`'s

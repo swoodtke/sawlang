@@ -49,7 +49,7 @@ func main() {
     print(canonical_text("path_canonical_missing.txt"))
     var with_nul = StringBuilder()
     try! with_nul.append("path_canonical")
-    try! with_nul.append(0 as Byte)
+    try! with_nul.append(Byte(0))
     try! with_nul.append(".txt")
     print(canonical_text(with_nul.build()))
     clear()

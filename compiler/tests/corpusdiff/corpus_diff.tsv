@@ -136,10 +136,10 @@ cast170_narrowing_panics.saw	pass	-	-
 cast170_sign_change_panics.saw	pass	-	-
 cast_distinct_chained_and_partial.saw	pass	-	-
 cast_distinct_nonint_underlying.saw	pass	-	-
-cast_distinct_string_underlying.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+cast_distinct_string_underlying.saw	pass	-	-
 cast_distinct_to_underlying.saw	pass	-	-
-cast_reverse_to_distinct_error.saw	wrong	accepts a refusal test	cannot cast `Int` to `UserId`
-cast_sibling_alias_error.saw	wrong	accepts a refusal test	cannot cast `Int` to `OrderId`
+cast_reverse_to_distinct_error.saw	pass	-	type.cast: `as` cannot convert `Int` to `cast_reverse_to_distinct_error.UserId`: an alias is entered by its construction, not by a cast; `as` converts toward the type an alias names
+cast_sibling_alias_error.saw	pass	-	type.cast: `as` cannot convert `cast_sibling_alias_error.UserId` to `cast_sibling_alias_error.OrderId`: an alias is entered by its construction, not by a cast; `as` converts toward the type an alias n
 catch_binding_rename_covers_every_position.saw	pass	-	-
 cbor169_limits.saw	pass	judged by its own directives (edited since its oracle)	-
 cbor169_roundtrip.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -462,7 +462,7 @@ conformance/R08_return_vector_of_ref.saw	pass	-	type.reference-position: a retur
 conformance/R16_array_literal_of_refs.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
 conformance/R17_tuple_literal_holds_ref.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
 conformance/R18_map_value_ref.saw	pass	-	type.reference-position: a binding's annotation may not name a reference: `std.map.Map<Int, &Int, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and references are parameters only: a ref
-conformance/R21_alias_launders_ref_return.saw	pass	-	type.reference-position: a return type may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use
+conformance/R21_alias_launders_ref_return.saw	pass	judged by its own directives (edited since its oracle)	type.reference-position: a return type may not name a reference: `R21_alias_launders_ref_return.R` is one, and references are parameters only: a reference borrows storage for the duration of one call
 conformance/R23_returned_closure_borrow_capture.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `x` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or call
 conformance/R26_optional_written_name_ref.saw	pass	-	type.reference-position: a parameter's type may not name a reference: `(&Int)?` holds `&Int` as an optional's payload, and references are parameters only: a reference borrows storage for the duration
 conformance/R27_nested_generic_ref.saw	pass	-	type.reference-position: a parameter's type may not name a reference: `std.box.Box<std.vector.Vector<&Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and
@@ -560,8 +560,8 @@ conformance/V61_match_self_payload_move_refused.saw	pass	-	transfer.move-from-bo
 conformance/V62_borrowed_payload_move_is_tier_blind.saw	pass	-	transfer.move-from-borrow: cannot move out of `t`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
 conformance/V63_owned_match_still_consumes.saw	pass	-	-
 conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V64_forwarding_cast_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borro
-conformance/V65_forwarding_cast_is_tier_blind.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
-conformance/V66_alias_projection_cast_forwards.saw	pass	-	transfer.implicit-copy: this reads a place of type `V66_alias_projection_cast_forwards.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
+conformance/V65_forwarding_cast_is_tier_blind.saw	pass	-	-
+conformance/V66_alias_projection_cast_forwards.saw	pass	-	transfer.implicit-copy: this reads a place of type `V66_alias_projection_cast_forwards.Handle`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 conformance/V67_building_casts_are_untouched.saw	pass	-	-
 conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	judged by its own directives (edited since its oracle)	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
@@ -944,7 +944,7 @@ discard_let_deinit_immediate.saw	pass	-	-
 discard_let_read_error.saw	refused	resolve name.undefined	cannot find `_` in scope
 discard_let_two_same_scope.saw	pass	-	-
 discard_var_error.saw	pass	-	resolve.parse-refused: `_` binds nothing, so there is nothing to mutate (syntax.stmt.refused-var-discard): write `let _ = e`; the parser refuses `tests/corpus/discard_var_error.saw`, so its declaratio
-distinct_type_value_access_error.saw	refused	typecheck member.unknown	`Int` has no member `value` this module can see
+distinct_type_value_access_error.saw	refused	typecheck member.unknown	`distinct_type_value_access_error.MyInt` has no member `value` this module can see
 div_by_zero_modulo.saw	pass	-	-
 div_by_zero_panics.saw	pass	-	-
 doc_comment_attachment.saw	pass	-	-
@@ -987,7 +987,7 @@ enum_policy_explicit_copy_deep.saw	pass	-	-
 enum_policy_nocopy_move_only.saw	pass	-	-
 enum_policy_undeclared_retaining.saw	pass	-	-
 enum_raw_hex_values.saw	pass	-	-
-enum_raw_value_const_expression_needs_constant.saw	pass	-	type.mismatch: expected `UInt8`, the type of the static's type, and found `Int`; a module static keeps its declared type outside a constant expression: write `BASE as UInt8`
+enum_raw_value_const_expression_needs_constant.saw	pass	-	type.mismatch: expected `UInt8`, the type of the static, and found `Int`; a module static keeps its declared type outside a constant expression: write `BASE as UInt8`
 enum_raw_value_const_expression_out_of_range.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt8` by a count outside its width
 enum_raw_value_takes_const_expression.saw	pass	-	-
 enum_ref_payload_escape.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
@@ -1079,8 +1079,8 @@ errors/borrows_var_lend_needs_var_self.saw	pass	judged by its own directives (ed
 errors/box_forward_var_rejected.saw	pass	-	member.through-pointer: `bump` is a method of the payload, `box_forward_var_rejected.Counter`, not of the `Box`; reach it with `b.value().bump(…)` on a `var` box
 errors/box_value_move_only_read.saw	pass	-	borrows.let-lend: `b.value()` is lent, and a `let` would keep the lend past this statement. Name the place for a block, `borrow let taken = b.value() { … }`
 errors/builtin_redefinition_rejected.saw	pass	-	name.reserved: `assert` is a prelude name, so it is reserved and cannot be declared again
-errors/byte_digits_spelling_is_as_int.saw	wrong	accepts a refusal test	ambiguous call to `StringBuilder.append`: multiple overloads match the argument types (UInt8)
-errors/byte_never_adopts_a_literal.saw	wrong	accepts a refusal test	argument `b` expects `Byte` but got `UInt8`
+errors/byte_digits_spelling_is_as_int.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.a
+errors/byte_never_adopts_a_literal.saw	pass	-	type.mismatch: expected `Byte`, the type of the parameter, and found `Int`; an alias is entered by its construction, not by a conversion: write `Byte(65)`
 errors/capture_assign_escaping.saw	pass	-	mutability.immutable: this assignment writes `n`, and `n` is captured by value, which makes it a `let` in the closure's body: an escaping closure keeps no state that changes across calls, since every
 errors/capture_assign_non_escaping.saw	pass	-	mutability.immutable: this assignment writes `sum`, and `sum` is captured by value, which makes it a `let` in the closure's body: to write the caller's binding, capture it with `[&var sum]`; to change
 errors/capture_borrow_escaping.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `sum` by borrow, and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not escape, or ca
@@ -1298,7 +1298,7 @@ errors/ref_sigil_extra_var.saw	pass	-	type.mismatch: this parameter is `&Int`, a
 errors/ref_sigil_missing_var.saw	pass	-	type.mismatch: expected `&var Int`, the type of the parameter, and found `&Int`
 errors/ref_sigil_nonarg_position.saw	pass	-	type.reference-position: `&var` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass
 errors/ref_sigil_var_on_let.saw	pass	-	mutability.immutable: this exclusive borrow of `a` would let it be written, and `a` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
-errors/ref_static_declaration.saw	pass	-	type.mismatch: expected `&Int`, the type of the static's type, and found `Int`
+errors/ref_static_declaration.saw	pass	-	type.mismatch: expected `&Int`, the type of the static, and found `Int`
 errors/ref_type_arg_generic_func.saw	pass	-	type.reference-position: a type argument may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; us
 errors/ref_type_arg_generic_struct.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/resolve_seam_must_be_blocking.saw	pass	-	extern.blocking-disagree: `__saw_rt_resolve_ipv4` is declared without `blocking` here, but another declaration of the same symbol, in `std.net`, says `blocking`: `blocking` is part of an extern's cont
@@ -1397,8 +1397,8 @@ errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: a float needs a digi
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
 errors/two_exclusive_only_windows_conflict.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `b` is borrowed exclusively here while the window of `tally` opened at 42:18 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the ro
 errors/type_mismatch.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
-errors/typealias_ref_construction.saw	pass	-	type.reference-position: a binding may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use the
-errors/typealias_ref_generic_argument.saw	pass	-	type.reference-position: a binding's annotation may not name a reference: `std.vector.Vector<&Int, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and references are parameters only: a re
+errors/typealias_ref_construction.saw	pass	-	type.reference-position: a binding may not name a reference: `typealias_ref_construction.R` is one, and references are parameters only: a reference borrows storage for the duration of one call and may
+errors/typealias_ref_generic_argument.saw	pass	-	type.reference-position: a binding's annotation may not name a reference: `std.vector.Vector<typealias_ref_generic_argument.R, std.alloc.GlobalAllocator>` holds `typealias_ref_generic_argument.R` as a
 errors/unary_minus_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 200i8 does not fit in `Int8` (range -128..=127): a signed suffix holds its literal to the signed range, and only a unary minus reaches its minimum
 errors/unary_minus_unsigned.saw	wrong	accepts a refusal test	operator `-` cannot be applied to unsigned `UInt8` (an unsigned integer has no negation)
 errors/undefined_enum.saw	refused	resolve name.undefined	cannot find `Undefined` in scope
@@ -1718,13 +1718,13 @@ import150_qualifier_collision_alias.saw	pass	-	-
 import150_qualifier_collision_error.saw	pass	-	import.duplicate-qualifier: two imports bind the qualifier `data`: `std.data` and `data`
 import150_shadowed_qualifier_error.saw	refused	typecheck member.unknown	`Int` has no method `Data` this module can see
 import150_std_forms.saw	pass	-	-
-import150_std_qualified_positions.saw	pass	-	-
+import150_std_qualified_positions.saw	pass	judged by its own directives (edited since its oracle)	-
 import150_warn_shadowed_qualifier.saw	refused	driver driver.usage	sawc build takes no such arguments
 import150_weak_qualifier.saw	pass	-	-
 import225e_bare_std_leaf_not_found.saw	refused	resolve import.unknown-module	no module `data` (looked for `tests/corpus/data.saw`)
 import247b_glob_pair_one_identity.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 import247b_nonbinding_form_qualifier_error.saw	refused	resolve name.undefined	cannot find `data` in scope
-import247b_pair_one_identity.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+import247b_pair_one_identity.saw	pass	-	-
 import_rename_function_positions.saw	pass	-	-
 import_std_function_rename.saw	pass	-	-
 indexed_read_addresses_the_live_array.saw	pass	-	-
@@ -2207,7 +2207,7 @@ process_signal_death.saw	pass	judged by its own directives (edited since its ora
 process_simple.saw	stage0-wrong	annotated SL-596	sawc meets its directives
 qualified_call_literal_adopts_parameter_width.saw	pass	-	type.mismatch: integer literal 300 does not fit in `UInt8` (range 0..=255)
 qualified_call_threads_the_callee_signature.saw	pass	-	-
-qualified_type_declaration_slots.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+qualified_type_declaration_slots.saw	pass	-	-
 qualified_type_in_declaration_slot.saw	pass	-	-
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
@@ -2551,22 +2551,22 @@ two_copy_captures.saw	stage0-wrong	annotated SL-525	sawc meets its directives
 two_escaping_copies.saw	pass	-	-
 two_modules_export_distinct_c_symbols.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 type_alias.saw	pass	judged by its own directives (edited since its oracle)	-
-type_alias_chained.saw	pass	-	-
-type_alias_construction.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+type_alias_chained.saw	pass	judged by its own directives (edited since its oracle)	-
+type_alias_construction.saw	pass	-	-
 type_alias_construction_arity_error.saw	pass	-	call.arity: an alias is constructed from one unlabeled value of the type it names
 type_alias_construction_type_error.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 type_alias_cross_module.saw	pass	-	-
-type_alias_cross_module_sibling_error.saw	wrong	accepts a refusal test	argument `h` expects `SystemHandle` but got `ChannelHandle`
+type_alias_cross_module_sibling_error.saw	pass	-	type.mismatch: expected `modules.alias63_handles.SystemHandle`, the type of the parameter, and found `modules.alias63_handles.ChannelHandle`; an alias is entered by its construction, not by a conversi
 type_alias_in_function_body_refused.saw	pass	-	resolve.parse-refused: a type alias is declared at module level (syntax.stmt.refused-local-type-alias): declare the alias at module level, or as an associated type; the parser refuses `tests/corpus/ty
-type_alias_no_implicit_from_underlying.saw	wrong	accepts a refusal test	argument `x` expects `MyInt` but got `Int`
+type_alias_no_implicit_from_underlying.saw	pass	judged by its own directives (edited since its oracle)	type.mismatch: expected `type_alias_no_implicit_from_underlying.MyInt`, the type of the parameter, and found `Int`; an alias is entered by its construction, not by a conversion: write `MyInt(x)`
 type_alias_of_enum_error.saw	pass	-	type.alias-of-enum: type alias `Rank` names the enum `Level`, and an alias of an enum is not allowed: use `Level` itself, or wrap it in a struct you own
-type_alias_sibling_arg_error.saw	wrong	accepts a refusal test	argument `o` expects `OrderId` but got `UserId`
-type_alias_sibling_no_flow_error.saw	wrong	accepts a refusal test	cannot assign `UserId` to variable of type `OrderId`
+type_alias_sibling_arg_error.saw	pass	-	type.mismatch: expected `type_alias_sibling_arg_error.OrderId`, the type of the parameter, and found `type_alias_sibling_arg_error.UserId`; an alias is entered by its construction, not by a conversion
+type_alias_sibling_no_flow_error.saw	pass	-	type.mismatch: expected `type_alias_sibling_no_flow_error.OrderId`, the type of the annotated binding, and found `type_alias_sibling_no_flow_error.UserId`; an alias is entered by its construction, not
 type_alias_to_underlying.saw	pass	-	-
-type_def_distinct_error.saw	wrong	accepts a refusal test	argument `x` expects `MyInt` but got `Int`
+type_def_distinct_error.saw	pass	judged by its own directives (edited since its oracle)	type.mismatch: expected `type_def_distinct_error.MyInt`, the type of the parameter, and found `Int`; an alias is entered by its construction, not by a conversion: write `MyInt(x)`
 type_is_a_contextual_keyword.saw	pass	-	-
 type_order.saw	pass	-	-
-typealias_ref_launder.saw	pass	-	type.reference-position: a field may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use the va
+typealias_ref_launder.saw	pass	-	type.reference-position: a field may not name a reference: `typealias_ref_launder.R` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not es
 uint_compound_division_signedness.saw	pass	-	-
 uint_division_signedness.saw	pass	-	-
 uint_modulo_signedness.saw	pass	-	-

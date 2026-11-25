@@ -1,3 +1,4 @@
+ERROR	type.mismatch	compiler/tests/typecheck/golden/alias_static_through_alias.saw:35:20	expected `alias_static_through_alias.Task1`, the type of the annotated binding, and found `alias_static_through_alias.Job`; an alias is entered by its construction, not by a conversion: write `Task1(Task1.one())`
 (Module alias_static_through_alias
   (declarations
     (struct Job 6:8 private)
@@ -12,7 +13,7 @@
     (alias JobBox 23:6 private std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator>)
     (alias Texts 24:6 private alias_static_through_alias.Pair<String>)
     (alias Count 25:6 private Int16)
-    (static LIMIT 27:8 private Int16)
+    (static LIMIT 27:8 private alias_static_through_alias.Count)
     (func struct_static 29:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func annotated 34:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func box_static 39:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
@@ -42,7 +43,7 @@
       (19:43-19:54 Call.paren alias_static_through_alias.Pair<String> value temp (memberwise alias_static_through_alias.Pair (owner alias_static_through_alias.Pair<String>)))
       (19:51-19:53 StringLit String value temp))
     (LIMIT 27:8
-      (27:23-27:32 Member Int16 value temp))
+      (27:23-27:32 Member alias_static_through_alias.Count value temp))
     (struct_static 29:6
       (30:9-30:10 BindingName alias_static_through_alias.Job place temp)
       (30:13-30:24 Call.paren alias_static_through_alias.Job value temp (call alias_static_through_alias.Job.one() (owner alias_static_through_alias.Job)))
@@ -50,11 +51,11 @@
       (31:11-31:14 Member Int place borrow)
       (31:11-31:12 Name alias_static_through_alias.Job place project))
     (annotated 34:6
-      (35:9-35:10 BindingName alias_static_through_alias.Job place temp)
+      (35:9-35:10 BindingName alias_static_through_alias.Task1 place temp)
       (35:20-35:31 Call.paren alias_static_through_alias.Job value temp (call alias_static_through_alias.Job.one() (owner alias_static_through_alias.Job)))
       (36:5-36:15 Call.paren Void value temp (builtin print))
       (36:11-36:14 Member Int place borrow)
-      (36:11-36:12 Name alias_static_through_alias.Job place project))
+      (36:11-36:12 Name alias_static_through_alias.Task1 place project))
     (box_static 39:6
       (40:9-40:10 BindingName std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator> place temp)
       (40:13-40:40 Try.force std.box.Box<alias_static_through_alias.Job, std.alloc.GlobalAllocator> value temp)
@@ -73,10 +74,10 @@
       (46:11-46:12 Name alias_static_through_alias.Pair<String> place project))
     (limit 49:6
       (50:5-50:21 Call.paren Void value temp (builtin print))
-      (50:11-50:20 Member Int16 value borrow)
+      (50:11-50:20 Member alias_static_through_alias.Count value borrow)
       (51:5-51:26 Call.paren Void value temp (builtin print))
       (51:11-51:25 Cast Int16 value borrow)
-      (51:11-51:16 Name Int16 place copy))
+      (51:11-51:16 Name alias_static_through_alias.Count place copy))
     (main 54:6))
   (string-positions
     (19:51 literal std.string.string_literal)

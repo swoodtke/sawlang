@@ -120,7 +120,7 @@ extension Path {
         try! joined.append(self.text)
         let last = self.text.len() - 1
         if self.text.byte_at(last) != 47 {
-            try! joined.append(47 as Byte)
+            try! joined.append(Byte(47))
         }
         try! joined.append(other)
         Path(text: joined.build())

@@ -20,7 +20,7 @@ func hex(d: &Data) -> String {
     var b = StringBuilder()
     var i = 0
     while i < d.len() {
-        let v = (d.get(i) ?? 0u8) as Int
+        let v = (d.get(i) ?? Byte(0)) as Int
         let hi = v >> 4
         let lo = v & 15
         try! b.append(digits.substring(hi, hi + 1))

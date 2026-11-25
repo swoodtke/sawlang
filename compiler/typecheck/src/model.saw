@@ -322,7 +322,10 @@ public enum TcAdjustKind: UInt8 {
     // The hop holds the payload from its test to its use, exclusively where
     // that use writes (`settle_hops`).
     case Payload = 13,
-    case PayloadVar = 14
+    case PayloadVar = 14,
+    // A distinct alias value read as the type one link up its chain: the
+    // representation is one, so nothing is built (design 250).
+    case Project = 15
 }
 
 // What a funnel position lets a conversion build beyond the exact and

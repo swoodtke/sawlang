@@ -572,7 +572,7 @@
       (159:38-159:39 IntLit Int (adopt UInt8) value temp)
       (159:41-159:42 IntLit Int value temp)
       (160:9-160:16 BindingName [UInt8; 8] place temp)
-      (160:26-160:34 Call.paren Int value temp (conversion constant_lengths.Count alias (owner Int)))
+      (160:26-160:34 Call.paren constant_lengths.Count value temp (conversion constant_lengths.Count alias (owner Int)))
       (160:32-160:33 IntLit Int value temp)
       (160:38-160:44 Repeat [UInt8; 8] value temp)
       (160:39-160:40 IntLit Int (adopt UInt8) value temp)

@@ -1,0 +1,37 @@
+// refuses: type.mismatch at 15:10
+// errors: 6
+// an array literal enters an alias of an array only at a static or an annotated let or var (golden alias_literal_positions); every other position takes the construction
+// message: write `Arr([1, 2])`
+
+type Arr = [Int; 2]
+
+struct Holder {
+    a: Arr
+}
+
+func take(a: Arr) {}
+
+func parameter() {
+    take([1, 2])
+}
+
+func tail() -> Arr { [1, 2] }
+
+func early() -> Arr {
+    return [1, 2]
+}
+
+func field() {
+    let h = Holder(a: [1, 2])
+}
+
+func assignment() {
+    var x: Arr = [0, 0]
+    x = [1, 2]
+}
+
+func element() {
+    let v: Vector<Arr> = [[1, 2]]
+}
+
+func main() {}

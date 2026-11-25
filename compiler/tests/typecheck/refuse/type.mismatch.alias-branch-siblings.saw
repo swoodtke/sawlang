@@ -1,0 +1,25 @@
+// refuses: type.mismatch at 10:31
+// errors: 2
+// the arms of a value branch that are two distinct aliases merge to nothing, and the message says so and spells the way out
+// message: which are distinct aliases: neither flows into the other, so write one arm with `as`
+
+type UserId = Int
+type OrderId = Int
+
+func by_if(c: Bool, u: UserId, o: OrderId) {
+    let a = if c { u } else { o }
+}
+
+func by_match(c: Bool, u: UserId, o: OrderId) {
+    let a = match c {
+        case true -> u,
+        case false -> o
+    }
+}
+
+func spelled(c: Bool, u: UserId, o: OrderId) -> Int {
+    let a = if c { u as Int } else { o }
+    a
+}
+
+func main() {}

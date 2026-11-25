@@ -1,8 +1,7 @@
-// The alias matrix's operators (SL-1012 U1, design 4.3), recorded at today's
-// verdicts: an operator reads an alias as its underlying and its result is
-// storable into an alias, and two siblings compare and add. The spec's rulings
-// (design 250: operator results are the underlying; siblings are an open
-// question) refuse the stores and, by default, the sibling operators.
+// The alias matrix's operators (SL-1012 U3a, design 4.3), recorded at the
+// distinct-alias verdicts: an operator reads an alias as its underlying and
+// its result is the underlying (design 250), so a store into an alias is an
+// ERROR, and so is an operator between two siblings.
 
 type UserId = Int
 type OrderId = Int

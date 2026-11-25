@@ -1,0 +1,18 @@
+(Module alias_closure_result
+  (declarations
+    (alias UserId 6:6 private Int)
+    (func underlying_first 8:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 17:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (underlying_first 8:6
+      (9:9-9:10 BindingName (Bool, alias_closure_result.UserId, Int) sendable -> Int place temp)
+      (9:13-14:6 Closure (Bool, alias_closure_result.UserId, Int) sendable -> Int value temp)
+      (10:9-12:10 If Void value temp)
+      (10:12-10:13 Name Bool place copy)
+      (11:20-11:21 Name Int place copy)
+      (13:16-13:17 Name alias_closure_result.UserId (project Int) place copy))
+    (main 17:6)))

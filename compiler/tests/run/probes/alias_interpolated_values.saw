@@ -1,0 +1,56 @@
+// probe: stated
+// about: an alias value interpolated, formatted into a `print`, appended to a StringBuilder or rendered by `to_string` resolves its renderer at the representation, so mono finds one for every alias of a primitive and a String (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own items
+// speeds: -O0 -O2
+// leaks: none
+// prints: Tag#3
+// prints: Tag#3
+// prints: Tag#3
+// prints: -12 65 66 2.5 true nm
+// prints: -12 65 66 2.5 true nm
+// prints: -12
+// prints: A-12nm
+// prints: -12
+// prints: drop tag 3
+
+type UserId = Int
+type Small = UInt8
+type Octet = Byte
+type Miles = Float
+type Flag = Bool
+type Name = String
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop tag {self.id}") }
+}
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("Tag#")
+        try! into.append(self.id)
+    }
+}
+
+type TagAlias = Tag
+
+func main() {
+    let tag = TagAlias(Tag(id: 3))
+    print("{tag}")
+    print("{}", tag)
+    print(tag)
+    let u = UserId(-12)
+    let by = Octet(Byte(65))
+    let sm = Small(66)
+    let m = Miles(2.5)
+    let fl = Flag(true)
+    let nm = Name("nm")
+    print("{u} {by} {sm} {m} {fl} {nm}")
+    print("{} {} {} {} {} {}", u, by, sm, m, fl, nm)
+    print(u)
+    var sb = StringBuilder()
+    try! sb.append(by)
+    try! sb.append(u)
+    try! sb.append(nm)
+    print(sb.build())
+    print(u.to_string())
+}

@@ -1,0 +1,22 @@
+// refuses: type.mismatch at 12:21
+// errors: 8
+// an annotated binding of an alias takes a literal, not a computed value of the underlying or of a sibling
+// message: write `UserId(SIBLING * 2)`
+
+type UserId = Int
+type OrderId = Int
+
+static SIBLING: OrderId = OrderId(2)
+
+func computed(n: Int, o: OrderId) {
+    let a: UserId = SIBLING * 2
+    let b: UserId = -SIBLING
+    let c: UserId = SIBLING + 0
+    let d: UserId = 2 + 3
+    let e: UserId = 1 << 3
+    let f: UserId = n + 1
+    let g: UserId = n
+    let h: OrderId = a
+}
+
+func main() {}

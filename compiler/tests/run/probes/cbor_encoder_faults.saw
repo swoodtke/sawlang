@@ -81,7 +81,7 @@ func bytes_of(label: String, r: Result<Data, EncodeError>) {
             var i = 0
             while i < d.len() {
                 try! line.append(" ")
-                try! line.append((d.get(i) ?? 0) as Int)
+                try! line.append((d.get(i) ?? Byte(0)) as Int)
                 i = i + 1
             }
             print("{}:{}", label, line.build())

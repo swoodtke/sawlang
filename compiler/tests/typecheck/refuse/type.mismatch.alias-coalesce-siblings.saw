@@ -1,0 +1,19 @@
+// refuses: type.mismatch at 10:18
+// errors: 1
+// a `??` whose payload and fallback are two distinct aliases joins nothing, where an alias and a type on its chain join at that type
+// message: an alias is entered by its construction, not by a conversion: write `UserId(d as Int)`
+
+type UserId = Int
+type OrderId = Int
+
+func siblings(o: UserId?, d: OrderId) -> Int {
+    let r = o ?? d
+    r
+}
+
+func chained(o: UserId?, n: Int) -> Int {
+    let r = o ?? n
+    r
+}
+
+func main() {}

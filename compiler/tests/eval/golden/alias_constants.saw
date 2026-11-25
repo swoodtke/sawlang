@@ -15,7 +15,7 @@ type Count = Int
 
 static BASE: Int = 7
 static LETTER: Byte = Byte(65)
-static NEXT: Byte = Byte(65) + 1
+static NEXT: Byte = Byte(Byte(65) + 1)
 static WIDE: Int = Byte(65) as Int
 static NESTED: Octet = Octet(1)
 static INNER: Byte = Byte(Octet(9))

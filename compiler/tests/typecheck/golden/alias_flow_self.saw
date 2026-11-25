@@ -1,7 +1,7 @@
-// The alias position matrix at its "self" column (SL-1012 U1): an alias value into its own alias slot,
-// at each position `sawc` checks a transfer, recorded at today's
-// verdict: transparent aliases, so every cell is accepted. A distinct alias
-// would turn away the cells the spec does (LANGUAGE_SPEC.md, Type Definitions).
+// The alias position matrix at its "self" column (SL-1012 U3a): an alias value into its own alias slot,
+// at each position `sawc` checks a transfer, recorded at the distinct-alias
+// verdict (LANGUAGE_SPEC.md, Type Definitions): every position accepts it,
+// but the compound assignment, whose result is the type the alias names.
 
 type UserId = Int
 type OrderId = Int

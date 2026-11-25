@@ -1,0 +1,37 @@
+// refuses: type.mismatch at 15:10
+// errors: 6
+// a scalar literal enters an alias only at a static or an annotated let or var (golden alias_literal_positions); a parameter, a tail, a return, a field, an assignment and an element of an outer literal take the construction
+// message: write `UserId(5)`
+
+type UserId = Int
+
+struct Holder {
+    n: UserId
+}
+
+func take(n: UserId) {}
+
+func parameter() {
+    take(5)
+}
+
+func tail() -> UserId { 5 }
+
+func early() -> UserId {
+    return 5
+}
+
+func field() {
+    let h = Holder(n: 5)
+}
+
+func assignment() {
+    var x: UserId = 1
+    x = 5
+}
+
+func element() {
+    let v: Vector<UserId> = [5]
+}
+
+func main() {}

@@ -126,7 +126,7 @@ extension TcProgram {
         while a >= 0 {
             let adj = self.adjusts[a]
             a = adj.next
-            if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen {
+            if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen && adj.kind != TcAdjustKind.Project {
                 return TcFold(fault: TcFault.NotConstant, ty: cur.ty, at: e)
             }
             let to = if self.fold_written >= 0 { self.fold_written } else { adj.to }
@@ -285,6 +285,12 @@ extension TcProgram {
         if v.ty == t {
             return v
         }
+        // An alias and the type it names hold one value.
+        if self.same_representation(v.ty, t) {
+            var same = v
+            same.ty = t
+            return same
+        }
         if not self.is_integer(v.ty) || not self.is_integer(t) {
             return TcFold(fault: TcFault.NotConstant, ty: v.ty, at: at)
         }
@@ -376,7 +382,7 @@ extension TcProgram {
             return TcFold(fault: TcFault.NotConstant, ty: inner.ty, at: e)
         }
         let r = tc_arith_unary(&op, inner.bits, self.int_width(inner.ty), not self.is_unsigned(inner.ty))
-        self.fold_result(r, inner.ty, e)
+        self.fold_result(r, self.types.unaliased(inner.ty), e)
     }
 
     // A typed arithmetic result at type `t`, or its fault at `e`.
@@ -420,10 +426,11 @@ extension TcProgram {
             var r = tc_arith_binary(&op, acc.bits, v.bits, w, signed)
             if op.equals("<<") || op.equals(">>") {
                 r = tc_arith_shift(&op, acc.bits, w, signed, v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty))
-            } else if acc.ty != v.ty {
+            } else if self.types.unaliased(acc.ty) != self.types.unaliased(v.ty) {
                 return TcFold(fault: TcFault.NotConstant, ty: acc.ty, at: e)
             }
-            acc = self.fold_result(r, acc.ty, e)
+            // An operator over an alias yields the type it names.
+            acc = self.fold_result(r, self.types.unaliased(acc.ty), e)
             if not acc.ok {
                 return acc
             }
@@ -447,7 +454,7 @@ extension TcProgram {
             return b
         }
         let bt = self.bool_type()
-        if a.ty != b.ty {
+        if self.types.unaliased(a.ty) != self.types.unaliased(b.ty) {
             return TcFold(fault: TcFault.NotConstant, ty: a.ty, at: e)
         }
         if self.is_bool(a.ty) {

@@ -1,0 +1,15 @@
+// refuses: type.mismatch at 12:10
+// errors: 1
+// `&var x` at a parameter that is an alias of a shared reference is told the construction, since `&x`, the plain shared sigil, is the refused shape
+// message: write `IntRef(&x)`
+
+type IntRef = &Int
+
+func take(r: IntRef) {}
+
+func call() {
+    var x = 1
+    take(&var x)
+}
+
+func main() {}

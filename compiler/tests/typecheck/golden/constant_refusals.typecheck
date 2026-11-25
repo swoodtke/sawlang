@@ -34,7 +34,7 @@ ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw
     (static ORIGIN 26:8 private constant_refusals.Point)
     (static RATIO 27:8 private Float)
     (static WORD 28:8 private Int)
-    (static LETTER 29:8 private UInt8)
+    (static LETTER 29:8 private Byte)
     (static CALLED 30:8 private Int)
     (static PAIR 31:8 private (Int, Int))
     (static MODE 32:8 private constant_refusals.Mode)
@@ -117,7 +117,7 @@ ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw
     (WORD 28:8
       (28:20-28:33 Call.paren Int value temp (builtin sizeof)))
     (LETTER 29:8
-      (29:23-29:31 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (29:23-29:31 Call.paren Byte value temp (conversion Byte alias (owner UInt8)))
       (29:28-29:30 IntLit Int (adopt UInt8) value temp))
     (CALLED 30:8
       (30:22-30:29 Call.paren Int value temp (call constant_refusals.seven())))
@@ -134,7 +134,7 @@ ERROR	static_assert.failed	compiler/tests/typecheck/golden/constant_refusals.saw
     (Flags.High 35:44
       (35:51-35:57 Member constant_refusals.Code (adopt UInt8) value temp (case constant_refusals.Code.B (owner constant_refusals.Code))))
     (Flags.Mid 35:64
-      (35:70-35:77 Call.paren UInt8 value temp (conversion Byte alias (owner UInt8)))
+      (35:70-35:77 Call.paren Byte (project UInt8) value temp (conversion Byte alias (owner UInt8)))
       (35:75-35:76 IntLit Int (adopt UInt8) value temp))
     (local 41:6
       (42:19-42:24 Binary.pair Bool value temp (op >))

@@ -1,0 +1,17 @@
+// refuses: type.mismatch at 13:16
+// errors: 1
+// a closure's returns are no join: the first return types the result, so the type an alias names after a return of the alias is refused
+// message: the type of the function's result
+
+type UserId = Int
+
+func alias_first() {
+    let f = { b: Bool, u: UserId, n: Int in
+        if b {
+            return u
+        }
+        return n
+    }
+}
+
+func main() {}

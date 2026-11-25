@@ -1,0 +1,71 @@
+// probe: stated
+// about: a comparison reads an alias operand where it is, as the type the alias names, at every copy tier: a String, a struct holding one, a NoCopy type with a hand-written comparison, beside its own alias and beside its underlying, and copies nothing out of the place and drops nothing (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own projection
+// speeds: -O0 -O2
+// leaks: none
+// prints: false true true true false false true
+// prints: true true true true
+// prints: 2 2
+// prints: true true false
+// prints: n1
+// prints: false true true false true
+// prints: false false false true
+// prints: 1
+// prints: drop 3
+// prints: drop 2
+// prints: drop 1
+
+type Name = String
+
+func heap(s: String, n: Int) -> String { "{s}{n}" }
+
+struct Row { id: Int, name: String }
+@synthesize
+extension Row: Equatable {}
+type RowA = Row
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Res: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Res: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less } else if self.id > other.id { Ordering.Greater } else { Ordering.Equal }
+    }
+}
+type Handle = Res
+
+func strings() {
+    let a = Name(heap("v", 1))
+    let b = Name(heap("v", 2))
+    print("{} {} {} {} {} {} {}", a == b, a != b, a < b, a <= b, a > b, a >= b, a == a)
+    let u: String = heap("v", 1)
+    print("{} {} {} {}", a == u, u == a, a < b, u >= a)
+    print("{} {}", a.len(), u.len())
+}
+
+func rows() {
+    let r = RowA(Row(id: 5, name: heap("n", 1)))
+    let s = RowA(Row(id: 5, name: heap("n", 1)))
+    let t = Row(id: 6, name: heap("n", 1))
+    print("{} {} {}", r == r, r == s, r == t)
+    print(r.name)
+}
+
+func handles() {
+    let a = Handle(Res(id: 1))
+    let b = Handle(Res(id: 2))
+    print("{} {} {} {} {}", a == b, a != b, a < b, a >= b, a == a)
+    let u = Res(id: 3)
+    print("{} {} {} {}", a == u, u == a, a > u, u >= a)
+    print(a.id)
+}
+
+func main() {
+    strings()
+    rows()
+    handles()
+}

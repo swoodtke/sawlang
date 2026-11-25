@@ -691,7 +691,8 @@ extension TcProgram {
     // read as one placeholder (spec, Default parameter values). A function's
     // labels bind in order and an `init`'s by name in any order (spec,
     // Labeled arguments), so an `init`'s shapes compare as sets. A
-    // signature's aliases are already their targets. A `borrows` member is
+    // signature's aliases are read at their representation (`same_shape_type`
+    // compares structure, never an alias's own id). A `borrows` member is
     // called only as a `borrow` head, so it never meets a plain one, and two
     // whose receivers differ are the shared and exclusive twins `borrow let`
     // and `borrow var` choose between (SL:borrowing §3, §4). Two members of

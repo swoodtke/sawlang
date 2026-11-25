@@ -1264,7 +1264,7 @@ extension TcProgram {
         let written = self.written_return(first)
         let spelled = self.type_text(t)
         let as_written = if written >= 0 { self.text(m, written) } else { spelled }
-        if not self.is_void(t) && t != int_type && not self.is_result(t) {
+        if not self.is_void(t) && t != int_type && not self.is_result(t) && not self.is_alias(t) {
             self.refuse_entry_result(m, site, spelled, "")
             return
         }
@@ -1278,7 +1278,7 @@ extension TcProgram {
             return
         }
         let ok = self.types.arg(t, 0)
-        if not self.is_void(ok) && ok != int_type {
+        if not self.is_void(ok) && ok != int_type && not self.is_alias(ok) {
             self.refuse_entry_result(m, site, spelled, "")
             return
         }

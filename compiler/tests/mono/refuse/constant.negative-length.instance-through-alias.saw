@@ -1,0 +1,21 @@
+// refuses: constant.negative-length at 10:16
+// errors: 1
+// message: `N - 1` is -1 in `
+// message: Q<0>`
+// An instance of a struct met at an alias and at the type it names is checked
+// once, so the negative length is refused once, naming the type as written
+// (SL-1012).
+
+struct Q<const N: Int> {
+    d: [UInt8; N - 1]
+}
+
+type Q0 = Q<0>
+
+func f(q: &Q0) -> Int { 1 }
+func g(q: &Q<0>) -> Int { 2 }
+
+func main() {
+    print(sizeof<Q0>())
+    print(sizeof<Q<0>>())
+}

@@ -1,0 +1,48 @@
+// refuses: type.mismatch at 34:14
+// errors: 7
+// an alias of a reference, whatever the reference's kind, takes only its construction: a plain reference, a slice's, an erased one's, and each `&var` form, are refused, and the fix is spelled (golden alias_fixit_spellings)
+// message: write `IntRef(&x)`
+
+type IntRef = &Int
+type IntSlice = &[Int]
+type DynRef = &any Printable
+type IntVarRef = &var Int
+type SliceVar = &var [Int]
+
+struct Shape {
+    side: Int
+}
+
+extension Shape: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("shape")
+    }
+}
+
+func take_ref(r: IntRef) {}
+func take_slice(s: IntSlice) {}
+func take_dyn(d: DynRef) {}
+func take_var(r: IntVarRef) {}
+func take_slice_var(s: SliceVar) {}
+
+func plain() {
+    let x = 1
+    let v = [1, 2, 3]
+    let p = Shape(side: 2)
+    var y = 1
+    var w = [1, 2, 3]
+    take_ref(&x)
+    take_slice(&v)
+    take_dyn(&p)
+    take_var(&var y)
+    take_slice_var(&var w)
+}
+
+func through_a_shared_slot() {
+    var y = 1
+    var w = [1, 2, 3]
+    take_ref(&var y)
+    take_slice(&var w)
+}
+
+func main() {}

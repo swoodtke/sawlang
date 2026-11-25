@@ -1,0 +1,48 @@
+// refuses: type.mismatch at 17:10
+// errors: 12
+// a map literal, the empty `{:}` included, enters an alias of a Map only at an annotated let or var (golden alias_literal_positions; a static holds no Map); every other position takes the construction
+// message: write `Dict({"a": 1})`
+
+type Dict = Map<String, Int>
+
+struct Holder {
+    d: Dict
+}
+
+extension Holder: NoCopy {}
+
+func take(d: Dict) {}
+
+func parameter() {
+    take({"a": 1})
+    take({:})
+}
+
+func tail() -> Dict { {"a": 1} }
+func tail_empty() -> Dict { {:} }
+
+func early() -> Dict {
+    return {"a": 1}
+}
+
+func early_empty() -> Dict {
+    return {:}
+}
+
+func field() {
+    let h = Holder(d: {"a": 1})
+    let e = Holder(d: {:})
+}
+
+func assignment() {
+    var x: Dict = {:}
+    x = {"a": 1}
+    x = {:}
+}
+
+func element() {
+    let v: Vector<Dict> = [{"a": 1}]
+    let e: Vector<Dict> = [{:}]
+}
+
+func main() {}

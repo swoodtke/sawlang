@@ -7,8 +7,8 @@
     (field It.done 12:5 private Bool)
     (alias Alias 15:6 private lends_path_through_alias.It)
     (extension 17:1 (target lends_path_through_alias.Owner))
-    (method Owner.alter 18:10 private (signature (receiver shared) (params) (effects borrows) (lend borrowing-struct shared) -> lends_path_through_alias.It) (summary body (suspends no) (sync-callable yes)))
-    (method Owner.alter_arms 22:10 private (signature (receiver shared) (params (flag Bool owned)) (effects borrows) (lend borrowing-struct shared) -> lends_path_through_alias.It) (summary body (suspends no) (sync-callable yes)))
+    (method Owner.alter 18:10 private (signature (receiver shared) (params) (effects borrows) (lend borrowing-struct shared) -> lends_path_through_alias.Alias) (summary body (suspends no) (sync-callable yes)))
+    (method Owner.alter_arms 22:10 private (signature (receiver shared) (params (flag Bool owned)) (effects borrows) (lend borrowing-struct shared) -> lends_path_through_alias.Alias) (summary body (suspends no) (sync-callable yes)))
     (func main 28:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (lends_path_through_alias.Owner
@@ -27,7 +27,7 @@
     (lends_path_through_alias.It Copy))
   (bodies
     (Owner.alter 18:10
-      (19:9-19:51 Call.paren lends_path_through_alias.It value temp (conversion lends_path_through_alias.Alias alias (owner lends_path_through_alias.It)))
+      (19:9-19:51 Call.paren lends_path_through_alias.Alias value temp (conversion lends_path_through_alias.Alias alias (owner lends_path_through_alias.It)))
       (19:15-19:50 Call.paren lends_path_through_alias.It value temp (memberwise lends_path_through_alias.It (owner lends_path_through_alias.It)))
       (19:26-19:36 Lends &lends_path_through_alias.Owner value temp)
       (19:32-19:36 SelfExpr lends_path_through_alias.Owner place borrow)
@@ -35,12 +35,12 @@
     (Owner.alter_arms 22:10
       (23:9-24:59 If Void value temp)
       (23:12-23:16 Name Bool place copy)
-      (23:19-23:61 Call.paren lends_path_through_alias.It value temp (conversion lends_path_through_alias.Alias alias (owner lends_path_through_alias.It)))
+      (23:19-23:61 Call.paren lends_path_through_alias.Alias value temp (conversion lends_path_through_alias.Alias alias (owner lends_path_through_alias.It)))
       (23:25-23:60 Call.paren lends_path_through_alias.It value temp (memberwise lends_path_through_alias.It (owner lends_path_through_alias.It)))
       (23:36-23:46 Lends &lends_path_through_alias.Owner value temp)
       (23:42-23:46 SelfExpr lends_path_through_alias.Owner place borrow)
       (23:54-23:59 BoolLit.false Bool value temp)
-      (24:16-24:57 Call.paren lends_path_through_alias.It value temp (conversion lends_path_through_alias.Alias alias (owner lends_path_through_alias.It)))
+      (24:16-24:57 Call.paren lends_path_through_alias.Alias value temp (conversion lends_path_through_alias.Alias alias (owner lends_path_through_alias.It)))
       (24:22-24:56 Call.paren lends_path_through_alias.It value temp (memberwise lends_path_through_alias.It (owner lends_path_through_alias.It)))
       (24:33-24:43 Lends &lends_path_through_alias.Owner value temp)
       (24:39-24:43 SelfExpr lends_path_through_alias.Owner place borrow)

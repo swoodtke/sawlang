@@ -1,7 +1,7 @@
-// The alias matrix's casts (SL-1012 U1, design 4.3), recorded at today's
-// verdicts: aliases are transparent, so every cast is accepted. The spec
-// turns away a cast into an alias and between siblings, and allows one out of an
-// alias and a partial projection to an alias on its chain.
+// The alias matrix's casts (SL-1012 U3a, design 4.3), recorded at the
+// distinct-alias verdicts: a cast into an alias and between siblings is an
+// ERROR, and one out of an alias, through its chain, or a partial projection
+// to an alias on its chain is accepted.
 
 type UserId = Int
 type OrderId = Int
@@ -50,7 +50,7 @@ func through_the_underlying() {
 }
 
 func struct_alias_out() {
-    let o: Owned = Wrapped(n: 3)
+    let o = Owned(Wrapped(n: 3))
     let w = o as Wrapped
     print(w.n)
 }

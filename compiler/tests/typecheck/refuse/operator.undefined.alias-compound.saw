@@ -1,0 +1,33 @@
+// refuses: operator.undefined at 13:5
+// errors: 5
+// a compound assignment on an alias place names the real place and the operator in its fix, spelled so it compiles (golden alias_fixit_spellings)
+// message: construct the new value, `h.n = UserId(h.n + 1)`
+
+type UserId = Int
+
+struct Holder {
+    n: UserId
+}
+
+func field(h: &var Holder) {
+    h.n += 1
+}
+
+func element(v: &var Vector<UserId>) {
+    v[0] += 1
+}
+
+func local() {
+    var x: UserId = 1
+    x += 1
+}
+
+func shift(h: &var Holder) {
+    h.n <<= 1 + 1
+}
+
+func subtract(h: &var Holder, k: Int) {
+    h.n -= k
+}
+
+func main() {}

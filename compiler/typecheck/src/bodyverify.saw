@@ -495,6 +495,11 @@ extension TcProgram {
                 if ti.kind == TcKind.Param {
                     return self.is_integer(from)
                 }
+                // A bare literal adopts the alias a slot allows it to (`static`,
+                // or a `let` of an alias over a primitive), whatever its kind.
+                if ti.alias >= 0 && fi.kind == ti.kind && fi.decl == ti.decl && fi.b == ti.b && fi.count == ti.count {
+                    return true
+                }
                 (self.is_integer(from) || self.is_raw_backed(from)) && ti.kind == TcKind.Nominal
             },
             case Never -> fi.kind == TcKind.Nominal && fi.decl == self.known.never,
@@ -518,7 +523,14 @@ extension TcProgram {
             case Widen -> self.is_integer(from) && self.is_integer(to) && from != to,
             case ForgetSendable -> self.types.forgets_sendable(from, to),
             case Payload -> fi.kind == TcKind.Nominal && fi.decl == self.known.optional && self.types.arg(from, 0) == to,
-            case PayloadVar -> fi.kind == TcKind.Nominal && fi.decl == self.known.optional && self.types.arg(from, 0) == to
+            case PayloadVar -> fi.kind == TcKind.Nominal && fi.decl == self.known.optional && self.types.arg(from, 0) == to,
+            // One link up the alias's chain, which its declaration built.
+            case Project -> {
+                if fi.alias >= 0 && self.sigs[fi.alias].result == to {
+                    return true
+                }
+                fi.kind == TcKind.Ref && ti.kind == TcKind.Ref && fi.a == ti.a && fi.b != ti.b && self.built_chain_has(fi.b, ti.b)
+            }
         }
     }
 

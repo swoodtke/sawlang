@@ -1,18 +1,18 @@
 ERROR	slice.not-yet	compiler/tests/eval/golden/alias_constants.saw:28:23	a constant of a type the evaluator does not hold in `static alias_constants.RATIO` is not evaluated as a constant in the bootstrap slice yet
 module alias_constants
 static alias_constants.BASE: Int = 7
-static alias_constants.LETTER: UInt8 = 65
-static alias_constants.NEXT: UInt8 = 66
+static alias_constants.LETTER: Byte = 65
+static alias_constants.NEXT: Byte = 66
 static alias_constants.WIDE: Int = 65
-static alias_constants.NESTED: UInt8 = 1
-static alias_constants.INNER: UInt8 = 9
-static alias_constants.NEGATIVE: Int8 = -3
-static alias_constants.LOWEST: Int8 = -128
-static alias_constants.SET: Bool = true
-static alias_constants.NAMED: Int = 7
-static alias_constants.CAST: UInt8 = 7
-static alias_constants.FOLDED: UInt8 = 255
-static alias_constants.RATIO: Float (no value)
+static alias_constants.NESTED: alias_constants.Octet = 1
+static alias_constants.INNER: Byte = 9
+static alias_constants.NEGATIVE: alias_constants.Small = -3
+static alias_constants.LOWEST: alias_constants.Small = -128
+static alias_constants.SET: alias_constants.Flag = true
+static alias_constants.NAMED: alias_constants.Count = 7
+static alias_constants.CAST: Byte = 7
+static alias_constants.FOLDED: Byte = 255
+static alias_constants.RATIO: alias_constants.Ratio (no value)
 raw alias_constants.Tag.One: UInt8 = 1
 raw alias_constants.Tag.Two: UInt8 = 2
 static_assert alias_constants 30:15: Bool = true

@@ -1,0 +1,34 @@
+(Module alias_cells_overloads
+  (declarations
+    (alias Small 7:6 private UInt8)
+    (func own 9:6 private (signature (params (p Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func own 10:6 private (signature (params (p alias_cells_overloads.Small owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func projects 12:6 private (signature (params (p Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func projects 13:6 private (signature (params (p UInt8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 15:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (own 9:6
+      (9:27-9:28 IntLit Int value temp))
+    (own 10:6
+      (10:29-10:30 IntLit Int value temp))
+    (projects 12:6
+      (12:32-12:33 IntLit Int value temp))
+    (projects 13:6
+      (13:34-13:35 IntLit Int value temp))
+    (main 15:6
+      (16:9-16:10 BindingName alias_cells_overloads.Small place temp)
+      (16:13-16:21 Call.paren alias_cells_overloads.Small value temp (conversion alias_cells_overloads.Small alias (owner UInt8)))
+      (16:19-16:20 IntLit Int (adopt UInt8) value temp)
+      (17:5-17:18 Call.paren Void value temp (builtin print))
+      (17:11-17:17 Call.paren Int value borrow (call alias_cells_overloads.own(p: Int)))
+      (17:15-17:16 IntLit Int value temp)
+      (18:5-18:18 Call.paren Void value temp (builtin print))
+      (18:11-18:17 Call.paren Int value borrow (call alias_cells_overloads.own(p: alias_cells_overloads.Small)))
+      (18:15-18:16 Name alias_cells_overloads.Small place copy)
+      (19:5-19:23 Call.paren Void value temp (builtin print))
+      (19:11-19:22 Call.paren Int value borrow (call alias_cells_overloads.projects(p: UInt8)))
+      (19:20-19:21 Name alias_cells_overloads.Small (project UInt8) place copy))))

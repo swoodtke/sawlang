@@ -1,0 +1,15 @@
+// refuses: static.not-constant at 11:21
+// errors: 7
+// a static is the one position where an alias of a Vector, Map or Set would adopt a literal, and the static rules refuse what the bare type is refused: the literal is no constant, and the collection owns a resource
+// message: is not a constant
+
+type Vec = Vector<Int>
+type Dict = Map<String, Int>
+type Bag = Set<Int>
+
+static VECTOR: Vec = [1, 2]
+static FULL: Dict = {"a": 1}
+static EMPTY: Dict = {:}
+static ITEMS: Bag = {1, 2}
+
+func main() {}

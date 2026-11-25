@@ -326,8 +326,25 @@ extension MonoProgram {
     //     role_item
     //     call_item_of
     //     closure_body_item
-    func function_item(&var self, source_body: Int, type_decl: Int, args: &Vector<Int>, func_decl_asked: Int, inst: &Vector<Int>,
-                       self_type: Int, origin: Int, node: Int, key: Int) -> Int {
+    // An item is keyed and instantiated by the representation of its types,
+    // so one generic at an alias and at the type it names is one item. The
+    // keys only dedupe: nothing compares an instance's identity, so a
+    // written key costs a duplicate instance, not behaviour (design 250).
+    func function_item(&var self, source_body: Int, type_decl: Int, written_args: &Vector<Int>, func_decl_asked: Int,
+                       written_inst: &Vector<Int>, written_self: Int, origin: Int, node: Int, key: Int) -> Int {
+        var args = Vector<Int>()
+        var inst = Vector<Int>()
+        var q = 0
+        while q < written_args.len() {
+            try! args.push(self.dp.bc.mir.tc.representation(written_args[q]))
+            q = q + 1
+        }
+        q = 0
+        while q < written_inst.len() {
+            try! inst.push(self.dp.bc.mir.tc.representation(written_inst[q]))
+            q = q + 1
+        }
+        let self_type = self.dp.bc.mir.tc.representation(written_self)
         var source = source_body
         var func_decl = func_decl_asked
         let winner = self.export_winner(source)
@@ -714,7 +731,8 @@ extension MonoProgram {
     // `report_stuck_meetings`.
     // ENTRY POINTS:
     //     concrete_type
-    func check_nominal_instances(&var self, t: Int) {
+    func check_nominal_instances(&var self, listed: Int) {
+        let t = self.dp.bc.mir.tc.representation(listed)
         if t < 0 || self.dp.bc.mir.tc.instance_checks.len() == 0 || self.dp.bc.mir.tc.mentions_param(t) {
             return
         }
@@ -992,7 +1010,8 @@ extension MonoProgram {
 
     // Error type `error`, forced in item `k`, whose function is declaration
     // `d` in module `viewer`, judged once.
-    func judge_forced_error(&var self, k: Int, d: Int, viewer: Int, error: Int) {
+    func judge_forced_error(&var self, k: Int, d: Int, viewer: Int, written: Int) {
+        let error = self.dp.bc.mir.tc.representation(written)
         if self.try_error_verdict(error) >= 0 {
             return
         }
@@ -1115,7 +1134,8 @@ extension MonoProgram {
     //     need_operand
     //     need_builtin_copy
     //     glued
-    public func glue_of(&var self, t: Int, kind: Int, origin: Int, node: Int) -> Int {
+    public func glue_of(&var self, written: Int, kind: Int, origin: Int, node: Int) -> Int {
+        let t = self.dp.bc.mir.tc.representation(written)
         let found = self.glue_item(t, kind)
         if found >= 0 {
             return found
@@ -2534,10 +2554,14 @@ extension MonoProgram {
     // concrete type `t`, made when new; -1 when refused. In the slice: the
     // cells the member glue table admits (`member_refusal` in glue.saw). A
     // cell the spec withholds, asked by a derived type's glue, is that
-    // derivation's unmet member (`refuse_unmet_member`).
+    // derivation's unmet member (`refuse_unmet_member`). A requirement called
+    // on an alias receiver arrives at the alias; the representation key only
+    // dedupes, so a written key costs a second, identical glue item, not
+    // behaviour.
     // ENTRY POINTS:
     //     glued
-    public func member_glue_of(&var self, req: Int, t: Int, origin: Int, node: Int) -> Int {
+    public func member_glue_of(&var self, req: Int, written: Int, origin: Int, node: Int) -> Int {
+        let t = self.dp.bc.mir.tc.representation(written)
         var at = self.by_key.first(t, MONO_KEY_MEMBER)
         while at >= 0 {
             let found = self.by_key.value(at)
@@ -2913,7 +2937,8 @@ extension MonoProgram {
     // ENTRY POINTS:
     //     need_fixed_render
     //     resolve_interpolation
-    func render_of(&var self, k: Int, t: Int, node: Int) -> Int {
+    func render_of(&var self, k: Int, written: Int, node: Int) -> Int {
+        let t = self.dp.bc.mir.tc.representation(written)
         let found = self.render_item(t)
         if found >= 0 {
             return found
@@ -3108,10 +3133,13 @@ extension MonoProgram {
 
     // THE VTABLE FUNNEL: the vtable of concrete type `concrete` at trait
     // `trait_decl`, made when new, with every slot a dispatch already calls
-    // filled and the type's drop glue reached.
+    // filled and the type's drop glue reached. The representation key only
+    // dedupes: a vtable's address is never compared, so an alias's own table
+    // would be a duplicate, not a behaviour change.
     // ENTRY POINTS:
     //     resolve_erasure
-    func vtable_of(&var self, k: Int, concrete: Int, trait_decl: Int, node: Int) -> Int {
+    func vtable_of(&var self, k: Int, written: Int, trait_decl: Int, node: Int) -> Int {
+        let concrete = self.dp.bc.mir.tc.representation(written)
         var at = self.by_key.first(concrete, MONO_KEY_VTABLE)
         while at >= 0 {
             let found = self.by_key.value(at)

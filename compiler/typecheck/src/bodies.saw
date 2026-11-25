@@ -83,6 +83,9 @@ static TC_OPS_WRAPPING: Int = 8
 static TC_HEAD_VALUE: Int = 0
 static TC_HEAD_CONDITIONAL: Int = 1
 static TC_HEAD_UNCONDITIONAL: Int = 2
+// An argument's rank against a parameter (`arg_rank`): its fit category
+// (0 none, 1 converted, 2 adopted, 3 exact) times the step.
+static TC_RANK_STEP: Int = 65536
 
 // What a `match`'s arm patterns bind (`arm_bindings`): no name, only names
 // that read, or at least one `var` or `borrow var` that may write.
@@ -1070,9 +1073,17 @@ extension TcProgram {
         try! msg.append(self.type_text(slot))
         try! msg.append("`, a shared reference, and `")
         try! msg.append(self.text(m, arg))
-        try! msg.append("` borrows exclusively: write `&")
-        try! msg.append(operand_text)
-        try! msg.append("` (call sites mirror the parameter's reference spelling)")
+        if self.is_alias(slot) {
+            try! msg.append("` borrows exclusively: write `")
+            try! msg.append(self.alias_written_name(slot))
+            try! msg.append("(&")
+            try! msg.append(operand_text)
+            try! msg.append(")` (a reference alias is entered by its construction)")
+        } else {
+            try! msg.append("` borrows exclusively: write `&")
+            try! msg.append(operand_text)
+            try! msg.append("` (call sites mirror the parameter's reference spelling)")
+        }
         self.refuse(e, "type.mismatch", msg.build())
         true
     }
@@ -1283,6 +1294,40 @@ extension TcProgram {
         if self.has_error(t) {
             let _ = self.expr(value, TC_WANT_NONE)
             self.consume(value)
+            return
+        }
+        if self.is_alias(t) {
+            // An operator's result is the type the alias names, so it does
+            // not store back into the alias's place (design 250).
+            let _ = self.expr(value, TC_WANT_NONE)
+            self.consume(value)
+            let place = self.text(self.current, self.res.first_node_child(s))
+            let operand = self.text(self.current, value)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(op)
+            try! msg.append("` computes at the type `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` names, and its result does not flow back into a `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("`: construct the new value, `")
+            try! msg.append(place)
+            try! msg.append(" = ")
+            try! msg.append(self.alias_written_name(t))
+            try! msg.append("(")
+            try! msg.append(place)
+            try! msg.append(" ")
+            try! msg.append(op.substring(0, op.len() - 1))
+            try! msg.append(" ")
+            if operand.contains(" ") {
+                try! msg.append("(")
+                try! msg.append(operand)
+                try! msg.append(")")
+            } else {
+                try! msg.append(operand)
+            }
+            try! msg.append(")`")
+            self.refuse(s, "operator.undefined", msg.build())
             return
         }
         let shift = op.equals("<<=") || op.equals(">>=")
@@ -1773,7 +1818,12 @@ extension TcProgram {
                 let hint = if slot >= 0 { slot } else { TC_WANT_NONE }
                 let _ = self.expr(e, hint)
             } else {
-                let target = self.peeled_target(e, slot)
+                var target = self.peeled_target(e, slot)
+                if self.adopts_alias_literal(e, slot, pos) {
+                    // The literal is written at the type the alias names, so
+                    // it is range-checked there, then adopted whole below.
+                    target = self.types.unaliased(slot)
+                }
                 if target == TC_PEEL_AMBIGUOUS {
                     self.refuse_ambiguous_result(e, slot)
                     let poisoned = self.error_type
@@ -1811,8 +1861,12 @@ extension TcProgram {
             self.take(e, borrowed)
             return from
         }
-        let how = self.coerce(e, from, slot, allow)
+        var how = self.coerce(e, from, slot, allow)
         self.take(e, borrowed)
+        if how == TC_FIT_NONE && from >= 0 && self.adopts_alias_literal(e, slot, pos) && from == self.types.unaliased(slot) {
+            self.add_adjust(e, TcAdjustKind.Adopt, slot)
+            how = TC_FIT_CONVERTED
+        }
         if how == TC_FIT_NONE {
             if self.func_pointer_wanted(slot) >= 0 && self.kind_of(from) == TcKind.Func {
                 self.refuse_function_value_as_pointer(e, from)
@@ -2818,7 +2872,7 @@ extension TcProgram {
         var a = self.adj_head[at]
         while a >= 0 {
             let adj = self.adjusts[a]
-            if adj.kind == TcAdjustKind.Adopt || adj.kind == TcAdjustKind.Widen {
+            if adj.kind == TcAdjustKind.Adopt || adj.kind == TcAdjustKind.Widen || adj.kind == TcAdjustKind.Project {
                 t = adj.to
             }
             a = adj.next
@@ -2909,6 +2963,56 @@ extension TcProgram {
             return self.peel_or_slot(peeled, slot)
         }
         slot
+    }
+
+    // THE ALIAS-LITERAL FUNNEL: whether literal `e` is adopted whole by alias
+    // slot `slot` at position `pos`. A literal is a bare scalar, a negated
+    // numeric one, or a collection literal of the alias's own representation;
+    // an expression computed from literals or statics is a value, not a
+    // literal, and enters by `Alias(x)`. A module `static` and an annotated
+    // `let` or `var` adopt a literal of the type the alias names, a scalar
+    // into an integer alias only over `Int` at a `let`. Every other position
+    // enters an alias by `Alias(x)` (SL-48).
+    //
+    // ENTRY POINTS (adopts_alias_literal):
+    //     expect
+    func adopts_alias_literal(&var self, e: Int, slot: Int, pos: TcPosition) -> Bool {
+        // `lends self` names the field it fills, so it enters a field that is
+        // an alias of a reference.
+        if pos == TcPosition.Field && self.is_alias(slot) && self.has_alt(e, Alt.Expr_Lends) {
+            return self.kind_of(self.types.unaliased(slot)) == TcKind.Ref
+        }
+        if not self.is_alias(slot) || (pos != TcPosition.Static && pos != TcPosition.Let) {
+            return false
+        }
+        let rep = self.types.unaliased(slot)
+        let in_static = pos == TcPosition.Static
+        if self.kind_of(rep) == TcKind.Array {
+            return self.has_alt(e, Alt.Expr_Array) || self.has_alt(e, Alt.Expr_Repeat)
+        }
+        if self.is_nominal_of(rep, self.known.vector) {
+            return self.has_alt(e, Alt.Expr_Array)
+        }
+        if self.is_nominal_of(rep, self.known.map) {
+            return self.has_alt(e, Alt.Expr_Map_Empty) || self.has_alt(e, Alt.Expr_Map_Entries)
+        }
+        if self.is_nominal_of(rep, self.known.set) {
+            return self.has_alt(e, Alt.Expr_Set)
+        }
+        var operand = e
+        if self.has_alt(e, Alt.Expr_Unary_Negate) {
+            operand = self.res.first_node_child(e)
+        }
+        if self.has_alt(operand, Alt.Expr_Float) {
+            return self.is_float(rep)
+        }
+        if self.has_alt(operand, Alt.Expr_Int) && not self.is_suffixed_literal(operand) {
+            return self.is_integer(rep) && (in_static || self.nominal_decl(rep) == self.known.int)
+        }
+        if self.has_alt(e, Alt.Expr_Bool_True) || self.has_alt(e, Alt.Expr_Bool_False) {
+            return self.is_bool(rep)
+        }
+        self.has_alt(e, Alt.Expr_String) && self.is_string(rep)
     }
 
     func peel_or_slot(&self, peeled: Int, slot: Int) -> Int {
@@ -3300,7 +3404,7 @@ extension TcProgram {
     func position_text(&self, pos: TcPosition) -> String {
         match pos {
             case Let -> "the annotated binding",
-            case Static -> "the static's type",
+            case Static -> "the static",
             case Assign -> "the assignment's target",
             case Argument -> "the parameter",
             case Field -> "the field",
@@ -3360,7 +3464,7 @@ extension TcProgram {
         if not allow.widens && self.widens_losslessly(from, slot) {
             return "; an operator's operands agree, and only a transfer widens an integer, so convert one with `as`"
         }
-        if allow.widens && self.is_integer(from) && self.is_integer(slot) {
+        if allow.widens && self.is_integer(from) && self.is_integer(slot) && not self.is_alias(slot) {
             return "; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)` for `None`, or `.from(truncating: ...)` for the low bits"
         }
         if allow.results == 0 {
@@ -3544,7 +3648,7 @@ extension TcProgram {
     //     unary_expr
     //     arithmetic_expr
     func adopts_integer(&self, want: Int) -> Bool {
-        want >= 0 && (self.is_integer(want) || want == self.generic_default)
+        want >= 0 && ((self.is_integer(want) && not self.is_alias(want)) || want == self.generic_default)
     }
 
     // A float literal whose exact value rounds to infinity, or is nonzero and
@@ -3898,7 +4002,9 @@ extension TcProgram {
         }
         let t = self.alias_type(d, -1)
         if self.is_integer(t) {
-            return self.set_type(e, t, false)
+            // The limit is a value of the alias, as its construction is.
+            let built = self.alias_twin(d, -1)
+            return self.set_type(e, built, false)
         }
         if not self.has_error(t) {
             var msg = StringBuilder()
@@ -4409,7 +4515,8 @@ extension TcProgram {
         }
         let type_decl = self.type_named_by(base)
         if type_decl >= 0 {
-            return self.static_member(e, type_decl, leaf, want)
+            let alias = self.alias_named_by(base)
+            return self.static_member(e, type_decl, alias, leaf, want)
         }
         let bt = self.expr(base, TC_WANT_NONE)
         self.set_use(base, TcUse.Project)
@@ -4619,6 +4726,19 @@ extension TcProgram {
 
     // The nominal declaration expression `base` names as a type, not a
     // value: a type's name, `Self`, or a qualified type; -1 for a value.
+    // The distinct alias expression `base` names as a type, or -1.
+    func alias_named_by(&self, base: Int) -> Int {
+        if base < 0 || not (self.has_alt(base, Alt.Expr_Name) || self.has_alt(base, Alt.Expr_Member)) {
+            return -1
+        }
+        let leaf = self.res.first_leaf(base)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias {
+            return b.decl
+        }
+        -1
+    }
+
     func type_named_by(&var self, base: Int) -> Int {
         if base < 0 {
             return -1
@@ -4652,12 +4772,14 @@ extension TcProgram {
     // builtin integer's `max` or `min`, or a non-generic type's `static`
     // method named as a value (`function_value_among`); a method with a
     // receiver named without its call is outside the slice.
-    func static_member(&var self, e: Int, d: Int, leaf: Int, want: Int) -> Int {
+    func static_member(&var self, e: Int, d: Int, alias: Int, leaf: Int, want: Int) -> Int {
         let m = self.current
         let text = self.text(m, leaf)
         let t = self.prim_or_self(d)
         if self.is_integer(t) && (text.equals("max") || text.equals("min")) {
-            return self.set_type(e, t, false)
+            // An integer alias's limit is a value of the alias (SL-1012 Q5).
+            let limit = if alias >= 0 { self.alias_twin(alias, -1) } else { t }
+            return self.set_type(e, limit, false)
         }
         let name = self.res.intern(text)
         let in_test = self.current_test
@@ -4835,9 +4957,14 @@ extension TcProgram {
         self.negated_literal = outer
         self.negation = outer_negation
         self.consume(operand)
-        let t = self.through_refs(operand)
+        var t = self.through_refs(operand)
         if self.has_error(t) {
             return self.set_type(e, t, false)
+        }
+        if self.is_alias(t) {
+            let named = self.types.unaliased(t)
+            self.read_at_representation(operand, named)
+            t = named
         }
         if which == 1 {
             if not self.is_bool(t) {
@@ -4902,6 +5029,7 @@ extension TcProgram {
             return self.set_type(e, cwant, false)
         }
         var t = -1
+        var named = -1
         var poisoned = false
         var operand = 0
         var k = 0
@@ -4917,7 +5045,17 @@ extension TcProgram {
             }
             let _ = self.expr(c, TC_WANT_NONE)
             self.consume(c)
-            let ct = self.through_refs(c)
+            // An alias operand is read at the type it names, and the result
+            // is that type; two sibling aliases are no peers (design 250)
+            let own = self.through_refs(c)
+            if self.is_alias(own) {
+                if named >= 0 && self.sibling_aliases(named, own) {
+                    self.refuse_operands_disagree(c, named, own)
+                    poisoned = true
+                }
+                named = self.deeper_alias(named, own)
+            }
+            let ct = self.types.unaliased(own)
             let cd = self.nominal_decl(ct)
             if cd >= 0 && (cd == self.known.unsafe_pointer || cd == self.known.unsafe_const_pointer) {
                 return self.pointer_offset(e, ct, operand, spelling)
@@ -4952,6 +5090,8 @@ extension TcProgram {
             }
             if self.is_constant_expr(c) {
                 let _ = self.check_operand(c, t)
+            } else if not poisoned {
+                self.read_at_representation(c, t)
             }
             if not poisoned && (op.equals("/") || op.equals("%")) {
                 self.check_certain_fault(e, c, t, true)
@@ -4975,6 +5115,23 @@ extension TcProgram {
         }
         self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
         self.set_type(e, t, false)
+    }
+
+    // Operand `c`, typed and read through its references, taken at `t` where
+    // its own type is an alias of it: the projection an operator applies to an
+    // alias value, which is read as the type it names (design 250).
+    //
+    // ENTRY POINTS (read_at_representation):
+    //     arithmetic_expr
+    //     compare_expr
+    //     unary_expr
+    func read_at_representation(&var self, c: Int, t: Int) {
+        let own = self.final_type(c)
+        if own == t || not self.is_alias(own) {
+            return
+        }
+        let allow = self.allowance(TcPosition.Operand)
+        let _ = self.coerce(c, own, t, allow)
     }
 
     // `p + n` and `p - n` on a raw pointer `p` of type `pt`: the pointer `n`
@@ -5301,17 +5458,32 @@ extension TcProgram {
         let left_peer = self.needs_expectation(left)
         let right_peer = self.needs_expectation(right)
         var checked = right
+        // An alias operand is compared at the type it names (design 250),
+        // and two different aliases are no peers.
+        var siblings = false
         if left_peer && not right_peer {
             let _ = self.expr(right, TC_WANT_NONE)
-            t = self.through_refs(right)
+            let own = self.through_refs(right)
+            t = self.types.unaliased(own)
             self.presence_chain = saved
             let _ = self.check_compared(left, t)
+            siblings = self.sibling_operands(left, own)
+            self.read_at_representation(right, t)
             checked = left
         } else {
             let _ = self.expr(left, TC_WANT_NONE)
-            t = self.through_refs(left)
+            let own = self.through_refs(left)
+            t = self.types.unaliased(own)
             self.presence_chain = saved
             let _ = self.check_compared(right, t)
+            siblings = self.sibling_operands(right, own)
+            self.read_at_representation(left, t)
+        }
+        if siblings {
+            let b = self.bool_type()
+            self.set_use(left, TcUse.Borrow)
+            self.set_use(right, TcUse.Borrow)
+            return self.set_type(e, b, false)
         }
         self.set_use(left, TcUse.Borrow)
         self.set_use(right, TcUse.Borrow)
@@ -5337,6 +5509,44 @@ extension TcProgram {
             self.refuse_wrapped_comparison(e, t, equality, spelling)
         }
         self.set_type(e, b, false)
+    }
+
+    // Whether comparison operand `checked`, typed against its peer's
+    // representation, is a sibling alias of the peer's `own`, so the
+    // comparison is refused here (design 250).
+    func sibling_operands(&var self, checked: Int, own: Int) -> Bool {
+        var other = self.expr_types[checked]
+        let inner = self.referent(other)
+        if inner >= 0 {
+            other = inner
+        }
+        if not self.sibling_aliases(own, other) {
+            return false
+        }
+        self.refuse_operands_disagree(checked, own, other)
+        true
+    }
+
+    // THE SIBLING TEST: whether operand types `x` and `y`, read through their
+    // references, are two aliases whose chains diverge, neither on the
+    // other's. Such operands are no peers. Two aliases on one chain are
+    // peers, compared at the representation they share (design 250).
+    // ENTRY POINTS:
+    //     arithmetic_expr
+    //     compare_expr (sibling_operands)
+    //     range_expr
+    func sibling_aliases(&var self, x: Int, y: Int) -> Bool {
+        self.is_alias(x) && self.is_alias(y) && not self.on_alias_chain(x, y) && not self.on_alias_chain(y, x)
+    }
+
+    // Of alias operand types `named` (-1 for none yet) and `own`, the one
+    // further down a chain they share, which a later operand is judged
+    // against.
+    func deeper_alias(&var self, named: Int, own: Int) -> Int {
+        if named < 0 || self.on_alias_chain(own, named) {
+            return own
+        }
+        named
     }
 
     // THE PRESENT-AND-EQUAL COMPARISON: `p == b`, with `p` an Optional and
@@ -5633,9 +5843,23 @@ extension TcProgram {
                 self.record_builtin(e, -1, TcRole.BuiltinOperator, "??")
                 return self.set_type(e, ft, false)
             }
+            // An alias payload and a fallback of a type up its chain join at
+            // the fallback's type, and MIR retypes the payload it takes out.
+            let fallback = self.final_type(last)
+            var read = fallback
+            let inner = self.referent(fallback)
+            if inner >= 0 && self.reads_reference(last) {
+                read = inner
+            }
+            let none = Vector<Int>()
+            let joined = self.join_alias(read, payload, &none)
+            if joined >= 0 && joined != payload {
+                let _ = self.check_coalesce_right(last, joined)
+                self.record_builtin(e, -1, TcRole.BuiltinOperator, "??")
+                return self.set_type(e, joined, false)
+            }
             // The merged home would be the fallback's type, and no adjustment
             // widens a payload inside its Optional.
-            let fallback = self.final_type(last)
             if self.widens_losslessly(payload, fallback) {
                 self.not_yet(e, "a `??` whose fallback is wider than the optional's payload")
                 let poisoned = self.error_type
@@ -5660,10 +5884,24 @@ extension TcProgram {
         let i = self.int_type()
         let n = self.child_count(e)
         var k = 0
+        var named = -1
         while k < n {
             let c = self.child(e, k)
             if not self.is_leaf(c) {
                 let _ = self.check_operand(c, i)
+                // Both bounds project to `Int`, and two sibling aliases are
+                // no peers, as for every other operator (design 250).
+                var own = self.expr_types[c]
+                let inner = self.referent(own)
+                if inner >= 0 {
+                    own = inner
+                }
+                if self.is_alias(own) {
+                    if named >= 0 && self.sibling_aliases(named, own) {
+                        self.refuse_operands_disagree(c, named, own)
+                    }
+                    named = self.deeper_alias(named, own)
+                }
             }
             k = k + 1
         }
@@ -5747,7 +5985,11 @@ extension TcProgram {
             try! msg.append(self.type_text(from))
             try! msg.append("` to `")
             try! msg.append(self.type_text(to))
-            try! msg.append("`: it converts between numbers, from a raw-backed enum, and between pointers")
+            if self.is_alias(to) {
+                try! msg.append("`: an alias is entered by its construction, not by a cast; `as` converts toward the type an alias names")
+            } else {
+                try! msg.append("`: it converts between numbers, from a raw-backed enum, and between pointers")
+            }
             self.refuse(e, "type.cast", msg.build())
         }
         if self.is_integer(to) {
@@ -5820,6 +6062,16 @@ extension TcProgram {
     func cast_allowed(&var self, from: Int, to: Int) -> Bool {
         if from == to {
             return true
+        }
+        // The cast is one-directional (spec, Type Definitions): out of an
+        // alias by its chain, then by the rules of the type it reaches, and
+        // never into one, but for a link of the operand's own chain.
+        if self.is_alias(to) {
+            return self.on_alias_chain(from, to)
+        }
+        if self.is_alias(from) {
+            let up = self.alias_parent(from)
+            return up >= 0 && self.cast_allowed(up, to)
         }
         if self.is_numeric(from) && self.is_numeric(to) {
             return true
@@ -6572,11 +6824,49 @@ extension TcProgram {
         self.local_types[handler] = err
         if self.has_error(ok) {
             let _ = self.check_block(handler, TC_WANT_NONE, TcTail.Branch)
+        } else if self.is_alias(ok) && self.joins_arm(handler) {
+            // The catch block's value joins the `Ok` payload, which MIR
+            // retypes where the join is up the payload's chain.
+            let none = Vector<Int>()
+            let joined = self.join_arm(handler, ok, &none)
+            return self.set_type(e, joined, false)
         } else {
             let ct = self.check_block(handler, ok, TcTail.Branch)
             self.check_branch_value(handler, ct, ok)
         }
         self.set_type(e, ok, false)
+    }
+
+    // Whether block `block`, an arm after peers whose type is an alias, is
+    // typed on its own and joined (`join_arm`): its tail types itself.
+    func joins_arm(&self, block: Int) -> Bool {
+        let tail = self.block_tail(block)
+        tail >= 0 && not self.needs_expectation(tail)
+    }
+
+    // Block `block`, typed on its own, joined to the peers before it,
+    // `peers`, of type `merged` (`join_alias`); a block that joins none is
+    // refused. Returns the joined type.
+    func join_arm(&var self, block: Int, merged: Int, peers: &Vector<Int>) -> Int {
+        let tail = self.block_tail(block)
+        let bt = self.check_block(block, TC_WANT_NONE, TcTail.Branch)
+        if self.is_never(bt) || self.has_error(bt) {
+            return merged
+        }
+        if self.is_void(bt) {
+            self.check_branch_value(block, bt, merged)
+            return merged
+        }
+        let joined = self.join_alias(bt, merged, &peers)
+        if joined < 0 {
+            self.refuse_no_common_type(tail, merged, bt)
+            return merged
+        }
+        if joined != bt {
+            let allow = TcAllowance(optionals: 0, results: 0, erases: false, widens: false)
+            let _ = self.coerce(tail, bt, joined, allow)
+        }
+        joined
     }
 
     // `try { … } catch { … }` (spec, Block Try-Catch): each `try` in the
@@ -6610,6 +6900,12 @@ extension TcProgram {
             et = self.error_type
         }
         self.local_types[handler] = et
+        if want < 0 && want != TC_WANT_STMT && self.is_alias(slot) && self.joins_arm(handler) {
+            var peers = Vector<Int>()
+            try! peers.push(self.block_tail(body))
+            let joined = self.join_arm(handler, slot, &peers)
+            return self.set_type(e, joined, false)
+        }
         let ct = self.try_block_arm(handler, slot)
         if slot < 0 && not self.is_never(ct) && not self.has_error(ct) {
             slot = ct
@@ -6720,13 +7016,15 @@ extension TcProgram {
 
     // The collection type an expected type names, through Optionals: its
     // declaration when it is `d`, else -1.
-    func collection_slot(&self, want: Int, d: Int) -> Int {
+    func collection_slot(&var self, want: Int, d: Int) -> Int {
         var t = want
         while t >= 0 && self.is_optional(t) {
             t = self.arg_of(t, 0)
         }
         if t >= 0 && self.is_nominal_of(t, d) {
-            return t
+            // The literal is a value of the type the alias names; an alias
+            // slot adopts it only where `adopts_alias_literal` says.
+            return self.types.unaliased(t)
         }
         return -1
     }
@@ -6755,7 +7053,7 @@ extension TcProgram {
             }
             let info = self.types.ty(w)
             if info.kind == TcKind.Array {
-                array = w
+                array = self.types.unaliased(w)
             }
         }
         var element = -1
@@ -6767,11 +7065,14 @@ extension TcProgram {
             element = self.types.ty(array).b
             result = array
         }
+        var peers = Vector<Int>()
         k = 0
         while k < values.len() {
             let v = values[k]
-            if element >= 0 {
+            if element >= 0 && result >= 0 {
                 self.check_element(v, element)
+            } else if element >= 0 {
+                element = self.join_element(v, element, &peers)
             } else {
                 let _ = self.expr(v, TC_WANT_NONE)
                 element = self.read_value(v)
@@ -6781,6 +7082,7 @@ extension TcProgram {
                 self.check_escape(v, -1, TcPosition.Element)
                 self.consume(v)
             }
+            try! peers.push(v)
             k = k + 1
         }
         if result < 0 {
@@ -7030,7 +7332,7 @@ extension TcProgram {
         while a >= 0 {
             let adj = self.adjusts[a]
             a = adj.next
-            if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen {
+            if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen && adj.kind != TcAdjustKind.Project {
                 return none
             }
             s = self.symbolic_convert(e, TC_CONST_ADOPT, adj.to, s)
@@ -7371,6 +7673,8 @@ extension TcProgram {
             value = self.arg_of(slot, 1)
         }
         let n = self.child_count(e)
+        var keys = Vector<Int>()
+        var values = Vector<Int>()
         var k = 0
         while k < n {
             let c = self.child(e, k)
@@ -7380,9 +7684,12 @@ extension TcProgram {
             }
             let kn = self.res.first_node_child(c)
             let vn = self.res.last_node_child(c)
-            if key >= 0 {
+            if key >= 0 && slot >= 0 {
                 self.check_element(kn, key)
                 self.check_element(vn, value)
+            } else if key >= 0 {
+                key = self.join_element(kn, key, &keys)
+                value = self.join_element(vn, value, &values)
             } else {
                 let _ = self.expr(kn, TC_WANT_NONE)
                 key = self.read_value(kn)
@@ -7393,6 +7700,8 @@ extension TcProgram {
                 self.check_escape(vn, -1, TcPosition.Element)
                 self.consume(vn)
             }
+            try! keys.push(kn)
+            try! values.push(vn)
         }
         if slot >= 0 {
             return self.set_type(e, slot, false)
@@ -7416,6 +7725,7 @@ extension TcProgram {
             element = self.arg_of(slot, 0)
         }
         let n = self.child_count(e)
+        var peers = Vector<Int>()
         var k = 0
         while k < n {
             let c = self.child(e, k)
@@ -7423,14 +7733,17 @@ extension TcProgram {
             if self.is_leaf(c) {
                 continue
             }
-            if element >= 0 {
+            if element >= 0 && slot >= 0 {
                 self.check_element(c, element)
+            } else if element >= 0 {
+                element = self.join_element(c, element, &peers)
             } else {
                 let _ = self.expr(c, TC_WANT_NONE)
                 element = self.read_value(c)
                 self.check_escape(c, -1, TcPosition.Element)
                 self.consume(c)
             }
+            try! peers.push(c)
         }
         if slot >= 0 {
             return self.set_type(e, slot, false)
@@ -7882,11 +8195,11 @@ extension TcProgram {
 
     // Whether a value branch's later arm, ending in `tail`, is typed on its
     // own and merged, rather than against the arms before it: the arms so far
-    // merged into an integer, and the tail types itself, so it may be the
-    // wider arm the others widen into (spec, "Value-branch arms are
-    // transfers").
+    // merged into an integer or an alias, and the tail types itself, so it
+    // may be the wider arm the others widen into, or the type up the alias's
+    // chain they join at (spec, "Value-branch arms are transfers").
     func arm_merges(&self, tail: Int, merged: Int) -> Bool {
-        tail >= 0 && self.is_integer(merged) && not self.needs_expectation(tail)
+        tail >= 0 && (self.is_integer(merged) || self.is_alias(merged)) && not self.needs_expectation(tail)
     }
 
     // Whether a value branch with no expected type checks the arm ending in
@@ -7953,6 +8266,14 @@ extension TcProgram {
             return merged
         }
         let allow = TcAllowance(optionals: 0, results: 0, erases: false, widens: true)
+        let joined = self.join_alias(bt, merged, &tails)
+        if joined >= 0 {
+            if joined != bt {
+                let _ = self.coerce(tail, bt, joined, allow)
+            }
+            self.note_tail(tail, &var tails)
+            return joined
+        }
         if self.widens_losslessly(bt, merged) {
             let _ = self.coerce(tail, bt, merged, allow)
             self.note_tail(tail, &var tails)
@@ -7970,14 +8291,89 @@ extension TcProgram {
             self.note_tail(tail, &var tails)
             return bt
         }
+        self.refuse_no_common_type(tail, merged, bt)
+        merged
+    }
+
+    // Peer `tail`, of type `bt`, that joins no peer before it, of type
+    // `merged`.
+    func refuse_no_common_type(&var self, tail: Int, merged: Int, bt: Int) {
         var msg = StringBuilder()
         try! msg.append("the branches have no common type: `")
         try! msg.append(self.type_text(merged))
         try! msg.append("` and `")
         try! msg.append(self.type_text(bt))
-        try! msg.append("`, and neither widens into the other without losing a value")
+        if self.is_alias(merged) && self.is_alias(bt) {
+            try! msg.append("`, which are distinct aliases: neither flows into the other, so write one arm with `as` to the type it names")
+        } else if not self.is_integer(merged) || not self.is_integer(bt) {
+            try! msg.append("`, and neither flows into the other")
+        } else {
+            try! msg.append("`, and neither widens into the other without losing a value")
+        }
         self.refuse(tail, "type.mismatch", msg.build())
-        merged
+    }
+
+    // THE ALIAS JOIN FUNNEL: where the checker joins the types of peers,
+    // none of which is expected of another, a peer of type `t` joins the
+    // peers before it, `peers`, whose type so far is `merged`. An alias and a
+    // type on its chain join at the type on the chain, which the projection
+    // reaches losslessly: the earlier peers typed `merged` project
+    // to it here, and the caller projects the new peer. Returns the joined
+    // type, or -1 when neither type is on the other's chain, sibling aliases
+    // among them, which leaves the position's own rule to decide. A peer
+    // whose value sits inside its operand, `??`'s left payload or a `try`'s
+    // `Ok`, has no expression of its own to project, so MIR retypes it.
+    // A closure's inferred result is no join position: a closure cannot
+    // annotate its result, so its `return`s type first-return-wins, as plain
+    // widths do, and an alias that follows a return of the type it names is
+    // refused.
+    // ENTRY POINTS:
+    //     merge_arm (if_expr, match_expr)
+    //     try_block_expr
+    //     try_catch_expr
+    //     coalesce_expr
+    //     join_element (array_expr, set_expr, map_expr)
+    func join_alias(&var self, t: Int, merged: Int, peers: &Vector<Int>) -> Int {
+        if t < 0 || merged < 0 {
+            return -1
+        }
+        if t == merged || (self.is_alias(t) && self.on_alias_chain(t, merged)) {
+            return merged
+        }
+        if not self.is_alias(merged) || not self.on_alias_chain(merged, t) {
+            return -1
+        }
+        let allow = TcAllowance(optionals: 0, results: 0, erases: false, widens: false)
+        var k = 0
+        while k < peers.len() {
+            let earlier = peers[k]
+            if earlier >= 0 && self.final_type(earlier) == merged {
+                let _ = self.coerce(earlier, merged, t, allow)
+            }
+            k = k + 1
+        }
+        t
+    }
+
+    // Element `v` of a collection literal whose element type `element` its
+    // peers before it, `peers`, gave: one that types itself joins them
+    // (`join_alias`), and the element is checked against the joined type.
+    // Returns that type.
+    func join_element(&var self, v: Int, element: Int, peers: &Vector<Int>) -> Int {
+        if not self.is_alias(element) || self.needs_expectation(v) {
+            self.check_element(v, element)
+            return element
+        }
+        let _ = self.expr(v, TC_WANT_NONE)
+        var own = self.final_type(v)
+        let inner = self.referent(own)
+        if inner >= 0 && self.reads_reference(v) {
+            own = inner
+        }
+        let joined = self.join_alias(own, element, &peers)
+        let slot = if joined >= 0 { joined } else { element }
+        self.check_element(v, slot)
+        slot
     }
 
     // An `else if` arm's head; returns its block.
@@ -11222,7 +11618,27 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        self.check_argument(args.values[0], t)
+        // A bare literal adopts the type the alias names at the bottom of its
+        // chain (`Octet(1)` over `type Octet = Byte` is `Octet(Byte(1))`), so
+        // it is checked, and range-checked, there (spec, Type Definitions).
+        // Any type below it on its chain also builds it, the representation
+        // included: the argument projects down to the bottom, and a sibling
+        // alias, which is on no chain of `t`, is refused.
+        var slot = t
+        if self.is_alias(t) {
+            slot = self.types.unaliased(t)
+        }
+        self.check_argument(args.values[0], slot)
+        let given = self.expr_types[args.values[0]]
+        if given >= 0 && self.is_alias(t) && self.is_alias(given) && not self.on_alias_chain(t, given) && not self.has_error(given) {
+            var msg = StringBuilder()
+            try! msg.append("expected a `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` or a type below it, and found `")
+            try! msg.append(self.type_text(given))
+            try! msg.append("`, an alias of its own")
+            self.refuse(args.values[0], "type.mismatch", msg.build())
+        }
         // The construction carries its argument's value. Over a non-escaping
         // function type that is the argument itself (`nonescaping_value`
         // reads through it); any other target holds the function as storage,
@@ -11240,7 +11656,9 @@ extension TcProgram {
         var c = self.calls[at]
         c.spelling = self.res.intern("alias")
         self.calls[at] = c
-        self.set_type(e, t, false)
+        // The construction is the alias itself, a type of its own.
+        let built = self.alias_twin(alias, -1)
+        self.set_type(e, built, false)
     }
 
     // The refusal of a construction of `alias` whose callee is `callee`,
@@ -12939,11 +13357,11 @@ extension TcProgram {
             var row = Vector<Int>()
             while j < args.values.len() {
                 let p = bind.arg_param[j]
-                var f = 1
+                var f = TC_RANK_STEP
                 if p >= 0 {
                     let raw = self.cand_param_type(c, p)
                     let pt = self.subst(raw, &sub)
-                    f = self.arg_fit(args.values[j], pt, owner)
+                    f = self.arg_rank(args.values[j], pt, owner)
                 }
                 if f <= 0 {
                     all = false
@@ -13099,9 +13517,6 @@ extension TcProgram {
         return -1
     }
 
-    // How well argument `v` fits a parameter of type `p`: exact 3, adopting
-    // 2, converting or generic 1, not at all 0. `owner`'s parameters in `p`
-    // are unknowns inference would solve.
     // An argument of type `a` against parameter type `p`: 3 exact, 1
     // converted, 0 no fit.
     func fit_score(&var self, a: Int, p: Int, allow: TcAllowance) -> Int {
@@ -13115,6 +13530,68 @@ extension TcProgram {
         return 0
     }
 
+    // THE ARGUMENT RANKING FUNNEL: argument `v`'s rank against
+    // a parameter of type `p`, which the overload filter compares between
+    // candidates. An argument of an alias type, or a reference to one, ranks
+    // as the best type up its chain would, read at that type's place in the
+    // chain, so an implicit projection keeps the ranking the type it names
+    // gets: `&n` with `n: Name` picks `f(x: &String)` over `f(x: String)` as
+    // `&s` does. The argument's own fit category decides, the best link
+    // winning and the direct fit keeping a tie; two parameters fitting
+    // through different links of one chain at one category could not be
+    // declared together (`overload.indistinguishable`).
+    // A sibling alias is on no link, so it never fits the other's parameter.
+    // ENTRY POINTS:
+    //     filter_candidates
+    func arg_rank(&var self, v: Int, p: Int, owner: Int) -> Int {
+        var rank = self.arg_fit(v, p, owner) * TC_RANK_STEP
+        if rank <= 0 || not self.is_typed(v) || (owner >= 0 && self.mentions_owner(p, owner)) {
+            return rank
+        }
+        let a = self.final_type(v)
+        let reads = self.reads_reference(v)
+        let inner = self.referent(a)
+        let by_ref = inner >= 0 && self.is_alias(inner)
+        if not by_ref && not self.is_alias(a) {
+            return rank
+        }
+        let exclusive = by_ref && self.is_exclusive_ref(a)
+        let allow = self.allowance(TcPosition.Argument)
+        var link = if by_ref { self.alias_parent(inner) } else { self.alias_parent(a) }
+        while link >= 0 {
+            let read = if by_ref { self.mk_ref(exclusive, link) } else { link }
+            let at = self.typed_fit(read, reads, p, allow) * TC_RANK_STEP
+            if at > rank {
+                rank = at
+            }
+            link = self.alias_parent(link)
+        }
+        rank
+    }
+
+    // A typed argument of type `a`'s fit category against parameter type
+    // `p`; `reads` when the argument is a bare reference binding.
+    func typed_fit(&var self, a: Int, reads: Bool, p: Int, allow: TcAllowance) -> Int {
+        if reads {
+            // A bare reference binding reads its referent's value, as
+            // every by-value position does; a reference parameter it
+            // fits only by its sigil, which `expect` then asks for.
+            let inner = self.referent(a)
+            let by_value = self.fit_score(inner, p, allow)
+            if by_value > 0 {
+                return by_value
+            }
+            if self.fit(a, p, allow) != TC_FIT_NONE {
+                return 1
+            }
+            return 0
+        }
+        self.fit_score(a, p, allow)
+    }
+
+    // How well argument `v` fits a parameter of type `p`: exact 3, adopting
+    // 2, converting or generic 1, not at all 0. `owner`'s parameters in `p`
+    // are unknowns inference would solve.
     func arg_fit(&var self, v: Int, p: Int, owner: Int) -> Int {
         let generic = owner >= 0 && self.mentions_owner(p, owner)
         if self.is_typed(v) {
@@ -13130,21 +13607,7 @@ extension TcProgram {
                 return 0
             }
             let allow = self.allowance(TcPosition.Argument)
-            if self.reads_reference(v) {
-                // A bare reference binding reads its referent's value, as
-                // every by-value position does; a reference parameter it
-                // fits only by its sigil, which `expect` then asks for.
-                let inner = self.referent(a)
-                let by_value = self.fit_score(inner, p, allow)
-                if by_value > 0 {
-                    return by_value
-                }
-                if self.fit(a, p, allow) != TC_FIT_NONE {
-                    return 1
-                }
-                return 0
-            }
-            return self.fit_score(a, p, allow)
+            return self.typed_fit(a, self.reads_reference(v), p, allow)
         }
         if generic {
             return 1
@@ -16900,7 +17363,10 @@ extension TcProgram {
         try! msg.append(", and found `")
         try! msg.append(self.type_text(from))
         try! msg.append("`")
-        var hint = self.static_cast_hint(e, slot)
+        var hint = self.static_cast_hint(e, from, slot)
+        if hint.len() == 0 {
+            hint = self.construction_hint(e, from, slot)
+        }
         let reason = self.allowance_reason(from, slot, allow)
         if hint.len() == 0 && reason.len() == 0 {
             hint = self.lone_case_cast_hint(e, slot, pos)
@@ -16917,7 +17383,8 @@ extension TcProgram {
     // integer `to` is expected: outside a constant expression a static keeps
     // its declared type, as every named value does (SL:open-questions D17).
     // Empty otherwise.
-    func static_cast_hint(&self, e: Int, to: Int) -> String {
+    // Into an alias the way out is its construction, which an `as` is not.
+    func static_cast_hint(&var self, e: Int, from: Int, to: Int) -> String {
         if not self.names_constant_static(e) || not self.is_integer(to) {
             return ""
         }
@@ -16925,9 +17392,73 @@ extension TcProgram {
         let leaf = self.res.first_leaf(e)
         var out = StringBuilder()
         try! out.append("; a module static keeps its declared type outside a constant expression: write `")
-        try! out.append(self.text(m, leaf))
-        try! out.append(" as ")
-        try! out.append(self.type_text(to))
+        if self.is_alias(to) {
+            let spelled = self.construction_spelling(e, from, to)
+            if spelled.len() == 0 {
+                return ""
+            }
+            try! out.append(spelled)
+        } else {
+            try! out.append(self.text(m, leaf))
+            try! out.append(" as ")
+            try! out.append(self.type_text(to))
+        }
+        try! out.append("`")
+        out.build()
+    }
+
+    // The name an alias is written by at its declaration, which a message
+    // spells where it names the alias's construction.
+    func alias_written_name(&self, t: Int) -> String {
+        self.name_text(self.res.decls[self.types.ty(t).alias].name)
+    }
+
+    // The construction of alias slot `slot` that takes the value `e` of type
+    // `from`, as source: `Alias(e)` where its argument check takes `from`, and
+    // `Alias(e as T)` through the type `T` the alias names where `from` is an
+    // integer of another width or an alias of its own. Empty when no spelling
+    // is known to compile.
+    func construction_spelling(&var self, e: Int, from: Int, slot: Int) -> String {
+        if not self.is_alias(slot) || from < 0 || self.has_error(from) || self.has_error(slot) {
+            return ""
+        }
+        let rep = self.types.unaliased(slot)
+        let text = self.text(self.current, e)
+        let sibling = self.is_alias(from) && not self.on_alias_chain(slot, from)
+        let fits = self.fit(from, rep, self.allowance(TcPosition.Argument)) > TC_FIT_NONE
+        var out = StringBuilder()
+        try! out.append(self.alias_written_name(slot))
+        try! out.append("(")
+        if self.is_constant_expr(e) || (fits && not sibling) {
+            try! out.append(text)
+        } else if self.is_integer(from) && self.is_integer(rep) {
+            if text.contains(" ") {
+                try! out.append("(")
+                try! out.append(text)
+                try! out.append(")")
+            } else {
+                try! out.append(text)
+            }
+            try! out.append(" as ")
+            try! out.append(self.type_text(rep))
+        } else {
+            return ""
+        }
+        try! out.append(")")
+        out.build()
+    }
+
+    // The way into alias slot `slot` from value `e` of type `from`: its
+    // construction. Empty when the slot is no alias or none is known to
+    // compile.
+    func construction_hint(&var self, e: Int, from: Int, slot: Int) -> String {
+        let spelled = self.construction_spelling(e, from, slot)
+        if spelled.len() == 0 {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append("; an alias is entered by its construction, not by a conversion: write `")
+        try! out.append(spelled)
         try! out.append("`")
         out.build()
     }
@@ -17625,7 +18156,7 @@ extension TcProgram {
         try! msg.append(self.type_text(a))
         try! msg.append("` and `")
         try! msg.append(self.type_text(b))
-        let hint = self.static_cast_hint(e, a)
+        let hint = self.static_cast_hint(e, b, a)
         if hint.len() > 0 {
             try! msg.append("`")
             try! msg.append(hint)

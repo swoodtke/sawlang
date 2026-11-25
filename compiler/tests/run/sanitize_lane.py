@@ -56,7 +56,8 @@ PROBE_KINDS = ("stated", "panics")
 # while the window that lends it is open, a shared window running an
 # accessor's exclusive body, an optional copy built from a lent reference on
 # one edge of its window, owned elements dropped on a decode's error path,
-# a derived body's fields dropped when a later one fails).
+# a derived body's fields dropped when a later one fails, an alias place a
+# comparison reads where it is).
 PROBE_PATTERNS = (
     "thread_*.saw",
     "coro_*.saw",
@@ -82,6 +83,7 @@ PROBE_PATTERNS = (
     "serialize_library_*.saw",
     "serialize_derived_*.saw",
     "lend_static_root*.saw",
+    "alias_projection_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

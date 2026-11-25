@@ -1,0 +1,24 @@
+// refuses: type.mismatch at 14:31
+// errors: 9
+// an alias takes a literal, not a computed value: a constant expression over statics or literals, a sibling's included, is the underlying's, and enters by the construction
+// message: write `UserId(SIBLING + 0)`
+
+type UserId = Int
+type OrderId = Int
+type Small = UInt8
+
+static N: Int = 5
+static N8: UInt8 = 6
+static SIBLING: OrderId = OrderId(2)
+
+static FROM_SIBLING: UserId = SIBLING + 0
+static FROM_INT: UserId = N + 0
+static FROM_BYTE: Small = N8 + 0
+static FROM_SUM: UserId = 2 + 3
+static FROM_SHIFT: UserId = 1 << 3
+static FROM_NEGATED: UserId = -SIBLING
+static FROM_PRODUCT: UserId = SIBLING * 2
+static FROM_NAME: UserId = N
+static FROM_SIBLING_NAME: UserId = SIBLING
+
+func main() {}

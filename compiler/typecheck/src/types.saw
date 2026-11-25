@@ -90,6 +90,11 @@ public struct TcType {
     first: Int
     count: Int
     labeled: Bool
+    // The declaration of the distinct alias this type is the twin of, or -1.
+    // A twin shares its target's kind, declaration, parts and layout, and is
+    // another id, so identity tells an alias from the type it names while
+    // every structural question answers as the target (design 250).
+    alias: Int
     hash: Int
     // The TC_HOLDS_ bits of the type. Its parts are interned before it, so
     // these are their bits joined once, and asking never walks the parts.
@@ -242,10 +247,61 @@ extension TcTypes {
     // empty, or holds one name id per argument.
     public func intern(&var self, kind: TcKind, decl: Int, a: Int, b: Int, args: &Vector<Int>,
                        labels: &Vector<Int>) -> Int {
+        self.intern_keyed(kind, decl, a, b, -1, &args, &labels)
+    }
+
+    // The twin of alias declaration `alias` over type `target`: `target`'s
+    // key with the alias added, so one alias is one id whatever its target's
+    // kind. An alias's own twin is its target's content with its own alias,
+    // never a twin of a twin.
+    public func twin(&var self, target: Int, alias: Int) -> Int {
+        if target < 0 {
+            return target
+        }
+        let info = self.types[target]
+        if info.kind == TcKind.Error {
+            return target
+        }
+        var args = Vector<Int>()
+        var labels = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            try! args.push(self.args[info.first + k])
+            if info.labeled {
+                try! labels.push(self.labels[info.first + k])
+            }
+            k = k + 1
+        }
+        self.intern_keyed(info.kind, info.decl, info.a, info.b, alias, &args, &labels)
+    }
+
+    // `t` without its own alias: the id of the type it is the twin of, which
+    // is `t` for a type that is no twin. Its parts keep theirs.
+    public func unaliased(&var self, t: Int) -> Int {
+        if t < 0 {
+            return t
+        }
+        let info = self.types[t]
+        if info.alias < 0 {
+            return t
+        }
+        self.twin(t, -1)
+    }
+
+    // THE INTERNING FUNNEL: every key, the alias field included, is added
+    // here.
+    // ENTRY POINTS:
+    //     intern
+    //     twin
+    func intern_keyed(&var self, kind: TcKind, decl: Int, a: Int, b: Int, alias: Int,
+                      args: &Vector<Int>, labels: &Vector<Int>) -> Int {
         var h = tc_mix(TC_TYPE_BASIS, tc_kind_code(kind))
         h = tc_mix(h, decl)
         h = tc_mix(h, a)
         h = tc_mix(h, b)
+        if alias >= 0 {
+            h = tc_mix(h, alias + 1013)
+        }
         var k = 0
         while k < args.len() {
             h = tc_mix(h, args[k])
@@ -259,7 +315,7 @@ extension TcTypes {
         let bucket = h % TC_TYPE_BUCKETS
         var at = self.heads[bucket]
         while at >= 0 {
-            if self.same_key(at, h, kind, decl, a, b, &args, &labels) {
+            if self.same_key(at, h, kind, decl, a, b, alias, &args, &labels) {
                 return at
             }
             at = self.next[at]
@@ -294,8 +350,8 @@ extension TcTypes {
             holds = holds | TC_HOLDS_UNFOLDED
         }
         try! self.types.push(TcType(kind: kind, decl: decl, a: a, b: b, first: first,
-                                    count: args.len(), labeled: labels.len() > 0, hash: h,
-                                    holds: holds))
+                                    count: args.len(), labeled: labels.len() > 0, alias: alias,
+                                    hash: h, holds: holds))
         let head = self.heads[bucket]
         try! self.next.push(head)
         self.heads[bucket] = id
@@ -310,7 +366,7 @@ extension TcTypes {
         }
         let f = self.types[from]
         let t = self.types[to]
-        if f.kind != TcKind.Func || t.kind != TcKind.Func || f.b != t.b || f.count != t.count {
+        if f.kind != TcKind.Func || t.kind != TcKind.Func || f.b != t.b || f.count != t.count || f.alias != t.alias {
             return false
         }
         if (f.a & TC_EFFECT_SENDABLE) == 0 || t.a != (f.a & ~TC_EFFECT_SENDABLE) {
@@ -342,13 +398,13 @@ extension TcTypes {
             k = k + 1
         }
         let none = Vector<Int>()
-        self.intern(TcKind.Func, -1, info.a & ~TC_EFFECT_SENDABLE, info.b, &params, &none)
+        self.intern_keyed(TcKind.Func, -1, info.a & ~TC_EFFECT_SENDABLE, info.b, info.alias, &params, &none)
     }
 
-    func same_key(&self, at: Int, h: Int, kind: TcKind, decl: Int, a: Int, b: Int,
+    func same_key(&self, at: Int, h: Int, kind: TcKind, decl: Int, a: Int, b: Int, alias: Int,
                   args: &Vector<Int>, labels: &Vector<Int>) -> Bool {
         let t = self.types[at]
-        if t.hash != h || t.kind != kind || t.decl != decl || t.a != a || t.b != b {
+        if t.hash != h || t.kind != kind || t.decl != decl || t.a != a || t.b != b || t.alias != alias {
             return false
         }
         if t.count != args.len() || t.labeled != (labels.len() > 0) {

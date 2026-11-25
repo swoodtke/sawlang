@@ -70,6 +70,12 @@ extension TcProgram {
             return
         }
         let info = self.types.ty(t)
+        // A distinct alias is named by its declaration, so a message never
+        // reads "expected `Int`, found `Int`".
+        if info.alias >= 0 {
+            try! out.append(self.nominal_name(info.alias))
+            return
+        }
         match info.kind {
             case Nominal -> self.append_nominal(&var out, t),
             case Param -> {

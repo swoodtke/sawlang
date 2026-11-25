@@ -9,9 +9,9 @@ import std.data.{Data}
 // A part's format number, its first line's second field: a reader requires
 // its own, and every layer key carries it, so a part of another layout is
 // never looked up.
-public static FRONT_PART_FORMAT: Int = 1
+public static FRONT_PART_FORMAT: Int = 2
 
-// THE PART CODEC: `part` behind a first line `sawc-front-part 1 LENGTH
+// THE PART CODEC: `part` behind a first line `sawc-front-part 2 LENGTH
 // DIGEST`, the image's framing and digest (`front_frame`), then its derived
 // CBOR.
 // ENTRY POINTS:

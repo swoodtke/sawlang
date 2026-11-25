@@ -72,7 +72,7 @@ func main() {
     var x = 1
     var y = 2
     let v: Vector<Int> = [1, 2]
-    let total = sizes(&x, &var y, &v, &Square(side: 2), &x)
+    let total = sizes(&x, &var y, &v, &Square(side: 2), IntRef(&x))
     let same = apply(&x, { e: &Int in e })
     let none = first(&x)
 }

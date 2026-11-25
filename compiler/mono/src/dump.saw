@@ -17,6 +17,8 @@ import sawtarget.layout.{Target}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
+// For the extension writing `same_representation`.
+import sawtypecheck.typeops.{TcClient}
 
 extension MonoProgram {
     // Every item's dump, in item order.
@@ -141,8 +143,13 @@ extension MonoProgram {
                 var known = false
                 var i = 0
                 while i < seen.len() {
-                    if seen[i] == t {
+                    // An alias and the type it names have one layout; the
+                    // type itself is the one listed.
+                    if self.dp.bc.mir.tc.same_representation(seen[i], t) {
                         known = true
+                        if self.dp.bc.mir.tc.is_alias(seen[i]) && not self.dp.bc.mir.tc.is_alias(t) {
+                            seen[i] = t
+                        }
                     }
                     i = i + 1
                 }

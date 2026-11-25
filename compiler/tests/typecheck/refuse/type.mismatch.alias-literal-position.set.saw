@@ -1,0 +1,39 @@
+// refuses: type.mismatch at 17:10
+// errors: 6
+// a set literal enters an alias of a Set only at an annotated let or var (golden alias_literal_positions; a static holds no Set); every other position takes the construction
+// message: write `Bag({1, 2})`
+
+type Bag = Set<Int>
+
+struct Holder {
+    b: Bag
+}
+
+extension Holder: NoCopy {}
+
+func take(b: Bag) {}
+
+func parameter() {
+    take({1, 2})
+}
+
+func tail() -> Bag { {1, 2} }
+
+func early() -> Bag {
+    return {1, 2}
+}
+
+func field() {
+    let h = Holder(b: {1, 2})
+}
+
+func assignment() {
+    var x: Bag = {0, 1}
+    x = {1, 2}
+}
+
+func element() {
+    let v: Vector<Bag> = [{1, 2}]
+}
+
+func main() {}

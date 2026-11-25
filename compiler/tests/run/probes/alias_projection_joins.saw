@@ -1,0 +1,90 @@
+// probe: stated
+// about: an alias and a type on its chain joined at that type, at an `if` and a `match` arm, `??`, an array literal's elements, an inline `catch` and a `try` block, at a String and at a NoCopy type with a deinit: each value reaches the joined type whole and is dropped once, by whichever owner ends with it (SL-1012)
+// stage 0: reads an alias as its target, so it is no oracle for the alias's own projection
+// speeds: -O0 -O2
+// leaks: none
+// prints: v1 u2
+// prints: v1 u2
+// prints: u2 w3
+// prints: v1 u2
+// prints: v1 u2
+// prints: true v1
+// prints: 3
+// prints: drop 2
+// prints: drop 1
+// prints: 4
+// prints: drop 4
+// prints: drop 5
+// prints: 6
+// prints: drop 6
+// prints: drop 7
+
+type Name = String
+
+func heap(s: String, n: Int) -> String { "{s}{n}" }
+
+enum Bad { case Bad }
+
+func fetch(s: String, ok: Bool) -> Result<Name, Bad> {
+    if ok { return Name(s) }
+    Bad.Bad
+}
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+type Handle = Res
+
+func strings(c: Bool) {
+    let a = Name(heap("v", 1))
+    let u = heap("u", 2)
+    let s = if c { a } else { u }
+    let t = match c { case true -> a, case false -> u }
+    print("{} {}", s, u)
+    print("{} {}", t, u)
+    let o: Name? = None
+    let p: Name? = Name(heap("w", 3))
+    print("{} {}", o ?? u, p ?? u)
+    let xs = [a, u]
+    print("{} {}", xs[0], xs[1])
+    let r = try fetch(heap("v", 1), true) catch { u }
+    let q = try {
+        let x = try fetch(heap("c", 9), false)
+        x
+    } catch {
+        u
+    }
+    print("{} {}", r, u)
+    print("{} {}", q.substring(0, 1) == "u", a)
+}
+
+func handles(c: Bool) {
+    let a = Handle(Res(id: 1))
+    let u = Res(id: 2)
+    let picked = if c { move u } else { move a }
+    print(picked.id + 1)
+}
+
+func coalesced() {
+    let o: Handle? = None
+    let w = Res(id: 4)
+    let r = move o ?? move w
+    print(r.id)
+}
+
+func arrays() {
+    let a = Handle(Res(id: 7))
+    let u = Res(id: 6)
+    let xs = [move a, move u]
+    print(xs[1].id)
+}
+
+func main() {
+    strings(true)
+    handles(true)
+    coalesced()
+    let five: Handle? = Handle(Res(id: 5))
+    let _ = move five
+    arrays()
+}

@@ -1,7 +1,7 @@
-// The alias position matrix at its "und" column (SL-1012 U1): an `Int` value into an alias slot,
-// at each position `sawc` checks a transfer, recorded at today's
-// verdict: transparent aliases, so every cell is accepted. A distinct alias
-// would turn away the cells the spec does (LANGUAGE_SPEC.md, Type Definitions).
+// The alias position matrix at its "und" column (SL-1012 U3a): an `Int` value into an alias slot,
+// at each position `sawc` checks a transfer, recorded at the distinct-alias
+// verdict (LANGUAGE_SPEC.md, Type Definitions): the reverse flow needs the
+// alias's construction, so every position is an ERROR.
 
 type UserId = Int
 type OrderId = Int

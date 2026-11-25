@@ -1,0 +1,20 @@
+// The alias matrix's overload cells (SL-1012 U3a, design 4.3 and 5.4): an
+// alias value fits its own alias exactly, fits the type it names by its
+// projection alone, ranking with an adopted literal, and fits a type that
+// projection plus a widening reaches only as a conversion. A bare literal
+// enters no alias, so it picks the underlying's overload.
+
+type Small = UInt8
+
+func own(p: Int) -> Int { 1 }
+func own(p: Small) -> Int { 2 }
+
+func projects(p: Int) -> Int { 1 }
+func projects(p: UInt8) -> Int { 2 }
+
+func main() {
+    let s = Small(7)
+    print(own(7))
+    print(own(s))
+    print(projects(s))
+}

@@ -3742,7 +3742,7 @@ func driver_read_head(path: String, size: Int) unsafe -> Result<Data, SystemErro
 
 // The byte at `at` of `head`, or 0 past its end.
 func driver_head_byte(head: &Data, at: Int) unsafe -> Int {
-    let byte = head.get(at) ?? 0
+    let byte = head.get(at) ?? Byte(0)
     byte as Int
 }
 

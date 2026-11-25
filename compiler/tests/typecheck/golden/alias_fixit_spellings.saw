@@ -1,0 +1,116 @@
+// Every construction a type.mismatch, operator.undefined or sigil refusal on
+// an alias spells as its fix, written out: each line below is the spelling
+// the refusal names, and the program has no ERROR (SL-1012 U3a, design 4.3).
+// Pinned by refuse/type.mismatch.alias-*.saw, which hold the messages.
+
+type UserId = Int
+type OrderId = Int
+type Small = UInt8
+type Arr = [Int; 2]
+type Vec = Vector<Int>
+type Dict = Map<String, Int>
+type Bag = Set<Int>
+type IntRef = &Int
+type IntVarRef = &var Int
+type IntSlice = &[Int]
+type SliceVar = &var [Int]
+type DynRef = &any Printable
+type Callback = (Int) -> Bool
+type Unit = Shape
+
+struct Holder {
+    n: UserId
+}
+
+struct Shape {
+    side: Int
+}
+
+extension Shape {
+    static func unit() -> Shape { Shape(side: 1) }
+}
+
+extension Shape: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("shape")
+    }
+}
+
+static N: Int = 5
+static N8: UInt8 = 6
+static SIBLING: OrderId = OrderId(2)
+
+static FROM_STATIC: UserId = UserId(N)
+static FROM_SIBLING_PLUS: UserId = UserId(SIBLING + 0)
+static FROM_PLUS: UserId = UserId(N + 0)
+static FROM_BYTE: Small = Small(N8 + 0)
+static FROM_SUM: UserId = UserId(2 + 3)
+static FROM_SHIFT: UserId = UserId(1 << 3)
+static FROM_SIBLING_STATIC: UserId = UserId(SIBLING as Int)
+
+func computed(n: Int, n8: UInt8, o: OrderId) {
+    let a: UserId = UserId(SIBLING * 2)
+    let b: UserId = UserId(-SIBLING)
+    let c: UserId = UserId(n)
+    let d: UserId = UserId(n + 1)
+    let e: UserId = UserId(n8)
+    let f: Small = Small(n as UInt8)
+    let g: OrderId = OrderId(a as Int)
+    let h: UserId = UserId(o as Int)
+    let i: UserId = -1
+    print("{} {} {} {} {} {} {} {} {}", a as Int, b as Int, c as Int, d as Int, e as Int, f as Int, g as Int, h as Int, i as Int)
+}
+
+func literals() {
+    let a = Arr([3, 4])
+    let b = Arr([9; 2])
+    let c = Vec([4, 5])
+    let d = Dict({:})
+    let e = Dict({"a": 1})
+    let f = Bag({1, 2})
+    print("{} {} {} {} {} {}", a[0], b[0], c.len(), d.len(), e.len(), f.len())
+}
+
+func hold(a: Arr, v: Vec, d: Dict, b: Bag) {}
+
+func holders() {
+    hold(a: Arr([1, 2]), v: Vec([1]), d: Dict({:}), b: Bag({1, 2}))
+}
+
+func references(r: IntRef, s: IntSlice, d: DynRef, w: IntVarRef, t: SliceVar) {}
+
+func references_built() {
+    let x = 1
+    let v = [1, 2, 3]
+    let p = Shape(side: 2)
+    var y = 1
+    var w = [1, 2, 3]
+    references(r: IntRef(&x), s: IntSlice(&v), d: DynRef(&p), w: IntVarRef(&var y), t: SliceVar(&var w))
+}
+
+func compound(h: &var Holder, v: &var Vector<UserId>) {
+    h.n = UserId(h.n + 1)
+    v[0] = UserId(v[0] + 1)
+    h.n = UserId(h.n << (1 + 1))
+    var x: UserId = 1
+    x = UserId(x + 1)
+}
+
+func function_value_in() {
+    let f: (Int) -> Bool = { x in x > 0 }
+    let c = Callback(f)
+    print(c(1))
+}
+
+func static_through(n: Int) {
+    let t = Unit(Unit.unit())
+    print(t.side + n)
+}
+
+func byte_stored_back() {
+    var b = Byte(1)
+    b = Byte(b + 1)
+    print(b as Int)
+}
+
+func main() {}

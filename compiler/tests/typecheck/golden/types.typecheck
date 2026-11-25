@@ -10,7 +10,7 @@
     (trait Named 16:7 private)
     (requirement Named.name 17:10 (signature (receiver shared) (params) -> String))
     (alias Coordinate 20:6 private Int)
-    (func named 22:6 private (signature (params (p types.Point owned) (s types.Shape owned) (c Int owned)) -> String) (summary body (suspends no) (sync-callable yes)))
+    (func named 22:6 private (signature (params (p types.Point owned) (s types.Shape owned) (c types.Coordinate owned)) -> String) (summary body (suspends no) (sync-callable yes)))
     (func optionals 26:6 private (signature (params (a Int? owned) (b types.Point?? owned) (c &Int? shared) (d &var types.Point? exclusive)) -> types.Shape?) (summary body (suspends no) (sync-callable yes)))
     (func references 30:6 private (signature (params (a &types.Point shared) (b &var types.Point exclusive) (c &[UInt8] shared) (d &var [UInt8] exclusive)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func tuples 34:6 private (signature (params (a () owned) (b (Int, String) owned) (c (Int,) owned) (d (x: Int, y: Int) owned)) -> (types.Point, types.Shape)) (summary body (suspends no) (sync-callable yes)))

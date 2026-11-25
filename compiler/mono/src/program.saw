@@ -351,7 +351,7 @@ extension MonoProgram {
     // The item that renders a value of concrete type `t` into the builder,
     // its `Printable.format(into:)`, or -1.
     public func render_item(&self, t: Int) -> Int {
-        let at = self.by_key.first(t, MONO_KEY_RENDER)
+        let at = self.by_key.first(self.dp.bc.mir.tc.represented(t), MONO_KEY_RENDER)
         if at < 0 {
             return -1
         }
@@ -359,9 +359,12 @@ extension MonoProgram {
     }
 
     // The vtable slot a value of erased type `t` (`any Trait` or an erased
-    // box) renders through, its `Printable.format`'s, or -1.
+    // box) renders through, its `Printable.format`'s, or -1. `render_of`
+    // keys it at the representation and the backend asks at the operand's
+    // type, which may be an alias of the erased type, so both read it
+    // represented (run probe `alias_erased_render`).
     public func render_slot(&self, t: Int) -> Int {
-        let at = self.by_key.first(t, MONO_KEY_RENDER_SLOT)
+        let at = self.by_key.first(self.dp.bc.mir.tc.represented(t), MONO_KEY_RENDER_SLOT)
         if at < 0 {
             return -1
         }
@@ -372,7 +375,7 @@ extension MonoProgram {
     // rendered: 1, or 0 when `t` does not render; -1 when no forced `Result`
     // of mono's ever carried `t`.
     public func try_error_verdict(&self, t: Int) -> Int {
-        let at = self.by_key.first(t, MONO_KEY_TRY_ERROR)
+        let at = self.by_key.first(self.dp.bc.mir.tc.represented(t), MONO_KEY_TRY_ERROR)
         if at < 0 {
             return -1
         }
@@ -467,7 +470,7 @@ extension MonoProgram {
     // The glue item of `kind` (MONO_KEY_DROP or MONO_KEY_COPY) made for type
     // `t`, or -1 when `t` needs none.
     public func glue_item(&self, t: Int, kind: Int) -> Int {
-        let at = self.by_key.first(t, kind)
+        let at = self.by_key.first(self.dp.bc.mir.tc.represented(t), kind)
         if at < 0 {
             return -1
         }
