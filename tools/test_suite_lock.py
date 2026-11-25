@@ -319,6 +319,72 @@ def yield_behind_holder(root):
     lock_tool(lock, "release")
 
 
+def yield_budget(root):
+    """A gate that is always busy keeps the lock from a yielding acquire only
+    for the budget; the lock directory still blocks it after that."""
+    lock = os.path.join(root, "yield-budget")
+    tracker = Tracker(root, "budget")
+    tracker.answer(gate_report(queued=["SL-670.p1"]))
+    env = dict(tracker.env(lock), SAW_SUITE_YIELD_BUDGET_SECONDS="4")
+    proc = subprocess.Popen(["sh", LOCK_TOOL, "acquire", "--yield-to-gate", "--pid", ME, "budget"],
+                            cwd=REPO, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    time.sleep(2)
+    taken_inside = os.path.exists(lock)
+    rc, out = finish(proc)
+    check(not taken_inside, "inside the budget, a yielding acquire still leaves the lock alone", out)
+    check(rc == 0 and re.search(r"suite lock: yielded to the server's SL gate for \d+s, the budget; "
+                                r"now waiting for the lock without yielding\n", out)
+          and out.count("the budget;") == 1,
+          "after the budget it says so once and takes the lock", out)
+    holder = open(os.path.join(lock, "holder")).read() if os.path.exists(lock) else ""
+    check("acquired after waiting" in out and "command: budget" in holder,
+          "the lock is then held in the caller's name", out + holder)
+    lock_tool(lock, "release")
+
+    lock = os.path.join(root, "yield-budget-held")
+    tracker = Tracker(root, "budget-held")
+    tracker.answer(gate_report(queued=["SL-671.p1"]))
+    lock_tool(lock, "acquire", "--pid", ME, "scripted holder")
+    env = dict(tracker.env(lock), SAW_SUITE_YIELD_BUDGET_SECONDS="0")
+    proc = subprocess.Popen(["sh", LOCK_TOOL, "acquire", "--yield-to-gate", "--pid", ME, "spent"],
+                            cwd=REPO, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    time.sleep(3.5)
+    still_held = "scripted holder" in open(os.path.join(lock, "holder")).read()
+    lock_tool(lock, "release")
+    rc, out = finish(proc)
+    check(still_held, "a spent budget never takes a held lock", out)
+    check("yield budget spent, no longer yielding" in out,
+          "the heartbeat says the waiter is no longer yielding", out)
+    check(rc == 0 and "acquired after waiting" in out
+          and "yielding to the server's SL gate (" not in out,
+          "it takes the released lock without asking the gate again", out)
+    lock_tool(lock, "release")
+
+    # Time behind a holder is no yield: a waiter that sat out a long holder
+    # still defers to a gate queued when the lock comes free.
+    lock = os.path.join(root, "yield-budget-holder")
+    tracker = Tracker(root, "budget-holder")
+    tracker.answer(gate_report())
+    lock_tool(lock, "acquire", "--pid", ME, "scripted holder")
+    env = dict(tracker.env(lock), SAW_SUITE_YIELD_BUDGET_SECONDS="3")
+    proc = subprocess.Popen(["sh", LOCK_TOOL, "acquire", "--yield-to-gate", "--pid", ME, "outlived"],
+                            cwd=REPO, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    time.sleep(5)
+    tracker.answer(gate_report(queued=["SL-672.p1"]))
+    lock_tool(lock, "release")
+    time.sleep(2)
+    taken_ahead = os.path.exists(lock)
+    tracker.answer(gate_report())
+    rc, out = finish(proc)
+    check(not taken_ahead, "time spent behind a holder does not spend the yield budget", out)
+    check("the budget;" not in out and rc == 0 and "acquired after waiting" in out,
+          "it takes the lock once the gate is idle, its budget unspent", out)
+    lock_tool(lock, "release")
+
+
 def yield_fallback(root):
     """An unreachable tracker, or a report that cannot say, falls back to the
     plain acquire and says so."""
@@ -544,7 +610,7 @@ def main():
         for case in (free_lock, held_lock, unknown_holder, build_sh, orphaned_waiter,
                      term_releases, term_while_waiting, dead_owner_at_acquire, yield_idle,
                      yield_queued, yield_held, yield_running, yield_gives_back, yield_behind_holder,
-                     yield_fallback, yield_status_failure, status_exit_codes,
+                     yield_budget, yield_fallback, yield_status_failure, status_exit_codes,
                      yield_broken_script):
             case(root)
     finally:
@@ -555,7 +621,7 @@ def main():
         return 1
     print("suite lock: OK: holder, heartbeat, wait, unknown holder, build.sh, orphaned waiter, "
           "TERMed gate, TERMed waiter, dead owner, yield to an idle/queued/held/running gate, "
-          "give back on a race, yield behind a holder, fallback, "
+          "give back on a race, yield behind a holder, the yield budget, fallback, "
           "a failing status command, the exit codes, a status script that is broken")
     return 0
 

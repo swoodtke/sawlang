@@ -13,6 +13,12 @@
 # meanwhile. A gate status it cannot read makes it fall back to the plain
 # acquire, saying so. build.sh never passes it: the gate is what the others yield to.
 #
+# The yield is bounded: once a waiter has spent SAW_SUITE_YIELD_BUDGET minutes
+# (45 by default) yielding to gate runs, it says so and waits for the lock
+# like a plain acquire, so steady patch traffic cannot starve it. The lock
+# directory still excludes a running gate. SAW_SUITE_YIELD_BUDGET_SECONDS
+# overrides it in seconds, for tests.
+#
 # acquire says who holds the lock when it is busy at entry, prints a heartbeat
 # while it waits and the total wait once it holds it, so a run queued behind a
 # long gate says why it is silent. PID is the process the lock belongs to, by
@@ -32,6 +38,7 @@ LOCK="${SAW_SUITE_LOCK:-/private/tmp/claude-$(id -u)/saw-suite-lock}"
 HOLDER="$LOCK/holder"
 HEARTBEAT="${SAW_SUITE_LOCK_HEARTBEAT:-300}"
 POLL="${SAW_SUITE_LOCK_POLL:-15}"
+BUDGET="${SAW_SUITE_YIELD_BUDGET_SECONDS:-$(( ${SAW_SUITE_YIELD_BUDGET:-45} * 60 ))}"
 TOOLS=$(dirname "$0")
 GATE_PROJECT=SL
 
@@ -96,6 +103,8 @@ take() {
 waiting_for() {
     if [ "$why" = gate ]; then
         echo "yielding to the server's $GATE_PROJECT gate ($gate)"
+    elif [ "$spent" = 1 ]; then
+        echo "held by $(describe) (yield budget spent, no longer yielding)"
     else
         echo "held by $(describe)"
     fi
@@ -183,6 +192,8 @@ acquire() {
     fi
     start=$(date +%s)
     busy=0
+    spent=0
+    yielded=0
     # A signal between the mkdir and this script's exit lands before the
     # caller has a trap that would release the lock, so the lock goes with it.
     took=0
@@ -193,6 +204,7 @@ acquire() {
         busy=1
         say "$(waiting_for); waiting"
         beat=$start
+        prev=$start
         last=$why
         until take; do
             if ! alive "$pid"; then
@@ -206,6 +218,19 @@ acquire() {
             fi
             sleep "$POLL"
             now=$(date +%s)
+            # Time passed over to the gate counts against the budget; a held
+            # lock does not, since a plain acquire waits for that too.
+            if [ "$yield" = 1 ]; then
+                [ "$why" = gate ] && yielded=$((yielded + now - prev))
+                if [ "$yielded" -ge "$BUDGET" ]; then
+                    yield=0
+                    spent=1
+                    why=held
+                    last=held
+                    say "yielded to the server's $GATE_PROJECT gate for $(duration "$yielded"), the budget; now waiting for the lock without yielding"
+                fi
+            fi
+            prev=$now
             if [ $((now - beat)) -ge "$HEARTBEAT" ]; then
                 beat=$now
                 say "still waiting after $(duration $((now - start))); $(waiting_for)"

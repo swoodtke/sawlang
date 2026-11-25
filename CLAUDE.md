@@ -460,7 +460,9 @@ heartbeat every five minutes, and prints the total wait once it holds the
 lock. Local agent runs acquire with `--yield-to-gate`, which also waits
 while the server's SL gate is running or has a run queued, gives the lock
 back if a gate run appears as it takes it, and falls back to the plain
-acquire, saying so, when the tracker cannot be read; `build.sh`'s own
+acquire, saying so, when the tracker cannot be read; the yield is bounded
+(45 minutes in total by default, `SAW_SUITE_YIELD_BUDGET` in minutes), after
+which the waiter queues for the lock like a plain acquire; `build.sh`'s own
 acquire never yields. It waits for a process (`--pid`, by default the calling shell), and
 stops waiting WITHOUT the lock once that process is gone, so a signal that
 kills only the waiter's parent never leaves it to take the lock for
