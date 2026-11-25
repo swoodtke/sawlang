@@ -1,0 +1,56 @@
+(Module borrows_root_sync
+  (declarations
+    (struct Counter 6:8 private)
+    (field Counter.hits 6:18 private Atomic<Int>)
+    (extension 8:1 (target borrows_root_sync.Counter) (conforms NoCopy))
+    (struct Handle 10:8 private)
+    (field Handle.raw 10:17 private UnsafePointer<Int>)
+    (extension 12:1 (target borrows_root_sync.Handle) (conforms UnsafeSync))
+    (static LIMIT 14:8 private Int)
+    (static COUNTER 16:8 private borrows_root_sync.Counter)
+    (static HELD 18:19 private borrows_root_sync.Handle unsafe-var)
+    (func limit 20:6 private (signature (params) (effects borrows) (lend place shared) (root LIMIT) -> &Int) (summary body (suspends no) (sync-callable yes)))
+    (func counter 24:6 private (signature (params) (effects borrows) (lend place shared) (root COUNTER) -> &borrows_root_sync.Counter) (summary body (suspends no) (sync-callable yes)))
+    (func held 28:6 private (signature (params) (effects unsafe borrows) (lend place shared) (root HELD) -> &borrows_root_sync.Handle) (summary body (suspends no) (sync-callable yes)))
+    (func main 32:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (borrows_root_sync.Counter
+      (field hits Atomic<Int> private declared)
+      (method deinit public (synthesized Deinit)))
+    (borrows_root_sync.Handle
+      (field raw UnsafePointer<Int> private declared)))
+  (views
+    (borrows_root_sync.Counter hits deinit)
+    (borrows_root_sync.Handle raw))
+  (conformances
+    (borrows_root_sync.Counter NoCopy 8:20 (deinit implicit))
+    (borrows_root_sync.Handle UnsafeSync 12:19))
+  (copy-tier
+    (borrows_root_sync.Counter NoCopy declared)
+    (borrows_root_sync.Handle Copy))
+  (bodies
+    (LIMIT 14:8
+      (14:21-14:22 IntLit Int value temp))
+    (COUNTER 16:8
+      (16:27-16:51 Call.paren borrows_root_sync.Counter value temp (memberwise borrows_root_sync.Counter (owner borrows_root_sync.Counter)))
+      (16:41-16:50 Call.paren Atomic<Int> value temp (conversion Atomic atomic (owner Atomic<Int>)))
+      (16:48-16:49 IntLit Int value temp))
+    (limit 20:6
+      (21:5-21:22 Call.paren Never value temp (builtin panic))
+      (21:11-21:21 StringLit String value temp))
+    (counter 24:6
+      (25:5-25:22 Call.paren Never value temp (builtin panic))
+      (25:11-25:21 StringLit String value temp))
+    (held 28:6
+      (29:5-29:22 Call.paren Never value temp (builtin panic))
+      (29:11-29:21 StringLit String value temp))
+    (main 32:6
+      (33:5-33:13 Call.paren Void value temp (builtin print))
+      (33:11-33:12 IntLit Int value borrow)))
+  (string-positions
+    (21:11 message std.string.string_literal)
+    (21:5 panic std.panic.panic_sink)
+    (25:11 message std.string.string_literal)
+    (25:5 panic std.panic.panic_sink)
+    (29:11 message std.string.string_literal)
+    (29:5 panic std.panic.panic_sink)))

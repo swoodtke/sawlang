@@ -1,0 +1,46 @@
+// probe: stated
+// about: shared windows on one static root stand in several `Thread.spawn` threads at once, each reads through its window and adds to an `Atomic` field of the root, and the sum is exact; the root's type is `Sync` (SL-1156)
+// stage 0: refuses `borrows(ROOT)`, which is the self-hosted compiler's own form
+// speeds: -O0 -O2
+// leaks: none
+// prints: base 100 hits 4000 sum 400000
+// Shared windows may overlap across threads because the root's type is `Sync`
+// (`borrows.root-sync`). The compiler does NOT check an exclusive window against
+// another thread: that stays the root module's `unsafe` obligation, so this probe
+// opens none.
+struct Table {
+    base: Int
+    hits: Atomic<Int>
+}
+
+extension Table: NoCopy {}
+
+static TABLE: Table = Table(base: 100, hits: Atomic(0))
+
+func table() borrows(TABLE) -> &Table {
+    lend TABLE
+}
+
+func work(rounds: Int) -> Int {
+    var seen = 0
+    var i = 0
+    while i < rounds {
+        borrow let t = table() {
+            seen = seen + t.base
+            let _ = t.hits.fetch_add(1)
+        }
+        i = i + 1
+    }
+    seen
+}
+
+func main() {
+    var a = try! Thread.spawn { work(1000) }
+    var b = try! Thread.spawn { work(1000) }
+    var c = try! Thread.spawn { work(1000) }
+    var d = try! Thread.spawn { work(1000) }
+    let sum = a.join() + b.join() + c.join() + d.join()
+    borrow let t = table() {
+        print("base {} hits {} sum {}", t.base, t.hits.load(), sum)
+    }
+}

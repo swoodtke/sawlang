@@ -1,0 +1,34 @@
+// Shared roots whose types are `Sync`, so shared windows on them may stand in
+// several threads at once: a plain static of a primitive, a struct that is
+// `Sync` by derivation through an `Atomic` field, and a type that declares
+// `UnsafeSync` (SL-1156).
+
+struct Counter { hits: Atomic<Int> }
+
+extension Counter: NoCopy {}
+
+struct Handle { raw: UnsafePointer<Int> }
+
+extension Handle: UnsafeSync {}
+
+static LIMIT: Int = 4
+
+static COUNTER: Counter = Counter(hits: Atomic(0))
+
+unsafe static var HELD: Handle
+
+func limit() borrows(LIMIT) -> &Int {
+    panic("diverges")
+}
+
+func counter() borrows(COUNTER) -> &Counter {
+    panic("diverges")
+}
+
+func held() unsafe borrows(HELD) -> &Handle {
+    panic("diverges")
+}
+
+func main() {
+    print(1)
+}

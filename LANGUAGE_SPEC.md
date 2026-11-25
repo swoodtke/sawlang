@@ -5661,7 +5661,8 @@ pointer.
 
 **Status: grammar and declaration rules landing (SL-1156). Built: the
 declaration rules, the naming rule, the callee's `lend` and the caller's
-window, which charges the root, and the `deinit` a declared root
+window, which charges the root, the `Sync` check on a shared root, shared
+windows across threads, and the `deinit` a declared root
 `unsafe static var` may hold. Not built yet: the call summary, so a callee
 that opens a window on the same root inside a caller's window goes
 unchecked.** A function with no receiver may lend a module static if it
@@ -5718,6 +5719,10 @@ one function and its callees can show, and the root's module owes the rest:
   declared `unsafe`, in one module, so that module states the argument (start-up
   before threads, a lock, one thread), as `claim()` does for `TABLE` in
   [`unsafe static var`](#unsafe-static-var--mutable-statics-for-compound-state).
+  The compiler does not check an exclusive window against another thread, and
+  it adds no refusal for it: the obligation is the module's alone. A
+  `Thread.spawn` brace may name a root function, and the same obligation
+  governs what it does there.
 
 A declared root that is an `unsafe static var` may hold a type with a
 hand-written `deinit`. Every write to it goes through an exclusive window and
