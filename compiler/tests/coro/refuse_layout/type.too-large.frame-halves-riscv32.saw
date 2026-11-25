@@ -1,0 +1,23 @@
+// refuses: type.too-large at 10:6
+// flags: --target riscv32-unknown-none-elf
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Two locals of 2^30 bytes each, which fit riscv32's 32-bit `Int` one by one,
+// both live across one suspension: the frame holds 2^31 bytes, past the
+// target's `Int`, though the compiler's own 64-bit `Int` computes it without
+// overflowing. Never built; `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 1_073_741_824]
+    var b = [0u8; 1_073_741_824]
+    yield_now()
+    a[0] = 1
+    b[0] = 2
+}
+
+@export("entry")
+func entry() {
+    let g = TaskGroup()
+    let t = g.spawn(hold())
+    t.join()
+}

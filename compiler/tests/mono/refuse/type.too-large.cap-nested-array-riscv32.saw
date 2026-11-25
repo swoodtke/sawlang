@@ -1,0 +1,7 @@
+// refuses: type.too-large at 5:6
+// flags: --target riscv32-unknown-none-elf
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// An array of arrays whose bytes pass the cap.
+func main() {
+    print(sizeof<[[UInt8; 65536]; 131072]>())
+}

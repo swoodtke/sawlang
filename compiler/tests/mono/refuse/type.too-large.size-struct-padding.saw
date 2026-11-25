@@ -1,0 +1,11 @@
+// refuses: type.too-large at 9:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Padding before the second field tips an unpadded 2^63 - 7 bytes over.
+struct Padded {
+    a: UInt8
+    b: [UInt64; 1152921504606846975]
+}
+
+func main() {
+    print(sizeof<Padded>())
+}

@@ -1,0 +1,12 @@
+// refuses: type.too-large at 11:17
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A zero-initialized static past the cap, read in a function.
+unsafe static var BIG: [UInt8; 4294967296]
+
+func touch() unsafe -> UInt8 {
+    BIG[0]
+}
+
+func main() {
+    print("{}", touch())
+}

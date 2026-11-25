@@ -1,8 +1,8 @@
 // refuses: mono.depth at 20:5
 // errors: 1
-// A type larger than `Int` counts in one place and a polymorphic recursion in
-// another: the recursion grows types past `Int` on its way to the depth limit,
-// so its one refusal stands and no size refusal is reported beside it.
+// A type past the size cap in one place and a polymorphic recursion in
+// another: the recursion grows types past the cap on its way to the depth
+// limit, so its one refusal stands and no size refusal is reported beside it.
 
 struct Two<T> {
     a: T

@@ -1,6 +1,0 @@
-// refuses: constant.overflow at 4:6
-// message: is larger than `Int` counts on this target
-// Two arrays nested: each fits, the product is 2^64 bytes.
-func main() {
-    print(sizeof<[[UInt8; 4294967296]; 4294967296]>())
-}

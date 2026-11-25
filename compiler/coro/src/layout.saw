@@ -178,7 +178,7 @@ func coro_refuse_frame_size(coro: &var CoroProgram, item: Int) {
     try! subject.append("the frame of `")
     try! subject.append(coro.mono.item_name(item))
     try! subject.append("`")
-    coro.refuse(item, node, "constant.overflow", target_overflow_subject(subject.build()))
+    coro.refuse(item, node, "type.too-large", target_overflow_subject(subject.build()))
 }
 
 // Which of frame `k`'s values interfere: two whose storage lifetimes share

@@ -1,0 +1,16 @@
+// refuses: type.too-large at 12:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A closure that captures a value past the cap.
+struct Holder {
+    a: [UInt8; 4294967296]
+}
+
+func make() -> Holder {
+    panic("never")
+}
+
+func main() {
+    let h = make()
+    let f = { h.a[0] }
+    print("{}", f())
+}

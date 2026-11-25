@@ -95,7 +95,7 @@ func asserts_check_view_addresses(p: &var TcProgram, layer: &FrontLayer) {
         let viewed = p.types.arg(t, 0)
         let l = target.layout(&var p, viewed)
         if l.overflow {
-            p.refuse_in(p.node_module(at), at, "constant.overflow", target_overflow_message(p.type_text(viewed)))
+            p.refuse_in(p.node_module(at), at, "type.too-large", target_overflow_message(p.type_text(viewed), l.size))
             continue
         }
         if target.reason_of(&l).len() > 0 || l.align <= 1 {
@@ -155,7 +155,7 @@ public func asserts_verdict(p: &var TcProgram, target: &var Target, cond: Int, m
         if l.overflow {
             p.measured_nodes = Vector<Int>()
             p.measured_values = Vector<Int>()
-            return AssertsVerdict(rule: "constant.overflow", message: target_overflow_message(p.type_text(types[j])))
+            return AssertsVerdict(rule: "type.too-large", message: target_overflow_message(p.type_text(types[j]), l.size))
         }
         if why.len() > 0 {
             var msg = StringBuilder()

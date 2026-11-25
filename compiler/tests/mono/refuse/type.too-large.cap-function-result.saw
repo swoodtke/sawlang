@@ -1,0 +1,11 @@
+// refuses: type.too-large at 8:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A function result that passes the cap.
+func make() -> [UInt8; 4294967296] {
+    panic("never")
+}
+
+func main() {
+    let n = make().len()
+    print("{}", n)
+}

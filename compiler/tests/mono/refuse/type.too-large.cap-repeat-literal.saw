@@ -1,0 +1,7 @@
+// refuses: type.too-large at 4:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A repeat literal whose array passes the cap.
+func main() {
+    let a = [0u8; 4294967296]
+    print("{}", a[0])
+}

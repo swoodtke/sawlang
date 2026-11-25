@@ -1,0 +1,14 @@
+// refuses: type.too-large at 13:17
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A zero-initialized static of a type of 2^64 bytes, past a 64-bit `Int`,
+// read in a function: the static's type is judged where the function reaches
+// it.
+unsafe static var BIG: [UInt64; 2_305_843_009_213_693_952]
+
+func touch() unsafe -> UInt64 {
+    BIG[0]
+}
+
+func main() {
+    print("{}", touch())
+}

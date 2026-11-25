@@ -1,0 +1,19 @@
+// refuses: type.too-large at 8:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Two locals of 2^30 bytes each, which fit the cap one by one, both live
+// across one suspension: the coroutine frame holds both, 2^31 bytes, which
+// does not. Never built; `coro --layouts` only.
+import std.task.*
+
+func hold() {
+    var a = [0u8; 1_073_741_824]
+    var b = [0u8; 1_073_741_824]
+    yield_now()
+    a[0] = 1
+    b[0] = 2
+}
+
+func main() {
+    let t = Task.spawn(hold())
+    t.join()
+}

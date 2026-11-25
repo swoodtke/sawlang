@@ -1,0 +1,11 @@
+// refuses: type.too-large at 9:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// An enum's tag and payload sum to more than `Int.max`.
+enum Big {
+    case A(v: [UInt8; 9223372036854775807])
+    case B
+}
+
+func main() {
+    print(sizeof<Big>())
+}

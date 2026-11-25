@@ -1,0 +1,6 @@
+// refuses: type.too-large at 4:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Two arrays nested: each fits, the product is 2^64 bytes.
+func main() {
+    print(sizeof<[[UInt8; 4294967296]; 4294967296]>())
+}

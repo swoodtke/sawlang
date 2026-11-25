@@ -1,0 +1,23 @@
+// stage 0: a probe would have clang build a 2 GiB value, which this lane never does
+// Types of exactly 2^31-1 bytes, the most a type may hold on any target: an
+// array, and a struct whose last field reaches the cap by one byte, each held
+// as a value so the layout table records it.
+struct Edge {
+    a: [UInt8; 2147483646]
+    b: UInt8
+}
+
+func make_array() -> [UInt8; 2147483647] {
+    panic("never")
+}
+
+func make_edge() -> Edge {
+    panic("never")
+}
+
+func main() {
+    let a = make_array()
+    let e = make_edge()
+    print("{}", a[0])
+    print("{}", e.b)
+}

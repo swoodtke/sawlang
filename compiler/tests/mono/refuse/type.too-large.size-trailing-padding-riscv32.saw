@@ -1,0 +1,14 @@
+// refuses: type.too-large at 12:6
+// flags: --target riscv32-unknown-none-elf
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// The fields fit a 32-bit `Int` and the size overflows only by its trailing
+// padding: 4 + (2^31 - 7) = 2^31 - 3, rounded up to 4 is 2^31.
+struct Tail {
+    w: UInt32
+    b: [UInt8; 2_147_483_641]
+}
+
+@export("entry")
+func entry() -> Int {
+    sizeof<Tail>()
+}

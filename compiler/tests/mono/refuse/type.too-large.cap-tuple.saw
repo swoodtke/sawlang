@@ -1,0 +1,6 @@
+// refuses: type.too-large at 4:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Tuple members that each fit and sum past the cap.
+func main() {
+    print(sizeof<([UInt8; 1073741824], [UInt8; 1073741824], [UInt8; 1073741824], [UInt8; 1073741824])>())
+}

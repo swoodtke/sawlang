@@ -61,8 +61,9 @@ public struct TargetLayout {
     length: Int
     // Why the type is unsupported, a run of `reasons`, or -1.
     reason: Int
-    // Whether the type is unsupported because its size does not fit the
-    // target's `Int` (`size_overflow`).
+    // Whether the type is unsupported because its size passes the cap on a
+    // type's size (`too_large`). Its `size` and `align` then stay the ones the
+    // layout computed, or `size` is -1 when the size passes 2^63 (`size_overflow`).
     overflow: Bool
 }
 
@@ -462,14 +463,30 @@ extension Target {
     }
 }
 
-// The message of the refusal a type whose size does not fit the target's
-// `Int` gets, from every consumer of a layout: `type_text` names the type.
-public func target_overflow_message(type_text: String) -> String {
-    var subject = StringBuilder()
-    try! subject.append("the type `")
-    try! subject.append(type_text)
-    try! subject.append("`")
-    target_overflow_subject(subject.build())
+// The most bytes a type, a static or a coroutine frame may hold, on every
+// target (SL-1163).
+public func target_size_cap() -> Int {
+    2147483647
+}
+
+// The message of the `type.too-large` refusal, from every consumer of a
+// layout: `type_text` names the type and `size` is its layout's `size`, -1
+// when it passes 2^63 bytes.
+public func target_overflow_message(type_text: String, size: Int) -> String {
+    var msg = StringBuilder()
+    try! msg.append("the type `")
+    try! msg.append(type_text)
+    try! msg.append("` is ")
+    if size < 0 {
+        try! msg.append("more than 2^63 bytes")
+    } else {
+        try! msg.append(size)
+        try! msg.append(" bytes")
+    }
+    try! msg.append(", more than the ")
+    try! msg.append(target_size_cap())
+    try! msg.append(" bytes (2^31-1) a type may hold on any target")
+    msg.build()
 }
 
 // The same refusal for `subject`, a thing that is not a type: a coroutine
@@ -477,7 +494,9 @@ public func target_overflow_message(type_text: String) -> String {
 public func target_overflow_subject(subject: String) -> String {
     var msg = StringBuilder()
     try! msg.append(subject)
-    try! msg.append(" is larger than `Int` counts on this target: a size counts bytes in an `Int`")
+    try! msg.append(" is more than the ")
+    try! msg.append(target_size_cap())
+    try! msg.append(" bytes (2^31-1) a type may hold on any target")
     msg.build()
 }
 
@@ -520,7 +539,10 @@ extension Target {
             return self.unsupported("a type that contains itself inline")
         }
         self.states[t] = 1
-        let computed = self.compute(&var tc, t)
+        var computed = self.compute(&var tc, t)
+        if computed.kind != TargetKind.Unsupported && computed.size > target_size_cap() {
+            computed = self.too_large(computed)
+        }
         self.layouts[t] = computed
         self.states[t] = 2
         computed
@@ -534,16 +556,18 @@ extension Target {
         self.reasons.get(l.reason) ?? ""
     }
 
-    // The most bytes a type may hold: the largest value of the target's
-    // `Int`, so every size and offset the layout computes fits one.
-    func size_limit(&self) -> Int {
-        tc_arith_max(self.word * 8, true)
+    // The largest byte count the layout arithmetic holds: the compiler's own
+    // `Int`, so a size is exact up to 2^63 and `layout` judges it against the
+    // cap afterwards.
+    func wide_limit(&self) -> Int {
+        tc_arith_max(64, true)
     }
 
-    // THE SIZE FUNNEL: every byte count the layout computes, checked against
-    // `size_limit` (the target's `Int`, never the compiler's own), so a size
-    // that fits is accepted exactly and one that does not is a `size_overflow`
-    // refusal. Operands are sizes and alignments, never negative.
+    // THE SIZE FUNNEL: every byte count the layout computes is checked, so a
+    // size is exact or a `size_overflow` refusal, never a wrapped number.
+    // `layout` then refuses a computed size past `target_size_cap` (`too_large`),
+    // a rule that is the same on every target. Operands are sizes and
+    // alignments, never negative.
     // ENTRY POINTS:
     //     compute (the array case)
     //     record
@@ -555,26 +579,61 @@ extension Target {
     //     coro_first_fit
     //     coro_held_bytes
     //     coro_first_clear
-    // `a + b`, or None when it does not fit.
-    public func size_sum(&self, a: Int, b: Int) -> Int? {
-        if a > self.size_limit() - b {
+    // `a + b`, or None when it passes the compiler's `Int`.
+    func wide_sum(&self, a: Int, b: Int) -> Int? {
+        if a > self.wide_limit() - b {
             return None
         }
         a + b
     }
 
-    // `a * b`, or None when it does not fit.
-    public func size_product(&self, a: Int, b: Int) -> Int? {
+    // `a * b`, or None when it passes the compiler's `Int`.
+    func wide_product(&self, a: Int, b: Int) -> Int? {
         if a == 0 || b == 0 {
             return 0
         }
-        if a > self.size_limit() / b {
+        if a > self.wide_limit() / b {
             return None
         }
         a * b
     }
 
-    // `n` rounded up to a multiple of `align`, or None when that does not fit.
+    // `n` rounded up to a multiple of `align`, or None when that passes the
+    // compiler's `Int`.
+    func wide_aligned(&self, n: Int, align: Int) -> Int? {
+        if align <= 1 {
+            return n
+        }
+        let rem = n % align
+        if rem == 0 {
+            return n
+        }
+        self.wide_sum(n, align - rem)
+    }
+
+    // The frame arithmetic's spellings: the same operations held to the cap
+    // on a type's size, so a frame past it is a sum that is None.
+    // `a + b`, or None when it passes `target_size_cap`.
+    public func size_sum(&self, a: Int, b: Int) -> Int? {
+        if a > target_size_cap() - b {
+            return None
+        }
+        a + b
+    }
+
+    // `a * b`, or None when it passes `target_size_cap`.
+    public func size_product(&self, a: Int, b: Int) -> Int? {
+        if a == 0 || b == 0 {
+            return 0
+        }
+        if a > target_size_cap() / b {
+            return None
+        }
+        a * b
+    }
+
+    // `n` rounded up to a multiple of `align`, or None when that passes
+    // `target_size_cap`.
     public func size_aligned(&self, n: Int, align: Int) -> Int? {
         if align <= 1 {
             return n
@@ -586,11 +645,33 @@ extension Target {
         self.size_sum(n, align - rem)
     }
 
-    // The refusal for a type whose size does not fit the target's `Int`.
+    // The refusal for a type whose size passes 2^63, which has no exact size
+    // to report.
     func size_overflow(&var self) -> TargetLayout {
-        var l = self.unsupported("larger than `Int` counts on this target")
+        var l = self.unsupported("larger than 2^63 bytes")
+        l.overflow = true
+        l.size = -1
+        l
+    }
+
+    // `laid`, a layout whose size passes the cap, as a refusal that keeps the
+    // size and alignment, so a type holding it still computes its own size.
+    func too_large(&var self, laid: TargetLayout) -> TargetLayout {
+        var l = laid
+        l.kind = TargetKind.Unsupported
+        l.reason = self.reasons.len()
+        try! self.reasons.push("larger than the cap on a type's size")
         l.overflow = true
         l
+    }
+
+    // Whether member layout `m` gives a size: a supported layout, or a
+    // `too_large` one. Any other refusal is returned as it is.
+    func sized(&self, m: &TargetLayout) -> Bool {
+        if m.kind != TargetKind.Unsupported {
+            return true
+        }
+        m.overflow && m.size >= 0
     }
 
     func unsupported(&var self, why: String) -> TargetLayout {
@@ -630,7 +711,7 @@ extension Target {
             case Array -> {
                 let element = info.b
                 let el = self.layout(&var tc, element)
-                if el.kind == TargetKind.Unsupported {
+                if not self.sized(&el) {
                     return el
                 }
                 let length_type = tc.types.arg(t, 0)
@@ -649,11 +730,11 @@ extension Target {
                     try! why.append("`)")
                     return self.unsupported(why.build())
                 }
-                if lt.a > self.size_limit() {
+                if lt.a > tc_arith_max(self.word * 8, true) {
                     // More elements than `len()` counts, even of zero bytes.
                     return self.size_overflow()
                 }
-                let bytes = self.size_product(el.size, lt.a) ?? -1
+                let bytes = self.wide_product(el.size, lt.a) ?? -1
                 if bytes < 0 {
                     return self.size_overflow()
                 }
@@ -759,11 +840,11 @@ extension Target {
         var k = 0
         while k < members.len() {
             let m = self.layout(&var tc, members[k])
-            if m.kind == TargetKind.Unsupported {
+            if not self.sized(&m) {
                 return m
             }
-            let placed = self.size_aligned(at, m.align) ?? -1
-            let end = if placed < 0 { -1 } else { self.size_sum(placed, m.size) ?? -1 }
+            let placed = self.wide_aligned(at, m.align) ?? -1
+            let end = if placed < 0 { -1 } else { self.wide_sum(placed, m.size) ?? -1 }
             if end < 0 {
                 return self.size_overflow()
             }
@@ -774,7 +855,7 @@ extension Target {
             }
             k = k + 1
         }
-        let total = self.size_aligned(at, align) ?? -1
+        let total = self.wide_aligned(at, align) ?? -1
         if total < 0 {
             return self.size_overflow()
         }
@@ -807,7 +888,7 @@ extension Target {
                 let written = tc.params[s.param_first + j].ty
                 let pt = target_member_type(&var tc, t, written)
                 let pl = self.layout(&var tc, pt)
-                if pl.kind == TargetKind.Unsupported {
+                if not self.sized(&pl) {
                     return pl
                 }
                 if pl.align > payload_align {
@@ -817,7 +898,7 @@ extension Target {
             }
             k = k + 1
         }
-        let base = self.size_aligned(tag, payload_align) ?? -1
+        let base = self.wide_aligned(tag, payload_align) ?? -1
         if base < 0 {
             return self.size_overflow()
         }
@@ -879,11 +960,11 @@ extension Target {
         let d = tc.types.ty(t).decl
         let payload = tc.types.arg(t, 0)
         let pl = self.layout(&var tc, payload)
-        if pl.kind == TargetKind.Unsupported {
+        if not self.sized(&pl) {
             return pl
         }
         let cases = target_enum_cases(&tc, d)
-        let base = self.size_aligned(1, pl.align) ?? -1
+        let base = self.wide_aligned(1, pl.align) ?? -1
         if base < 0 {
             return self.size_overflow()
         }
@@ -907,11 +988,11 @@ extension Target {
                 let written = tc.params[s.param_first + j].ty
                 let pt = target_member_type(&var tc, t, written)
                 let pl = self.layout(&var tc, pt)
-                if pl.kind == TargetKind.Unsupported {
+                if not self.sized(&pl) {
                     return pl
                 }
-                let placed = self.size_aligned(at, pl.align) ?? -1
-                let reach = if placed < 0 { -1 } else { self.size_sum(placed, pl.size) ?? -1 }
+                let placed = self.wide_aligned(at, pl.align) ?? -1
+                let reach = if placed < 0 { -1 } else { self.wide_sum(placed, pl.size) ?? -1 }
                 if reach < 0 {
                     return self.size_overflow()
                 }
@@ -940,7 +1021,7 @@ extension Target {
         if payload_align > align {
             align = payload_align
         }
-        let total = self.size_aligned(end, align) ?? -1
+        let total = self.wide_aligned(end, align) ?? -1
         if total < 0 {
             return self.size_overflow()
         }

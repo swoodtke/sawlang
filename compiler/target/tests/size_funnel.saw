@@ -1,7 +1,7 @@
-// The layout funnel's size arithmetic accepts a size that fits the target's
-// `Int` exactly: every type of the two fixtures is asserted at its size, on one
-// LP64 triple and each ILP32 one, and the fixture typechecks clean. No type
-// here is built, emitted or run. Paths are the repository root's.
+// The layout funnel accepts a size up to the cap on a type's size exactly:
+// every type of the fixture is asserted at its size, on each LP64 and each
+// ILP32 triple, and the fixture typechecks clean. No type here is built,
+// emitted or run. Paths are the repository root's.
 import sawasserts.layout.{asserts_typecheck_program}
 import sawtarget.layout.{target_front_end}
 import sawtypecheck.program.{TcProgram}
@@ -15,9 +15,9 @@ func check(triple: String, path: String) {
 }
 
 func main() {
-    check("arm64-apple-darwin", "compiler/tests/target/size_edge_lp64.saw")
-    check("aarch64-unknown-none-elf", "compiler/tests/target/size_edge_lp64.saw")
-    check("riscv32-unknown-none-elf", "compiler/tests/target/size_edge_ilp32.saw")
-    check("xtensa-esp-unknown-elf", "compiler/tests/target/size_edge_ilp32.saw")
+    check("arm64-apple-darwin", "compiler/tests/target/size_edge.saw")
+    check("aarch64-unknown-none-elf", "compiler/tests/target/size_edge.saw")
+    check("riscv32-unknown-none-elf", "compiler/tests/target/size_edge.saw")
+    check("xtensa-esp-unknown-elf", "compiler/tests/target/size_edge.saw")
     print("size edges accepted on 4 triples")
 }

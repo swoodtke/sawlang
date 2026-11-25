@@ -1,0 +1,16 @@
+// refuses: type.too-large at 14:6
+// flags: --target riscv32-unknown-none-elf
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A generic whose size overflows only at one instance, found in mono.
+struct Pair<T> {
+    a: T
+    b: T
+}
+
+func measure<T>() -> Int {
+    sizeof<T>()
+}
+
+func main() {
+    print(measure<Pair<[UInt8; 1073741824]>>())
+}

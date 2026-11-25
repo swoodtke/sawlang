@@ -1,0 +1,16 @@
+// refuses: type.too-large at 13:6
+// flags: --target riscv32-unknown-none-elf
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// A local of a struct that passes the cap.
+struct Holder {
+    a: [UInt64; 1073741824]
+}
+
+func make() -> Holder {
+    panic("never")
+}
+
+func main() {
+    let h = make()
+    print("{}", h.a[0])
+}

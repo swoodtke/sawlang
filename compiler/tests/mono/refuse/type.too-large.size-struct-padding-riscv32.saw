@@ -1,0 +1,12 @@
+// refuses: type.too-large at 10:6
+// flags: --target riscv32-unknown-none-elf
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Padding before the second field tips an unpadded 2^31 - 3 bytes over.
+struct Padded {
+    a: UInt8
+    b: [UInt32; 536870911]
+}
+
+func main() {
+    print(sizeof<Padded>())
+}

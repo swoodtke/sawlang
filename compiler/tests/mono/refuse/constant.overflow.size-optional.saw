@@ -1,6 +1,0 @@
-// refuses: constant.overflow at 4:6
-// message: is larger than `Int` counts on this target
-// The presence flag and a payload of `Int.max` bytes.
-func main() {
-    print(sizeof<[UInt8; 9223372036854775807]?>())
-}

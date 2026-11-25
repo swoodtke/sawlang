@@ -834,6 +834,11 @@ linker must be Xcode 15's or later; with an older one, or when `dsymutil`
 fails, the build fails and names `-g0`. Code that the machine outliner moves
 into a shared `OUTLINED_FUNCTION_N` at `-Oz` reports no source line.
 - `sizeof<T>()` / `alignof<T>()` — the size / alignment of `T` in bytes.
+  A type is at most 2^31−1 bytes on every target: a struct, enum, tuple or
+  fixed array past that is a compile error (`type.too-large`) naming the type
+  and its size, wherever its layout is first needed (a field, a local, a static,
+  a result, a capture, a generic instance). The cap is on a type's own size; a
+  heap buffer (`Vector`, `Data`) grows past it at run time.
 
 ```saw
 func checked(x: Int) -> Int {

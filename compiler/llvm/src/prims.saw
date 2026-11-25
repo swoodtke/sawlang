@@ -87,7 +87,7 @@ extension LlEmitter {
         let l = target.layout(&var mono.dp.bc.mir.tc, t)
         if l.overflow {
             if not self.refused {
-                mono.refuse(node, "constant.overflow", target_overflow_message(mono.dp.bc.mir.tc.type_text(t)))
+                mono.refuse(node, "type.too-large", target_overflow_message(mono.dp.bc.mir.tc.type_text(t), l.size))
             }
             self.refused = true
         } else if l.kind == TargetKind.Unsupported {

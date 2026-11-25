@@ -1,0 +1,11 @@
+// refuses: type.too-large at 9:6
+// message: more than the 2147483647 bytes (2^31-1) a type may hold on any target
+// Fields that each fit and sum to 2^63 bytes.
+struct Pair {
+    a: [UInt8; 4611686018427387904]
+    b: [UInt8; 4611686018427387904]
+}
+
+func main() {
+    print(sizeof<Pair>())
+}

@@ -60,6 +60,7 @@ public func mono_rules() -> Vector<String> {
     try! out.push("synthesize.unmet-member")
     try! out.push("transfer.no-move")
     try! out.push("type.mismatch")
+    try! out.push("type.too-large")
     move out
 }
 
@@ -517,8 +518,8 @@ extension MonoProgram {
     }
 
     // The size rule at an instantiation: concrete type `t`, laid out on the
-    // program's target, whose size does not fit that target's `Int` is
-    // refused once as `constant.overflow`, where item `k` was reached. The
+    // program's target, whose size passes the cap on a type's size is
+    // refused once as `type.too-large`, where item `k` was reached. The
     // layout funnel is the one judge; this asks it. A polymorphic recursion
     // grows types past `Int` on its way to the depth limit, so
     // `drop_size_refusals` takes these back when the depth limit refused (SL-1116).
@@ -536,7 +537,7 @@ extension MonoProgram {
             if site < 0 && source >= 0 && self.dp.bc.mir.funcs[source].decl >= 0 {
                 site = self.dp.bc.mir.tc.decl_site(self.dp.bc.mir.funcs[source].decl)
             }
-            self.refuse(site, "constant.overflow", target_overflow_message(self.dp.bc.mir.tc.type_text(t)))
+            self.refuse(site, "type.too-large", target_overflow_message(self.dp.bc.mir.tc.type_text(t), l.size))
         }
     }
 
@@ -558,7 +559,7 @@ extension MonoProgram {
         j = 0
         while j < self.diags.len() {
             let d = self.diags[j]
-            if not (d.id.equals("constant.overflow") && d.message.contains("is larger than `Int` counts on this target")) {
+            if not d.id.equals("type.too-large") {
                 try! kept.push(d)
             }
             j = j + 1
