@@ -42,6 +42,7 @@ ENTRY POINTS:
   blade_environment
 """
 import os
+import platform
 import re
 import shutil
 import struct
@@ -1330,6 +1331,50 @@ def check_lz4_image(binary=None):
                 raise Failure("the lz4 image for %s did not print %r (exit %s)\n%s" % (triple, line, code, out))
 
 
+NATIVE_OWN_LIBRARY_SOURCE = 'extern "C" {\n    func own_c() -> Int32\n}\n\npublic func value() -> Int {\n    own_c() as Int\n}\n'
+
+
+def check_blade_test_diagnostics(binary=None):
+    """`blade test` of a test that does not compile prints sawc's diagnostic once, whole, and fails;
+    the other test is reported ok."""
+    binary = binary or SELF_BUILT
+    work = os.path.join(WORK_DIR, "test_diagnostics")
+    shutil.rmtree(work, ignore_errors=True)
+    write_text(os.path.join(work, "Saw.toml"), '[package]\nname = "diag"\nversion = "0.1.0"\n')
+    write_text(os.path.join(work, "src", "main.saw"), PLAIN_MAIN)
+    write_text(os.path.join(work, "tests", "broken.saw"), "func main() {\n    print(undefined_name)\n}\n")
+    write_text(os.path.join(work, "tests", "fine.saw"), PLAIN_MAIN)
+    print("blade: blade test prints the diagnostic of a test that does not compile", flush=True)
+    code, out = run_blade(binary, ["test"], work)
+    if code == 0:
+        raise Failure("a test that does not compile did not fail blade test\n%s" % out)
+    if out.count("name.undefined") != 1 or "undefined_name" not in out:
+        raise Failure("blade test should print sawc's name.undefined diagnostic once\n%s" % out)
+    if "test broken ... FAILED" not in out or "test fine ... ok" not in out:
+        raise Failure("blade test should report broken as FAILED and fine as ok\n%s" % out)
+
+
+def check_blade_test_debug_map(binary=None):
+    """`blade test` of a package with its own `[native]` C sources links the test without the debug
+    map naming an object that is not there (a warning on arm64 macOS only)."""
+    binary = binary or SELF_BUILT
+    if sys.platform != "darwin" or platform.machine() != "arm64":
+        print("blade: not an arm64 macOS host: the debug map of a [native] test link is not checked", flush=True)
+        return
+    work = os.path.join(WORK_DIR, "test_debug_map")
+    shutil.rmtree(work, ignore_errors=True)
+    write_text(os.path.join(work, "Saw.toml"),
+               '[package]\nname = "own"\nversion = "0.1.0"\n\n[native]\nc-sources = ["c/*.c"]\n')
+    write_text(os.path.join(work, "c", "own.c"), "int own_c(void) { return 3; }\n")
+    write_text(os.path.join(work, "src", "lib.saw"), NATIVE_OWN_LIBRARY_SOURCE)
+    write_text(os.path.join(work, "tests", "value.saw"),
+               'import own\n\nfunc main() {\n    assert(own.value() == 3, "the C object")\n}\n')
+    print("blade: blade test of a package with its own [native] has no debug-map warning", flush=True)
+    out = blade_ok(binary, ["test"], work, "test result: ok")
+    if "unable to open object file" in out:
+        raise Failure("blade test's link named an object that is not there\n%s" % out)
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -1366,6 +1411,8 @@ def lane():
         check_blade_native()
         check_blade_native_c()
         check_lz4_image()
+        check_blade_test_diagnostics()
+        check_blade_test_debug_map()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

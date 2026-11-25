@@ -118,10 +118,19 @@ extension Tester {
             try! compile.arg(flags.get(i) ?? "")
             i = i + 1
         }
-        if not self.passes(&compile, "the compiler") {
-            // The compiler's error (stderr) has already been shown; the caller
-            // reports this test as FAILED. Never swallow a compile failure.
-            return false
+        // The compile inherits stdout and stderr, so every diagnostic and
+        // warning of sawc reaches the terminal as it prints, once; a nonzero
+        // exit makes the caller report this test FAILED.
+        match compile.wait() {
+            case Ok(code) -> {
+                if code != (0 as Int32) {
+                    return false
+                }
+            },
+            case Err(e) -> {
+                print("error: could not launch the compiler: {e}")
+                return false
+            }
         }
         let run = Command(program: bin.as_string())
         self.passes(&run, bin.as_string())

@@ -1045,25 +1045,9 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>, inputs: &Dr
     if linked != 0 {
         return linked
     }
-    let dsymutil = driver_clang_tool(link.clang, "dsymutil", link.out, link.token)
-    if dsymutil.len() == 0 {
-        return 1
-    }
-    var bundle = StringBuilder()
-    try! bundle.append(link.out)
-    try! bundle.append(".dSYM")
-    var symbols = Vector<String>()
-    try! symbols.push("--oso-prepend-path")
-    try! symbols.push(dir)
-    try! symbols.push(link.out)
-    try! symbols.push("-o")
-    try! symbols.push(bundle.build())
-    stagetime_begin(StageTime.Dsymutil)
-    let written = driver_tool("sawc build", "dsymutil", dsymutil, &symbols)
-    stagetime_end(StageTime.Dsymutil)
+    let written = driver_dsymutil(link.clang, link.out, dir, link.token)
     if written != 0 {
-        print("sawc build: dsymutil wrote no {}.dSYM, the line tables a debugger and the crash reporter read; -g0 builds without them", link.out)
-        return 1
+        return written
     }
     match File.remove(Path(s: object)) {
         case Ok(_) -> 0,
@@ -1072,6 +1056,58 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>, inputs: &Dr
             1
         }
     }
+}
+
+// Writes `OUT.dSYM` for a Mach-O link whose `-oso_prefix` cut `dir/` from the
+// debug map. dsymutil runs with `dir` as its working directory, so a path the
+// prefix cut resolves against it and an absolute one (an object that lives
+// outside `dir`, such as a package's native object) stays absolute. The
+// process's directory is restored afterwards, since both callers go on to
+// remove objects.
+func driver_dsymutil(clang: String, out: String, dir: String, token: String) blocking -> Int {
+    let dsymutil = driver_clang_tool(clang, "dsymutil", out, token)
+    if dsymutil.len() == 0 {
+        return 1
+    }
+    // The process's directory changes for dsymutil alone: the caller's later
+    // steps (removing the object, the LTO objects) may name relative paths.
+    let back = match Directory.current() {
+        case Ok(here) -> here,
+        case Err(e) -> {
+            print("sawc build: cannot read the working directory to write the .dSYM: {}", e)
+            return 1
+        }
+    }
+    match Directory.set_current(Path(s: dir)) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("sawc build: cannot enter {} to write the .dSYM: {}", dir, e)
+            return 1
+        }
+    }
+    let binary = driver_path(dir, driver_base_name(out), "")
+    var bundle = StringBuilder()
+    try! bundle.append(binary)
+    try! bundle.append(".dSYM")
+    var symbols = Vector<String>()
+    try! symbols.push(binary)
+    try! symbols.push("-o")
+    try! symbols.push(bundle.build())
+    stagetime_begin(StageTime.Dsymutil)
+    let written = driver_tool("sawc build", "dsymutil", dsymutil, &symbols)
+    stagetime_end(StageTime.Dsymutil)
+    match Directory.set_current(back.copy()) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("sawc build: cannot return to {} after writing the .dSYM: {}", back.as_string(), e)
+            return 1
+        }
+    }
+    if written != 0 {
+        print("sawc build: dsymutil wrote no {}.dSYM, the line tables a debugger and the crash reporter read; -g0 builds without them", out)
+        return 1
+    }
+    0
 }
 
 // The codegen units a build asks for and the link-time optimisation of a split
@@ -1495,25 +1531,9 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
     if linked != 0 || not lines {
         return linked
     }
-    let dsymutil = driver_clang_tool(split.clang, "dsymutil", split.out, split.token)
-    if dsymutil.len() == 0 {
-        return 1
-    }
-    var bundle = StringBuilder()
-    try! bundle.append(split.out)
-    try! bundle.append(".dSYM")
-    var symbols = Vector<String>()
-    try! symbols.push("--oso-prepend-path")
-    try! symbols.push(real_dir)
-    try! symbols.push(split.out)
-    try! symbols.push("-o")
-    try! symbols.push(bundle.build())
-    stagetime_begin(StageTime.Dsymutil)
-    let written = driver_tool("sawc build", "dsymutil", dsymutil, &symbols)
-    stagetime_end(StageTime.Dsymutil)
+    let written = driver_dsymutil(split.clang, split.out, real_dir, split.token)
     if written != 0 {
-        print("sawc build: dsymutil wrote no {}.dSYM, the line tables a debugger and the crash reporter read; -g0 builds without them", split.out)
-        return 1
+        return written
     }
     if kept.len() > 0 {
         return driver_remove_lto_objects(kept, split.lto)

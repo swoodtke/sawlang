@@ -112,10 +112,12 @@ instead, each of whose failure fails the build:
 ```
 clang -target TRIPLE SPEED [-fsanitize=address] -c -x ir OUT.ll -o DIR/OUT.o
 clang -target TRIPLE SPEED [-fsanitize=address] DIR/OUT.o -Wl,-reproducible -Wl,-oso_prefix,DIR/ RUNTIME... -o OUT
-dsymutil --oso-prepend-path DIR OUT -o OUT.dSYM
+(cd DIR && dsymutil DIR/OUT -o DIR/OUT.dSYM)
 ```
 
-then removes `DIR/OUT.o`. DIR is the real path of OUT's directory, so the
+then removes `DIR/OUT.o`. dsymutil runs with DIR as its working directory: a
+path `-oso_prefix` cut resolves there, and an absolute one (an object outside
+DIR, such as a package's native object) stays absolute. DIR is the real path of OUT's directory, so the
 debug map names the object as `OUT.o` and the binary holds no temporary or
 build directory: two builds in two directories are the same bytes, which the
 fixpoint lane's Stage 3 requires. The linker must be Xcode 15's or later,

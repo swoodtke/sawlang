@@ -232,10 +232,13 @@ def link_module(ll, out, sanitize=False):
     obj = os.path.join(directory, os.path.basename(out) + ".o")
     steps = [head + ["-c", "-x", "ir", ll, "-o", obj],
              head + [obj, "-Wl,-reproducible", "-Wl,-oso_prefix," + directory + "/"] + tail,
-             [clang_tool(clang, "dsymutil"), "--oso-prepend-path", directory, out, "-o", out + ".dSYM"]]
+             [clang_tool(clang, "dsymutil"), os.path.join(directory, os.path.basename(out)), "-o",
+              os.path.join(directory, os.path.basename(out)) + ".dSYM"]]
     said = []
     for step in steps:
-        r = subprocess.run(step, capture_output=True, text=True, timeout=LINK_TIMEOUT)
+        # dsymutil resolves the paths -oso_prefix cut against its working directory.
+        r = subprocess.run(step, capture_output=True, text=True, timeout=LINK_TIMEOUT,
+                           cwd=directory if step is steps[-1] else None)
         said.append((r.stdout + r.stderr).strip())
         if r.returncode != 0:
             return False, "\n".join(s for s in said if s)
