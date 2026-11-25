@@ -308,13 +308,13 @@ public func clang_identity(clang: String) -> Result<String, NativeError> {
     match ask.output() {
         case Ok(out) -> {
             if not out.success() {
-                return NativeError(msg: "`{clang} --version` failed: the C compiler `sawc tools` names does not run")
+                return NativeError(msg: "clang `{clang}` does not run: `{clang} --version` failed")
             }
             let lines = try! out.stdout.split("\n")
             return "{clang}\n{lines.get(0) ?? ""}"
         },
         case Err(e) -> {
-            return NativeError(msg: "could not run `{clang}`, the C compiler `sawc tools` names: {e}")
+            return NativeError(msg: "could not launch clang `{clang}`: {e}")
         }
     }
 }

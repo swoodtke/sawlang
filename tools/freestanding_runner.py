@@ -1189,6 +1189,7 @@ TEST_CASES = [
         "expect_out": ["fs: hello from a Blade-built image",
                        "fs check blade_built_image_ran=1",
                        "fs check blade_arithmetic=1",
+                       "fs check blade_native_c=1",
                        "fs done blade_target ok"],
         "expect_clean_exit": True,
     },

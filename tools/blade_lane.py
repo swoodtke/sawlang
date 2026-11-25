@@ -199,6 +199,60 @@ def check_xtensa_drift():
                       % (XTENSA_TRIPLE, sorted(cpus), cpu))
 
 
+AARCH64_TRIPLE = "aarch64-unknown-none-elf"
+# A plain struct copy: with NEON on, clang moves it through `q` registers.
+AARCH64_COPY_C = "struct block { long w[8]; };\n" \
+                 "void copy_block(struct block *dst, const struct block *src) { *dst = *src; }\n"
+
+
+def check_aarch64_no_fp():
+    """Blade's feature list for the C half of an aarch64 image equals the
+    `target-features` sawc compiles the Saw half with, and C compiled with that
+    list uses no FP/SIMD register. The suite's arm64 boot turns FP on, so only
+    the object itself can show it."""
+    with open(os.path.join(BLADE_DIR, "src", "sosimg.saw"), encoding="utf-8") as f:
+        text = f.read()
+    stated = re.search(r'func aarch64_native_features\(\) -> String \{\s*"([^"]*)"\s*\}', text)
+    if not stated:
+        raise Failure("blade/src/sosimg.saw no longer states the aarch64 C features where the lane reads them")
+    features = stated.group(1)
+    os.makedirs(WORK_DIR, exist_ok=True)
+    source = os.path.join(WORK_DIR, "aarch64_drift.saw")
+    with open(source, "w", encoding="utf-8") as f:
+        f.write('@export("drift")\nfunc drift() -> Int { 1 }\n')
+    out = step("Blade's aarch64 C features match sawc's",
+               [build.SAWC, "build", "--freestanding", "--target", AARCH64_TRIPLE, "--emit-ll", source],
+               BUILD_TIMEOUT_S)
+    found = set(re.findall(r'"target-features"="([^"]*)"', out))
+    if found != {features}:
+        raise Failure("sawc compiles the Saw half of an %s image with target-features %s, and Blade gives the C half %r"
+                      % (AARCH64_TRIPLE, sorted(found), features))
+    code, listed = run([build.SAWC, "tools", "--target", AARCH64_TRIPLE], SMOKE_TIMEOUT_S)
+    named = dict(line.split(" ", 1) for line in (listed or "").splitlines() if " " in line) if code == 0 else {}
+    clang = named.get("clang", "")
+    # Apple's clang has no llvm-objdump beside it; the recorded objcopy is LLVM's.
+    beside = [os.path.join(os.path.dirname(named[k]), "llvm-objdump") for k in ("objcopy", "clang") if named.get(k)]
+    objdump = next((path for path in beside if os.path.isfile(path)), "")
+    if not clang or not objdump:
+        print("      skipped the aarch64 object check: no llvm-objdump beside the recorded objcopy or clang",
+              flush=True)
+        return
+    c_source = os.path.join(WORK_DIR, "aarch64_copy.c")
+    with open(c_source, "w", encoding="utf-8") as f:
+        f.write(AARCH64_COPY_C)
+    obj = os.path.join(WORK_DIR, "aarch64_copy.o")
+    flags = []
+    for feature in features.split(","):
+        flags += ["-Xclang", "-target-feature", "-Xclang", feature]
+    step("aarch64 C compiles with Blade's features",
+         [clang, "--target=" + AARCH64_TRIPLE] + flags + ["-ffreestanding", "-O2", "-c", c_source, "-o", obj],
+         BUILD_TIMEOUT_S)
+    # Without the raw encodings, which can read as a register name (`d2800000`).
+    listing = step("disassemble the aarch64 C object", [objdump, "-d", "--no-show-raw-insn", obj], BUILD_TIMEOUT_S)
+    if re.search(r"\b[qvds]\d+\b", listing.split("copy_block", 1)[-1]):
+        raise Failure("C compiled with Blade's aarch64 features still uses FP/SIMD registers:\n%s" % listing)
+
+
 def check_blade_finds_tools():
     """With `SOS_CLANG` and `SOS_LD` unset, Blade builds `tests/freestanding/bladepkg`
     for each bare-metal target sawc has a record for, with the clang and `ld.lld` `sawc tools`
@@ -1250,6 +1304,7 @@ def lane():
         for lib in LIBRARIES:
             tests_passed("blade test in libs/%s" % lib, SELF_BUILT, os.path.join(LIBS_DIR, lib))
         check_xtensa_drift()
+        check_aarch64_no_fp()
         check_blade_finds_tools()
         check_blade_refuses_unknown_words()
         check_blade_tree_status()

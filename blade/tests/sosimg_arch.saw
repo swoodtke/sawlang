@@ -2,9 +2,9 @@
 // toolchain defaults, the CPU that is the triple's and never the manifest's,
 // and the C half's command line.
 //
-// The two halves of an image are compiled for one calling convention, so the
-// Xtensa rows pin the CPU and feature list the C half gets; the riscv32 and
-// aarch64 rows pin that nothing they emit moved.
+// The two halves of an image are compiled for one calling convention and one
+// set of registers, so the Xtensa and aarch64 rows pin the feature list the C
+// half gets; the riscv32 row pins that nothing it emits moved.
 
 import blade.sosimg.{
     SosConfig, load_sos_config, toolchain_defaults, native_compile_arguments,
@@ -66,7 +66,7 @@ func check_defaults() {
     assert(arm.march.is_empty() && arm.mabi.is_empty(), "aarch64 march and mabi")
     assert(arm.target_features.is_empty(), "aarch64 features")
     assert(arm.mcpu.is_empty(), "aarch64 names no cpu")
-    assert(arm.native_features.is_empty(), "aarch64 has no C-only features")
+    assert(arm.native_features.equals("-neon,-fp-armv8"), "aarch64 C gets the Saw half's no-FP list")
 
     let xt = toolchain_defaults(xtensa_triple())
     assert(xt.march.is_empty(), "esp-clang refuses -march")
@@ -114,8 +114,11 @@ func check_native_arguments() {
 
     let arm = load("tests/fixtures/sosmulti", "aarch64-unknown-none-elf")
     let arm_args = native_compile_arguments(&arm, "a64.c", "out.o")
-    let arm_want = "--target=aarch64-unknown-none-elf {common()} a64.c -o out.o"
-    assert(joined(&arm_args).equals(arm_want), "aarch64 command line is unchanged")
+    let arm_features = "-Xclang -target-feature -Xclang -neon -Xclang -target-feature -Xclang -fp-armv8"
+    let arm_want = "--target=aarch64-unknown-none-elf {arm_features} {common()} a64.c -o out.o"
+    assert(joined(&arm_args).equals(arm_want), "aarch64 C is compiled without NEON or FP, as the Saw half is")
+    let arm_asm = native_compile_arguments(&arm, "fpsave.S", "out.o")
+    assert(not joined(&arm_asm).contains("-fintegrated-as"), "aarch64 names no cpu, so no integrated-as flag")
 
     let xt = load("tests/fixtures/sosmulti", xtensa_triple())
     let xt_args = native_compile_arguments(&xt, "xt.c", "out.o")

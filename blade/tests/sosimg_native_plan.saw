@@ -1,0 +1,68 @@
+// The `ld.lld` argument list of an image: the linker script, `--gc-sections`,
+// the output, the image's own objects (the Saw object, then its `[sos]` native
+// units), then every package's compiled C, objects and archives in plan order,
+// then `-L` and `-l`. A framework names a Mach-O library and no image has one,
+// so a plan holding one is refused.
+
+import blade.linkinputs.*
+
+func words(items: &Vector<String>) -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < items.len() {
+        if i > 0 {
+            try! b.append(" ")
+        }
+        try! b.append(items.get(i) ?? "")
+        i = i + 1
+    }
+    b.build()
+}
+
+func main() {
+    var names = Vector<String>()
+    try! names.push("root")
+    try! names.push("dep")
+    var order = Vector<Int>()
+    try! order.push(0)
+    try! order.push(1)
+    var rows = Vector<LinkEntry>()
+    try! rows.push(LinkEntry(package: "root", kind: "object", value: "/b/native/root/1-c.o"))
+    try! rows.push(LinkEntry(package: "root", kind: "archive", value: "/r/libr.a"))
+    try! rows.push(LinkEntry(package: "dep", kind: "object", value: "/b/native/dep/2-d.o"))
+    try! rows.push(LinkEntry(package: "dep", kind: "library-path", value: "/d/lib"))
+    try! rows.push(LinkEntry(package: "dep", kind: "library", value: "d"))
+    let plan = native_plan(&names, &order, &rows)
+
+    var own = Vector<String>()
+    try! own.push("/b/app.o")
+    try! own.push("/b/app.native0.o")
+    let args = match sos_link_arguments("link.ld", "/b/app.elf", &own, &plan) {
+        case Ok(found) -> move found,
+        case Err(e) -> panic("an image plan links: {e.text()}")
+    }
+    assert(words(&args).equals("-T link.ld --gc-sections -o /b/app.elf /b/app.o /b/app.native0.o /b/native/root/1-c.o /r/libr.a /b/native/dep/2-d.o -L /d/lib -l d"),
+           "the ld.lld arguments: {words(&args)}")
+
+    // An image with no native inputs links its own objects alone.
+    let nothing = NativePlan()
+    let bare = match sos_link_arguments("link.ld", "/b/app.elf", &own, &nothing) {
+        case Ok(found) -> move found,
+        case Err(e) -> panic("a bare image links: {e.text()}")
+    }
+    assert(words(&bare).equals("-T link.ld --gc-sections -o /b/app.elf /b/app.o /b/app.native0.o"),
+           "a plan with nothing adds nothing: {words(&bare)}")
+
+    // A framework is refused, naming it.
+    var framed = Vector<LinkEntry>()
+    try! framed.push(LinkEntry(package: "dep", kind: "framework", value: "Security"))
+    let with_framework = native_plan(&names, &order, &framed)
+    match sos_link_arguments("link.ld", "/b/app.elf", &own, &with_framework) {
+        case Ok(_) -> panic("a framework should be refused"),
+        case Err(e) -> {
+            assert(e.text().contains("Security") && e.text().contains("framework"),
+                   "the refusal names the framework: {e.text()}")
+        }
+    }
+    print("sosimg_native_plan: ok")
+}

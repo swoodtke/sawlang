@@ -241,7 +241,18 @@ public func toolchain_defaults(target: String) -> ToolchainDefaults {
     // Profile B needs none of the three: the base aarch64 triple already has
     // multiply, atomics and the rest, and there is no ABI variant to select.
     ToolchainDefaults(march: "", mabi: "", target_features: "", mcpu: "",
-                      native_features: "")
+                      native_features: aarch64_native_features())
+}
+
+/// The subtarget features sawc compiles every Saw function of a freestanding
+/// aarch64 image with. The C half gets the same list, so no C code touches the
+/// FP/SIMD registers a kernel saves only on purpose: without it, clang copies a
+/// plain struct through `q` registers. Passed as `-target-feature`, the list
+/// reaches the compiler and not the assembler, so a `.S` unit that saves FP
+/// state still assembles. The lane holds this equal to sawc's
+/// `"target-features"` for the triple.
+func aarch64_native_features() -> String {
+    "-neon,-fp-armv8"
 }
 
 /// The level for one spec §7 priority band, or `fallback` when `priorities`

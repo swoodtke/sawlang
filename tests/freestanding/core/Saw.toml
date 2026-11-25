@@ -10,3 +10,8 @@ version = "0.1.0"
 [dependencies]
 fsrt = { path = "../rt" }
 fsdata = { path = "../data" }
+
+# The suite's C function of eight arguments (SL-1170): Blade compiles it for
+# the image's triple and links it; `fscore.native_horner_is_right` calls it.
+[native]
+c-sources = ["c/fs_native.c"]

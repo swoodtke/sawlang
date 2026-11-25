@@ -1029,6 +1029,14 @@ extension Builder {
         let clang = sos_clang(recorded)
         let linker = sos_ld(recorded)
         let plan = try self.link_plan(&res, cfg.target, &layout)
+        // A framework is refused before any C compiles.
+        if plan.frameworks.len() > 0 {
+            var none = Vector<String>()
+            match sos_link_arguments(script, "", &none, &plan) {
+                case Ok(_) -> {},
+                case Err(refusal) -> { return BuildError(msg: "blade build: {refusal.text()}") }
+            }
+        }
         // The image's C sources compile as its `[sos.<triple>] native` units do,
         // with the include directories, defines and depfile added.
         var image_jobs = Vector<CJob>()
@@ -1137,25 +1145,16 @@ extension Builder {
             u = u + 1
         }
 
-        var ld = Command(program: linker)
-        try! ld.arg("-T")
-        try! ld.arg(script)
-        try! ld.arg("--gc-sections")
-        try! ld.arg("-o")
-        try! ld.arg(elf)
-        var o = 0
-        while o < objects.len() {
-            if let object = objects.get(o) {
-                try! ld.arg(object)
-            }
-            o = o + 1
-        }
         // Every package's `[native]` inputs follow the image's own objects: the
         // archives after the objects that need them.
-        let linked = plan.linker_arguments()
+        let ld_args = match sos_link_arguments(script, elf, &objects, &plan) {
+            case Ok(found) -> move found,
+            case Err(e) -> { return BuildError(msg: "blade build: {e.text()}") }
+        }
+        var ld = Command(program: linker)
         var n = 0
-        while n < linked.len() {
-            try! ld.arg(linked.get(n) ?? "")
+        while n < ld_args.len() {
+            try! ld.arg(ld_args.get(n) ?? "")
             n = n + 1
         }
         try self.run_tool(&ld, "ld.lld")

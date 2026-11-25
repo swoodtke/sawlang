@@ -141,6 +141,36 @@ extension NativePlan {
     }
 }
 
+// The `ld.lld` argument list of an image: the script, `--gc-sections`, the
+// output, `own` (the Saw object, then the `[sos]` native units), then the
+// plan's objects and archives, `-L` and `-l`. A framework names a Mach-O
+// library, which no image links, so a plan holding one is refused.
+public func sos_link_arguments(script: String, output: String, own: &Vector<String>,
+                               plan: &NativePlan) -> Result<Vector<String>, NativeError> {
+    if plan.frameworks.len() > 0 {
+        let first = plan.frameworks.get(0) ?? ""
+        return NativeError(msg: "an image links no Mach-O framework: `{first}` is a [native] framework, which only a Mach-O build can use")
+    }
+    var args = Vector<String>()
+    try! args.push("-T")
+    try! args.push(script)
+    try! args.push("--gc-sections")
+    try! args.push("-o")
+    try! args.push(output)
+    var o = 0
+    while o < own.len() {
+        try! args.push(own.get(o) ?? "")
+        o = o + 1
+    }
+    let linked = plan.linker_arguments()
+    var n = 0
+    while n < linked.len() {
+        try! args.push(linked.get(n) ?? "")
+        n = n + 1
+    }
+    return move args
+}
+
 // The order packages reach the link: `names[0]` is the root, then each package
 // before every package it requires (Kahn's algorithm), ties broken by position
 // in `names`, which is the resolver's pre-order. A diamond root, A, C, B whose

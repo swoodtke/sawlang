@@ -8,7 +8,7 @@
 // manifest's `runtime = true`, drove the cross clang over an assembly stub and
 // a C floor named by `[sos.<triple>] native`, drove `ld.lld` with the linker
 // script that section names, and emitted a `.sosimg` from the ELF the runner
-// then boots.
+// then boots. It also links the C a dependency's `[native] c-sources` names.
 
 import fscore.*
 
@@ -17,5 +17,7 @@ func fs_main() unsafe {
     print("fs: hello from a Blade-built image")
     check("blade_built_image_ran", true)
     check_value("blade_arithmetic", 6 * 7, 42)
+    // C from a dependency's `[native] c-sources`, compiled for this image.
+    check("blade_native_c", native_horner_is_right())
     finish("blade_target")
 }
