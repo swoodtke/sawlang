@@ -1,0 +1,46 @@
+// A build's freshness sees the bytes of an object or an archive, which are not
+// UTF-8: two files that differ only there have different digests, an unchanged
+// one the same, and a file that is missing has a digest of its own.
+
+import blade.builder.{file_digest}
+import std.data.{Data}
+import std.file.{File}
+import std.path.{Path}
+
+func write_bytes(path: String, values: &Vector<UInt8>) {
+    var data = Data()
+    var i = 0
+    while i < values.len() {
+        try! data.push(values.get(i) ?? 0)
+        i = i + 1
+    }
+    match File.create(Path(s: path)) {
+        case Ok(f) -> {
+            match f.write(data) {
+                case Ok(_) -> {},
+                case Err(e) -> panic("could not write {path}: {e}")
+            }
+        },
+        case Err(e) -> panic("could not create {path}: {e}")
+    }
+}
+
+func main() {
+    let directory = ".build/host/tests"
+    // The Mach-O magic, whose second byte is not UTF-8, then one byte that
+    // differs between the two files.
+    let first: Vector<UInt8> = [0xCF, 0xFA, 0xED, 0xFE, 1, 2, 3]
+    let second: Vector<UInt8> = [0xCF, 0xFA, 0xED, 0xFE, 1, 2, 4]
+    write_bytes("{directory}/digest_first.bin", &first)
+    write_bytes("{directory}/digest_second.bin", &second)
+    write_bytes("{directory}/digest_again.bin", &first)
+
+    let a = file_digest("{directory}/digest_first.bin")
+    let b = file_digest("{directory}/digest_second.bin")
+    let c = file_digest("{directory}/digest_again.bin")
+    assert(a != b, "files that differ in a non-UTF-8 file's bytes have different digests: {a} and {b}")
+    assert(a.equals(c), "equal bytes have the same digest: {a} and {c}")
+    assert(not a.equals(file_digest("{directory}/digest_nowhere.bin")), "a missing file has a digest of its own")
+    assert(file_digest("{directory}/digest_nowhere.bin").equals("missing"), "and it says so")
+    print("build_hash_binary: ok")
+}

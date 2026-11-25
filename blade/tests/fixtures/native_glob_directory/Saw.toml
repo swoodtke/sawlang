@@ -1,0 +1,6 @@
+[package]
+name = "native_glob_directory"
+version = "0.1.0"
+
+[native]
+objects = ["a*/x.o"]

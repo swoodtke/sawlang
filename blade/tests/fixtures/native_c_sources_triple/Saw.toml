@@ -1,0 +1,6 @@
+[package]
+name = "native_c_sources_triple"
+version = "0.1.0"
+
+[native.arm64-apple-darwin]
+c-sources = ["c/glue.c"]

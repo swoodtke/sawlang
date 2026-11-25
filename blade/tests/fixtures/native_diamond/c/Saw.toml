@@ -1,0 +1,9 @@
+[package]
+name = "c"
+version = "0.1.0"
+
+[native]
+objects = ["../shared/x.o", "c.o"]
+archives = ["../shared/s.a"]
+libraries = ["lc", "shared"]
+library-paths = ["../a/lib"]

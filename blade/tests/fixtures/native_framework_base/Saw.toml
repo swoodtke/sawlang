@@ -1,0 +1,6 @@
+[package]
+name = "native_framework_base"
+version = "0.1.0"
+
+[native]
+frameworks = ["Security"]

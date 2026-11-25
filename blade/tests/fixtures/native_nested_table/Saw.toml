@@ -1,0 +1,6 @@
+[package]
+name = "native_nested_table"
+version = "0.1.0"
+
+[native.arm64-apple-darwin.more]
+objects = ["a.o"]

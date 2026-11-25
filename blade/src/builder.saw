@@ -13,6 +13,7 @@
 
 import blade.cli.{BuildOptions, ModulePath}
 import blade.layout.*
+import blade.linkinputs.*
 import blade.manifest.*
 import blade.resolver.*
 import blade.lock.*
@@ -68,6 +69,32 @@ func read_file(path_str: String) -> String {
         case Ok(s) -> s,
         case Err(_) -> ""
     }
+}
+
+// A digest of the bytes of `path` for a freshness check: the length and two
+// wrapping hashes, as one line of text. `read_file` cannot stand in, since it
+// reads a file that is not UTF-8 (an object, an archive) as empty. A file that
+// is missing or unreadable has a digest of its own.
+public func file_digest(path: String) -> String {
+    let p = Path(s: path)
+    if not File.exists(p) {
+        return "missing"
+    }
+    var f = match File.open(p) {
+        case Ok(handle) -> move handle,
+        case Err(_) -> { return "unreadable" }
+    }
+    let data = match f.read() {
+        case Ok(bytes) -> move bytes,
+        case Err(_) -> { return "unreadable" }
+    }
+    var first = 5381
+    var second = 1469598103934665603
+    for byte in data.iter() {
+        first = (first &* 33) &+ (byte as Int)
+        second = (second &* 1099511628211) &+ (byte as Int)
+    }
+    "{data.len()}:{first}:{second}"
 }
 
 // The entries of `dir` as paths, sorted: `Directory.list` answers in the order
@@ -487,6 +514,10 @@ extension Builder {
     //     under DIR
     //   - `native`, an image's space-separated native units, each by path and
     //     content; a header a unit includes is not tracked
+    //   - `plan`, the link inputs of the `[native]` tables (nothing when there are
+    //     none): each object's and archive's path and BYTES, then the library
+    //     directories, libraries and frameworks by name; a named system
+    //     library's contents are not tracked
     //   - `tools`, the C compiler and linker an image build will run ("" for a
     //     hosted build)
     //   - the `SAWC` command, or that it is unset
@@ -500,7 +531,7 @@ extension Builder {
     //   build
     //   build_sos_image
     public func build_hash(&self, res: &Resolution, layout: &BuildLayout, linker_script: String,
-                           native: String, tools: String) -> String {
+                           native: String, plan: &NativePlan, tools: String) -> String {
         let identity = self.compiler_identity()
         if identity.is_empty() {
             return ""
@@ -544,6 +575,28 @@ extension Builder {
             }
             u = u + 1
         }
+        var f = 0
+        while f < plan.files.len() {
+            if let entry = plan.files.get(f) {
+                try! b.append("\nnative-{entry.kind}={entry.value} {file_digest(entry.value)}\n")
+            }
+            f = f + 1
+        }
+        var d = 0
+        while d < plan.library_paths.len() {
+            try! b.append("\nnative-library-path={plan.library_paths.get(d) ?? ""}\n")
+            d = d + 1
+        }
+        var l = 0
+        while l < plan.libraries.len() {
+            try! b.append("\nnative-library={plan.libraries.get(l) ?? ""}\n")
+            l = l + 1
+        }
+        var w = 0
+        while w < plan.frameworks.len() {
+            try! b.append("\nnative-framework={plan.frameworks.get(w) ?? ""}\n")
+            w = w + 1
+        }
         try! b.append("\ntools={tools}\n")
         if let named = try! Env.get("SAWC") {
             try! b.append("\nsawc={named}\n")
@@ -552,6 +605,155 @@ extension Builder {
         }
         try! b.append("\ncompiler-identity={identity}\n")
         hash_string(b.build())
+    }
+
+    // The tables of `tables` (`[native.<triple>]` names, `owners[k]` the package
+    // that wrote `tables[k]`) that apply to a build for `target`, "" for the
+    // host. Each name is put to the compiler: one it does not know is refused,
+    // naming the package. A table applies when it names the target; for the host,
+    // when `sawc tools --target NAME` reports the triple the host's does.
+    func tables_applying(&self, tables: &Vector<String>, owners: &Vector<String>, target: String) -> Result<Vector<String>, NativeError> {
+        var host = ""
+        if target.is_empty() && tables.len() > 0 {
+            var ask = self.compiler_command()
+            try! ask.arg("tools")
+            guard let out = try? ask.output() else {
+                return NativeError(msg: "[native.<triple>] tables: could not ask the compiler for the host's triple (`sawc tools`)")
+            }
+            guard out.success() else {
+                return NativeError(msg: "[native.<triple>] tables: `sawc tools` failed, so the host's triple is unknown")
+            }
+            guard let triple = recorded_tool(out.stdout, "triple") else {
+                return NativeError(msg: "[native.<triple>] tables: `sawc tools` did not report the host's triple")
+            }
+            host = triple
+        }
+        var applying = Vector<String>()
+        var i = 0
+        while i < tables.len() {
+            let name = tables.get(i) ?? ""
+            let owner = owners.get(i) ?? ""
+            i = i + 1
+            var ask = self.compiler_command()
+            try! ask.arg("tools")
+            try! ask.arg("--target")
+            try! ask.arg(name)
+            guard let out = try? ask.output() else {
+                return NativeError(msg: "package `{owner}` [native.{name}]: could not ask the compiler whether `{name}` is a target")
+            }
+            if out.exit_code == (2 as Int32) {
+                return NativeError(msg: "package `{owner}` [native.{name}]: `{name}` is not a target the compiler knows: name a triple `--target` takes")
+            }
+            if target.is_empty() {
+                let triple = recorded_tool(out.stdout, "triple") ?? ""
+                if out.success() && not host.is_empty() && triple.equals(host) {
+                    try! applying.push(name)
+                }
+            } else if name.equals(target) {
+                try! applying.push(name)
+            }
+        }
+        move applying
+    }
+
+    // The link inputs of every package's `[native]` for a build for `target`
+    // ("" is the host): each manifest read, the triple tables that apply kept,
+    // each path expanded against its own package, and the packages ordered and
+    // deduplicated by `native_plan`.
+    public func link_plan(&self, res: &Resolution, target: String) -> Result<NativePlan, BuildError> {
+        var names = Vector<String>()
+        var dirs = Vector<String>()
+        try! names.push(self.manifest.name())
+        try! dirs.push(self.manifest.root_dir.as_string())
+        var i = 0
+        while i < res.len() {
+            try! names.push(res.name(i))
+            try! dirs.push(self.dep_dir(&res, i))
+            i = i + 1
+        }
+        var entries = Vector<NativeEntry>()
+        var owner_of = Vector<Int>()
+        var p = 0
+        while p < names.len() {
+            let found = if p == 0 {
+                self.manifest.native_entries()
+            } else {
+                match Manifest.load_from(Path(s: dirs.get(p) ?? "")) {
+                    case Ok(m) -> m.native_entries(),
+                    case Err(e) -> { return BuildError(msg: "cannot read the manifest of `{names.get(p) ?? ""}`: {e}") }
+                }
+            }
+            match found {
+                case Ok(list) -> {
+                    var k = 0
+                    while k < list.len() {
+                        if let entry = list.get(k) {
+                            try! entries.push(entry)
+                            try! owner_of.push(p)
+                        }
+                        k = k + 1
+                    }
+                },
+                case Err(e) -> { return BuildError(msg: "{e}") }
+            }
+            p = p + 1
+        }
+        var tables = Vector<String>()
+        var owners = Vector<String>()
+        var e = 0
+        while e < entries.len() {
+            if let entry = entries.get(e) {
+                if not entry.table.is_empty() && not contains_name(&tables, entry.table) {
+                    try! tables.push(entry.table)
+                    try! owners.push(names.get(owner_of.get(e) ?? 0) ?? "")
+                }
+            }
+            e = e + 1
+        }
+        var applying = Vector<String>()
+        if tables.len() > 0 {
+            match self.tables_applying(&tables, &owners, target) {
+                case Ok(found) -> { applying = move found },
+                case Err(err) -> { return BuildError(msg: err.text()) }
+            }
+        }
+        var rows = Vector<LinkEntry>()
+        var r = 0
+        while r < entries.len() {
+            guard let entry = entries.get(r) else {
+                break
+            }
+            let at = owner_of.get(r) ?? 0
+            r = r + 1
+            if not entry.table.is_empty() && not contains_name(&applying, entry.table) {
+                continue
+            }
+            let package = names.get(at) ?? ""
+            if entry.kind.equals("library") || entry.kind.equals("framework") {
+                try! rows.push(LinkEntry(package: package, kind: entry.kind, value: entry.value))
+                continue
+            }
+            match expand_native_value(package, dirs.get(at) ?? "", entry.kind, entry.value) {
+                case Ok(paths) -> {
+                    var q = 0
+                    while q < paths.len() {
+                        try! rows.push(LinkEntry(package: package, kind: entry.kind, value: paths.get(q) ?? ""))
+                        q = q + 1
+                    }
+                },
+                case Err(err) -> { return BuildError(msg: err.text()) }
+            }
+        }
+        var requirers = Vector<String>()
+        var required = Vector<String>()
+        var k = 0
+        while k < res.edge_count() {
+            try! requirers.push(res.edge_from(k))
+            try! required.push(res.edge_to(k))
+            k = k + 1
+        }
+        let order = link_order(&names, &requirers, &required)
+        return native_plan(&names, &order, &rows)
     }
 
     // Refuse a `--module-path` before anything is compiled: a DIR that does not
@@ -751,7 +953,8 @@ extension Builder {
         let recorded = self.recorded_tools(cfg.target)
         let clang = sos_clang(recorded)
         let linker = sos_ld(recorded)
-        let hash = self.build_hash(&res, &layout, script, cfg.native,
+        let plan = try self.link_plan(&res, cfg.target)
+        let hash = self.build_hash(&res, &layout, script, cfg.native, &plan,
                                    "clang={clang}\nld={linker}")
         if not force && is_up_to_date(&layout, &hash, image) {
             print("    Finished {image} (up to date)")
@@ -851,6 +1054,14 @@ extension Builder {
             }
             o = o + 1
         }
+        // Every package's `[native]` inputs follow the image's own objects: the
+        // archives after the objects that need them.
+        let linked = plan.linker_arguments()
+        var n = 0
+        while n < linked.len() {
+            try! ld.arg(linked.get(n) ?? "")
+            n = n + 1
+        }
         try self.run_tool(&ld, "ld.lld")
 
         // The image is tagged for the profile it was linked for, from the one
@@ -908,7 +1119,8 @@ extension Builder {
         // so a build for one target never reports another's work as its own —
         // and an artifact left over from an older layout, sitting beside the
         // source where Blade used to put it, is simply not consulted.
-        let hash = self.build_hash(&res, &self.layout, "", "", "")
+        let plan = try self.link_plan(&res, self.requested_target)
+        let hash = self.build_hash(&res, &self.layout, "", "", &plan, "")
         if not force && is_up_to_date(&self.layout, &hash, output_path) {
             print("    Finished {output_path} (up to date)")
             return 0
@@ -959,6 +1171,12 @@ extension Builder {
             i = i + 1
         }
         self.add_module_paths(&var cmd)
+        let linked = plan.sawc_arguments()
+        var n = 0
+        while n < linked.len() {
+            try! cmd.arg(linked.get(n) ?? "")
+            n = n + 1
+        }
 
         let exit_code = match cmd.wait() {
             case Ok(code) -> code,

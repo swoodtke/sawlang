@@ -1,0 +1,104 @@
+// `[native]` is read from a manifest: each list key as entries of its kind, a
+// triple's table after the base table's, a manifest without it as no entries.
+// A key it does not know, a value of the wrong type, a framework outside a
+// Mach-O triple's table, a `*` outside the last segment, an empty value, and
+// `c-sources` (compiled by a later unit) are refused naming the file, the table
+// and the key. A target the compiler does not know is judged where the compiler
+// is asked (the blade lane).
+
+import blade.manifest.*
+import std.path.{Path}
+
+func entries_of(dir: String) -> Vector<NativeEntry> {
+    match Manifest.load_from(Path(s: "tests/fixtures/{dir}")) {
+        case Ok(m) -> {
+            match m.native_entries() {
+                case Ok(found) -> { return move found },
+                case Err(e) -> panic("{dir}/Saw.toml should read: {e}")
+            }
+        },
+        case Err(e) -> panic("{dir}/Saw.toml should load: {e}")
+    }
+}
+
+func refusal(dir: String) -> String {
+    match Manifest.load_from(Path(s: "tests/fixtures/{dir}")) {
+        case Ok(m) -> {
+            match m.native_entries() {
+                case Ok(_) -> panic("{dir}/Saw.toml should be refused"),
+                case Err(e) -> { return "{e}" }
+            }
+        },
+        case Err(e) -> panic("{dir}/Saw.toml should load: {e}")
+    }
+}
+
+func shows(entries: &Vector<NativeEntry>, row: Int, kind: String, value: String, table: String) {
+    let entry = entries.get(row) ?? NativeEntry(kind: "missing", value: "", table: "")
+    assert(entry.kind.equals(kind) && entry.value.equals(value) && entry.table.equals(table),
+           "row {row} is {kind} `{value}` of `{table}`: {entry.kind} `{entry.value}` of `{entry.table}`")
+}
+
+func main() {
+    let none = entries_of("native_none")
+    assert(none.len() == 0, "a manifest with no [native] has no entries")
+
+    // Kinds in key order, and within a kind `[native]`'s values before each
+    // triple table's, in the document's order.
+    let ok = entries_of("native_ok")
+    assert(ok.len() == 12, "twelve entries: {ok.len()}")
+    shows(&ok, 0, "object", "a.o", "")
+    shows(&ok, 1, "object", "b/*.o", "")
+    shows(&ok, 2, "object", "mac.o", "arm64-apple-darwin")
+    shows(&ok, 3, "object", "linux.o", "aarch64-unknown-linux-gnu")
+    shows(&ok, 4, "archive", "libx.a", "")
+    shows(&ok, 5, "archive", "liblinux.a", "aarch64-unknown-linux-gnu")
+    shows(&ok, 6, "library", "z", "")
+    shows(&ok, 7, "library", "m", "")
+    shows(&ok, 8, "library", "iconv", "arm64-apple-darwin")
+    shows(&ok, 9, "library-path", "/opt/lib", "")
+    shows(&ok, 10, "framework", "Security", "arm64-apple-darwin")
+    shows(&ok, 11, "framework", "CoreFoundation", "arm64-apple-darwin")
+
+    // `include-dirs` and `defines` read, and name nothing for the link.
+    let sources = entries_of("native_source_keys")
+    assert(sources.len() == 0, "include-dirs and defines add no link input")
+
+    var said = refusal("native_unknown_key")
+    assert(said.contains("native_unknown_key/Saw.toml") && said.contains("[native] has an unknown key `sources`"),
+           "an unknown key names the file, the table and the key: {said}")
+    said = refusal("native_unknown_key_in_triple")
+    assert(said.contains("[native.aarch64-unknown-linux-gnu] has an unknown key `rpath`"),
+           "an unknown key in a triple's table: {said}")
+    said = refusal("native_objects_integer")
+    assert(said.contains("native_objects_integer/Saw.toml: line 6") && said.contains("`objects` in [native] is an integer, not an array"),
+           "a value of the wrong type names the position and both types: {said}")
+    said = refusal("native_objects_element")
+    assert(said.contains("native_objects_element/Saw.toml") && said.contains("an integer, not a string"),
+           "an element of the wrong type: {said}")
+    said = refusal("native_framework_base")
+    assert(said.contains("[native] frameworks:") && said.contains("[native.<triple>] table of an `-apple-` triple"),
+           "a framework in [native] names the table it belongs in: {said}")
+    said = refusal("native_framework_linux")
+    assert(said.contains("[native.aarch64-unknown-linux-gnu] frameworks:") && said.contains("not a Mach-O"),
+           "a framework in a Linux triple's table: {said}")
+    said = refusal("native_c_sources")
+    assert(said.contains("[native] c-sources:") && said.contains("not supported yet") && said.contains("unit 3"),
+           "c-sources is refused as not yet, naming the unit: {said}")
+    said = refusal("native_c_sources_triple")
+    assert(said.contains("[native.arm64-apple-darwin] c-sources:") && said.contains("unit 3"),
+           "c-sources in a triple's table is refused too: {said}")
+    said = refusal("native_glob_directory")
+    assert(said.contains("[native] objects:") && said.contains("before its last segment"),
+           "a `*` in a directory segment: {said}")
+    said = refusal("native_glob_library_path")
+    assert(said.contains("[native] library-paths:") && said.contains("does not take"),
+           "a `*` in a library directory: {said}")
+    said = refusal("native_empty_value")
+    assert(said.contains("[native] libraries: an empty value"), "an empty name: {said}")
+    said = refusal("native_nested_table")
+    assert(said.contains("[native.arm64-apple-darwin] has an unknown key `more`"),
+           "a table inside a triple's table: {said}")
+
+    print("manifest_native_keys: ok")
+}

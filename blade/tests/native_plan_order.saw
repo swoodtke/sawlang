@@ -1,0 +1,160 @@
+// The link plan: packages ordered each before every package it needs (a
+// diamond is root, a, b, c), each path joined to its own package's root,
+// objects and library directories kept at their first occurrence, archives and
+// libraries at their last, and the plan spelled as sawc's `--link-*` flags and
+// as an image's `ld.lld` arguments. Patterns match one directory's files,
+// sorted; a path that is not there, is the wrong kind, or a pattern that
+// matches nothing is refused naming the package and the key.
+
+import blade.builder.{Builder}
+import blade.linkinputs.*
+import blade.manifest.*
+import blade.resolver.*
+import std.path.{Path}
+
+func words(items: &Vector<String>) -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < items.len() {
+        if i > 0 {
+            try! b.append(" ")
+        }
+        try! b.append(items.get(i) ?? "")
+        i = i + 1
+    }
+    b.build()
+}
+
+func refused(package: String, dir: String, kind: String, value: String) -> String {
+    match expand_native_value(package, dir, kind, value) {
+        case Ok(_) -> panic("{kind} `{value}` should be refused"),
+        case Err(e) -> { return e.text() }
+    }
+}
+
+func main() {
+    // ---- order -----------------------------------------------------------
+    var names = Vector<String>()
+    try! names.push("root")
+    try! names.push("a")
+    try! names.push("c")
+    try! names.push("b")
+    var from = Vector<String>()
+    var to = Vector<String>()
+    try! from.push("root")
+    try! to.push("a")
+    try! from.push("a")
+    try! to.push("c")
+    try! from.push("root")
+    try! to.push("b")
+    try! from.push("b")
+    try! to.push("c")
+    // The resolver's pre-order is root, a, c, b; c must follow b.
+    let order = link_order(&names, &from, &to)
+    var seen = Vector<String>()
+    var o = 0
+    while o < order.len() {
+        try! seen.push(names.get(order.get(o) ?? 0) ?? "")
+        o = o + 1
+    }
+    assert(words(&seen).equals("root a b c"), "a diamond is root a b c: {words(&seen)}")
+
+    // A chain keeps its depth order whatever order the packages were found in.
+    var chain = Vector<String>()
+    try! chain.push("root")
+    try! chain.push("z")
+    try! chain.push("y")
+    var chain_from = Vector<String>()
+    var chain_to = Vector<String>()
+    try! chain_from.push("root")
+    try! chain_to.push("y")
+    try! chain_from.push("y")
+    try! chain_to.push("z")
+    let chain_order = link_order(&chain, &chain_from, &chain_to)
+    assert((chain_order.get(1) ?? -1) == 2 && (chain_order.get(2) ?? -1) == 1, "y precedes z, which it needs")
+
+    // A cycle never comes from the resolver, but no package is lost to one.
+    var loop_from = Vector<String>()
+    var loop_to = Vector<String>()
+    try! loop_from.push("z")
+    try! loop_to.push("y")
+    try! loop_from.push("y")
+    try! loop_to.push("z")
+    assert(link_order(&chain, &loop_from, &loop_to).len() == 3, "every package is placed")
+
+    // ---- dedup and the flags ---------------------------------------------
+    var rows = Vector<LinkEntry>()
+    try! rows.push(LinkEntry(package: "root", kind: "object", value: "/r/r.o"))
+    try! rows.push(LinkEntry(package: "root", kind: "archive", value: "/r/r.a"))
+    try! rows.push(LinkEntry(package: "root", kind: "library", value: "lroot"))
+    try! rows.push(LinkEntry(package: "a", kind: "object", value: "/a/a.o"))
+    try! rows.push(LinkEntry(package: "a", kind: "archive", value: "/s/s.a"))
+    try! rows.push(LinkEntry(package: "a", kind: "library", value: "shared"))
+    try! rows.push(LinkEntry(package: "a", kind: "library-path", value: "/a/lib"))
+    try! rows.push(LinkEntry(package: "a", kind: "framework", value: "Security"))
+    try! rows.push(LinkEntry(package: "b", kind: "object", value: "/s/x.o"))
+    try! rows.push(LinkEntry(package: "b", kind: "library", value: "lb"))
+    try! rows.push(LinkEntry(package: "c", kind: "object", value: "/s/x.o"))
+    try! rows.push(LinkEntry(package: "c", kind: "archive", value: "/s/s.a"))
+    try! rows.push(LinkEntry(package: "c", kind: "library", value: "shared"))
+    try! rows.push(LinkEntry(package: "c", kind: "library-path", value: "/a/lib"))
+    try! rows.push(LinkEntry(package: "c", kind: "framework", value: "Security"))
+    let plan = native_plan(&names, &order, &rows)
+    let sawc = plan.sawc_arguments()
+    let want = "--link-object /r/r.o --link-archive /r/r.a --link-object /a/a.o --link-object /s/x.o --link-archive /s/s.a --link-library-path /a/lib --link-library lroot --link-library lb --link-library shared --link-framework Security"
+    assert(words(&sawc).equals(want), "the sawc flags: {words(&sawc)}")
+    let linker = plan.linker_arguments()
+    assert(words(&linker).equals("/r/r.o /r/r.a /a/a.o /s/x.o /s/s.a -L /a/lib -l lroot -l lb -l shared"),
+           "the ld.lld arguments: {words(&linker)}")
+    let nothing = NativePlan()
+    assert(not plan.is_empty() && nothing.is_empty(), "an empty plan says so")
+
+    // ---- paths -----------------------------------------------------------
+    assert(clean_path("/p/a/../b/./c").equals("/p/b/c"), "dot segments")
+    assert(clean_path("p/../../q").equals("../q"), "a `..` with nothing to take stays")
+    assert(join_declared("/pkg", "../hal/x.o").equals("/hal/x.o"), "joined to its package's root")
+    assert(join_declared("/pkg", "/abs/x.o").equals("/abs/x.o"), "an absolute path stands")
+    assert(join_declared("p/q", "../r.o").equals("p/r.o"), "a relative root joins too")
+    assert(glob_match("*.o", "a.o") && glob_match("*.o", ".o") && not glob_match("*.o", "a.c"), "a suffix")
+    assert(glob_match("lib*.a", "libz.a") && not glob_match("lib*.a", "lib.a.x"), "a prefix and a suffix")
+    assert(glob_match("a*b*c", "aXbYc") && not glob_match("a*b*c", "acb"), "two stars")
+    assert(glob_match("m1.o", "m1.o") && not glob_match("m1.o", "m2.o"), "no star is equality")
+
+    let files = match expand_native_value("p", "tests/fixtures/native_files", "object", "*.o") {
+        case Ok(found) -> move found,
+        case Err(e) -> panic("*.o should match: {e.text()}")
+    }
+    assert(words(&files).equals("tests/fixtures/native_files/m1.o tests/fixtures/native_files/m2.o"),
+           "a pattern gives the files, sorted, not the directory dir.o: {words(&files)}")
+    var said = refused("p", "tests/fixtures/native_files", "object", "q*.o")
+    assert(said.contains("package `p` [native] objects: `q*.o` matches no file"), "a pattern matching nothing: {said}")
+    said = refused("p", "tests/fixtures/native_files", "archive", "libnone.a")
+    assert(said.contains("[native] archives: `libnone.a` does not exist"), "a missing file: {said}")
+    said = refused("p", "tests/fixtures/native_files", "object", "dir.o")
+    assert(said.contains("`dir.o` is a directory"), "a directory for a file: {said}")
+    said = refused("p", "tests/fixtures/native_files", "library-path", "m1.o")
+    assert(said.contains("[native] library-paths: `m1.o` is a file"), "a file for a directory: {said}")
+    said = refused("p", "tests/fixtures/native_files", "library-path", "nowhere")
+    assert(said.contains("`nowhere` does not exist"), "a missing directory: {said}")
+
+    // ---- a resolved diamond, end to end ----------------------------------
+    match Manifest.load_from(Path(s: "tests/fixtures/native_diamond/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    let linked = match Builder(m: m).link_plan(&res, "") {
+                        case Ok(found) -> move found,
+                        case Err(e) -> panic("the diamond should plan: {e.message}")
+                    }
+                    let d = "tests/fixtures/native_diamond"
+                    let flags = linked.sawc_arguments()
+                    let expected = "--link-object {d}/app/r.o --link-archive {d}/app/r.a --link-object {d}/a/a.o --link-archive {d}/a/a.a --link-object {d}/shared/x.o --link-object {d}/b/b.o --link-archive {d}/b/b.a --link-object {d}/c/c.o --link-archive {d}/shared/s.a --link-library-path {d}/a/lib --link-library lroot --link-library la --link-library lb --link-library lc --link-library shared"
+                    assert(words(&flags).equals(expected), "the diamond's flags: {words(&flags)}")
+                },
+                case Err(e) -> panic("the diamond should resolve: {e.text()}")
+            }
+        },
+        case Err(e) -> panic("native_diamond/app should load: {e}")
+    }
+    print("native_plan_order: ok")
+}

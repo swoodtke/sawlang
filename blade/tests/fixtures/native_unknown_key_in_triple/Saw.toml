@@ -1,0 +1,9 @@
+[package]
+name = "native_unknown_key_in_triple"
+version = "0.1.0"
+
+[native]
+objects = ["a.o"]
+
+[native.aarch64-unknown-linux-gnu]
+rpath = ["x"]

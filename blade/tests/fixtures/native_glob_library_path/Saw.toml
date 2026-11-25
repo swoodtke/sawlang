@@ -1,0 +1,6 @@
+[package]
+name = "native_glob_library_path"
+version = "0.1.0"
+
+[native]
+library-paths = ["lib*"]

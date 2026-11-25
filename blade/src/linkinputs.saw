@@ -1,0 +1,410 @@
+// Link inputs - what every resolved package's `[native]` hands the link.
+// Reading a table is manifest.saw's; this file orders the packages, expands
+// each path against its own package, drops repeats, and spells the result as
+// sawc's `--link-*` flags or as the `ld.lld` arguments of an image. (SL-1170)
+
+import blade.manifest.*
+
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+public struct NativeError {
+    private message: String
+}
+
+extension NativeError {
+    public init(msg: String) -> NativeError {
+        NativeError(message: msg)
+    }
+
+    public func text(&self) -> String {
+        self.message
+    }
+}
+
+extension NativeError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.message)
+    }
+}
+
+// One link input of one package, its `value` already a path (or, for a library
+// or a framework, a name) the link can use.
+public struct LinkEntry {
+    package: String
+    kind: String
+    value: String
+}
+
+// The link inputs of a build, in the order they reach the link. `files` holds
+// objects and archives in one sequence: an archive is read after the objects
+// that need it, which is the package order `link_order` gives.
+public struct NativePlan {
+    files: Vector<LinkEntry>
+    library_paths: Vector<String>
+    libraries: Vector<String>
+    frameworks: Vector<String>
+}
+
+extension NativePlan: NoCopy {}
+
+extension NativePlan {
+    public init() -> NativePlan {
+        let files = Vector<LinkEntry>()
+        let paths = Vector<String>()
+        let libraries = Vector<String>()
+        let frameworks = Vector<String>()
+        NativePlan(files: move files, library_paths: move paths, libraries: move libraries,
+                   frameworks: move frameworks)
+    }
+
+    public func is_empty(&self) -> Bool {
+        (self.files.len() + self.library_paths.len() + self.libraries.len() + self.frameworks.len()) == 0
+    }
+
+    // The flags sawc takes, in plan order: the files, then the directories,
+    // the libraries and the frameworks.
+    public func sawc_arguments(&self) -> Vector<String> {
+        var args = Vector<String>()
+        var i = 0
+        while i < self.files.len() {
+            if let entry = self.files.get(i) {
+                try! args.push(if entry.kind.equals("archive") { "--link-archive" } else { "--link-object" })
+                try! args.push(entry.value)
+            }
+            i = i + 1
+        }
+        i = 0
+        while i < self.library_paths.len() {
+            try! args.push("--link-library-path")
+            try! args.push(self.library_paths.get(i) ?? "")
+            i = i + 1
+        }
+        i = 0
+        while i < self.libraries.len() {
+            try! args.push("--link-library")
+            try! args.push(self.libraries.get(i) ?? "")
+            i = i + 1
+        }
+        i = 0
+        while i < self.frameworks.len() {
+            try! args.push("--link-framework")
+            try! args.push(self.frameworks.get(i) ?? "")
+            i = i + 1
+        }
+        move args
+    }
+
+    // The arguments `ld.lld` takes for an image, after its own objects: the
+    // files, then `-L` and `-l`. An image has no frameworks.
+    public func linker_arguments(&self) -> Vector<String> {
+        var args = Vector<String>()
+        var i = 0
+        while i < self.files.len() {
+            if let entry = self.files.get(i) {
+                try! args.push(entry.value)
+            }
+            i = i + 1
+        }
+        i = 0
+        while i < self.library_paths.len() {
+            try! args.push("-L")
+            try! args.push(self.library_paths.get(i) ?? "")
+            i = i + 1
+        }
+        i = 0
+        while i < self.libraries.len() {
+            try! args.push("-l")
+            try! args.push(self.libraries.get(i) ?? "")
+            i = i + 1
+        }
+        move args
+    }
+}
+
+// The order packages reach the link: `names[0]` is the root, then each package
+// before every package it requires (Kahn's algorithm), ties broken by position
+// in `names`, which is the resolver's pre-order. A diamond root, A, C, B whose
+// A and B both need C comes out root, A, B, C: plain pre-order would put B's
+// archive after C's, which a one-pass linker cannot satisfy. `requirers[k]`
+// requires `required[k]`; an edge naming no package of `names` is ignored. A
+// cycle cannot be resolved, but any package left is appended in position order.
+public func link_order(names: &Vector<String>, requirers: &Vector<String>, required: &Vector<String>) -> Vector<Int> {
+    var waiting = Vector<Int>()
+    var done = Vector<Bool>()
+    var i = 0
+    while i < names.len() {
+        try! waiting.push(0)
+        try! done.push(false)
+        i = i + 1
+    }
+    var k = 0
+    while k < requirers.len() {
+        let from = position_of(&names, requirers.get(k) ?? "")
+        let to = position_of(&names, required.get(k) ?? "")
+        if from >= 0 && to > 0 && from != to {
+            waiting.set(to, (waiting.get(to) ?? 0) + 1)
+        }
+        k = k + 1
+    }
+    var out = Vector<Int>()
+    while out.len() < names.len() {
+        var next = -1
+        var first_left = -1
+        var j = 0
+        while j < names.len() {
+            if not (done.get(j) ?? true) {
+                if first_left < 0 {
+                    first_left = j
+                }
+                if next < 0 && (waiting.get(j) ?? 0) == 0 {
+                    next = j
+                }
+            }
+            j = j + 1
+        }
+        if next < 0 {
+            next = first_left
+        }
+        done.set(next, true)
+        try! out.push(next)
+        var e = 0
+        while e < requirers.len() {
+            if (requirers.get(e) ?? "").equals(names.get(next) ?? "") {
+                let to = position_of(&names, required.get(e) ?? "")
+                if to > 0 && to != next {
+                    waiting.set(to, (waiting.get(to) ?? 0) - 1)
+                }
+            }
+            e = e + 1
+        }
+    }
+    move out
+}
+
+public func contains_name(names: &Vector<String>, name: String) -> Bool {
+    position_of(&names, name) >= 0
+}
+
+func position_of(names: &Vector<String>, name: String) -> Int {
+    var i = 0
+    while i < names.len() {
+        if (names.get(i) ?? "").equals(name) {
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
+
+// The plan for `rows`, each a package's entry with its value already a usable
+// path, taken package by package in `order` (positions in `names`) and, within
+// a package, in the order the rows are given. A repeat is dropped by what it
+// is: an object, a library directory and a framework keep their first
+// occurrence, an archive and a library their last, so each archive and library
+// follows every package that needs it.
+public func native_plan(names: &Vector<String>, order: &Vector<Int>, rows: &Vector<LinkEntry>) -> NativePlan {
+    var sequence = Vector<LinkEntry>()
+    var o = 0
+    while o < order.len() {
+        let package = names.get(order.get(o) ?? 0) ?? ""
+        var r = 0
+        while r < rows.len() {
+            if let row = rows.get(r) {
+                if row.package.equals(package) {
+                    try! sequence.push(row)
+                }
+            }
+            r = r + 1
+        }
+        o = o + 1
+    }
+    var plan = NativePlan()
+    var i = 0
+    while i < sequence.len() {
+        guard let entry = sequence.get(i) else {
+            break
+        }
+        i = i + 1
+        if entry.kind.equals("object") || entry.kind.equals("archive") {
+            if not repeated(&sequence, i - 1, entry) {
+                try! plan.files.push(entry)
+            }
+        } else if entry.kind.equals("library-path") {
+            if not repeated(&sequence, i - 1, entry) {
+                try! plan.library_paths.push(entry.value)
+            }
+        } else if entry.kind.equals("library") {
+            if not repeated(&sequence, i - 1, entry) {
+                try! plan.libraries.push(entry.value)
+            }
+        } else if not repeated(&sequence, i - 1, entry) {
+            try! plan.frameworks.push(entry.value)
+        }
+    }
+    move plan
+}
+
+// Whether the entry at `at` is dropped as a repeat: an archive or a library is
+// dropped when the same one comes later, any other kind when it came earlier.
+func repeated(sequence: &Vector<LinkEntry>, at: Int, entry: LinkEntry) -> Bool {
+    let keep_last = entry.kind.equals("archive") || entry.kind.equals("library")
+    var j = if keep_last { at + 1 } else { 0 }
+    let end = if keep_last { sequence.len() } else { at }
+    while j < end {
+        if let other = sequence.get(j) {
+            if other.kind.equals(entry.kind) && other.value.equals(entry.value) {
+                return true
+            }
+        }
+        j = j + 1
+    }
+    false
+}
+
+// =============================================================================
+// Paths
+// =============================================================================
+
+// `path` without its `.` segments and with each `..` taken against the segment
+// before it, so one file reached by two spellings is one string. A `..` with
+// nothing before it to take stays, which a relative path needs and `normalize_path`
+// (which drops it) cannot give.
+public func clean_path(path: String) -> String {
+    let absolute = path.starts_with("/")
+    let parts = try! path.split("/")
+    var kept = Vector<String>()
+    for part in parts.iter() {
+        if part.is_empty() || part.equals(".") {
+            continue
+        }
+        let last = kept.get(kept.len() - 1) ?? ""
+        if part.equals("..") && kept.len() > 0 && not last.equals("..") {
+            let _ = kept.pop()
+        } else if part.equals("..") && absolute {
+            continue
+        } else {
+            try! kept.push(part)
+        }
+    }
+    var text = StringBuilder()
+    if absolute {
+        try! text.append("/")
+    }
+    var i = 0
+    while i < kept.len() {
+        if i > 0 {
+            try! text.append("/")
+        }
+        try! text.append(kept.get(i) ?? "")
+        i = i + 1
+    }
+    text.build()
+}
+
+// `value`, written in the manifest of the package whose root is `dir`, as a
+// path from the build's directory: an absolute value stands, and any other is
+// joined to `dir`, with either made `clean_path`.
+public func join_declared(dir: String, value: String) -> String {
+    if value.starts_with("/") || dir.is_empty() {
+        return clean_path(value)
+    }
+    clean_path("{dir}/{value}")
+}
+
+// Whether `name` matches `pattern`, whose only wildcard is `*` (any run of
+// characters, possibly none).
+public func glob_match(pattern: String, name: String) -> Bool {
+    let parts = try! pattern.split("*")
+    if parts.len() == 1 {
+        return pattern.equals(name)
+    }
+    let first = parts.get(0) ?? ""
+    let last = parts.get(parts.len() - 1) ?? ""
+    if name.len() < first.len() + last.len() || not name.starts_with(first) || not name.ends_with(last) {
+        return false
+    }
+    var at = first.len()
+    let stop = name.len() - last.len()
+    var p = 1
+    while p < parts.len() - 1 {
+        let piece = parts.get(p) ?? ""
+        var found = -1
+        var s = at
+        while s + piece.len() <= stop {
+            if name.substring(s, s + piece.len()).equals(piece) {
+                found = s
+                break
+            }
+            s = s + 1
+        }
+        if found < 0 {
+            return false
+        }
+        at = found + piece.len()
+        p = p + 1
+    }
+    true
+}
+
+// Whether `path` lists as a directory. Listing is the directory test:
+// `Directory.exists` answers true for a file too.
+func is_directory(path: String) -> Bool {
+    match Directory.list(Path(s: path)) {
+        case Ok(_) -> true,
+        case Err(_) -> false
+    }
+}
+
+// The paths one value of `kind` stands for in the package `package` whose root
+// is `dir`: the path itself, which must exist, or for a `*` in the last
+// segment the sorted files of that directory it matches, which must be at
+// least one. A library directory must be a directory and an object or an
+// archive a file; each refusal names the package, the key and the value.
+public func expand_native_value(package: String, dir: String, kind: String, value: String) -> Result<Vector<String>, NativeError> {
+    let key = if kind.equals("object") { "objects" } else if kind.equals("archive") { "archives" } else { "library-paths" }
+    let joined = join_declared(dir, value)
+    var out = Vector<String>()
+    if kind.equals("library-path") {
+        if not is_directory(joined) {
+            let what = if File.exists(Path(s: joined)) { "is a file" } else { "does not exist" }
+            return NativeError(msg: "package `{package}` [native] {key}: `{value}` {what} ({joined}); a directory is expected")
+        }
+        try! out.push(joined)
+        return move out
+    }
+    if not value.contains("*") {
+        if is_directory(joined) {
+            return NativeError(msg: "package `{package}` [native] {key}: `{value}` is a directory ({joined}); a file is expected")
+        }
+        if not File.exists(Path(s: joined)) {
+            return NativeError(msg: "package `{package}` [native] {key}: `{value}` does not exist ({joined})")
+        }
+        try! out.push(joined)
+        return move out
+    }
+    let at = joined.last_index_of(47) ?? -1
+    let directory = if at >= 0 { joined.substring(0, at) } else { "." }
+    let pattern = joined.substring(at + 1, joined.len())
+    match Directory.list(Path(s: directory)) {
+        case Ok(entries) -> {
+            var i = 0
+            while i < entries.len() {
+                if let entry = entries.get(i) {
+                    let name = entry.file_name() ?? ""
+                    if glob_match(pattern, name) && not is_directory(entry.as_string()) {
+                        try! out.push("{directory}/{name}")
+                    }
+                }
+                i = i + 1
+            }
+        },
+        case Err(_) -> {}
+    }
+    if out.len() == 0 {
+        return NativeError(msg: "package `{package}` [native] {key}: `{value}` matches no file in {directory}")
+    }
+    out.sort()
+    move out
+}

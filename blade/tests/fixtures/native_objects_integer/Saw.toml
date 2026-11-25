@@ -1,0 +1,6 @@
+[package]
+name = "native_objects_integer"
+version = "0.1.0"
+
+[native]
+objects = 5

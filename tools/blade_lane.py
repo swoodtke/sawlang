@@ -25,6 +25,10 @@ Steps, each printed, the first failure ending the run:
      refuse a task whose frame is over it, builds with a larger key or none, rebuilds
      when the key changes, refuses a value that is not a size; a dependency's key does
      not reach its dependents.
+  5e. A path dependency's `[native]` prebuilt object, archive and library (in a directory whose
+     name holds a space and quotes) reach `blade build`, `blade run` and `blade test`; a table of
+     another triple is left alone; rewriting the object or the archive rebuilds; a `[native]`
+     it cannot honour, or a file it names that is not there, is refused.
   6. `blade new` and `blade run` make and run a package in a directory under
      `.build/`.
 
@@ -1004,6 +1008,129 @@ def check_blade_resolver_says_why(binary=None):
         blade_refused(binary, ["tree"], package, "error: " + expected)
 
 
+def sawc_clang_and_triple():
+    """(clang, triple) from `sawc tools`: the compiler sawc links with and the triple it compiles
+    the host's modules for, or None when it names no clang."""
+    code, out = run([build.SAWC, "tools"], SMOKE_TIMEOUT_S)
+    clang = re.search(r"^clang (.+)$", out, re.M)
+    triple = re.search(r"^triple (.+)$", out, re.M)
+    if code != 0 or not clang or not triple:
+        return None
+    return clang.group(1), triple.group(1)
+
+
+def sawc_host_target():
+    """The target name the runtime record beside `build.SAWC` is for, or None."""
+    try:
+        with open(os.path.join(os.path.dirname(build.SAWC), "sawc-runtime.txt"), encoding="utf-8") as f:
+            found = re.search(r"^target (.+)$", f.read(), re.M)
+    except OSError:
+        return None
+    return found.group(1) if found else None
+
+
+NATIVE_OTHER_TARGET = "riscv32-unknown-none-elf"
+
+
+def make_c_object(clang, triple, directory, name, function, value, archive=None):
+    """Compile `int FUNCTION(void) { return VALUE; }` to `directory/NAME.o` for `triple`, and, given an
+    `archive` name, put it into `directory/ARCHIVE` (an `ar` archive) in its place."""
+    source = os.path.join(directory, name + ".c")
+    write_text(source, "int %s(void) { return %d; }\n" % (function, value))
+    obj = os.path.join(directory, name + ".o")
+    code, out = run([clang, "-target", triple, "-O1", "-c", source, "-o", obj], SMOKE_TIMEOUT_S)
+    if code != 0:
+        raise Failure("clang did not compile %s\n%s" % (source, out))
+    os.remove(source)
+    if archive:
+        path = os.path.join(directory, archive)
+        if os.path.exists(path):
+            os.remove(path)
+        code, out = run([shutil.which("ar"), "rcs", path, obj], SMOKE_TIMEOUT_S)
+        if code != 0:
+            raise Failure("ar did not make %s\n%s" % (path, out))
+        os.remove(obj)
+
+
+NATIVE_LIBRARY_SOURCE = (
+    'extern "C" {\n    func lib_obj_value() -> Int32\n    func lib_arc_value() -> Int32\n'
+    '    func lib_pl_value() -> Int32\n}\n\n'
+    'public func answer() -> Int {\n    (lib_obj_value() + lib_arc_value()) as Int\n}\n\n'
+    'public func named() -> Int {\n    lib_pl_value() as Int\n}\n')
+
+
+def check_blade_native(binary=None):
+    """A package's `[native]` prebuilt inputs reach the link of `blade build`, `blade run` and
+    `blade test`, through a path dependency whose directory holds a space and double quotes: an
+    object found by a pattern, an archive in a table of the host's triple, and a library found
+    through a library directory build and run, a table of another triple is left alone, an
+    unchanged second build is up to date, and rewriting the object or the archive rebuilds
+    (the contents of a library named with `libraries` are not tracked).
+    A manifest `[native]` cannot honour, and a file it names that is not there, is refused."""
+    binary = binary or SELF_BUILT
+    tools = sawc_clang_and_triple()
+    host = sawc_host_target()
+    if tools is None or host is None or shutil.which("ar") is None:
+        print("blade: no clang from `sawc tools`, host record or `ar`: prebuilt `[native]` inputs are not checked",
+              flush=True)
+        return
+    clang, triple = tools
+    work = os.path.join(WORK_DIR, "native")
+    shutil.rmtree(work, ignore_errors=True)
+    library = os.path.join(work, 'lib "dir"')
+    app = os.path.join(work, "app")
+    make_c_object(clang, triple, os.path.join(library, "prebuilt"), "obj", "lib_obj_value", 40)
+    make_c_object(clang, triple, os.path.join(library, "archives"), "arc", "lib_arc_value", 2, "libarc.a")
+    make_c_object(clang, triple, os.path.join(library, "libpath"), "pl", "lib_pl_value", 1000, "libpl.a")
+    write_text(os.path.join(library, "Saw.toml"),
+               '[package]\nname = "clib"\nversion = "0.1.0"\n\n[native]\nobjects = ["prebuilt/*.o"]\n'
+               'libraries = ["pl"]\nlibrary-paths = ["libpath"]\n\n'
+               '[native.%s]\narchives = ["archives/libarc.a"]\n\n[native.%s]\nobjects = ["not/there.o"]\n'
+               % (host, NATIVE_OTHER_TARGET))
+    write_text(os.path.join(library, "src", "lib.saw"), NATIVE_LIBRARY_SOURCE)
+    write_text(os.path.join(app, "Saw.toml"),
+               '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nclib = { path = "../lib \\"dir\\"" }\n')
+    write_text(os.path.join(app, "src", "main.saw"),
+               'import clib\n\nfunc main() {\n    print("answer {clib.answer()} named {clib.named()}")\n}\n')
+    write_text(os.path.join(app, "tests", "answer.saw"),
+               'import clib\n\nfunc main() {\n    assert(clib.answer() == 42, "the object and the archive")\n'
+               '    assert(clib.named() == 1000, "the library")\n}\n')
+    print("blade: a dependency's prebuilt object, archive and library build, run and test", flush=True)
+    blade_ok(binary, ["build"], app, "Finished .build/host/app")
+    blade_ok(binary, ["build"], app, "(up to date)")
+    blade_ok(binary, ["run"], app, "answer 42 named 1000")
+    blade_ok(binary, ["test"], app, "test result: ok")
+    rebuilds_after(binary, "prebuilt object", ["build"], app,
+                   lambda: make_c_object(clang, triple, os.path.join(library, "prebuilt"), "obj", "lib_obj_value", 41))
+    blade_ok(binary, ["run"], app, "answer 43 named 1000")
+    rebuilds_after(binary, "archive", ["build"], app,
+                   lambda: make_c_object(clang, triple, os.path.join(library, "archives"), "arc", "lib_arc_value", 3,
+                                         "libarc.a"))
+    blade_ok(binary, ["run"], app, "answer 44 named 1000")
+    print("blade: a library found by name is not hashed: its change leaves the build up to date", flush=True)
+    make_c_object(clang, triple, os.path.join(library, "libpath"), "pl", "lib_pl_value", 7, "libpl.a")
+    blade_ok(binary, ["build"], app, "(up to date)")
+    refusals = (
+        ("an unknown key", '[native]\nsources = ["a.c"]\n', "[native] has an unknown key `sources`"),
+        ("a target the compiler does not know", '[native.not-a-triple]\nobjects = ["a.o"]\n',
+         "`not-a-triple` is not a target the compiler knows"),
+        ("a pattern that matches nothing", '[native]\nobjects = ["none/*.o"]\n', "`none/*.o` matches no file"),
+        ("a framework outside a Mach-O triple's table", '[native]\nframeworks = ["Security"]\n',
+         "belongs in the [native.<triple>] table of an `-apple-` triple"),
+        ("c-sources", '[native]\nc-sources = ["glue.c"]\n', "c-sources: compiling C sources is not supported yet"),
+        ("a missing object", '[native]\nobjects = ["gone.o"]\n', "`gone.o` does not exist"),
+    )
+    for index, (title, native, said) in enumerate(refusals):
+        package = os.path.join(work, "refused%d" % index)
+        write_text(os.path.join(package, "Saw.toml"), '[package]\nname = "refused"\nversion = "0.1.0"\n\n' + native)
+        write_text(os.path.join(package, "src", "main.saw"), PLAIN_MAIN)
+        write_text(os.path.join(package, "tests", "plain.saw"), PLAIN_MAIN)
+        print("blade: [native] with %s is refused" % title, flush=True)
+        blade_refused(binary, ["build"], package, said)
+    print("blade: blade test refuses a `[native]` input that is not there", flush=True)
+    blade_refused(binary, ["test"], os.path.join(work, "refused5"), "`gone.o` does not exist")
+
+
 def lane():
     ok, out = (True, "") if build.handed_down() else build.build_sawc()
     if not ok:
@@ -1036,6 +1163,7 @@ def lane():
         check_blade_freshness_images()
         check_blade_no_hidden_alloc()
         check_blade_max_task_frame()
+        check_blade_native()
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
         os.makedirs(SMOKE_DIR)
         step("blade new", [SELF_BUILT, "new", SMOKE_PACKAGE], SMOKE_TIMEOUT_S, cwd=SMOKE_DIR,

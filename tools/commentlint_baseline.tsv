@@ -47,7 +47,6 @@ blade/src/sosimg.saw	refs.position	1	Typed local (DF-140d): returning the value 
 blade/src/sosimg.saw	refs.position	1	and design 170 turned the silent truncation that used to happen here into a
 blade/src/sosimg.saw	refs.position	2	too, type annotations included, since design 150 — the DF-140c limit this
 blade/src/tester.saw	refs.position	1	Preflight (design 97): `blade test` compiles each test with `sawc`
-blade/src/tester.saw	refs.position	1	SURFACED, never swallowed (design 97: `blade test` must not hide why a
 blade/src/tester.saw	refs.position	1	Where the compiled test binaries go (design 143): under the same
 blade/src/tester.saw	refs.position	1	`<name>.module`, then one per dependency (design 64 B6). When resolution
 blade/src/tester.saw	refs.position	1	design 57 dogfood: time the whole run with the monotonic clock, and

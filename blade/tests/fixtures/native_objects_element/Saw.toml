@@ -1,0 +1,6 @@
+[package]
+name = "native_objects_element"
+version = "0.1.0"
+
+[native]
+objects = ["a.o", 7]

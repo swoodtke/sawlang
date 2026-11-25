@@ -7,21 +7,15 @@
 // per-test ok/FAILED plus a summary. Execution is sequential (parallelism is a
 // later refinement). No new language surface: the test harness is just Saw.
 
+import blade.builder.{Builder, BuildError}
 import blade.layout.*
 import blade.manifest.*
 import blade.resolver.*
 import std.directory.{Directory}
 import std.env.{Env}
 import std.path.{Path}
+import std.process.{Command}
 import std.time.{Instant}
-
-extern "C" {
-    // Run a command line through the shell and return its raw wait status. A
-    // test PASSES iff this is exactly 0 — that rejects a nonzero exit AND a
-    // signal death (a `panic`/failed `assert` aborts with SIGABRT, which a
-    // naive `status / 256` exit-code extraction would misread as 0).
-    func system(command: UnsafePointer<Int8>) -> Int32
-}
 
 public struct Tester {
     private manifest: Manifest
@@ -46,42 +40,28 @@ extension Tester {
         }
     }
 
-    // Run `cmd` through the shell with output suppressed (so the report stays
-    // clean — a test's own stdout/stderr is not what we judge, only its status).
-    // Passes iff the raw wait status is exactly 0.
-    public func shell_ok(&self, cmd: String) unsafe -> Bool {
-        let quiet = "{cmd} > /dev/null 2>&1"
-        system(quiet.c_string()!) == (0 as Int32)
-    }
-
-    // Like `shell_ok`, but suppresses only stdout and lets stderr THROUGH. sawc
-    // writes its "Compiled ..." success line to stdout and every diagnostic to
-    // stderr, and a `panic`/failed `assert` aborts to stderr — so on success the
-    // report stays clean, while a compile error or a test's failure reason is
-    // SURFACED, never swallowed (design 97: `blade test` must not hide why a
-    // test could not compile or run). Passes iff the raw wait status is exactly 0.
-    public func shell_ok_loud(&self, cmd: String) unsafe -> Bool {
-        let quiet = "{cmd} > /dev/null"
-        system(quiet.c_string()!) == (0 as Int32)
-    }
-
-    // The `--module-path` flags for compiling tests — the same flags `blade
-    // build` uses: the package's own, so a test imports it as
+    // The arguments every test compile gets, after the source and `-o`: the
+    // flags `blade build` uses. A package that declares `no-hidden-alloc` has
+    // `--no-hidden-alloc` first, and a `max-task-frame` its `--max-task-frame=`;
+    // the package's own `--module-path` follows, so a test imports it as
     // `<name>.module`, then one per dependency (design 64 B6). When resolution
     // fails only the package's own is passed, so a test that needs a missing
-    // dependency fails to compile and says so. A package that declares
-    // `no-hidden-alloc` has `--no-hidden-alloc` lead them, and a `max-task-frame`
-    // its `--max-task-frame=`, as in `blade build`.
-    public func dep_flags(&self) -> String {
-        var lead = if self.manifest.is_no_hidden_alloc() { " --no-hidden-alloc" } else { "" }
-        if not self.manifest.task_frame_flag().is_empty() {
-            lead = "{lead} {self.manifest.task_frame_flag()}"
+    // dependency fails to compile and says so. Every package's `[native]`
+    // inputs follow as sawc's `--link-*` flags, one argument each, so a path
+    // with a space or a quote reaches sawc whole. The error is a `[native]`
+    // input that cannot be found.
+    public func compile_arguments(&self) -> Result<Vector<String>, BuildError> {
+        var args = Vector<String>()
+        if self.manifest.is_no_hidden_alloc() {
+            try! args.push("--no-hidden-alloc")
         }
-        let own = "{lead} --module-path {self.manifest.own_module_path()}"
+        if not self.manifest.task_frame_flag().is_empty() {
+            try! args.push(self.manifest.task_frame_flag())
+        }
+        try! args.push("--module-path")
+        try! args.push(self.manifest.own_module_path())
         match resolve(self.manifest) {
             case Ok(res) -> {
-                var b = StringBuilder()
-                try! b.append(own)
                 var i = 0
                 while i < res.len() {
                     let name = res.name(i)
@@ -90,28 +70,59 @@ extension Tester {
                     } else {
                         res.loc(i)
                     }
-                    try! b.append(" --module-path ")
-                    try! b.append("{name}={dir}/src")
+                    try! args.push("--module-path")
+                    try! args.push("{name}={dir}/src")
                     i = i + 1
                 }
-                b.build()
+                let plan = try Builder(m: self.manifest).link_plan(&res, "")
+                let linked = plan.sawc_arguments()
+                var n = 0
+                while n < linked.len() {
+                    try! args.push(linked.get(n) ?? "")
+                    n = n + 1
+                }
             },
-            case Err(_) -> own
+            case Err(_) -> {}
+        }
+        move args
+    }
+
+    // Run `cmd` with its stdout discarded and its stderr let THROUGH, and say
+    // whether it exited 0. sawc writes its "Compiled ..." line to stdout and
+    // every diagnostic to stderr, and a `panic`/failed `assert` aborts to
+    // stderr, so on success the report stays clean while a compile error or a
+    // test's failure reason is shown, never swallowed. A signal death is a
+    // nonzero code, so a `panic`'s SIGABRT fails. A program that cannot launch
+    // says so. (design 97)
+    func passes(&self, cmd: &Command, what: String) -> Bool {
+        match cmd.output() {
+            case Ok(out) -> out.success(),
+            case Err(e) -> {
+                print("error: could not launch {what}: {e}")
+                false
+            }
         }
     }
 
-    // Compile `source` to `bin` (with dependency flags), then run it. Passes iff
-    // both succeed.
-    public func run_one(&self, source: Path, bin: Path, flags: String) -> Bool {
-        let compile_cmd = "{self.compiler()} {source.as_string()} -o {bin.as_string()}{flags}"
-        if not self.shell_ok_loud(compile_cmd) {
+    // Compile `source` to `bin` (with `flags`, one argument each), then run
+    // it. Passes iff both succeed.
+    public func run_one(&self, source: Path, bin: Path, flags: &Vector<String>) -> Bool {
+        var compile = Builder(m: self.manifest).compiler_command()
+        try! compile.arg(source.as_string())
+        try! compile.arg("-o")
+        try! compile.arg(bin.as_string())
+        var i = 0
+        while i < flags.len() {
+            try! compile.arg(flags.get(i) ?? "")
+            i = i + 1
+        }
+        if not self.passes(&compile, "the compiler") {
             // The compiler's error (stderr) has already been shown; the caller
             // reports this test as FAILED. Never swallow a compile failure.
             return false
         }
-        // Judge by exit status, but let the test's stderr through so a panic or a
-        // failed assert explains itself when the test FAILS.
-        self.shell_ok_loud(bin.as_string())
+        let run = Command(program: bin.as_string())
+        self.passes(&run, bin.as_string())
     }
 
     // Discover tests/*.saw, run each, report. Returns the process exit code:
@@ -124,7 +135,13 @@ extension Tester {
         // that fails the whole suite is exactly the failure this design kills.)
         let has_sawc_env = if let _c = (try! Env.get("SAWC")) { true } else { false }
         if not has_sawc_env {
-            if not self.shell_ok("command -v sawc") {
+            var probe = Command(program: "sawc")
+            try! probe.arg("--version")
+            let found = match probe.output() {
+                case Ok(_) -> true,
+                case Err(_) -> false
+            }
+            if not found {
                 print("error: no Saw compiler found — `blade test` needs `sawc`.")
                 print("  No `sawc` is on PATH and SAWC is not set. Point SAWC at a")
                 print("  compiler and retry, e.g. from an in-tree checkout:")
@@ -161,8 +178,14 @@ extension Tester {
         let started = Instant.now()
         var failed_tests = Map<String, Bool>()
 
-        // Resolve dependency flags once for the whole run.
-        let flags = self.dep_flags()
+        // Resolve the compile arguments once for the whole run.
+        let flags = match self.compile_arguments() {
+            case Ok(found) -> move found,
+            case Err(e) -> {
+                print("error: {e.message}")
+                return 1
+            }
+        }
 
         var total = 0
         var passed = 0
@@ -178,7 +201,7 @@ extension Tester {
 
                         // Per-test timing (design 64 B7, std.time Duration).
                         let t0 = Instant.now()
-                        let ok = self.run_one(entry, bin, flags)
+                        let ok = self.run_one(entry, bin, &flags)
                         let dur = t0.elapsed()
                         if ok {
                             passed = passed + 1

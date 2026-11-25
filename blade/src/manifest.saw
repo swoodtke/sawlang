@@ -229,6 +229,214 @@ func read_dependencies(deps: &TomlTable, manifest: String) -> Result<DepList, Bo
     move list
 }
 
+// =============================================================================
+// `[native]`: prebuilt link inputs (SL-1170)
+// =============================================================================
+
+// One link input a package declares: its `kind` (`object`, `archive`,
+// `library`, `library-path` or `framework`), its value as written, and the
+// `table` it came from, "" for `[native]` and the triple for `[native.<triple>]`.
+public struct NativeEntry {
+    kind: String
+    value: String
+    table: String
+}
+
+// The `[native]` keys that are lists of link inputs, in the order their entries
+// are returned: each kind lists `[native]`'s values, then each triple's.
+func native_list_keys() -> Vector<String> {
+    var keys = Vector<String>()
+    try! keys.push("objects")
+    try! keys.push("archives")
+    try! keys.push("libraries")
+    try! keys.push("library-paths")
+    try! keys.push("frameworks")
+    move keys
+}
+
+// The keys that name C sources to compile, which a later unit builds. They are
+// type-checked now, and `c-sources` is refused until then.
+func native_source_keys() -> Vector<String> {
+    var keys = Vector<String>()
+    try! keys.push("c-sources")
+    try! keys.push("include-dirs")
+    try! keys.push("defines")
+    move keys
+}
+
+func vector_has(names: &Vector<String>, key: String) -> Bool {
+    var i = 0
+    while i < names.len() {
+        if (names.get(i) ?? "").equals(key) {
+            return true
+        }
+        i = i + 1
+    }
+    false
+}
+
+func native_key_known(key: String) -> Bool {
+    let lists = native_list_keys()
+    let sources = native_source_keys()
+    vector_has(&lists, key) || vector_has(&sources, key)
+}
+
+func native_kind_of(key: String) -> String {
+    if key.equals("objects") { return "object" }
+    if key.equals("archives") { return "archive" }
+    if key.equals("libraries") { return "library" }
+    if key.equals("library-paths") { return "library-path" }
+    "framework"
+}
+
+// What is wrong with a value of the `[native]` list `key`, or "". A name or a
+// path is not empty. A `*` stands in the last segment of an `objects` or
+// `archives` path only (a pattern matching nothing is the build's error), and
+// `library-paths` names a directory, so it takes none.
+func native_value_problem(key: String, value: String) -> String {
+    if value.is_empty() {
+        return "an empty value"
+    }
+    if not value.contains("*") {
+        return ""
+    }
+    if key.equals("objects") || key.equals("archives") {
+        let at = value.last_index_of(47) ?? -1
+        let directory = if at >= 0 { value.substring(0, at) } else { "" }
+        if directory.contains("*") {
+            return "`{value}` holds a `*` before its last segment: a pattern matches files in one directory"
+        }
+        return ""
+    }
+    "`{value}` holds a `*`, which `{key}` does not take"
+}
+
+// The strings of `key` in `t`, none when it is absent; a value that is not an
+// array of strings is an error naming the manifest, the table and the key.
+func read_string_list(t: &TomlTable, manifest: String, key: String) -> Result<Vector<String>, Box<any Error>> {
+    var out = Vector<String>()
+    let has = try in_manifest(manifest, t.expect(key, TomlKind.Array))
+    if has {
+        if let list = t.array(key) {
+            var i = 0
+            while i < list.len() {
+                let value = try in_manifest(manifest, list.string(i))
+                try! out.push(value)
+                i = i + 1
+            }
+        }
+    }
+    move out
+}
+
+// Checks one `[native]` or `[native.<triple>]` table: every key is known, a
+// list holds strings, `c-sources` is not yet supported, `frameworks` sits in a
+// Mach-O triple's table, and each value reads. `table` is "" for `[native]`.
+func check_native_table(t: &TomlTable, manifest: String, table: String) -> Result<Void, Box<any Error>> {
+    let label = if table.is_empty() { "native" } else { "native.{table}" }
+    let keys = try t.keys()
+    var i = 0
+    while i < keys.len() {
+        let key = keys.get(i) ?? ""
+        i = i + 1
+        if table.is_empty() && t.kind(key) == TomlKind.Table && not native_key_known(key) {
+            continue
+        }
+        if not native_key_known(key) {
+            return ManifestError(msg: "{manifest}: [{label}] has an unknown key `{key}`: the keys are c-sources, include-dirs, defines, objects, archives, libraries, library-paths and frameworks")
+        }
+        let strings = try read_string_list(&t, manifest, key)
+        if key.equals("c-sources") && strings.len() > 0 {
+            return ManifestError(msg: "{manifest}: [{label}] c-sources: compiling C sources is not supported yet (SL-1170 unit 3 adds it); name prebuilt `objects` or `archives` for now")
+        }
+        if key.equals("frameworks") && strings.len() > 0 {
+            if table.is_empty() {
+                return ManifestError(msg: "{manifest}: [{label}] frameworks: a framework is a Mach-O library, so it belongs in the [native.<triple>] table of an `-apple-` triple, such as [native.arm64-apple-darwin]")
+            }
+            if not table.contains("-apple-") {
+                return ManifestError(msg: "{manifest}: [{label}] frameworks: `{table}` is not a Mach-O (`-apple-`) triple, and a framework is a Mach-O library")
+            }
+        }
+        let list_keys = native_list_keys()
+        if vector_has(&list_keys, key) {
+            var k = 0
+            while k < strings.len() {
+                let problem = native_value_problem(key, strings.get(k) ?? "")
+                if not problem.is_empty() {
+                    return ManifestError(msg: "{manifest}: [{label}] {key}: {problem}")
+                }
+                k = k + 1
+            }
+        }
+    }
+    return
+}
+
+// Every `[native]` and `[native.<triple>]` entry of the manifest `doc` read from
+// `path`: each kind (in `native_list_keys` order) lists `[native]`'s values and
+// then each triple table's, in document order. Whether a triple's entries
+// apply to a build is the caller's to decide, with the compiler's list of
+// targets. A manifest with no `[native]` has none.
+public func read_native(doc: &TomlDoc, path: String) -> Result<Vector<NativeEntry>, Box<any Error>> {
+    let has = try in_manifest(path, doc.root().expect("native", TomlKind.Table))
+    if has {
+        if let native = doc.root().table("native") {
+            return read_native_tables(&native, path)
+        }
+    }
+    let none = Vector<NativeEntry>()
+    return move none
+}
+
+// `read_native` from the `[native]` table on.
+func read_native_tables(native: &TomlTable, path: String) -> Result<Vector<NativeEntry>, Box<any Error>> {
+    var entries = Vector<NativeEntry>()
+    var tables = Vector<String>()
+    try! tables.push("")
+    let keys = try native.keys()
+    var i = 0
+    while i < keys.len() {
+        let key = keys.get(i) ?? ""
+        if native.kind(key) == TomlKind.Table && not native_key_known(key) {
+            try! tables.push(key)
+        }
+        i = i + 1
+    }
+    var t = 0
+    while t < tables.len() {
+        let name = tables.get(t) ?? ""
+        if name.is_empty() {
+            try check_native_table(&native, path, name)
+        } else if let sub = native.table(name) {
+            try check_native_table(&sub, path, name)
+        }
+        t = t + 1
+    }
+    let lists = native_list_keys()
+    var l = 0
+    while l < lists.len() {
+        let key = lists.get(l) ?? ""
+        var u = 0
+        while u < tables.len() {
+            let name = tables.get(u) ?? ""
+            var values = Vector<String>()
+            if name.is_empty() {
+                values = try read_string_list(&native, path, key)
+            } else if let sub = native.table(name) {
+                values = try read_string_list(&sub, path, key)
+            }
+            var k = 0
+            while k < values.len() {
+                try! entries.push(NativeEntry(kind: native_kind_of(key), value: values.get(k) ?? "", table: name))
+                k = k + 1
+            }
+            u = u + 1
+        }
+        l = l + 1
+    }
+    move entries
+}
+
 // The Saw.toml `blade new` writes for a package called `name`. The name is
 // written as TOML text, so one holding a quote or a backslash reads back exactly.
 public func new_package_manifest(name: String) -> String {
@@ -304,6 +512,14 @@ extension Manifest {
             }
         }
         DepList()
+    }
+
+    // This package's `[native]` link inputs, every table's, in `read_native`'s
+    // order. Re-reads Saw.toml from `root_dir`, as `dependencies` does.
+    public func native_entries(&self) -> Result<Vector<NativeEntry>, Box<any Error>> {
+        let manifest_path = self.root_dir.join("Saw.toml")
+        let doc = try read_manifest(manifest_path)
+        return read_native(&doc, manifest_path.as_string())
     }
 
     // Get the package name

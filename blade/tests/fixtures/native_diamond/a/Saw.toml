@@ -1,0 +1,12 @@
+[package]
+name = "a"
+version = "0.1.0"
+
+[dependencies]
+c = { path = "../c" }
+
+[native]
+objects = ["a.o"]
+archives = ["../shared/s.a", "a.a"]
+libraries = ["la", "shared"]
+library-paths = ["lib"]

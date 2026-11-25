@@ -1,0 +1,6 @@
+[package]
+name = "native_c_sources"
+version = "0.1.0"
+
+[native]
+c-sources = ["c/glue.c"]

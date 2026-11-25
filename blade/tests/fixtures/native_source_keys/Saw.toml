@@ -1,0 +1,7 @@
+[package]
+name = "native_source_keys"
+version = "0.1.0"
+
+[native]
+include-dirs = ["inc"]
+defines = ["NDEBUG", "LEVEL=2"]

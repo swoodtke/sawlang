@@ -1,0 +1,6 @@
+[package]
+name = "native_empty_value"
+version = "0.1.0"
+
+[native]
+libraries = [""]

@@ -1,0 +1,13 @@
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+a = { path = "../a" }
+b = { path = "../b" }
+
+[native]
+objects = ["r.o"]
+archives = ["r.a"]
+libraries = ["lroot"]
+library-paths = ["../a/lib"]

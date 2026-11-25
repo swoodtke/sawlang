@@ -1,0 +1,6 @@
+[package]
+name = "native_framework_linux"
+version = "0.1.0"
+
+[native.aarch64-unknown-linux-gnu]
+frameworks = ["Security"]

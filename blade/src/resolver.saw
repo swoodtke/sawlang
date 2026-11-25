@@ -66,6 +66,11 @@ public struct Resolution {
     private declareds: Vector<String>   // source AS DECLARED (relative path / url) — the
                                 // portable value recorded in Saw.lock
     private revs: Vector<String>        // "" for path
+    // Every dependency edge the walk met, as parallel columns: `edge_froms[k]`
+    // requires `edge_tos[k]`. The root is a requirer by name though it has no
+    // row. A diamond records the shared package's edge once per requirer.
+    private edge_froms: Vector<String>
+    private edge_tos: Vector<String>
 }
 
 extension Resolution: NoCopy {}
@@ -78,7 +83,10 @@ extension Resolution {
         let d = Vector<String>()
         let f = Vector<String>()
         let e = Vector<String>()
-        Resolution(names: move a, versions: move b, kinds: move c, locs: move d, declareds: move f, revs: move e)
+        let g = Vector<String>()
+        let h = Vector<String>()
+        Resolution(names: move a, versions: move b, kinds: move c, locs: move d, declareds: move f, revs: move e,
+                   edge_froms: move g, edge_tos: move h)
     }
 
     public func len(&self) -> Int {
@@ -103,6 +111,15 @@ extension Resolution {
     public func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
     public func declared(&self, i: Int) -> String { self.declareds.get(i) ?? "" }
     public func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+
+    public func edge_count(&self) -> Int { self.edge_froms.len() }
+    public func edge_from(&self, k: Int) -> String { self.edge_froms.get(k) ?? "" }
+    public func edge_to(&self, k: Int) -> String { self.edge_tos.get(k) ?? "" }
+
+    public func add_edge(&var self, requirer: String, required: String) {
+        try! self.edge_froms.push(requirer)
+        try! self.edge_tos.push(required)
+    }
 
     public func add(&var self, name: String, version: String, kind: String, loc: String, declared: String, rev: String) {
         try! self.names.push(name)
@@ -351,6 +368,7 @@ func visit(
     if dep_name.equals(requirer) {
         return ResolveError(msg: "package `{requirer}` depends on itself")
     }
+    resolution.add_edge(requirer, dep_name)
 
     // Source identity (the dedup + two-sources key): a normalized directory for
     // a path dep, or the URL for a git dep.
