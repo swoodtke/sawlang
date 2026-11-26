@@ -19,9 +19,11 @@ images:
     arch: "aarch64"
     digest: "sha512:835b929522716de9798d1c0fbe61caae8313ab78858b278f3389a2db922ae42e4619b4a776ecad39583c149fb85334a2f8cdae685bc56987160e5c86a2354375"
 
-rosetta:
-  enabled: true
-  binfmt: true
+vmOpts:
+  vz:
+    rosetta:
+      enabled: true
+      binfmt: true
 
 # tools/linux.py reads this mount back from `limactl list --json` to find the
 # host checkout inside the VM.
