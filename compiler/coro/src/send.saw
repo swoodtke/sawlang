@@ -11,7 +11,9 @@
 // value passed, so when that is a closure the parameter crosses when the
 // closure's captures prove `sendable`, whatever its written type says. A
 // `Task` or `TaskGroup` the frame made is held, not carried
-// (`coro_crosses_held`), so the frame may keep one across a suspension.
+// (`coro_crosses_held`), so the frame may keep one across a suspension. A
+// local live across no suspension but a group's teardown park stays on its
+// thread (`coro_is_teardown_park`).
 //
 // ENTRY POINTS of the Send-on-frames gate:
 //   coro_check_frame_send
@@ -20,7 +22,9 @@ import sawborrowck.loans.{borrowck_forwards_value}
 import sawborrowck.program.{BorrowckProgram}
 import sawresolve.collect.{res_is_top_level}
 import sawcoro.frames.{coro_driven_child, coro_frame_of}
-import sawcoro.program.{CoroProgram, CoroValueKind}
+import sawcoro.lifetimes.{coro_lifetime_across}
+import sawcoro.lower.{coro_is_teardown_park}
+import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
 import sawdrops.program.{DropsProgram}
 import sawmir.model.{MirAggregate, MirCallKind, MirRvalueKind, MirSpawnForm, MirStmtKind, MirTermKind, mir_spawn_leading}
 import sawmir.program.{MirProgram}
@@ -268,6 +272,9 @@ func coro_check_frame_values(coro: &var CoroProgram, root: Int, item: Int, rf: I
             if coro_crosses(&var coro, value.ty, viewer) {
                 continue
             }
+            if pass == 1 && coro_crosses_only_teardown(&coro, &frame, &value) {
+                continue
+            }
             // A thread-bound handle is held, never received: only the root's
             // own parameters come from the spawner's thread.
             if (pass == 1 || item != root) && coro_crosses_held(&var coro, value.ty, viewer) {
@@ -297,6 +304,20 @@ func coro_check_frame_values(coro: &var CoroProgram, root: Int, item: Int, rf: I
         }
     }
     false
+}
+
+// Whether frame value `v` is live across no suspension point of `frame` but
+// teardown parks, which never move the frame to another thread.
+func coro_crosses_only_teardown(coro: &CoroProgram, frame: &CoroFrame, v: &CoroValue) -> Bool {
+    var j = 0
+    while j < frame.suspend_count {
+        let call = coro.suspends[frame.suspend_first + j].call
+        if (call < 0 || not coro_is_teardown_park(&coro, call)) && coro_lifetime_across(&coro, &frame, &v, j) {
+            return false
+        }
+        j = j + 1
+    }
+    true
 }
 
 func coro_refuse_value(coro: &var CoroProgram, root: Int, item: Int, param: Bool, name: Int, ty: Int) {

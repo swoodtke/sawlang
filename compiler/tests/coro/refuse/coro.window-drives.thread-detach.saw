@@ -1,0 +1,36 @@
+// refuses: coro.window-drives at 23:17
+// message: this call reaches the executor's sweep
+// message: `notify_observer`
+// a `Thread.spawn` and its `detach()` inside the window: std's thread observer, called through a pointer
+// `FuncPointer.from_raw` made, may run anything, so it is refused, a stated cost (K228)
+
+import std.channel.{Channel}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+
+func threads() -> Int {
+    borrow var b = boot_slot() {
+        b = 1
+        let t = Thread.spawn { 5 }
+        match t {
+            case Ok(var h) -> h.detach(),
+            case Err(e) -> print("no thread")
+        }
+        print("threads {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("{}", outer.spawn(threads()).join())
+}

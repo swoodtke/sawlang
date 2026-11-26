@@ -1,0 +1,50 @@
+// refuses: coro.window-drives at 40:17
+// message: this call through a function value of type `(Int) sync -> Int` may run any function value of that type in the program, and one of them reaches the executor's sweep
+// a named function reaching the window only as a call's argument, handed back and called through its value
+// (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func tear_down(x: Int) sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    x
+}
+
+func pass(f: (Int) sync escaping -> Int) -> (Int) sync -> Int {
+    f
+}
+
+func bump() -> Int {
+    yield_now()
+    let f = pass(tear_down)
+    borrow var b = boot_slot() {
+        b = 1
+        let n = f(1)
+        print("inside the window: {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

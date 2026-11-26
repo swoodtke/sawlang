@@ -1,0 +1,56 @@
+// accepts: coro.window-drives
+// a teardown in the fencing accessor's own prologue and epilogue, which are outside its window (K228)
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+func tear_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    BOOT.count = 1
+    lend BOOT.count
+    tear_down()
+    print("accessor epilogue, after the teardown: {}", BOOT.count)
+}
+
+func tear_slot2() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    BOOT.count = 1
+    tear_down()
+    print("accessor prologue, after the teardown: {}", BOOT.count)
+    lend BOOT.count
+}
+
+func main() {
+    borrow var b = tear_slot() {
+        print("inside the window: {}", b)
+    }
+    print("after: {}", after())
+    borrow var b2 = tear_slot2() {
+        print("inside the window 2: {}", b2)
+    }
+    print("after 2: {}", after())
+}

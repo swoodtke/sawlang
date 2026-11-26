@@ -1,0 +1,51 @@
+// refuses: coro.window-drives at 46:17
+// message: this drop of `moved: coro.window-drives.blocking-deinit.Blocker` reaches the executor's sweep
+// message: `Blocker.deinit` → `drop glue std.taskgroup.TaskGroup`
+// thread context: a `deinit` declared `blocking` that tears a group down, whose body the fence reads (K228)
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+struct Blocker {
+    n: Int
+}
+
+extension Blocker: NoCopy {
+    func deinit(&var self) blocking {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+}
+
+func main() blocking {
+    var x = Blocker(n: 1)
+    borrow var b = boot_slot() {
+        b = 1
+        if true {
+            let moved = move x
+        }
+        print("inside the window: {}", b)
+    }
+    print("after: {}", after())
+}

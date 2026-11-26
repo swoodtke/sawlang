@@ -1,0 +1,71 @@
+// refuses: coro.window-drives at 61:51
+// message: this erasure reaches the executor's sweep
+// message: `AllocTears.alloc` → `tear_down`
+// an erasure into a box whose allocator's `alloc` tears a group down (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct AllocTears {}
+
+extension AllocTears: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        tear_down()
+        GlobalAllocator().alloc(size, align)
+    }
+
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+trait Speaks {
+    func say(&self) -> Int
+}
+
+struct Dog {
+    n: Int
+}
+
+extension Dog: Speaks {
+    func say(&self) -> Int {
+        self.n
+    }
+}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        let bx = Box<any Speaks, AllocTears>.make(Dog(n: 3))
+        let _ = move bx
+        print("inside the window: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+}

@@ -1,0 +1,65 @@
+// accepts: coro.window-drives
+// the finished task's handle dropped after the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+}
+
+func producer() -> Res {
+    Res(n: 1)
+}
+
+func bump() -> Int {
+    yield_now()
+    var inner = TaskGroup()
+    var t = inner.spawn(producer())
+    yield_now()
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    if true {
+        let moved = move t
+    }
+    print("right after the action: {}", after())
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+}

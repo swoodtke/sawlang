@@ -1,0 +1,51 @@
+// accepts: coro.window-drives
+// the `blocking` join after the window (K228)
+
+import std.channel.{Channel}
+import std.thread.{Thread}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member(ch: Channel<Int>) -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    let _ = ch.send(1)
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func wait_on(ch: Channel<Int>) blocking -> Int {
+    try! ch.receive()
+}
+
+func spawn_and_join(ch: Channel<Int>) blocking -> Int {
+    (try! Thread.spawn { [move ch] in wait_on(ch) }).join()
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    let theirs = ch.copy()
+    var g = TaskGroup()
+    let _ = g.spawn(member(ch.copy()))
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let r = spawn_and_join(move theirs)
+    print("right after the action: {} {}", after(), r)
+}

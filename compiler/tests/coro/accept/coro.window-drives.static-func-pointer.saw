@@ -1,0 +1,53 @@
+// accepts: coro.window-drives
+// the static's pointer called after the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down(x: Int) sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    x
+}
+
+static HOOK: FuncPointer<(Int) sync -> Int> = tear_down
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let n = HOOK(1)
+    print("right after the action: {} {}", after(), n)
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

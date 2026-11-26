@@ -1,8 +1,9 @@
-resume #0: sendable_closure_spawn.main()  (frame size 536 align 8, pointer _20)
+resume #0: sendable_closure_spawn.main()  (frame size 576 align 8, pointer _23, context _24)
     state 0: bb0
-    state 1: bb2 drive #16 std.task.yield_now() at (*frame).[400]
-    state 2: bb3 drive #17 std.taskgroup.Task.join() args Int at (*frame).[400]
-    spawn bb1 task root #11 sendable_closure_spawn.run(f: () -> Int) task root, descriptor _16, box _17
+    state 1: bb2 drive #16 std.task.yield_now() at (*frame).[432]
+    state 2: bb3 drive #17 std.taskgroup.Task.join() args Int at (*frame).[432]
+    state 3: bb9 park thread
+    spawn bb1 task root #11 sendable_closure_spawn.run(f: () -> Int) task root, descriptor _19, box _20
 fn sendable_closure_spawn.main() -> Void {
     let _0: Void;  // return
     let _1: Int;  // n
@@ -20,78 +21,101 @@ fn sendable_closure_spawn.main() -> Void {
     let _13: std.taskgroup.Task<Int>;
     let _14: &std.taskgroup.Task<Int>;
     let _15: Int;
-    let _16: UnsafePointer<std.taskgroup.FrameDescriptor>;
-    let _17: UnsafePointer<UInt8>;
-    let _18: UnsafePointer<std.taskgroup.TaskGroup>;
-    let _19: std.taskgroup.TaskProvenance;
-    let _20: &var Int;
+    let _16: &std.taskgroup.TaskGroup;
+    let _17: Int;
+    let _18: Bool;
+    let _19: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _20: UnsafePointer<UInt8>;
+    let _21: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _22: std.taskgroup.TaskProvenance;
+    let _23: &var Int;
+    let _24: &var std.taskgroup.TaskContext;
 
     bb0: {
-        (*_20).[520: Int] = const 7: Int;
-        (*_20).[528: Int] = const 100: Int;
-        (*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] = call std.taskgroup.TaskGroup.init(threads: Int) (owner std.taskgroup.TaskGroup) [const 2: Int] -> [return: bb1];
+        (*_23).[552: Int] = const 7: Int;
+        (*_23).[560: Int] = const 100: Int;
+        (*_23).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] = call std.taskgroup.TaskGroup.init(threads: Int) (owner std.taskgroup.TaskGroup) [const 2: Int] -> [return: bb1];
     }
 
     bb1: {
-        _5 = move ((*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] as Ok!).0;
-        (*_20).[208: std.taskgroup.TaskGroup] = move _5;
-        _7 = ref(shared, (*_20).[520: Int]);
-        _8 = ref(shared, (*_20).[528: Int]);
-        (*_20).[504: (&Int, &Int)] = (move _7, move _8);
-        _10 = ref(shared, (*_20).[504: (&Int, &Int)]);
+        _5 = move ((*_23).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] as Ok!).0;
+        (*_23).[224: std.taskgroup.TaskGroup] = move _5;
+        _7 = ref(shared, (*_23).[552: Int]);
+        _8 = ref(shared, (*_23).[560: Int]);
+        (*_23).[536: (&Int, &Int)] = (move _7, move _8);
+        _10 = ref(shared, (*_23).[536: (&Int, &Int)]);
         _11 = closure#0 of sendable_closure_spawn.main() [move _10];
-        _12 = ref(shared, (*_20).[208: std.taskgroup.TaskGroup]);
-        _16 = spawn group sendable_closure_spawn.run(f: () -> Int) [] -> [return: bb6];
+        _12 = ref(shared, (*_23).[224: std.taskgroup.TaskGroup]);
+        _19 = spawn group sendable_closure_spawn.run(f: () -> Int) [] -> [return: bb10];
     }
 
     bb2: {
-        (*_20).[464: std.taskgroup.Task<Int>] = move _13;
-        (*_20).[0: Int] = const 1: Int;
-        call std.task.yield_now() [] -> [return: bb8] suspends;
+        (*_23).[496: std.taskgroup.Task<Int>] = move _13;
+        (*_23).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb12] suspends;
     }
 
     bb3: {
-        _14 = ref(shared, (*_20).[464: std.taskgroup.Task<Int>]);
-        (*_20).[424: &std.taskgroup.Task<Int>] = move _14;
-        (*_20).[0: Int] = const 2: Int;
-        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [] -> [return: bb10] suspends;
+        _14 = ref(shared, (*_23).[496: std.taskgroup.Task<Int>]);
+        (*_23).[456: &std.taskgroup.Task<Int>] = move _14;
+        (*_23).[0: Int] = const 2: Int;
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [] -> [return: bb14] suspends;
     }
 
     bb4: {
-        call builtin print [copy _15] -> [return: bb5];
+        call builtin print [copy (*_23).[568: Int]] -> [return: bb5];
     }
 
     bb5: {
-        drop((*_20).[464: std.taskgroup.Task<Int>]);
-        drop((*_20).[208: std.taskgroup.TaskGroup]);
-        return;
+        drop((*_23).[496: std.taskgroup.Task<Int>]);
+        goto -> bb7;
     }
 
     bb6: {
-        _17 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _16] -> [return: bb7];
+        drop((*_23).[224: std.taskgroup.TaskGroup]);
+        return;
     }
 
     bb7: {
-        (*_17).[0: Int] = const 0: Int;
-        (*_17).[8: () -> Int] = move _11;
-        _18 = cast(move _12 as UnsafePointer<std.taskgroup.TaskGroup>);
-        _19 = std.taskgroup.TaskProvenance::Group;
-        _13 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _18, copy _16, copy _17, move _19] -> [return: bb2];
+        _16 = ref(shared, (*_23).[224: std.taskgroup.TaskGroup]);
+        _17 = call std.taskgroup.__saw_exec_teardown_park(group: &std.taskgroup.TaskGroup) [move _16] -> [return: bb8];
     }
 
     bb8: {
-        (*_20).[0: Int] = const -3: Int;
-        goto -> bb3;
+        _18 = Eq(copy _17, const 0: Int);
+        switch move _18 -> [true: bb6, false: bb9];
     }
 
     bb9: {
-        _15 = move (*_20).[416: Int];
-        goto -> bb4;
+        (*(*_24).park) = move _17;
+        call std.thread.__saw_park_thread(word: Int) [] -> [return: bb7] suspends;
     }
 
     bb10: {
-        (*_20).[0: Int] = const -4: Int;
-        goto -> bb9;
+        _20 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _19] -> [return: bb11];
+    }
+
+    bb11: {
+        (*_20).[0: Int] = const 0: Int;
+        (*_20).[8: () -> Int] = move _11;
+        _21 = cast(move _12 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _22 = std.taskgroup.TaskProvenance::Group;
+        _13 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _21, copy _19, copy _20, move _22] -> [return: bb2];
+    }
+
+    bb12: {
+        (*_23).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb13: {
+        (*_23).[568: Int] = move (*_23).[448: Int];
+        goto -> bb4;
+    }
+
+    bb14: {
+        (*_23).[0: Int] = const -4: Int;
+        goto -> bb13;
     }
 }
 resume #11: sendable_closure_spawn.run(f: () -> Int) task root  (frame size 40 align 8, pointer _3)

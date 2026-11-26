@@ -1,0 +1,1492 @@
+// THE WINDOW-DRIVE FENCE: inside a static root's exclusive window no
+// other task runs on this thread (spec, Lending a static), so no instruction
+// there may reach the executor's sweep. The fence reads mono's concrete items
+// as one graph, an item to each item its instructions run on this thread, in
+// every function, suspending or not, and judges each instruction inside a
+// fenced window by the same funnel: a `borrows(sync)` window on a static
+// root, and a window whose accessor carries a fenced window open across its
+// `lend`. A call the funnel cannot resolve reaches the sweep: an `extern`
+// with no body in the program, a call through a function value whose code
+// the program cannot see (`FuncPointer.from_raw`, an `extern`'s), a frame's
+// `resume`, a drive site, and any call kind or builtin it does not know. A call
+// through a function value reaches every function value of its type the
+// program makes, closures, named functions, static initializers and frame
+// descriptors included, which over-approximates. The accessor's own prologue
+// and epilogue are outside its window (SL-1161).
+//
+// ENTRY POINTS:
+//   coro_check_window_drives
+
+import sawcoro.dropblocks.{CoroDropFacts, coro_append_place, coro_drop_facts, coro_instruction_targets}
+import sawcoro.lifetimes.{coro_windows_open}
+import sawcoro.program.{CoroProgram}
+import saweval.program.{EvalKind, EvalValue}
+// For `MirProgram.span_text` and `decl_name`, extensions of that module's.
+import sawmir.dump.{mir_dump_module}
+import sawmir.model.{MirAggregate, MirCallKind, MirConstKind, MirFuncKind, MirOperandKind, MirProjKind,
+                     MirRvalue, MirRvalueKind, MirSpawnForm, MirStmtKind, MirTermKind}
+import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItemKind}
+// For `MonoProgram.erased_dealloc`, an extension of that module's.
+import sawmono.worklist.{mono_rules}
+import sawresolve.model.{ResDeclKind, ResModuleKind}
+import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
+// For `TcProgram.dispatched_existential`, an extension of that module's.
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.runtimeabi.{tc_runtime_abi_rows}
+// For `TcProgram.type_text`, an extension of that module's.
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// Why an edge of the fence's graph is there, which the refusal's path names.
+enum CoroReachWhy {
+    // An item the instruction runs: a drop's glue, a call's item, a closure's
+    // body, an item a builtin or a construction calls.
+    case Runs,
+    // An item a call through a function value of the edge's type may run.
+    case Value,
+    // The sweep, through an `extern` with no body in the program.
+    case Extern,
+    // The sweep, through a call of a pointer `FuncPointer.from_raw` made.
+    case FromRaw,
+    // The sweep, through a call of a function value whose code the program
+    // cannot see: an `extern`'s result or what it writes, an export's
+    // parameter or static, one in a place whose address user code made a raw
+    // pointer, one loaded through a raw pointer or a view.
+    case Unseen,
+    // The sweep, through a frame descriptor's `resume`, which runs a task.
+    case Resume,
+    // The sweep, through a drive site.
+    case Drive,
+    // The sweep, through a suspension.
+    case Suspension,
+    // The sweep, through a call this check cannot follow.
+    case Unresolved
+}
+
+// The targets of one instruction, each with its reason and, for a call
+// through a function value, the value's type (-1 otherwise).
+struct CoroReachSet {
+    to: Vector<Int>
+    why: Vector<CoroReachWhy>
+    ty: Vector<Int>
+}
+
+extension CoroReachSet: NoCopy {}
+
+extension CoroReachSet {
+    init() -> CoroReachSet {
+        CoroReachSet(to: Vector<Int>(), why: Vector<CoroReachWhy>(), ty: Vector<Int>())
+    }
+
+    func add(&var self, to: Int, why: CoroReachWhy, ty: Int) {
+        if to < 0 {
+            return
+        }
+        try! self.to.push(to)
+        try! self.why.push(why)
+        try! self.ty.push(ty)
+    }
+}
+
+// Each function value the program makes, by its type: the item its code is,
+// or the graph's sweep node for code nothing names (`from_raw`, a frame's
+// `resume`); and the type of each capture of each closure construction.
+struct CoroWindowValues {
+    ty: Vector<Int>
+    item: Vector<Int>
+    why: Vector<CoroReachWhy>
+    capture_ty: Vector<Int>
+}
+
+extension CoroWindowValues: NoCopy {}
+
+// The fence's graph: one node per mono item and one more, `sweep`, for the
+// executor's sweep where a call cannot be followed. Its edges, and for each
+// node its distance to the sweep (-1 when it never reaches it) and the edge
+// its shortest path leaves by (-1 at a sweep node).
+struct CoroWindowGraph {
+    sweep: Int
+    from: Vector<Int>
+    to: Vector<Int>
+    why: Vector<CoroReachWhy>
+    ty: Vector<Int>
+    dist: Vector<Int>
+    step: Vector<Int>
+}
+
+extension CoroWindowGraph: NoCopy {}
+
+extension CoroWindowGraph {
+    func add_all(&var self, from: Int, set: &CoroReachSet) {
+        var j = 0
+        while j < set.to.len() {
+            self.add(from, set.to[j], set.why[j], set.ty[j])
+            j = j + 1
+        }
+    }
+
+    func add(&var self, from: Int, to: Int, why: CoroReachWhy, ty: Int) {
+        try! self.from.push(from)
+        try! self.to.push(to)
+        try! self.why.push(why)
+        try! self.ty.push(ty)
+    }
+}
+
+// Refuses each instruction inside a `borrows(sync)` window on a static root
+// that reaches the executor's sweep, with the shortest path to it.
+public func coro_check_window_drives(coro: &var CoroProgram) {
+    let drive = coro.mono.dp.bc.mir.tc.drive_decl
+    let carries = coro_window_carries(&coro)
+    if drive < 0 || not coro_any_fenced_window(&coro, &carries) {
+        return
+    }
+    let facts = coro_drop_facts(&coro)
+    let values = coro_window_values(&var coro, &facts)
+    var graph = coro_window_graph(&coro, &facts, &values)
+    coro_measure_graph(&coro, &var graph, drive)
+    var reported = Vector<Int>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f >= 0 && coro.mono.dp.bc.mir.funcs[f].window_count > 0 {
+            coro_check_window_item(&var coro, &facts, &values, &graph, &carries, item, f, &var reported)
+        }
+    }
+}
+
+// A window the fence covers: `borrows(sync)` on a static root, or one whose
+// accessor carries a fenced window open across its `lend` (`carries`, by
+// accessor declaration). A shared root's window and a lock's are neither.
+func coro_fenced_window(coro: &CoroProgram, carries: &Vector<Bool>, w: Int) -> Bool {
+    let window = coro.mono.dp.bc.mir.windows[w]
+    if window.accessor < 0 {
+        return false
+    }
+    if window.sync && coro.mono.dp.bc.mir.tc.sigs[window.accessor].root_decl >= 0 {
+        return true
+    }
+    window.accessor < carries.len() && carries[window.accessor]
+}
+
+// By declaration: whether an accessor's prologue leaves a fenced window open
+// across its `lend`, so the window it lends in runs inside that one. Its
+// epilogue starts with those windows open (`carried`), at any depth of
+// accessors carrying accessors, root or not, `unsafe` or not: a fixpoint.
+func coro_window_carries(coro: &CoroProgram) -> Vector<Bool> {
+    var carries = Vector<Bool>()
+    var d = 0
+    while d < coro.mono.dp.bc.mir.tc.res.decls.len() {
+        try! carries.push(false)
+        d = d + 1
+    }
+    var changed = true
+    while changed {
+        changed = false
+        var f = 0
+        while f < coro.mono.dp.bc.mir.funcs.len() {
+            let info = coro.mono.dp.bc.mir.funcs[f]
+            f = f + 1
+            if info.kind != MirFuncKind.Epilogue || info.decl < 0 || info.decl >= carries.len() || carries[info.decl] {
+                continue
+            }
+            var k = 0
+            while k < info.carried_count {
+                let w = coro.mono.dp.bc.mir.aux[info.carried_first + k]
+                k = k + 1
+                if w >= 0 && w < info.window_count && coro_fenced_window(&coro, &carries, info.window_first + w) {
+                    carries[info.decl] = true
+                    changed = true
+                }
+            }
+        }
+    }
+    move carries
+}
+
+// Whether any body of the program opens a fenced window.
+func coro_any_fenced_window(coro: &CoroProgram, carries: &Vector<Bool>) -> Bool {
+    var k = 0
+    while k < coro.mono.items.len() {
+        let f = coro.mono.items[k].body
+        k = k + 1
+        if f < 0 {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        var w = 0
+        while w < info.window_count {
+            if coro_fenced_window(&coro, &carries, info.window_first + w) {
+                return true
+            }
+            w = w + 1
+        }
+    }
+    false
+}
+
+// The function values the program makes: in item bodies, in statics'
+// initializers, and in the frame descriptors the backend writes.
+func coro_window_values(coro: &var CoroProgram, facts: &CoroDropFacts) -> CoroWindowValues {
+    let sweep = coro.mono.items.len()
+    var values = CoroWindowValues(ty: Vector<Int>(), item: Vector<Int>(), why: Vector<CoroReachWhy>(),
+                                  capture_ty: Vector<Int>())
+    var k = 0
+    while k < coro.mono.items.len() {
+        let f = coro.mono.items[k].body
+        if f >= 0 {
+            coro_note_function_values(&var coro, &facts, f, sweep, &var values)
+        }
+        k = k + 1
+    }
+    coro_note_static_values(&coro, &var values)
+    coro_note_descriptor_values(&coro, sweep, &var values)
+    coro_note_unseen_values(&var coro, sweep, &var values)
+    move values
+}
+
+// The function values whose code reaches the program from outside it, which
+// it cannot see: those in an `extern`'s result and in what its reference and
+// pointer parameters reach (which the foreign code may write), those in an
+// export's parameters, which foreign code passes in, and those an exported
+// static holds, which foreign code may write by its symbol. Each is a value
+// of its type whose code is the sweep.
+func coro_note_unseen_values(coro: &var CoroProgram, sweep: Int, values: &var CoroWindowValues) {
+    var found = Vector<Int>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let it = coro.mono.items[item]
+        let external = it.kind == MonoItemKind.Extern
+        var exported = false
+        var e = 0
+        while e < coro.mono.export_items.len() {
+            if coro.mono.export_items[e] == item {
+                exported = true
+            }
+            e = e + 1
+        }
+        let d = if external { it.decl } else if exported { coro.item_decl(item) } else { -1 }
+        if d < 0 {
+            continue
+        }
+        let sig = coro.mono.dp.bc.mir.tc.sigs[d]
+        if external {
+            coro_function_types_in(&var coro, sig.result, false, &var found)
+        }
+        var p = 0
+        while p < sig.param_count {
+            let t = coro.mono.dp.bc.mir.tc.params[sig.param_first + p].ty
+            p = p + 1
+            let reaches_memory = coro.mono.dp.bc.mir.tc.referent(t) >= 0 || coro_raw_pointer(&coro, t)
+            if exported || reaches_memory {
+                coro_function_types_in(&var coro, t, false, &var found)
+            }
+        }
+    }
+    // An exported static is foreign code's by its symbol.
+    var d = 0
+    while d < coro.mono.dp.bc.mir.tc.res.decls.len() {
+        let static_decl = d
+        d = d + 1
+        if coro.mono.dp.bc.mir.tc.res.decls[static_decl].kind != ResDeclKind.Static {
+            continue
+        }
+        let symbol = coro.mono.dp.bc.mir.tc.export_symbols.get(static_decl) ?? ""
+        if symbol.len() > 0 {
+            let t = coro.mono.dp.bc.mir.tc.sigs[static_decl].result
+            coro_function_types_in(&var coro, t, false, &var found)
+        }
+    }
+    var j = 0
+    while j < found.len() {
+        coro_add_value(&var values, found[j], sweep, CoroReachWhy.Unseen)
+        j = j + 1
+    }
+}
+
+// Whether `t` is a raw pointer, whose pointee foreign code may write.
+func coro_raw_pointer(coro: &CoroProgram, t: Int) -> Bool {
+    let d = coro.mono.dp.bc.mir.tc.nominal_decl(t)
+    d >= 0 && (d == coro.mono.dp.bc.mir.tc.known.unsafe_pointer || d == coro.mono.dp.bc.mir.tc.known.unsafe_const_pointer)
+}
+
+// Each function type, or `FuncPointer`, that a value of type `t` holds in
+// its tuple and array elements, a struct's fields and an enum case's
+// payloads, each at the nominal's own arguments; and, unless `inline`, what
+// it reaches through references, pointers and type arguments too.
+func coro_function_types_in(coro: &var CoroProgram, t: Int, inline: Bool, found: &var Vector<Int>) {
+    var pending = Vector<Int>()
+    var seen = Vector<Int>()
+    try! pending.push(t)
+    while pending.len() > 0 {
+        let x = pending.pop()!
+        if x < 0 {
+            continue
+        }
+        var known = false
+        var j = 0
+        while j < seen.len() {
+            if seen[j] == x {
+                known = true
+            }
+            j = j + 1
+        }
+        if known {
+            continue
+        }
+        try! seen.push(x)
+        let ty = coro.mono.dp.bc.mir.tc.types.ty(x)
+        if ty.kind == TcKind.Func || coro.mono.dp.bc.mir.tc.is_func_pointer(x) {
+            try! found.push(x)
+            continue
+        }
+        if ty.kind == TcKind.Array || (not inline && (ty.kind == TcKind.Ref || ty.kind == TcKind.Slice)) {
+            try! pending.push(ty.b)
+        }
+        if ty.kind == TcKind.Tuple || (not inline && ty.kind == TcKind.Nominal) {
+            j = 0
+            while j < ty.count {
+                try! pending.push(coro.mono.dp.bc.mir.tc.types.args[ty.first + j])
+                j = j + 1
+            }
+        }
+        if ty.kind == TcKind.Nominal && ty.decl >= 0 {
+            let fields = target_struct_fields(&coro.mono.dp.bc.mir.tc, ty.decl)
+            j = 0
+            while j < fields.len() {
+                let written = coro.mono.dp.bc.mir.tc.sigs[fields[j]].result
+                try! pending.push(target_member_type(&var coro.mono.dp.bc.mir.tc, x, written))
+                j = j + 1
+            }
+            let cases = target_enum_cases(&coro.mono.dp.bc.mir.tc, ty.decl)
+            j = 0
+            while j < cases.len() {
+                let s = coro.mono.dp.bc.mir.tc.sigs[cases[j]]
+                j = j + 1
+                var p = 0
+                while p < s.param_count {
+                    let written = coro.mono.dp.bc.mir.tc.params[s.param_first + p].ty
+                    try! pending.push(target_member_type(&var coro.mono.dp.bc.mir.tc, x, written))
+                    p = p + 1
+                }
+            }
+        }
+    }
+}
+
+// Place `p` of body `f`: when it reads through a raw pointer (a deref or an
+// index of an `UnsafePointer`), the function values in what it loads there
+// are bytes the check cannot name, whatever cast made the pointer, as a
+// `FuncPointer.from_raw` pointer's are; each is a value whose code is the
+// sweep. The one exception is a load of one of std's own records in std
+// (`coro_std_record`). Glue (module -1) loads no function value through a raw
+// pointer.
+func coro_note_raw_load(coro: &var CoroProgram, f: Int, p: Int, sweep: Int, values: &var CoroWindowValues) {
+    if p < 0 || coro.mono.dp.bc.mir.funcs[f].module < 0 {
+        return
+    }
+    let in_std = not coro_user_body(&coro, f)
+    let pl = coro.mono.dp.bc.mir.places[p]
+    var current = -1
+    if pl.local >= 0 {
+        current = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + pl.local].ty
+    } else if pl.static_decl >= 0 {
+        current = coro.mono.dp.bc.mir.tc.sigs[pl.static_decl].result
+    }
+    // The record the loaded bytes sit in: what the last raw step reaches.
+    var record = -1
+    var j = 0
+    while j < pl.count {
+        let step = coro.mono.dp.bc.mir.projs[pl.first + j]
+        j = j + 1
+        let through = step.kind == MirProjKind.Deref || step.kind == MirProjKind.Index
+        if through && current >= 0 && coro_raw_pointer(&coro, current) {
+            record = step.ty
+        }
+        current = step.ty
+    }
+    if record < 0 || (in_std && coro_std_record(&coro, record)) {
+        return
+    }
+    coro_note_unseen_inline(&var coro, current, sweep, &var values)
+}
+
+// THE STD RECORD ALLOW-LIST: whether `t` is one of the records std reads
+// through cast pointers and writes only from its own statics or the
+// backend's descriptors, which the values already hold: the pool engine
+// (`PoolEngine`, `POOL_CODE`), the gate engine (`GateEngine`, `GATE_CODE`)
+// and `FrameDescriptor`. Every other raw load of a function value, std's
+// included, is unseen.
+// ENTRY POINTS:
+//   coro_note_raw_load
+func coro_std_record(coro: &CoroProgram, t: Int) -> Bool {
+    let d = coro.mono.dp.bc.mir.tc.nominal_decl(t)
+    if d < 0 {
+        return false
+    }
+    let tg = coro.mono.dp.bc.mir.tc.module_named("std.taskgroup")
+    let ch = coro.mono.dp.bc.mir.tc.module_named("std.channel")
+    if tg >= 0 && (d == coro.mono.dp.bc.mir.tc.top_decl(tg, "PoolEngine") ||
+                   d == coro.mono.dp.bc.mir.tc.top_decl(tg, "FrameDescriptor")) {
+        return true
+    }
+    ch >= 0 && d == coro.mono.dp.bc.mir.tc.top_decl(ch, "GateEngine")
+}
+
+// Whether body `f` is user code: in a module that is neither std nor the
+// builtin module, and no glue.
+func coro_user_body(coro: &CoroProgram, f: Int) -> Bool {
+    let m = coro.mono.dp.bc.mir.funcs[f].module
+    if m < 0 {
+        return false
+    }
+    let owner = coro.mono.dp.bc.mir.tc.res.module(m).kind
+    owner != ResModuleKind.Std && owner != ResModuleKind.Builtin
+}
+
+// The function values a value of type `t` holds in its own bytes (its
+// fields, payloads and elements, not what its pointers reach), each a value
+// whose code is the sweep.
+func coro_note_unseen_inline(coro: &var CoroProgram, t: Int, sweep: Int, values: &var CoroWindowValues) {
+    var found = Vector<Int>()
+    coro_function_types_in(&var coro, t, true, &var found)
+    var k = 0
+    while k < found.len() {
+        coro_add_value(&var values, found[k], sweep, CoroReachWhy.Unseen)
+        k = k + 1
+    }
+}
+
+// THE ADDRESS RULE: user code that turns a reference to a place into a raw
+// pointer (`(&x) as UnsafePointer<U>`, any `U`) hands the place's bytes to
+// whatever writes or reads through that address, an `extern`, a store, a std
+// routine or a view, so every function value the place's type holds is
+// unseen. Rvalue `rv` is one of body `f`'s.
+// ENTRY POINTS:
+//   coro_note_function_values
+func coro_note_address_taken(coro: &var CoroProgram, f: Int, rv: &MirRvalue, sweep: Int,
+                             values: &var CoroWindowValues) {
+    if rv.kind != MirRvalueKind.Cast || rv.count < 1 || not coro_raw_pointer(&coro, rv.ty) ||
+       not coro_user_body(&coro, f) {
+        return
+    }
+    let from = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]].ty
+    let place = coro.mono.dp.bc.mir.tc.referent(from)
+    if place >= 0 {
+        coro_note_unseen_inline(&var coro, place, sweep, &var values)
+    }
+}
+
+func coro_add_value(values: &var CoroWindowValues, ty: Int, item: Int, why: CoroReachWhy) {
+    try! values.ty.push(ty)
+    try! values.item.push(item)
+    try! values.why.push(why)
+}
+
+// Records the function values body `f` makes: its closure constructions,
+// with their captures, the named functions its operands take as values, and
+// each pointer `FuncPointer.from_raw` makes, whose code nothing names.
+func coro_note_function_values(coro: &var CoroProgram, facts: &CoroDropFacts, f: Int, sweep: Int,
+                               values: &var CoroWindowValues) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign {
+                continue
+            }
+            let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+            let closure = rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure
+            if closure {
+                let body = coro.mono.closure_item(stmt.rvalue)
+                if body >= 0 && not facts.thread_body[body] {
+                    coro_add_value(&var values, rv.ty, body, CoroReachWhy.Value)
+                }
+            }
+            if rv.kind == MirRvalueKind.Conversion && coro.mono.dp.bc.mir.tc.is_func_pointer(rv.ty) &&
+               coro.mono.dp.bc.mir.tc.name_text(rv.op).equals("from_raw") {
+                coro_add_value(&var values, rv.ty, sweep, CoroReachWhy.FromRaw)
+            }
+            coro_note_raw_load(&var coro, f, rv.place, sweep, &var values)
+            coro_note_address_taken(&var coro, f, &rv, sweep, &var values)
+            var j = 0
+            while j < rv.count {
+                let o = coro.mono.dp.bc.mir.lists[rv.first + j]
+                j = j + 1
+                if closure {
+                    try! values.capture_ty.push(coro.mono.dp.bc.mir.operands[o].ty)
+                }
+                coro_note_named_value(&coro, o, &var values)
+                let read = coro.mono.dp.bc.mir.operands[o].place
+                coro_note_raw_load(&var coro, f, read, sweep, &var values)
+            }
+        }
+        if block.term == MirTermKind.Call {
+            let call = coro.mono.dp.bc.mir.calls[block.call]
+            var j = 0
+            while j < call.arg_count {
+                let o = coro.mono.dp.bc.mir.lists[call.arg_first + j]
+                coro_note_named_value(&coro, o, &var values)
+                let read = coro.mono.dp.bc.mir.operands[o].place
+                coro_note_raw_load(&var coro, f, read, sweep, &var values)
+                j = j + 1
+            }
+            if call.callee >= 0 {
+                let read = coro.mono.dp.bc.mir.operands[call.callee].place
+                coro_note_raw_load(&var coro, f, read, sweep, &var values)
+            }
+            // A view's `read()` loads a `T` from any address the program
+            // names, so the function values it loads are unseen, in std as
+            // in user code.
+            if call.kind == MirCallKind.Builtin && call.dest >= 0 &&
+               coro.mono.dp.bc.mir.tc.res.name_text(call.spelling).equals("memory_read") {
+                let loaded = coro.mono.dp.bc.mir.places[call.dest].ty
+                coro_note_unseen_inline(&var coro, loaded, sweep, &var values)
+            }
+        }
+    }
+}
+
+// Operand `o`, when it names a function as a value: the function's item, by
+// the value's type.
+func coro_note_named_value(coro: &CoroProgram, o: Int, values: &var CoroWindowValues) {
+    let op = coro.mono.dp.bc.mir.operands[o]
+    if op.kind != MirOperandKind.Const || op.const_kind != MirConstKind.Function {
+        return
+    }
+    let d = coro.mono.dp.bc.mir.function_target(op.text)
+    if d < 0 {
+        return
+    }
+    let item = coro.mono.address_item(d, -1)
+    if item >= 0 {
+        coro_add_value(&var values, op.ty, item, CoroReachWhy.Value)
+    }
+}
+
+// Each code address in a static's evaluated value, as mono's
+// `reach_addresses` walks it. Mono reaches the code only once a body reads
+// the static, so an address it never reached is one nothing can call.
+func coro_note_static_values(coro: &CoroProgram, values: &var CoroWindowValues) {
+    var pending = Vector<EvalValue>()
+    var d = 0
+    while d < coro.mono.static_values.len() {
+        try! pending.push(coro.mono.static_values[d])
+        d = d + 1
+    }
+    while pending.len() > 0 {
+        let v = pending.pop()!
+        if v.kind == EvalKind.Address {
+            let item = coro.mono.address_item(v.decl, v.bits)
+            if item >= 0 {
+                coro_add_value(&var values, v.ty, item, CoroReachWhy.Value)
+            }
+        } else if v.kind == EvalKind.Aggregate {
+            var j = 0
+            while j < v.count {
+                try! pending.push(coro.mono.static_parts[v.bits + j])
+                j = j + 1
+            }
+        } else if v.kind == EvalKind.Repeat {
+            try! pending.push(coro.mono.static_parts[v.bits])
+        }
+    }
+}
+
+// The two function values of every frame descriptor (`std.taskgroup.
+// FrameDescriptor`), which the backend writes and no MIR body makes: its
+// `resume`, which runs a task, and its `drop_result`, the drop glue of a task
+// root's result type.
+func coro_note_descriptor_values(coro: &CoroProgram, sweep: Int, values: &var CoroWindowValues) {
+    let m = coro.mono.dp.bc.mir.tc.module_named("std.taskgroup")
+    let d = if m >= 0 { coro.mono.dp.bc.mir.tc.top_decl(m, "FrameDescriptor") } else { -1 }
+    if d < 0 {
+        return
+    }
+    var resume_ty = -1
+    var drop_ty = -1
+    let fields = target_struct_fields(&coro.mono.dp.bc.mir.tc, d)
+    var j = 0
+    while j < fields.len() {
+        let name = coro.mono.dp.bc.mir.tc.name_text(coro.mono.dp.bc.mir.tc.res.decls[fields[j]].name)
+        if name.equals("resume") {
+            resume_ty = coro.mono.dp.bc.mir.tc.sigs[fields[j]].result
+        } else if name.equals("drop_result") {
+            drop_ty = coro.mono.dp.bc.mir.tc.sigs[fields[j]].result
+        }
+        j = j + 1
+    }
+    if resume_ty >= 0 {
+        coro_add_value(&var values, resume_ty, sweep, CoroReachWhy.Resume)
+    }
+    if drop_ty < 0 {
+        return
+    }
+    var k = 0
+    while k < coro.mono.items.len() {
+        let root = k
+        k = k + 1
+        let f = coro.mono.items[root].body
+        if f < 0 || not coro.mono.is_task_root(root) {
+            continue
+        }
+        let result = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first].ty
+        let glue = coro.mono.glue_item(result, MONO_KEY_DROP)
+        if glue >= 0 {
+            coro_add_value(&var values, drop_ty, glue, CoroReachWhy.Value)
+        }
+    }
+}
+
+// The function type a value of type `t` is called as: a `FuncPointer<F>`'s is
+// `F`, any other type's its own.
+func coro_function_type_of(coro: &CoroProgram, t: Int) -> Int {
+    if t >= 0 && coro.mono.dp.bc.mir.tc.is_func_pointer(t) {
+        return coro.mono.dp.bc.mir.tc.arg_of(t, 0)
+    }
+    t
+}
+
+// Whether function types `a` and `b` take the same parameters and return the
+// same type, whatever their effects: a value converts to a type that allows
+// more (`sync` to plain, `sendable` to plain).
+func coro_same_function_shape(coro: &CoroProgram, left: Int, right: Int) -> Bool {
+    let a = coro_function_type_of(&coro, left)
+    let b = coro_function_type_of(&coro, right)
+    if a == b {
+        return true
+    }
+    if coro.mono.dp.bc.mir.tc.kind_of(a) != TcKind.Func || coro.mono.dp.bc.mir.tc.kind_of(b) != TcKind.Func {
+        return false
+    }
+    let x = coro.mono.dp.bc.mir.tc.types.ty(a)
+    let y = coro.mono.dp.bc.mir.tc.types.ty(b)
+    if x.count != y.count || x.b != y.b {
+        return false
+    }
+    var i = 0
+    while i < x.count {
+        if coro.mono.dp.bc.mir.tc.types.args[x.first + i] != coro.mono.dp.bc.mir.tc.types.args[y.first + i] {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// The graph: each item's edges, from its body's instructions, or, for an
+// item with no body, from what it stands for.
+func coro_window_graph(coro: &CoroProgram, facts: &CoroDropFacts, values: &CoroWindowValues) -> CoroWindowGraph {
+    let sweep = coro.mono.items.len()
+    var graph = CoroWindowGraph(sweep: sweep, from: Vector<Int>(), to: Vector<Int>(), why: Vector<CoroReachWhy>(),
+                                ty: Vector<Int>(), dist: Vector<Int>(), step: Vector<Int>())
+    var names = Vector<String>()
+    var params = Vector<String>()
+    var results = Vector<String>()
+    var owners = Vector<String>()
+    var defaults = Vector<String>()
+    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners, &var defaults)
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let it = coro.mono.items[item]
+        if it.body >= 0 {
+            coro_body_edges(&coro, &facts, &values, item, it.body, &var graph)
+        } else if it.kind == MonoItemKind.Extern {
+            coro_extern_edges(&coro, &names, item, &var graph)
+        } else if not coro.mono.function_value_glue(item) && it.kind != MonoItemKind.DropGlue {
+            // The backend writes a function value's glue and an erased box's
+            // drop (`coro_hidden_edges`); any other item with no body is one
+            // whose instantiation was refused.
+            graph.add(item, sweep, CoroReachWhy.Unresolved, -1)
+        }
+        if it.kind == MonoItemKind.DropGlue {
+            coro_hidden_edges(&coro, &values, item, &var graph)
+        }
+    }
+    move graph
+}
+
+// Each instruction's targets of body `f`, item `k`'s.
+func coro_body_edges(coro: &CoroProgram, facts: &CoroDropFacts, values: &CoroWindowValues, k: Int, f: Int,
+                     graph: &var CoroWindowGraph) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let at = info.block_first + b
+        b = b + 1
+        var s = coro.mono.dp.bc.mir.blocks[at].first
+        while s >= 0 {
+            var set = CoroReachSet()
+            coro_window_targets(&coro, &facts, &values, f, s, -1, &var set)
+            graph.add_all(k, &set)
+            s = coro.mono.dp.bc.mir.stmts[s].next
+        }
+        var set = CoroReachSet()
+        coro_window_targets(&coro, &facts, &values, f, -1, at, &var set)
+        graph.add_all(k, &set)
+    }
+}
+
+// An `extern` item: the program's own export of its symbol, when there is
+// one; nothing for a runtime seam, whose body ABI.md fixes and which runs no
+// program code on its caller's thread; the sweep for any other, whose body is
+// not in the program.
+func coro_extern_edges(coro: &CoroProgram, seams: &Vector<String>, k: Int, graph: &var CoroWindowGraph) {
+    let d = coro.mono.items[k].decl
+    let name = coro.mono.dp.bc.mir.tc.name_text(coro.mono.dp.bc.mir.tc.res.decls[d].name)
+    var j = 0
+    while j < coro.mono.export_items.len() {
+        let export = coro.mono.export_items[j]
+        j = j + 1
+        let symbol = coro.mono.dp.bc.mir.tc.export_symbols.get(coro.mono.items[export].decl) ?? ""
+        if symbol.equals(name) {
+            graph.add(k, export, CoroReachWhy.Runs, -1)
+            return
+        }
+    }
+    j = 0
+    while j < seams.len() {
+        if seams[j].equals(name) {
+            return
+        }
+        j = j + 1
+    }
+    graph.add(k, graph.sweep, CoroReachWhy.Extern, -1)
+}
+
+// The edges no MIR statement names, from drop glue item `k`: an erased box
+// drops its payload through the vtable of the concrete type and frees it
+// through its allocator's `dealloc`, and a function value's last release
+// drops the captures, whichever closure made it.
+func coro_hidden_edges(coro: &CoroProgram, values: &CoroWindowValues, k: Int, graph: &var CoroWindowGraph) {
+    let t = coro.mono.items[k].glue_type
+    let existential = coro.mono.dp.bc.mir.tc.dispatched_existential(t)
+    if existential >= 0 && existential != t {
+        let dealloc = coro.mono.erased_dealloc(t)
+        if dealloc >= 0 {
+            graph.add(k, dealloc, CoroReachWhy.Runs, -1)
+        }
+        let trait_decl = coro.mono.dp.bc.mir.tc.types.ty(existential).decl
+        var v = 0
+        while v < coro.mono.vtables.len() {
+            let table = coro.mono.vtables[v]
+            v = v + 1
+            if table.trait_decl == trait_decl && table.drop >= 0 {
+                graph.add(k, table.drop, CoroReachWhy.Runs, -1)
+            }
+        }
+    } else if coro.mono.dp.bc.mir.tc.kind_of(t) == TcKind.Func {
+        var c = 0
+        while c < values.capture_ty.len() {
+            let glue = coro.mono.glue_item(values.capture_ty[c], MONO_KEY_DROP)
+            if glue >= 0 {
+                graph.add(k, glue, CoroReachWhy.Runs, -1)
+            }
+            c = c + 1
+        }
+    }
+}
+
+// THE WINDOW-REACH FUNNEL: what one instruction of body `f` runs on this
+// thread. Statement `stmt` (a `block` of -1), or the terminator of block
+// `block` (a `stmt` of -1), whatever its kind. A drop's glue and a call's item
+// come from the blocking-drop check's funnel (`coro_instruction_targets`);
+// then what only this check reads: each item a construction, a copy, a
+// forced `Result`'s rendering, a builtin or a spawn site calls, each function
+// value a call through a value may run, and the sweep for a call that cannot
+// be followed. Every operand and place an instruction holds, a statement's, a
+// call's or a switch's, goes through `coro_operand_targets` or
+// `coro_forced_renders`. A closure's construction runs nothing here: each
+// call through its value is judged where it is made.
+// ENTRY POINTS:
+//   coro_body_edges
+//   coro_check_window_item
+func coro_window_targets(coro: &CoroProgram, facts: &CoroDropFacts, values: &CoroWindowValues, f: Int, stmt: Int,
+                         block: Int, out: &var CoroReachSet) {
+    let sweep = coro.mono.items.len()
+    if stmt >= 0 {
+        var base = Vector<Int>()
+        if coro.mono.dp.bc.mir.stmts[stmt].kind == MirStmtKind.Drop {
+            coro_instruction_targets(&coro, stmt, -1, &facts.thread_body, &var base)
+        }
+        var i = 0
+        while i < base.len() {
+            out.add(base[i], CoroReachWhy.Runs, -1)
+            i = i + 1
+        }
+        coro_statement_targets(&coro, f, stmt, &var out)
+        return
+    }
+    if block < 0 {
+        return
+    }
+    let blk = coro.mono.dp.bc.mir.blocks[block]
+    if blk.term == MirTermKind.Switch {
+        coro_operand_targets(&coro, f, blk.operand, &var out)
+        coro_forced_renders(&coro, f, blk.place, &var out)
+        return
+    }
+    if blk.term != MirTermKind.Call {
+        return
+    }
+    let call = blk.call
+    var base = Vector<Int>()
+    coro_instruction_targets(&coro, -1, call, &facts.thread_body, &var base)
+    var j = 0
+    while j < base.len() {
+        out.add(base[j], CoroReachWhy.Runs, -1)
+        j = j + 1
+    }
+    let c = coro.mono.dp.bc.mir.calls[call]
+    j = 0
+    while j < c.arg_count {
+        coro_operand_targets(&coro, f, coro.mono.dp.bc.mir.lists[c.arg_first + j], &var out)
+        j = j + 1
+    }
+    coro_operand_targets(&coro, f, c.callee, &var out)
+    coro_forced_renders(&coro, f, c.dest, &var out)
+    if c.kind == MirCallKind.Value {
+        var v = 0
+        while v < values.ty.len() {
+            if coro_same_function_shape(&coro, values.ty[v], c.owner) {
+                out.add(values.item[v], values.why[v], c.owner)
+            }
+            v = v + 1
+        }
+        return
+    }
+    if c.kind == MirCallKind.Drive {
+        out.add(sweep, CoroReachWhy.Drive, -1)
+        return
+    }
+    if c.kind == MirCallKind.Spawn {
+        // The root runs as a task, never in this call; the site's lowering
+        // calls std's task box and the handle's `__saw_spawn` here.
+        out.add(coro.mono.spawn_box_item, CoroReachWhy.Runs, -1)
+        out.add(coro.mono.spawn_handle_item(call), CoroReachWhy.Runs, -1)
+        if c.spawn == MirSpawnForm.Singleton {
+            out.add(coro.mono.spawn_background_item, CoroReachWhy.Runs, -1)
+        }
+        return
+    }
+    if c.kind == MirCallKind.Builtin {
+        coro_builtin_targets(&coro, call, &var out)
+        return
+    }
+    if base.len() > 0 || coro.mono.dispatch_slot(call) >= 0 || coro.mono.call_item(call) >= 0 {
+        return
+    }
+    if c.kind == MirCallKind.WindowClose && coro.mono.dp.bc.mir.closes_nothing(c.target) {
+        return
+    }
+    out.add(sweep, CoroReachWhy.Unresolved, -1)
+}
+
+// What statement `stmt` of body `f` runs beside a drop's glue and a closure's
+// body: a construction's calls, its operands' copies, and the rendering of a
+// `Result` it forces, which runs before the panic.
+func coro_statement_targets(coro: &CoroProgram, f: Int, stmt: Int, out: &var CoroReachSet) {
+    let st = coro.mono.dp.bc.mir.stmts[stmt]
+    if st.kind != MirStmtKind.Assign {
+        return
+    }
+    coro_forced_renders(&coro, f, st.place, &var out)
+    let r = st.rvalue
+    let rv = coro.mono.dp.bc.mir.rvalues[r]
+    coro_forced_renders(&coro, f, rv.place, &var out)
+    var j = 0
+    while j < rv.count {
+        coro_operand_targets(&coro, f, coro.mono.dp.bc.mir.lists[rv.first + j], &var out)
+        j = j + 1
+    }
+    if rv.kind == MirRvalueKind.Interpolate {
+        coro_interpolation_targets(&coro, &rv, &var out)
+    } else if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Repeat {
+        let element = coro.mono.dp.bc.mir.tc.types.ty(rv.ty).b
+        out.add(coro.mono.glue_item(element, MONO_KEY_COPY), CoroReachWhy.Runs, -1)
+        out.add(coro.mono.glue_item(element, MONO_KEY_DROP), CoroReachWhy.Runs, -1)
+    } else if rv.kind == MirRvalueKind.Aggregate &&
+              (rv.aggregate == MirAggregate.Vector || rv.aggregate == MirAggregate.Map ||
+               rv.aggregate == MirAggregate.Set) {
+        coro_literal_targets(&coro, r, &var out)
+    } else if rv.kind == MirRvalueKind.Erase {
+        out.add(coro.mono.erase_alloc(r), CoroReachWhy.Runs, -1)
+    } else if rv.kind == MirRvalueKind.Binary && rv.count == 2 {
+        let a = coro.mono.dp.bc.mir.lists[rv.first]
+        let b = coro.mono.dp.bc.mir.lists[rv.first + 1]
+        if coro.mono.string_operand(a) || coro.mono.string_operand(b) {
+            let op = coro.mono.dp.bc.mir.tc.name_text(rv.op)
+            if op.equals("==") || op.equals("!=") {
+                out.add(coro.mono.equals_item, CoroReachWhy.Runs, -1)
+            } else {
+                out.add(coro.mono.compare_item, CoroReachWhy.Runs, -1)
+            }
+        }
+    } else if rv.kind == MirRvalueKind.Cast && rv.count > 0 {
+        // A Float to integer cast that does not fit panics naming the value.
+        let from = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]].ty
+        if coro.mono.dp.bc.mir.tc.is_float(from) && not coro.mono.dp.bc.mir.tc.is_float(rv.ty) {
+            coro_render_targets(&coro, from, &var out)
+        }
+    }
+}
+
+// An interpolation's calls: the builder's `init()` and `build()`, each part's
+// rendering, and a moved part's drop.
+func coro_interpolation_targets(coro: &CoroProgram, rv: &MirRvalue, out: &var CoroReachSet) {
+    out.add(coro.mono.builder_new_item, CoroReachWhy.Runs, -1)
+    out.add(coro.mono.builder_build_item, CoroReachWhy.Runs, -1)
+    var j = 0
+    while j < rv.count {
+        let op = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first + j]]
+        j = j + 1
+        let referent = coro.mono.dp.bc.mir.tc.referent(op.ty)
+        if referent >= 0 {
+            coro_render_targets(&coro, referent, &var out)
+            continue
+        }
+        if op.kind == MirOperandKind.Move {
+            out.add(coro.mono.glue_item(op.ty, MONO_KEY_DROP), CoroReachWhy.Runs, -1)
+        }
+        coro_render_targets(&coro, op.ty, &var out)
+    }
+}
+
+// A `Vector`, `Map` or `Set` literal's calls: its container's `init()` and
+// entry op, the rendering of the op's error a refused insertion panics with,
+// and a `Map`'s replaced value's drop.
+func coro_literal_targets(coro: &CoroProgram, r: Int, out: &var CoroReachSet) {
+    let rv = coro.mono.dp.bc.mir.rvalues[r]
+    out.add(coro.mono.literal_init(r), CoroReachWhy.Runs, -1)
+    let push = coro.mono.literal_push(r)
+    out.add(push, CoroReachWhy.Runs, -1)
+    let d = if push >= 0 { coro.item_decl(push) } else { -1 }
+    if d >= 0 {
+        let result = coro.mono.dp.bc.mir.tc.sigs[d].result
+        if coro.mono.dp.bc.mir.tc.is_result(result) {
+            coro_render_targets(&coro, coro.mono.dp.bc.mir.tc.types.arg(result, 1), &var out)
+        }
+    }
+    if rv.aggregate == MirAggregate.Map {
+        let value = coro.mono.dp.bc.mir.tc.arg_of(rv.ty, 1)
+        out.add(coro.mono.glue_item(value, MONO_KEY_DROP), CoroReachWhy.Runs, -1)
+    }
+}
+
+// Operand `o` of body `f`: the copy glue a copy of its type runs, and the
+// rendering of a `Result` its place forces.
+func coro_operand_targets(coro: &CoroProgram, f: Int, o: Int, out: &var CoroReachSet) {
+    if o < 0 {
+        return
+    }
+    let op = coro.mono.dp.bc.mir.operands[o]
+    if op.kind == MirOperandKind.Const {
+        return
+    }
+    if op.kind == MirOperandKind.Copy {
+        out.add(coro.mono.glue_item(op.ty, MONO_KEY_COPY), CoroReachWhy.Runs, -1)
+    }
+    coro_forced_renders(&coro, f, op.place, &var out)
+}
+
+// Place `p` of body `f`: the rendering of each `Result` it forces whose error
+// renders, which a failed force runs before it panics.
+func coro_forced_renders(coro: &CoroProgram, f: Int, p: Int, out: &var CoroReachSet) {
+    if p < 0 {
+        return
+    }
+    let pl = coro.mono.dp.bc.mir.places[p]
+    var current = -1
+    if pl.local >= 0 {
+        current = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + pl.local].ty
+    } else if pl.static_decl >= 0 {
+        current = coro.mono.dp.bc.mir.tc.sigs[pl.static_decl].result
+    }
+    var j = 0
+    while j < pl.count {
+        let step = coro.mono.dp.bc.mir.projs[pl.first + j]
+        j = j + 1
+        if step.kind == MirProjKind.Force && current >= 0 && coro.mono.dp.bc.mir.tc.is_result(current) {
+            let error = coro.mono.dp.bc.mir.tc.types.arg(current, 1)
+            if coro.mono.try_error_verdict(error) == 1 {
+                coro_render_targets(&coro, error, &var out)
+            }
+        }
+        current = step.ty
+    }
+}
+
+// The item that renders a value of type `t`, its `Printable.format`; for an
+// erased `t`, every vtable's item in the slot its rendering dispatches.
+func coro_render_targets(coro: &CoroProgram, t: Int, out: &var CoroReachSet) {
+    let item = coro.mono.render_item(t)
+    if item >= 0 {
+        out.add(item, CoroReachWhy.Runs, -1)
+        return
+    }
+    let slot = coro.mono.render_slot(t)
+    let existential = coro.mono.dp.bc.mir.tc.dispatched_existential(t)
+    if slot < 0 || existential < 0 {
+        return
+    }
+    let trait_decl = coro.mono.dp.bc.mir.tc.types.ty(existential).decl
+    var v = 0
+    while v < coro.mono.vtables.len() {
+        let table = coro.mono.vtables[v]
+        v = v + 1
+        if table.trait_decl == trait_decl && slot < table.slot_count {
+            out.add(coro.mono.vtable_slots[table.slot_first + slot], CoroReachWhy.Runs, -1)
+        }
+    }
+}
+
+// Builtin call `call`: the user hooks and std items its lowering calls, by
+// its spelling; nothing for one the backend lowers inline; the sweep for a
+// suspension, and for any spelling this check does not know.
+func coro_builtin_targets(coro: &CoroProgram, call: Int, out: &var CoroReachSet) {
+    let c = coro.mono.dp.bc.mir.calls[call]
+    let name = coro.mono.dp.bc.mir.tc.res.name_text(c.spelling)
+    let sweep = coro.mono.items.len()
+    if name.equals("print") || name.equals("panic") || name.equals("assert") {
+        // An integer, a `Bool` or a `String` argument the backend writes as it
+        // is; any other renders into a fixed builder through its `format`.
+        var a = 0
+        while a < c.arg_count {
+            let op = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[c.arg_first + a]]
+            a = a + 1
+            var t = op.ty
+            let referent = coro.mono.dp.bc.mir.tc.referent(t)
+            if referent >= 0 {
+                t = referent
+            }
+            if coro.mono.dp.bc.mir.tc.is_integer(t) || coro.mono.dp.bc.mir.tc.is_bool(t) ||
+               coro.mono.dp.bc.mir.tc.is_string(t) {
+                continue
+            }
+            out.add(coro.mono.builder_fixed_item, CoroReachWhy.Runs, -1)
+            out.add(coro.mono.builder_len_item, CoroReachWhy.Runs, -1)
+            coro_render_targets(&coro, t, &var out)
+        }
+        return
+    }
+    if name.equals("copy") {
+        if c.arg_count > 0 {
+            let receiver = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[c.arg_first]].ty
+            let t = coro.mono.dp.bc.mir.tc.referent(receiver)
+            out.add(coro.mono.glue_item(t, MONO_KEY_COPY), CoroReachWhy.Runs, -1)
+        }
+        return
+    }
+    if name.equals("Thread.spawn") {
+        // The body and the thread's exit run on the new thread.
+        let at = coro.mono.thread_spawn_at(call)
+        if at < 0 {
+            out.add(sweep, CoroReachWhy.Unresolved, -1)
+            return
+        }
+        let site = coro.mono.thread_spawns[at]
+        out.add(site.block, CoroReachWhy.Runs, -1)
+        out.add(site.started, CoroReachWhy.Runs, -1)
+        let body = coro.mono.items[site.body].body
+        if body >= 0 {
+            let env = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[body].local_first + 1].ty
+            out.add(coro.mono.glue_item(env, MONO_KEY_DROP), CoroReachWhy.Runs, -1)
+        }
+        return
+    }
+    if name.equals("__saw_suspend") || name.equals("__saw_test_suspend") {
+        out.add(sweep, CoroReachWhy.Suspension, -1)
+        return
+    }
+    if coro_builtin_runs_nothing(name) {
+        return
+    }
+    out.add(sweep, CoroReachWhy.Unresolved, -1)
+}
+
+// Whether builtin `name` is one the backend lowers inline, calling no item:
+// a memberwise `init`, a length, a swap of two places, a layout query, an
+// atomic, a view's accessor, a code address.
+func coro_builtin_runs_nothing(name: String) -> Bool {
+    if name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("sizeof") {
+        return true
+    }
+    if name.equals("alignof") || name.equals("func_pointer_address") {
+        return true
+    }
+    name.starts_with("__saw_atomic_") || name.starts_with("memory_")
+}
+
+// Each node's distance to the sweep and the edge its shortest path leaves
+// by: a breadth-first walk backward from the sweep node and the items of
+// `std.taskgroup.sweep` (`drive`), so a path the printer follows always ends
+// at one of them.
+func coro_measure_graph(coro: &CoroProgram, graph: &var CoroWindowGraph, drive: Int) {
+    let nodes = graph.sweep + 1
+    // The edges into each node, a run of `into` from `first[node]`.
+    var first = Vector<Int>()
+    var k = 0
+    while k <= nodes {
+        try! first.push(0)
+        k = k + 1
+    }
+    var e = 0
+    while e < graph.to.len() {
+        let t = graph.to[e]
+        first[t + 1] = first[t + 1] + 1
+        e = e + 1
+    }
+    var fill = Vector<Int>()
+    k = 0
+    while k < nodes {
+        first[k + 1] = first[k + 1] + first[k]
+        try! fill.push(first[k])
+        try! graph.dist.push(-1)
+        try! graph.step.push(-1)
+        k = k + 1
+    }
+    var into = Vector<Int>()
+    e = 0
+    while e < graph.to.len() {
+        try! into.push(0)
+        e = e + 1
+    }
+    e = 0
+    while e < graph.to.len() {
+        let t = graph.to[e]
+        into[fill[t]] = e
+        fill[t] = fill[t] + 1
+        e = e + 1
+    }
+    var queue = Vector<Int>()
+    graph.dist[graph.sweep] = 0
+    try! queue.push(graph.sweep)
+    k = 0
+    while k < graph.sweep {
+        if coro.item_decl(k) == drive {
+            graph.dist[k] = 0
+            try! queue.push(k)
+        }
+        k = k + 1
+    }
+    var head = 0
+    while head < queue.len() {
+        let x = queue[head]
+        head = head + 1
+        var i = first[x]
+        while i < first[x + 1] {
+            let edge = into[i]
+            i = i + 1
+            let p = graph.from[edge]
+            if graph.dist[p] < 0 {
+                graph.dist[p] = graph.dist[x] + 1
+                graph.step[p] = edge
+                try! queue.push(p)
+            }
+        }
+    }
+}
+
+// The index in `set` of the target nearest the sweep, or -1 when none
+// reaches it.
+func coro_nearest_target(graph: &CoroWindowGraph, set: &CoroReachSet) -> Int {
+    var best = -1
+    var j = 0
+    while j < set.to.len() {
+        let d = graph.dist[set.to[j]]
+        if d >= 0 && (best < 0 || d < graph.dist[set.to[best]]) {
+            best = j
+        }
+        j = j + 1
+    }
+    best
+}
+
+// An instruction inside a fenced window: the node it is reported at, the
+// place a drop names (-1 otherwise) and whether the drop ends that local's
+// scope, and what to call any other instruction.
+struct CoroWindowSite {
+    node: Int
+    place: Int
+    scope_end: Bool
+    what: String
+}
+
+// Judges each instruction of item `item`'s body `f` that runs inside a
+// fenced window.
+func coro_check_window_item(coro: &var CoroProgram, facts: &CoroDropFacts, values: &CoroWindowValues,
+                            graph: &CoroWindowGraph, carries: &Vector<Bool>, item: Int, f: Int,
+                            reported: &var Vector<Int>) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let width = info.window_count
+    let open = coro_windows_open(&coro, f)
+    var b = 0
+    while b < info.block_count {
+        let here = b
+        b = b + 1
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
+        // The first fenced window open at the block's entry, and how many are.
+        var fenced = -1
+        var fenced_count = 0
+        var w = 0
+        while w < width {
+            if open[here * width + w] && coro_fenced_window(&coro, &carries, info.window_first + w) {
+                if fenced < 0 {
+                    fenced = w
+                }
+                fenced_count = fenced_count + 1
+            }
+            w = w + 1
+        }
+        if fenced < 0 {
+            continue
+        }
+        let window = info.window_first + fenced
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            var set = CoroReachSet()
+            coro_window_targets(&coro, &facts, &values, f, s, -1, &var set)
+            let pick = coro_nearest_target(&graph, &set)
+            if pick >= 0 {
+                let drop = stmt.kind == MirStmtKind.Drop
+                var node = stmt.node
+                if node < 0 {
+                    node = coro_block_node(&coro, info.block_first + here, coro.mono.dp.bc.mir.windows[window].node)
+                }
+                let site = CoroWindowSite(node: node, place: if drop { stmt.place } else { -1 },
+                                          scope_end: drop && stmt.closing, what: coro_statement_what(&coro, s))
+                coro_refuse_window_drive(&var coro, &facts, &graph, item, f, window, &site, &set, pick, &var reported)
+            }
+            s = stmt.next
+        }
+        var node = block.term_node
+        var what = "condition"
+        if block.term == MirTermKind.Call {
+            let call = coro.mono.dp.bc.mir.calls[block.call]
+            // The close of the only fenced window open here ends it, and its
+            // epilogue is the accessor's own body, outside the window; a
+            // nested window's close runs inside.
+            if call.kind == MirCallKind.WindowClose && fenced_count == 1 && call.window == fenced {
+                continue
+            }
+            node = call.node
+            what = if call.kind == MirCallKind.Drive { "drive site" } else { "call" }
+            if node < 0 && call.dest >= 0 {
+                node = coro_place_node(&coro, f, call.dest)
+            }
+        }
+        var set = CoroReachSet()
+        coro_window_targets(&coro, &facts, &values, f, -1, info.block_first + here, &var set)
+        let pick = coro_nearest_target(&graph, &set)
+        if pick < 0 {
+            continue
+        }
+        if node < 0 {
+            node = coro_block_node(&coro, info.block_first + here, coro.mono.dp.bc.mir.windows[window].node)
+        }
+        let site = CoroWindowSite(node: node, place: -1, scope_end: false, what: what)
+        coro_refuse_window_drive(&var coro, &facts, &graph, item, f, window, &site, &set, pick, &var reported)
+    }
+}
+
+// The declaration node of the local place `p` of body `f` names, or -1.
+func coro_place_node(coro: &CoroProgram, f: Int, p: Int) -> Int {
+    let pl = coro.mono.dp.bc.mir.places[p]
+    if pl.local < 0 {
+        return -1
+    }
+    coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + pl.local].node
+}
+
+// Where a refusal of an instruction the compiler synthesized, which names no
+// source node, is reported: the last statement of block `b` that names one,
+// else `fallback`, the window's own node. A refusal always has a position.
+func coro_block_node(coro: &CoroProgram, b: Int, fallback: Int) -> Int {
+    var node = fallback
+    var s = coro.mono.dp.bc.mir.blocks[b].first
+    while s >= 0 {
+        let stmt = coro.mono.dp.bc.mir.stmts[s]
+        if stmt.node >= 0 {
+            node = stmt.node
+        }
+        s = stmt.next
+    }
+    node
+}
+
+// What a refusal calls statement `s` when it is no drop.
+func coro_statement_what(coro: &CoroProgram, s: Int) -> String {
+    let stmt = coro.mono.dp.bc.mir.stmts[s]
+    if stmt.kind != MirStmtKind.Assign {
+        return "statement"
+    }
+    let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+    if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
+        return "closure"
+    }
+    if rv.kind == MirRvalueKind.Interpolate {
+        return "interpolation"
+    }
+    if rv.kind == MirRvalueKind.Aggregate && rv.aggregate != MirAggregate.Struct && rv.aggregate != MirAggregate.Case &&
+       rv.aggregate != MirAggregate.Tuple && rv.aggregate != MirAggregate.Plain {
+        return "collection literal"
+    }
+    if rv.kind == MirRvalueKind.Erase {
+        return "erasure"
+    }
+    "statement"
+}
+
+// Refuses the instruction at `site` of item `item`, body `f`, which reaches
+// the sweep through `set`'s target `pick`, inside fenced window `w` of the
+// program's windows.
+func coro_refuse_window_drive(coro: &var CoroProgram, facts: &CoroDropFacts, graph: &CoroWindowGraph, item: Int,
+                              f: Int, w: Int, site: &CoroWindowSite, set: &CoroReachSet, pick: Int,
+                              reported: &var Vector<Int>) {
+    // A whole local dropped where its scope ends is reported at its
+    // declaration, which the drop's own node, the scope, is not.
+    var at = site.node
+    if site.place >= 0 && site.scope_end {
+        let pl = coro.mono.dp.bc.mir.places[site.place]
+        if pl.local >= 0 && pl.count == 0 {
+            let declared = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + pl.local].node
+            if declared >= 0 {
+                at = declared
+            }
+        }
+    }
+    var j = 0
+    while j < reported.len() {
+        if reported[j] == at {
+            return
+        }
+        j = j + 1
+    }
+    try! reported.push(at)
+    var msg = StringBuilder()
+    try! msg.append("this ")
+    let why = set.why[pick]
+    if site.place >= 0 {
+        try! msg.append("drop of ")
+        coro_append_place(&coro, item, site.place, &var msg)
+        try! msg.append(" reaches the executor's sweep")
+    } else if why == CoroReachWhy.Value || why == CoroReachWhy.FromRaw || why == CoroReachWhy.Unseen ||
+              why == CoroReachWhy.Resume {
+        try! msg.append("call through a function value of type `")
+        try! msg.append(coro.mono.dp.bc.mir.tc.type_text(set.ty[pick]))
+        try! msg.append("` may run any function value of that type in the program, and one of them reaches the executor's sweep")
+    } else {
+        try! msg.append(site.what)
+        try! msg.append(" reaches the executor's sweep")
+    }
+    try! msg.append(", which runs this thread's other tasks: ")
+    coro_append_window_path(&coro, &facts, &graph, set.to[pick], why, set.ty[pick], &var msg)
+    try! msg.append(", inside the `borrows(sync)` window of `")
+    let win = coro.mono.dp.bc.mir.windows[w]
+    if win.accessor >= 0 {
+        try! msg.append(coro.mono.dp.bc.mir.decl_name(win.accessor))
+    }
+    try! msg.append("` opened at ")
+    try! msg.append(coro.mono.dp.bc.mir.span_text(win.node, false))
+    if win.accessor >= 0 && coro.mono.dp.bc.mir.tc.sigs[win.accessor].root_decl >= 0 {
+        try! msg.append(", on a static root")
+    } else {
+        try! msg.append(", whose accessor holds a static root's exclusive window open across its `lend`")
+    }
+    try! msg.append(", where no other task may run until it closes. Drop the value or make the call after the window closes")
+    coro.refuse(item, at, "coro.window-drives", msg.build())
+}
+
+// `` `f` → the closure in `g` (…) → `sweep` ``: the shortest path from node
+// `at`, reached by an edge of reason `why` and value type `ty`, to the sweep.
+// Each step lowers the node's distance by one, so the walk ends at a sweep
+// node.
+func coro_append_window_path(coro: &CoroProgram, facts: &CoroDropFacts, graph: &CoroWindowGraph, at: Int,
+                             why: CoroReachWhy, ty: Int, msg: &var StringBuilder) {
+    var node = at
+    var reason = why
+    var value_ty = ty
+    var steps = 0
+    while true {
+        if node == graph.sweep {
+            if steps == 0 {
+                try! msg.append(coro_sweep_reason(&coro, reason, value_ty))
+            } else {
+                try! msg.append(" (")
+                try! msg.append(coro_sweep_reason(&coro, reason, value_ty))
+                try! msg.append(")")
+            }
+            try! msg.append(" → `sweep`")
+            return
+        }
+        if steps > 0 {
+            try! msg.append(" → ")
+        }
+        coro_append_node(&coro, &facts, node, &var msg)
+        if steps > 0 && reason == CoroReachWhy.Value {
+            try! msg.append(" (a call through a function value of type `")
+            try! msg.append(coro.mono.dp.bc.mir.tc.type_text(value_ty))
+            try! msg.append("` may run it)")
+        }
+        steps = steps + 1
+        if graph.dist[node] <= 0 {
+            return
+        }
+        let e = graph.step[node]
+        node = graph.to[e]
+        reason = graph.why[e]
+        value_ty = graph.ty[e]
+    }
+}
+
+// How a path names item `k`: `` `f` ``, or `` the closure in `f` `` for a
+// closure's body.
+func coro_append_node(coro: &CoroProgram, facts: &CoroDropFacts, k: Int, msg: &var StringBuilder) {
+    if facts.closure_body[k] {
+        try! msg.append("the closure in ")
+    }
+    try! msg.append("`")
+    try! msg.append(coro.item_label(k))
+    try! msg.append("`")
+}
+
+// Why a step reaches the sweep where the check cannot follow it.
+func coro_sweep_reason(coro: &CoroProgram, why: CoroReachWhy, ty: Int) -> String {
+    match why {
+        case Extern -> "an `extern` with no body in the program, which may run anything",
+        case FromRaw -> {
+            let shown: String = coro.mono.dp.bc.mir.tc.type_text(ty)
+            var text = StringBuilder()
+            try! text.append("a call through a function value of type `")
+            try! text.append(shown)
+            try! text.append("` that `FuncPointer.from_raw` made, which may run anything")
+            text.build()
+        },
+        case Unseen -> {
+            let shown: String = coro.mono.dp.bc.mir.tc.type_text(ty)
+            var text = StringBuilder()
+            try! text.append("a call through a function value of type `")
+            try! text.append(shown)
+            try! text.append("` whose code the program cannot see (one foreign code hands it, one in a place whose address the program gave away, or one loaded through a raw pointer or a view), which may run anything")
+            text.build()
+        },
+        case Resume -> "a frame's `resume`, which runs a task",
+        case Drive -> "a drive site, which runs the sweep when its root parks",
+        case Suspension -> "a suspension, which runs the thread's other tasks",
+        case _ -> "a call this check cannot follow"
+    }
+}

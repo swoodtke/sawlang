@@ -1,0 +1,41 @@
+// accepts: coro.window-drives
+// a harmless closure whose only same-typed teardown body is a `Thread.spawn` body, which runs on its own
+// thread (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func work() -> Int {
+    2
+}
+
+func on_thread() -> Int {
+    var t = try! Thread.spawn { var g = TaskGroup(); let _ = g.spawn(work()); 1 }
+    t.join()
+}
+
+func bump() -> Int {
+    yield_now()
+    let quiet: () sync -> Int = { 1 }
+    borrow var b = boot_slot() {
+        b = 1
+        let n = quiet()
+        print("inside the window: {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("thread {}", on_thread())
+    print("bump returns {}", outer.spawn(bump()).join())
+}

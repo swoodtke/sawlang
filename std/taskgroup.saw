@@ -648,6 +648,15 @@ public struct TaskGroup {
     // The cell of the pool task that made the group, whose `holds` it counts
     // in, or 0 (`charge_thread_bound`).
     private maker: Int
+    // How many tasks are live, less one: -1 exactly when none is, the word a
+    // teardown park waits on with the join tag (`__saw_exec_teardown_park`).
+    // Written with the run-queue lock held, beside `LiveSlots`, and read
+    // atomically, since a pool's worker writes it.
+    private quiet: Int
+    // Whether the owner's teardown park holds a count in `POOL_DRIVES`, so a
+    // pool's worker pokes the reactor at a completion. Only the owning thread
+    // touches it.
+    private poking: Bool
 }
 
 extension TaskGroup {
@@ -663,7 +672,8 @@ extension TaskGroup {
     static func unmade(maker: Int) -> TaskGroup {
         TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false, owner: 0,
                   outstanding: 0, threads: 1, lock: 0, holder: 0, started: false, stopping: false,
-                  pollers: 0, drained: 0, live: 0, crew: Vector<PoolThread>(), maker: maker)
+                  pollers: 0, drained: 0, live: 0, crew: Vector<PoolThread>(), maker: maker, quiet: -1,
+                  poking: false)
     }
 
     /// Creates an empty group whose tasks run on a pool of `threads` worker
@@ -701,7 +711,8 @@ extension TaskGroup {
         return TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
                          owner: 0, outstanding: 0, threads: threads, lock: raw as Int, holder: 0,
                          started: false, stopping: false, pollers: 0, drained: 0, live: 0,
-                         crew: Vector<PoolThread>(), maker: charge_thread_bound())
+                         crew: Vector<PoolThread>(), maker: charge_thread_bound(), quiet: -1,
+                         poking: false)
     }
 
     /// Returns the number of task slots the group holds: its live tasks, plus
@@ -1680,6 +1691,7 @@ extension TaskGroup {
         }
         var live = self.live_slots()
         live[0].insert(slot)
+        store_word((&self.quiet) as UnsafePointer<Int>, live[0].count - 1)
         self.slots[slot] = entry
         TaskTicket(slot: slot, generation: generation)
     }
@@ -1735,6 +1747,7 @@ extension TaskGroup {
         borrow var self.slots[slot].done = true
         var live = self.live_slots()
         live[0].remove(slot)
+        store_word((&self.quiet) as UnsafePointer<Int>, live[0].count - 1)
         if cell[0].unclaimed || not cell[0].holding {
             return self.recycle(slot)
         }
@@ -3474,6 +3487,42 @@ func __saw_exec_await_word(word: UnsafePointer<Int>) unsafe -> Bool {
 // `Send`.
 func on_pool_worker() unsafe -> Bool {
     this_executor()[0].worker != 0
+}
+
+/// The park word a task's teardown of `group` waits on before the group's
+/// `deinit`, or 0 when it waits for nothing.
+///
+/// The coroutine lowering calls it where a suspending body drops a group
+/// local, and parks on the answer with the join tag until no task of the
+/// group is live, calling it again after each wake; the `deinit` that follows
+/// then has nothing left to run. A pool's worker answers 0, since it runs no
+/// group of its own between resumes, so its `deinit` runs the tasks in place.
+/// A pool's group keeps a count in `POOL_DRIVES` while its owner is parked, so
+/// the worker that finishes its last task pokes the reactor.
+public(package) func __saw_exec_teardown_park(group: &TaskGroup) unsafe -> Int {
+    let at = (&group) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
+    if at[0].poking {
+        let _ = POOL_DRIVES.fetch_add(-1)
+        at[0].poking = false
+    }
+    if on_pool_worker() {
+        return 0
+    }
+    // The count is raised before the word is read, and a worker reads the count
+    // after it writes the word, so one of the two sees the other.
+    let pooled = at[0].engine() != 0
+    if pooled {
+        let _ = POOL_DRIVES.fetch_add(1)
+    }
+    let word = (&at[0].quiet) as UnsafePointer<Int>
+    if load_word(word) < 0 {
+        if pooled {
+            let _ = POOL_DRIVES.fetch_add(-1)
+        }
+        return 0
+    }
+    at[0].poking = pooled
+    thread_join_park(word)
 }
 
 // The address of the word a join of task (`slot`, `generation`) of the group

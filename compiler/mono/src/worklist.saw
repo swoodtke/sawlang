@@ -1652,6 +1652,7 @@ extension MonoProgram {
         if stmt.kind == MirStmtKind.Drop {
             let t = self.dp.bc.mir.places[stmt.place].ty
             self.need_drop(k, t, stmt.node)
+            self.resolve_teardown(k, t, stmt.node)
             return
         }
         if stmt.kind != MirStmtKind.Assign {
@@ -2121,6 +2122,21 @@ extension MonoProgram {
         if offload {
             self.exec_entry(k, m, "__saw_exec_offload_park", node, "an offload park")
         }
+    }
+
+    // A drop of a `TaskGroup`, of type `t`, reaches the park word its
+    // teardown park waits on, since coroutine lowering parks there before the
+    // drop wherever the dropping body is a frame (SL-1161).
+    func resolve_teardown(&var self, k: Int, t: Int, node: Int) {
+        if self.teardown_park_item >= 0 || t < 0 {
+            return
+        }
+        let group = self.dp.bc.mir.tc.known.task_group
+        if group < 0 || self.dp.bc.mir.tc.nominal_decl(t) != group {
+            return
+        }
+        let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
+        self.teardown_park_item = self.exec_entry(k, m, "__saw_exec_teardown_park", node, "a group's teardown")
     }
 
     // A call of a `blocking` extern, declaration `d`, reaches what its

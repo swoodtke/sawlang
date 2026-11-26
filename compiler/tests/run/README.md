@@ -936,7 +936,7 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are twenty-two.
+says why the check cannot be header lines. There are twenty-four.
 `main_error_bounded_no_hidden_alloc.saw` returns a 5,000-byte `Err` from
 `main`: built without a flag its standard error is `error: ` and the whole
 error, and built with `--no-hidden-alloc` it is `error: ` and the error cut
@@ -1041,7 +1041,12 @@ atomic write, must all come back whole and in each thread's order, an
 interleaving no header can state. `print_beside_a_panic.saw` must end by
 SIGABRT with its panic beside a thread printing in a loop, once with both
 streams merged and drained (every line whole, the panic between lines) and
-once with standard output a pipe nobody reads. The three `dump_tasks_beside_*`
+once with standard output a pipe nobody reads.
+`teardown_park_is_reported_when_nothing_can_run.saw` must end by SIGABRT with
+the deadlock report, its dump marking the task parked at its group's teardown
+`joining` at the group's line beside the member parked on its channel: the
+report alone would come from a nested sweep too, whose dump says `running`, and
+no header can state a panic's dump. The three `dump_tasks_beside_*`
 probes call `dump_tasks()` while another thread recycles a pool's cells, grows
 a group past its capacity or tears pools down, and are run 10 times at -O0 and
 at -O2: each run must exit 0, each dump's header must count the task lines

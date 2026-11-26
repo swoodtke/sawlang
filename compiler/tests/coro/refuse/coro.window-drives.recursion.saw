@@ -1,0 +1,61 @@
+// refuses: coro.window-drives at 51:17
+// message: this call reaches the executor's sweep
+// message: `down` → `up` → `drop glue std.taskgroup.TaskGroup` → `TaskGroup.deinit` → `exec_run` → `sweep`
+// mutual recursion whose far end tears a group down: the path is the shortest and ends at the sweep (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func down(n: Int) sync -> Int {
+    if n <= 0 {
+        return 0
+    }
+    up(n - 1)
+}
+
+func up(n: Int) sync -> Int {
+    if n == 1 {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+    down(n)
+}
+
+func bump_a() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        let r = down(3)
+        print("inside the window (a): {} {}", b, r)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("a {}", outer.spawn(bump_a()).join())
+    print("after: {}", after())
+}

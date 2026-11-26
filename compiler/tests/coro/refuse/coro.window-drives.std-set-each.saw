@@ -1,0 +1,50 @@
+// refuses: coro.window-drives at 39:9
+// message: this call reaches the executor's sweep
+// message: `Set.each` → `Map.each_key` → the closure in `bump`
+// std's `Set.each` handed a closure that tears a group down (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func bump() -> Int {
+    yield_now()
+    var s = Set<Int>()
+    let _ = s.insert(7)
+    let f: (&Int) -> Void = { x in var g = TaskGroup(); let _ = g.spawn(member()) }
+    borrow var b = boot_slot() {
+        b = 1
+        s.each(f)
+        print("inside the window: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+    print("after bump: {}", after())
+}

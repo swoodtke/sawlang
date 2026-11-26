@@ -1,0 +1,66 @@
+// accepts: coro.window-drives
+// the teardown after the carried window closes (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+        print("member saw {}", c)
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Door {
+    n: Int
+}
+
+extension Door {
+    func held(&var self) unsafe sync borrows(sync) -> &var Int {
+        borrow var c = boot_slot() {
+            c = 1
+            lend self.n
+            c = 2
+            print("accessor epilogue, root window still open: {}", c)
+        }
+    }
+}
+
+func bump() -> Int {
+    yield_now()
+    var d = Door(n: 0)
+    borrow var n = d.held() {
+        n = 5
+        print("caller's window body done")
+    }
+    tear_down()
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+    print("after: {}", after())
+}

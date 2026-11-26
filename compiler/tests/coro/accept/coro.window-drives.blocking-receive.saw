@@ -1,0 +1,45 @@
+// accepts: coro.window-drives
+// the `blocking` receive after the window (K228)
+
+import std.channel.{Channel}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member(ch: Channel<Int>) -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    let _ = ch.send(1)
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func recv(ch: &Channel<Int>) blocking -> Int {
+    try! ch.receive()
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    var g = TaskGroup()
+    let _ = g.spawn(member(ch.copy()))
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let r = recv(&ch)
+    print("right after the action: {} {}", after(), r)
+}

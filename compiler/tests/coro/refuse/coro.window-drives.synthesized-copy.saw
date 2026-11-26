@@ -1,0 +1,64 @@
+// refuses: coro.window-drives at 54:17
+// message: this call reaches the executor's sweep
+// message: `Cheap.copy` → `tear_down`
+// a copy of a `Copy` type whose hand-written `copy` tears a group down: the synthesized call has no node of
+// its own, and the refusal stands at the read (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Cheap {
+    n: Int
+}
+
+extension Cheap: Copy {
+    func copy(&self) -> Cheap {
+        tear_down()
+        Cheap(n: self.n)
+    }
+}
+
+func form_plain() -> Int {
+    yield_now()
+    let c = Cheap(n: 1)
+    borrow var b = boot_slot() {
+        b = 1
+        let d = c
+        print("inside the window (plain copy): {} {}", b, d.n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("{}", outer.spawn(form_plain()).join())
+    print("after: {}", after())
+}

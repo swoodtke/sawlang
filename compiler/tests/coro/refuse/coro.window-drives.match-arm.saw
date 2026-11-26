@@ -1,0 +1,41 @@
+// refuses: coro.window-drives at 30:17
+// message: this drop of `g: std.taskgroup.TaskGroup` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a `TaskGroup` local whose scope ends inside a window on an exclusive static root that a `match` arm holds open
+// (conformance row K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot(ready: Bool) unsafe sync borrows(sync, BOOT.count) -> &var Int? {
+    if not ready {
+        return None
+    }
+    lend BOOT.count
+}
+
+func work() -> Int {
+    2
+}
+
+func bump() -> Int {
+    yield_now()
+    match boot_slot(true) {
+        case Some(var c) -> {
+            var g = TaskGroup()
+            let _ = g.spawn(work())
+            c += 1
+        },
+        case None -> {}
+    }
+    0
+}
+
+func main() {
+    print(bump())
+}

@@ -1,0 +1,42 @@
+// refuses: coro.window-drives at 31:17
+// message: this drop of `extra: std.arc.Arc<std.taskgroup.TaskGroup>` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// an `Arc<TaskGroup>` copy released inside the window: the handle's glue reaches the payload's drop (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func bump() -> Int {
+    yield_now()
+    let shared = try! Arc(value: TaskGroup())
+    borrow var b = boot_slot() {
+        b = 1
+        if true {
+            let extra = shared.copy()
+        }
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

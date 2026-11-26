@@ -1,0 +1,54 @@
+// refuses: coro.window-drives at 43:17
+// message: this call through a function value of type `(Int8) sync -> Int8` may run any function value of that type in the program, and one of them reaches the executor's sweep
+// message: other tasks: the closure in `unrelated` → `drop glue std.taskgroup.TaskGroup`
+// a harmless closure called inside the window shares its type with a closure elsewhere that tears a group
+// down: a call through a function value is judged against every value of its type (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func unrelated() -> Int8 {
+    let loud: (Int8) sync -> Int8 = { x in var g = TaskGroup(); let _ = g.spawn(member()); x }
+    loud(1)
+}
+
+func bump() -> Int {
+    yield_now()
+    let quiet: (Int8) sync -> Int8 = { x in x + 1 }
+    borrow var b = boot_slot() {
+        b = 1
+        let n = quiet(1)
+        print("inside the window: {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+    print("unrelated {}", unrelated())
+    print("after: {}", after())
+}

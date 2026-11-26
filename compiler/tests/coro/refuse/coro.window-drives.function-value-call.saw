@@ -1,0 +1,45 @@
+// refuses: coro.window-drives at 35:17
+// message: this call through a function value of type `() -> Int` may run any function value of that type
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a closure stored in a struct field before the window, whose body tears a group down, called inside it: a call
+// through a function value reaches every function value of its type (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+struct Job {
+    run: () -> Int
+}
+
+func bump() -> Int {
+    yield_now()
+    let job = Job(run: { var g = TaskGroup(); let _ = g.spawn(member()); 1 })
+    borrow var b = boot_slot() {
+        b = 1
+        let r = job.run()
+        print("inside the window: {} {}", b, r)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

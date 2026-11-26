@@ -1,0 +1,44 @@
+// refuses: coro.window-drives at 34:17
+// message: this call reaches the executor's sweep
+// message: `apply` → the closure in `bump` (a call through a function value of type `() -> Int` may run it)
+// a closure made inside the window whose body tears a group down, handed to a callee that calls it: the
+// callee's call through the function value reaches the closure's body (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func apply(body: () -> Int) -> Int {
+    body()
+}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        let n = apply({ var g = TaskGroup(); let _ = g.spawn(member()); 1 })
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

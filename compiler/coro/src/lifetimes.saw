@@ -786,7 +786,7 @@ func coro_mark_written(coro: &CoroProgram, dest: Int, spans: &var CoroSpans, p: 
 // The windows of function `f` that may be open on entry to each block:
 // `open[b * window_count + w]`, over the edges `window_open_after` describes;
 // an accessor's epilogue starts with the windows its prologue carries open.
-func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
+public func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
     let info = coro.mono.dp.bc.mir.funcs[f]
     let width = info.window_count
     var open = Vector<Bool>()

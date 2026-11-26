@@ -1,0 +1,61 @@
+// refuses: coro.window-drives at 50:17
+// message: this call through a function value of type `(Int, Int, Int) sync -> Int` may run any function value of that type in the program, and one of them reaches the executor's sweep
+// the static-table idiom: a closure literal in a `FuncPointer` field of a static, called inside the window
+// (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down(x: Int, y: Int) sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    x + y
+}
+
+struct Table {
+    named: FuncPointer<(Int, Int) sync -> Int>
+    literal: FuncPointer<(Int, Int, Int) sync -> Int>
+}
+
+static TABLE: Table = Table(named: tear_down, literal: { x, y, z in var g = TaskGroup(); let _ = g.spawn(member()); x })
+
+
+func bump2() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        let n = TABLE.literal(1, 2, 3)
+        print("inside the window (literal): {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t2 = outer.spawn(bump2())
+    print("bump2 returns {}", t2.join())
+    print("after bump: {}", after())
+}

@@ -4222,6 +4222,43 @@ def check_print_lines(failures, counts):
             counts["run print stress runs whole"] = counts.get("run print stress runs whole", 0) + 1
 
 
+def check_teardown_park_reported(failures, counts):
+    """A task parked at a group's teardown counts as waiting in the deadlock
+    walk: `probes/teardown_park_is_reported_when_nothing_can_run.saw` prints
+    its line, then ends by SIGABRT with the deadlock report, whose task dump
+    marks the tearing-down task `joining` at its group's line beside the member
+    parked on its channel. The report alone would also come from a nested
+    sweep, whose dump reads the task `running`, so the dump is what the check
+    reads, and a header line cannot state the panic path's dump."""
+    probe = os.path.join(PROBES, "teardown_park_is_reported_when_nothing_can_run.saw")
+    report = "deadlock: every task is waiting to receive from a channel"
+    parked = ["  task group 1 slot 0 gen 1 channel-parked",
+              "    at teardown_park_is_reported_when_nothing_can_run.saw:8 in stuck",
+              "  task group 2 slot 0 gen 1 joining",
+              "    at teardown_park_is_reported_when_nothing_can_run.saw:15 in scope"]
+    for speed in ("-O0", "-O2"):
+        where = "run %s %s" % (rel(probe), speed)
+        ok, binary, log = build_new(probe, speed)
+        if not ok or log:
+            failures.append("%s: sawc %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+                                                  log[:300]))
+            continue
+        try:
+            r = subprocess.run([binary], cwd=OUT, capture_output=True, text=True, errors="replace",
+                               timeout=RUN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            failures.append("%s: it did not end in %ds" % (where, RUN_TIMEOUT))
+            continue
+        lines = r.stderr.splitlines()
+        said = [line for line in lines if line.startswith("panic at ")]
+        if (r.returncode != -signal.SIGABRT or r.stdout != "scope ends\n" or len(said) != 1
+                or report not in said[0] or lines[-len(parked):] != parked):
+            failures.append("%s: exit %s, standard output %r, standard error ends %r"
+                            % (where, r.returncode, r.stdout[:80], lines[-len(parked):]))
+            continue
+        counts["run teardown parks reported"] = counts.get("run teardown parks reported", 0) + 1
+
+
 def check_print_beside_a_panic(failures, counts):
     """A thread printing in a loop never holds back another thread's panic:
     `probes/print_beside_a_panic.saw` ends by SIGABRT with its panic, first
@@ -5596,6 +5633,7 @@ CUSTOM_PROBES = {
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,
     "print_beside_a_panic.saw": check_print_beside_a_panic,
+    "teardown_park_is_reported_when_nothing_can_run.saw": check_teardown_park_reported,
     "dump_tasks_beside_recycling_pool_workers.saw": check_dump_beside_churn(
         "dump_tasks_beside_recycling_pool_workers.saw"),
     "dump_tasks_beside_growing_groups.saw": check_dump_beside_churn("dump_tasks_beside_growing_groups.saw"),

@@ -1,0 +1,122 @@
+// probe: stated
+// about: a `TaskGroup(threads: 2)` local whose scope ends in a cooperative task with a pool task still live parks the owning task there, read in a dump as `joining` where a sweep reads `running`, and the worker that finishes the last pool task wakes it with no other wake source, promptly, conformance row K228 (SL-1161)
+// stage 0: sweeps the thread's tasks inside the teardown, so its dump reads the owner `running`, which is no oracle for the park; the timed wake passes there too, since its drain pokes through `drive_on_word`
+// speeds: -O0 -O2
+// prints: watcher dumps
+// prints: saw tasks: 3 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at teardown_parks_on_a_pool.saw:68 in watcher
+// prints:   task group 2 slot 1 gen 1 joining
+// prints:     at teardown_parks_on_a_pool.saw:82 in owner
+// prints: most wakes were prompt
+// prints: owner returns 7
+// prints: watcher returns 0
+// The watcher dumps while the owner waits on a pool held by a raw sleep
+// (phase A), then ends with no timer of its own, and forty pool teardowns
+// follow whose tasks end after 0 to 20 ms, so only the worker's poke wakes the
+// owner inside 5 ms (phase B): a live pool caps the owner's poll at 50 ms.
+import std.task.{dump_tasks}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+static ENDING: Atomic<Int> = Atomic(0)
+static DUMPED: Atomic<Int> = Atomic(0)
+static WATCHED: Atomic<Int> = Atomic(0)
+static DONE_AT: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+static ROUNDS: Int = 40
+static PROMPT_NS: Int = 5_000_000
+
+func now_ns() -> Int {
+    __saw_rt_clock_monotonic_nanos() as Int
+}
+
+// Phase A's pool task: holds its worker on a raw sleep until the watcher has
+// dumped, so nothing but the worker's completion can end the owner's wait.
+func held_on_pool() -> Int {
+    var ticks = 0
+    while DUMPED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("held_on_pool: the watcher never dumped")
+        }
+        __saw_rt_sleep_ns(1_000_000)
+        ticks = ticks + 1
+    }
+    1
+}
+
+// Phase B's pool task: finishes after `delay_us`, stamping when.
+func timed_on_pool(delay_us: Int) -> Int {
+    if delay_us > 0 {
+        __saw_rt_sleep_ns((delay_us * 1000) as UInt64)
+    }
+    DONE_AT.store(now_ns())
+    1
+}
+
+func watcher() -> Int {
+    var ticks = 0
+    while ENDING.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("watcher: the owner never reached its group's end")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
+    print("watcher dumps")
+    dump_tasks()
+    DUMPED.store(1)
+    // The last thing the watcher does, in the turn that ends it, so no timer
+    // of its is left once the owner reads it.
+    WATCHED.store(1)
+    0
+}
+
+func owner() -> Int {
+    if true {
+        var pool = try! TaskGroup(threads: 2)
+        let _ = pool.spawn(held_on_pool())
+        ENDING.store(1)
+    }
+    var ticks = 0
+    while WATCHED.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("owner: the watcher never finished")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
+    var prompt = 0
+    var k = 0
+    while k < ROUNDS {
+        let delay = ((k + 3) * 7919) % 20001
+        DONE_AT.store(0)
+        if true {
+            var pool = try! TaskGroup(threads: 2)
+            let _ = pool.spawn(timed_on_pool(delay))
+        }
+        if now_ns() - DONE_AT.load() <= PROMPT_NS {
+            prompt = prompt + 1
+        }
+        k = k + 1
+    }
+    if prompt * 2 >= ROUNDS {
+        print("most wakes were prompt")
+    } else {
+        print("prompt wakes: {} of {}", prompt, ROUNDS)
+    }
+    7
+}
+
+func main() {
+    var outer = TaskGroup()
+    let w = outer.spawn(watcher())
+    let o = outer.spawn(owner())
+    print("owner returns {}", o.join())
+    print("watcher returns {}", w.join())
+}

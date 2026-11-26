@@ -1,0 +1,49 @@
+// accepts: coro.window-drives
+// the `blocking` deinit's value dropped after the window (K228)
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+struct Blocker {
+    n: Int
+}
+
+extension Blocker: NoCopy {
+    func deinit(&var self) blocking {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+}
+
+func main() blocking {
+    var x = Blocker(n: 1)
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    if true {
+        let moved = move x
+    }
+    print("right after the action: {}", after())
+}

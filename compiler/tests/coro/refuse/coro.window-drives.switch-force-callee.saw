@@ -1,0 +1,71 @@
+// refuses: coro.window-drives at 61:17
+// message: this call reaches the executor's sweep
+// message: `check` → `Oops.format`
+// the same switch in a plain callee called inside the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+        print("member saw {}", c)
+    }
+    1
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Oops {
+    n: Int
+}
+
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) {
+        tear_down()
+        try! into.append("oops")
+    }
+}
+
+func flag(fail: Bool) -> Result<Bool, Oops> {
+    if fail {
+        return Result<Bool, Oops>.Err(Oops(n: 1))
+    }
+    Result<Bool, Oops>.Ok(true)
+}
+
+func check(r: &Result<Bool, Oops>) -> Int {
+    if try! r {
+        return 1
+    }
+    0
+}
+
+func bump_a() -> Int {
+    yield_now()
+    let r = flag(fail: true)
+    borrow var b = boot_slot() {
+        b = 1
+        let n = check(&r)
+        b = 2
+        print("inside the window (callee): {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("a {}", outer.spawn(bump_a()).join())
+}

@@ -1,0 +1,43 @@
+// refuses: coro.window-drives at 32:17
+// message: this drop of `held: () -> Int` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a closure holding a `Box<TaskGroup>` in its environment, dropped inside the window: the function value's glue
+// is the backend's, so the fence reads the captures any closure of the program holds (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func bump() -> Int {
+    yield_now()
+    var bx = try! Box<TaskGroup>.make(TaskGroup())
+    borrow var b = boot_slot() {
+        b = 1
+        if true {
+            let held = { [move bx] in 1 }
+        }
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

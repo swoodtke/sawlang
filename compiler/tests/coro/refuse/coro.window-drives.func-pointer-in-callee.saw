@@ -1,0 +1,58 @@
+// refuses: coro.window-drives at 47:17
+// message: this call reaches the executor's sweep
+// message: `call_ptr` → `tear_down` (a call through a function value of type
+// a `FuncPointer` made from a named function before the window, called by a callee inside it (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down() sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    1
+}
+
+func call_ptr(p: FuncPointer<() sync -> Int>, x: Int) -> Int {
+    p() + x
+}
+
+func bump() -> Int {
+    yield_now()
+    let p: FuncPointer<() sync -> Int> = tear_down
+    borrow var b = boot_slot() {
+        b = 1
+        let n = call_ptr(p, 1)
+        print("inside the window: {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+    print("after bump: {}", after())
+}

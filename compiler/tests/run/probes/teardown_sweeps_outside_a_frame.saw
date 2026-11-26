@@ -1,0 +1,110 @@
+// probe: stated
+// about: a `TaskGroup` torn down outside a frame keeps the teardown's nested sweep, its owner `running` in the dump its member makes from inside the sweep: a group in a `sync` helper a task calls, a group behind a `Box` a task drops, and a group in a `Thread.spawn` body; control: a group local of the task itself parks, `joining`, conformance row K228 (SL-1161)
+// stage 0: tears every group down with a nested sweep, the control's included
+// speeds: -O0 -O2
+// prints: a sync helper's group:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_sweeps_outside_a_frame.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at teardown_sweeps_outside_a_frame.saw:0 in calls_sync_helper
+// prints: 2
+// prints: a boxed group:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_sweeps_outside_a_frame.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at teardown_sweeps_outside_a_frame.saw:0 in drops_a_boxed_group
+// prints: 3
+// prints: a thread body's group:
+// prints: saw tasks: 1 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_sweeps_outside_a_frame.saw:0 in observer
+// prints: 5
+// prints: control, a task's own group:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_sweeps_outside_a_frame.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_sweeps_outside_a_frame.saw:76 in owns_a_local_group
+// prints: 4
+// Each member dumps once its owner has reached the group's end, so the dump
+// shows where the owner waits; each owner runs on its own, one after another.
+import std.task.{dump_tasks}
+
+// The gate the test owns. The 1ms tick paces each poll and decides nothing;
+// the 10s deadline bounds only genuine breakage (TESTING.md, "Waiting in a
+// multi-threaded test").
+static ENDING: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
+func observer() -> Int {
+    var ticks = 0
+    while ENDING.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("observer: the owner never reached its group's end")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
+    dump_tasks()
+    1
+}
+
+func sync_helper() sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(observer())
+    ENDING.store(1)
+    1
+}
+
+func calls_sync_helper() -> Int {
+    sync_helper() + 1
+}
+
+func drops_a_boxed_group() -> Int {
+    var b = try! Box<TaskGroup>.make(TaskGroup())
+    borrow var g = b.value() {
+        let _ = g.spawn(observer())
+    }
+    ENDING.store(1)
+    3
+}
+
+func owns_a_local_group() -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(observer())
+    ENDING.store(1)
+    4
+}
+
+func in_thread() -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(observer())
+    ENDING.store(1)
+    5
+}
+
+func run_task(which: Int) -> Int {
+    ENDING.store(0)
+    var outer = TaskGroup()
+    let h = match which {
+        case 0 -> outer.spawn(calls_sync_helper()),
+        case 1 -> outer.spawn(drops_a_boxed_group()),
+        case _ -> outer.spawn(owns_a_local_group())
+    }
+    h.join()
+}
+
+func main() {
+    print("a sync helper's group:")
+    print(run_task(0))
+    print("a boxed group:")
+    print(run_task(1))
+    print("a thread body's group:")
+    ENDING.store(0)
+    print((try! Thread.spawn { in_thread() }).join())
+    print("control, a task's own group:")
+    print(run_task(2))
+}

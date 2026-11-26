@@ -1,0 +1,169 @@
+// probe: stated
+// about: a `TaskGroup` local's teardown in a task parks, the task `joining` at the group's line while the group's member dumps, on every edge out of the group's scope: the fall-through, `break`, `continue`, `return`, a same-scope redefinition and a `try` block's error edge into its `catch`, conformance row K228 (SL-1161)
+// stage 0: tears each group down with a nested sweep inside the task's turn, so each dump reads the task `running`
+// speeds: -O0 -O2
+// prints: fall-through:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_parks_on_every_scope_edge.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_parks_on_every_scope_edge.saw:86 in fall_through
+// prints: 1
+// prints: break:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_parks_on_every_scope_edge.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_parks_on_every_scope_edge.saw:95 in through_break
+// prints: 2
+// prints: continue:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_parks_on_every_scope_edge.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_parks_on_every_scope_edge.saw:108 in through_continue
+// prints: 3
+// prints: return:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_parks_on_every_scope_edge.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_parks_on_every_scope_edge.saw:118 in through_return
+// prints: 4
+// prints: redefinition:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_parks_on_every_scope_edge.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_parks_on_every_scope_edge.saw:127 in through_redefinition
+// prints: 5
+// prints: try error:
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_parks_on_every_scope_edge.saw:0 in observer
+// prints:   task group 2 slot 0 gen 1 joining
+// prints:     at teardown_parks_on_every_scope_edge.saw:137 in through_try_error
+// prints: 6
+// The member dumps once the task has reached the edge, so the dump shows
+// where the task waits; each edge is its own task, run one after another.
+import std.task.{dump_tasks}
+
+// The gate the test owns. The 1ms tick paces each poll and decides nothing;
+// the 10s deadline bounds only genuine breakage (TESTING.md, "Waiting in a
+// multi-threaded test").
+static ENDING: Atomic<Int> = Atomic(0)
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
+enum Refused { case Always }
+
+extension Refused: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("refused")
+    }
+}
+
+extension Refused: Error {}
+
+func observer() -> Int {
+    var ticks = 0
+    while ENDING.load() == 0 {
+        if ticks >= POLL_DEADLINE_TICKS {
+            panic("observer: the edge was never reached")
+        }
+        sleep(Duration.ms(POLL_TICK_MS))
+        ticks = ticks + 1
+    }
+    dump_tasks()
+    1
+}
+
+func refuse() -> Result<Int, Refused> {
+    Refused.Always
+}
+
+func fall_through() -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(observer())
+    ENDING.store(1)
+    1
+}
+
+func through_break() -> Int {
+    var n = 0
+    while true {
+        var g = TaskGroup()
+        let _ = g.spawn(observer())
+        ENDING.store(1)
+        n = 2
+        break
+    }
+    n
+}
+
+func through_continue() -> Int {
+    var n = 0
+    while n < 3 {
+        n = n + 3
+        var g = TaskGroup()
+        let _ = g.spawn(observer())
+        ENDING.store(1)
+        continue
+    }
+    n
+}
+
+func through_return(early: Bool) -> Int {
+    if early {
+        var g = TaskGroup()
+        let _ = g.spawn(observer())
+        ENDING.store(1)
+        return 4
+    }
+    0
+}
+
+func through_redefinition() -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(observer())
+    ENDING.store(1)
+    let g = g.count()
+    g + 4
+}
+
+func through_try_error() -> Int {
+    var n = 0
+    try {
+        var g = TaskGroup()
+        let _ = g.spawn(observer())
+        ENDING.store(1)
+        n = try refuse()
+    } catch {
+        n = 6
+    }
+    n
+}
+
+func edge(name: String, which: Int) -> Int {
+    ENDING.store(0)
+    print("{}:", name)
+    var outer = TaskGroup()
+    let h = match which {
+        case 0 -> outer.spawn(fall_through()),
+        case 1 -> outer.spawn(through_break()),
+        case 2 -> outer.spawn(through_continue()),
+        case 3 -> outer.spawn(through_return(true)),
+        case 4 -> outer.spawn(through_redefinition()),
+        case _ -> outer.spawn(through_try_error())
+    }
+    h.join()
+}
+
+func main() {
+    print(edge("fall-through", 0))
+    print(edge("break", 1))
+    print(edge("continue", 2))
+    print(edge("return", 3))
+    print(edge("redefinition", 4))
+    print(edge("try error", 5))
+}

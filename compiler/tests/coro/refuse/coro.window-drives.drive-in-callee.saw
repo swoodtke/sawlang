@@ -1,0 +1,58 @@
+// refuses: coro.window-drives at 47:17
+// message: this call reaches the executor's sweep
+// message: `helper` (a drive site, which runs the sweep when its root parks) → `sweep`
+// a drive site in a callee (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func side() -> Int {
+    sleep(Duration.ms(5))
+    5
+}
+
+func helper() -> Int {
+    __saw_drive(side())
+}
+
+func bump() -> Int {
+    yield_now()
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    borrow var b = boot_slot() {
+        b = 1
+        let r = helper()
+        print("inside the window: {} {}", b, r)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+    print("after bump: {}", after())
+}

@@ -371,8 +371,10 @@ func main() {
 }
 ```
 
-`group.spawn` hands back a `Task<T>`, and `join()` takes the result once. A
-suspending call works in any expression position, with evaluation order and
+`group.spawn` hands back a `Task<T>`, and `join()` takes the result once. A task
+that joins parks until the joined task finishes while the executor runs the
+others, so a `main` that joins suspends; `func main() blocking` joins in thread
+context instead. A suspending call works in any expression position, with evaluation order and
 short-circuiting kept:
 
 ```saw-fragment

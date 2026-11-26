@@ -3,7 +3,7 @@
 // preserved what was decided before it. Every fact is recomputed from the
 // MIR, as it was and as lowering left it, and none is read from the
 // lowering's own records; it reads only which frames were lowered, their
-// layouts, and the target's size of each slot's type. Five rules, each broken
+// layouts, and the target's size of each slot's type. Six rules, each broken
 // one an `INVARIANT` line naming its rule (compiler/tests/coro/README.md, "The
 // verifier"):
 //   1, frame in place: a frame value is reached only in its slot through the
@@ -16,7 +16,10 @@
 //   4, record before arm: a park's record reaches its arm and its park;
 //   5, lifetimes disjoint: no two frame values that share a byte are live at
 //      one program point, each value's lifetime recomputed from the lowered
-//      body (`coro_verify_lifetimes`).
+//      body (`coro_verify_lifetimes`);
+//   6, teardown parks: in a framed body, a group local's drop outside every
+//      `borrows(sync)` window runs only past its teardown park's test, read
+//      from the body before lowering, which the park is already part of.
 //
 // ENTRY POINTS of the verifier:
 //   coro_verify_snapshot
@@ -24,7 +27,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
-import sawcoro.lifetimes.{CoroSpans}
+import sawcoro.lifetimes.{CoroSpans, coro_windows_open}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
                       coro_child_offset, coro_context_shape, coro_frame_lowered, coro_offload_done_item,
                       coro_offload_park_item, coro_past_target}
@@ -92,10 +95,260 @@ public func coro_verify_snapshot(coro: &var CoroProgram) {
             continue
         }
         let framed = coro_verify_framed(&coro, item)
+        if framed {
+            coro_verify_teardown_parks(&var coro, item, f)
+        }
         if framed || coro_verify_holds_site(&coro, f) {
             coro_snapshot_body(&var coro, item, f, framed)
         }
     }
+}
+
+// Rule 6, read before the lowering starts, since the teardown park is in the
+// body from the frame decisions on: in framed body `f` of item `item`, each
+// drop of a whole `TaskGroup` local outside every `borrows(sync)` window is
+// first in its block, and every edge into that block is the shape the park
+// draws (`coro_verify_teardown_shape`).
+func coro_verify_teardown_parks(coro: &var CoroProgram, item: Int, f: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let park_decl = coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkThreadFunction)
+    let check_item = coro.mono.teardown_park_item
+    let check_decl = if check_item >= 0 { coro.item_decl(check_item) } else { -1 }
+    let open = coro_windows_open(&coro, f)
+    let width = info.window_count
+    var b = 0
+    while b < info.block_count {
+        let here = b
+        b = b + 1
+        var sync = false
+        var w = 0
+        while w < width {
+            if open[here * width + w] && coro.mono.dp.bc.mir.windows[info.window_first + w].sync {
+                sync = true
+            }
+            w = w + 1
+        }
+        if sync {
+            continue
+        }
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            if stmt.kind == MirStmtKind.Drop && coro_verify_group_local(&coro, stmt.place) {
+                if s != block.first {
+                    coro_verify_problem(&var coro, 6, item, "a group's drop is not first in its block, so no teardown park guards it")
+                    return
+                }
+                if check_decl < 0 {
+                    coro_verify_problem(&var coro, 6, item, "a group's drop is in a framed body, and mono made no `__saw_exec_teardown_park`")
+                    return
+                }
+                let wrong = coro_verify_teardown_shape(&coro, f, here, stmt.place, park_decl, check_decl)
+                if wrong.len() > 0 {
+                    coro_verify_problem(&var coro, 6, item, wrong)
+                    return
+                }
+            }
+            s = stmt.next
+        }
+    }
+}
+
+func coro_verify_group_local(coro: &CoroProgram, p: Int) -> Bool {
+    let pl = coro.mono.dp.bc.mir.places[p]
+    pl.local >= 0 && pl.count == 0 && coro.mono.dp.bc.mir.tc.is_task_group(pl.ty)
+}
+
+// The whole local operand `o` copies or moves, or -1.
+func coro_verify_operand_local(coro: &CoroProgram, o: Int) -> Int {
+    if o < 0 {
+        return -1
+    }
+    let op = coro.mono.dp.bc.mir.operands[o]
+    if op.kind == MirOperandKind.Const || op.place < 0 {
+        return -1
+    }
+    let pl = coro.mono.dp.bc.mir.places[op.place]
+    if pl.local < 0 || pl.count != 0 {
+        return -1
+    }
+    pl.local
+}
+
+// The whole local place `p` names, or -1.
+func coro_verify_place_local(coro: &CoroProgram, p: Int) -> Int {
+    if p < 0 {
+        return -1
+    }
+    let pl = coro.mono.dp.bc.mir.places[p]
+    if pl.local < 0 || pl.count != 0 {
+        return -1
+    }
+    pl.local
+}
+
+// THE TEARDOWN-SHAPE CHECK: the problem, or "" when every edge into drop
+// block `d` of function `f`, which drops place `group`, is the shape
+// `coro_teardown_park` draws:
+//
+//   bbK    _r = &group; _w = check(move _r) -> bbP
+//   bbP    _z = Eq(copy _w, const 0); switch move _z -> [true: bbD, false: bbQ]
+//   bbQ    park(move _w) -> bbK
+//
+// where `check` is `__saw_exec_teardown_park` (`check_decl`) and `park` the
+// thread park (`park_decl`). Each part has its own text, so a broken shape
+// says which.
+// ENTRY POINTS:
+//   coro_verify_teardown_parks
+func coro_verify_teardown_shape(coro: &CoroProgram, f: Int, d: Int, group: Int, park_decl: Int,
+                                check_decl: Int) -> String {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var edges = 0
+    var p = 0
+    while p < info.block_count {
+        let succ = coro.mono.dp.bc.mir.init_successors(f, p)
+        var j = 0
+        var reaches = false
+        while j < succ.len() {
+            if succ[j] == d {
+                reaches = true
+            }
+            j = j + 1
+        }
+        if reaches {
+            edges = edges + 1
+            let test = coro.mono.dp.bc.mir.blocks[info.block_first + p]
+            if test.term != MirTermKind.Switch || test.switch_kind != MirSwitchKind.Bool || test.arm_count != 2 {
+                return "a group's drop is reached by an edge other than its teardown park's test"
+            }
+            if test.first < 0 || test.first != test.last {
+                return "the teardown park's test is not one statement"
+            }
+            let wrong = coro_verify_park_edge(&coro, f, p, d, group, park_decl, check_decl)
+            if wrong.len() > 0 {
+                return wrong
+            }
+        }
+        p = p + 1
+    }
+    if edges == 0 {
+        return "a group's drop is reached by an edge other than its teardown park's test"
+    }
+    ""
+}
+
+// The check block of test block `p`: the block whose call returns to it,
+// preferring a call of `check_decl`; -1 when none does.
+func coro_verify_check_block(coro: &CoroProgram, f: Int, p: Int, check_decl: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var found = -1
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        if block.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[block.call].next == p {
+            if coro_call_decl(&coro, block.call) == check_decl {
+                return b
+            }
+            if found < 0 {
+                found = b
+            }
+        }
+        b = b + 1
+    }
+    found
+}
+
+// One edge into drop block `d` of `f`: test block `p`, a two-arm `Bool`
+// switch over one statement, and the park it draws.
+func coro_verify_park_edge(coro: &CoroProgram, f: Int, p: Int, d: Int, group: Int, park_decl: Int,
+                           check_decl: Int) -> String {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let test = coro.mono.dp.bc.mir.blocks[info.block_first + p]
+    let wrong_check = "the teardown park's check is not `__saw_exec_teardown_park` on the dropped group"
+    let checking = coro_verify_check_block(&coro, f, p, check_decl)
+    if checking < 0 {
+        return wrong_check
+    }
+    let check_block = coro.mono.dp.bc.mir.blocks[info.block_first + checking]
+    let check = coro.mono.dp.bc.mir.calls[check_block.call]
+    if coro_call_decl(&coro, check_block.call) != check_decl || check.arg_count != 1 || check_block.last < 0 {
+        return wrong_check
+    }
+    let r = coro_verify_operand_local(&coro, coro.mono.dp.bc.mir.lists[check.arg_first])
+    let w = coro_verify_place_local(&coro, check.dest)
+    let held = coro.mono.dp.bc.mir.stmts[check_block.last]
+    if r < 0 || w < 0 || held.kind != MirStmtKind.Assign || coro_verify_place_local(&coro, held.place) != r {
+        return wrong_check
+    }
+    let reference = coro.mono.dp.bc.mir.rvalues[held.rvalue]
+    if reference.kind != MirRvalueKind.Ref || reference.exclusive || reference.place < 0 {
+        return wrong_check
+    }
+    let target = coro.mono.dp.bc.mir.places[reference.place]
+    let dropped = coro.mono.dp.bc.mir.places[group]
+    if target.local != dropped.local || target.count != 0 {
+        return wrong_check
+    }
+    // The test: `_z = (_w == 0)`.
+    let wrong_test = "the teardown park's test is not `_z = (_w == 0)`"
+    let stmt = coro.mono.dp.bc.mir.stmts[test.first]
+    let z = coro_verify_place_local(&coro, stmt.place)
+    if stmt.kind != MirStmtKind.Assign || z < 0 {
+        return wrong_test
+    }
+    let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+    if rv.kind != MirRvalueKind.Binary || rv.count != 2 || rv.op < 0 {
+        return wrong_test
+    }
+    if not coro.mono.dp.bc.mir.tc.name_text(rv.op).equals("==") {
+        return wrong_test
+    }
+    let left = coro.mono.dp.bc.mir.lists[rv.first]
+    let right = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first + 1]]
+    if coro_verify_operand_local(&coro, left) != w || right.kind != MirOperandKind.Const || right.text < 0 {
+        return wrong_test
+    }
+    if right.const_kind != MirConstKind.Int || not coro.mono.dp.bc.mir.tc.name_text(right.text).equals("0") {
+        return wrong_test
+    }
+    // The switch, on `_z`, with `true` to the drop and `false` to the park.
+    if coro_verify_operand_local(&coro, test.operand) != z {
+        return "the teardown park's switch does not test its `_z`"
+    }
+    var truth = -1
+    var falsity = -1
+    var ones = 0
+    var zeros = 0
+    var k = 0
+    while k < test.arm_count {
+        let arm = coro.mono.dp.bc.mir.arms[test.arm_first + k]
+        k = k + 1
+        if arm.value == 1 {
+            ones = ones + 1
+            truth = arm.target
+        } else if arm.value == 0 {
+            zeros = zeros + 1
+            falsity = arm.target
+        }
+    }
+    if ones != 1 || zeros != 1 || truth != d || falsity == d || falsity < 0 {
+        return "the teardown park's switch does not send `true` to the drop and `false` to the park"
+    }
+    // The park: on `_w`, returning to the check.
+    let parking = coro.mono.dp.bc.mir.blocks[info.block_first + falsity]
+    let wrong_park = "the teardown park does not park on the word its check returned"
+    if parking.term != MirTermKind.Call || coro_call_decl(&coro, parking.call) != park_decl {
+        return wrong_park
+    }
+    let park = coro.mono.dp.bc.mir.calls[parking.call]
+    if park.arg_count != 1 || coro_verify_operand_local(&coro, coro.mono.dp.bc.mir.lists[park.arg_first]) != w {
+        return wrong_park
+    }
+    if park.next != checking {
+        return "the teardown park does not return to its check"
+    }
+    ""
 }
 
 // Whether item `item` has a frame the lowering rewrites: it is lowered, and
@@ -858,6 +1111,8 @@ func coro_verify_problem(coro: &var CoroProgram, rule: Int, item: Int, what: Str
         try! msg.append(" (windows close once)")
     } else if rule == 4 {
         try! msg.append(" (record before arm)")
+    } else if rule == 6 {
+        try! msg.append(" (teardown parks)")
     } else {
         try! msg.append(" (lifetimes disjoint)")
     }

@@ -1,0 +1,67 @@
+// refuses: coro.window-drives at 51:9
+// message: this condition reaches the executor's sweep
+// `guard try! r else` inside the window (K228)
+
+import std.task.{yield_now}
+import std.env
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+        print("member saw {}", c)
+    }
+    1
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Oops {
+    n: Int
+}
+
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) {
+        tear_down()
+        try! into.append("oops")
+    }
+}
+
+func flag() -> Result<Bool, Oops> {
+    Result<Bool, Oops>.Err(Oops(n: 1))
+}
+
+
+func form_guard() -> Int {
+    let r = flag()
+    borrow var b = boot_slot() {
+        b = 1
+        guard try! r else {
+            print("guarded")
+        }
+        b = 2
+        print("inside the window (guard): {}", b)
+    }
+    0
+}
+
+func main() {
+    let pick = env.Env.argument_count()
+    var outer = TaskGroup()
+    if pick == 1 {
+    } else {
+        print("{}", outer.spawn(form_guard()).join())
+    }
+}

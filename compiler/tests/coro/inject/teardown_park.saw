@@ -1,0 +1,24 @@
+// The verifier's rule 6 (compiler/tests/coro/README.md, "The verifier"):
+// `owner` is a spawned root with two `TaskGroup` locals, each with a live
+// member, dropped at the end of `owner`, so each drop is guarded by a teardown
+// park. compiler/coro/tests/verify_teardown_parks.saw lowers it, finds it
+// clean, and edits the park of `g` into each shape no lowering emits; `count`
+// is the call its check is edited into.
+func member() -> Int {
+    2
+}
+
+func owner() -> Int {
+    var g = TaskGroup()
+    var h = TaskGroup()
+    let _ = g.spawn(member())
+    let _ = h.spawn(member())
+    let _ = g.count()
+    3
+}
+
+func main() {
+    var outer = TaskGroup()
+    let o = outer.spawn(owner())
+    print("owner returns {}", o.join())
+}

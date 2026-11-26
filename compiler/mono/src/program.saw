@@ -155,6 +155,10 @@ public struct MonoProgram {
     park_deadline_item: Int
     park_register_item: Int
     park_pipe_item: Int
+    // What a group local's teardown in a suspending body calls before its
+    // drop, the park word its wait parks on (`__saw_exec_teardown_park`),
+    // made at the first drop of a `TaskGroup`; -1 until then.
+    teardown_park_item: Int
     // The String comparison roles, made when a comparison of Strings is
     // reached; -1 until then.
     equals_item: Int
@@ -306,6 +310,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 thread_spawns: Vector<MonoThreadSpawn>(), thread_spawn_of: Vector<Int>(),
                 drive_item: -1,
                 drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,
+                teardown_park_item: -1,
                 equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), vtables: Vector<MonoVtable>(), vtable_slots: Vector<Int>(),

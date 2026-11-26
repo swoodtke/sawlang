@@ -69,6 +69,11 @@ public struct CoroProgram {
     // the profile's default (`coro_task_frame_limit`).
     max_task_frame: Int
     poisons: Vector<CoroPoison>
+    // The MIR call of each thread park a group's teardown made
+    // (`coro_insert_teardown_parks`), ascending: a park that returns on the
+    // thread it parked on, which the Send check does not count
+    // (`coro_is_teardown_park`).
+    teardown_parks: Vector<Int>
 }
 
 extension CoroProgram: NoCopy {}
@@ -82,7 +87,7 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
                 spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
                 problems: Vector<String>(), before: CoroBefore.empty(), sanitize: false,
-                max_task_frame: 0, poisons: Vector<CoroPoison>())
+                max_task_frame: 0, poisons: Vector<CoroPoison>(), teardown_parks: Vector<Int>())
 }
 
 // The verifier's record of the bodies the lowering may rewrite, taken just

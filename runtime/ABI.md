@@ -90,6 +90,15 @@ which is why an edit is an ABI change.
 the frozen symbol set, with no seam left undescribed and none described that the
 compiler would refuse to let anyone export.
 
+**No seam runs program code on the caller's thread.** A seam's body may block,
+spin or return an error, but it never calls back into the program's Saw code,
+and never runs one of the thread's tasks, before it returns. The two seams that
+take code (`__saw_rt_thread_spawn` and `__saw_rt_offload_start`) run it on a
+thread they start. The compiler relies on this: inside a static root's exclusive
+`borrows(sync)` window, a call to a seam is judged to run no other task, while
+any other `extern` with no body in the program is judged to (SL-1161). A runtime
+that breaks this rule breaks that window's exclusivity.
+
 ---
 
 ## Allocation / output / panic

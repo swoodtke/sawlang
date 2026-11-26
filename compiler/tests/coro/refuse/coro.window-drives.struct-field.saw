@@ -1,0 +1,51 @@
+// refuses: coro.window-drives at 39:17
+// message: this drop of `h: coro.window-drives.struct-field.Holder` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a group in a struct field, torn down inside an exclusive static-root window in a function that suspends: the
+// drop of the struct reaches the group's `deinit` through the struct's glue (conformance row K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+struct Holder {
+    group: TaskGroup
+    n: Int
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        if true {
+            var h = Holder(group: TaskGroup(), n: 0)
+            let _ = h.group.spawn(member())
+        }
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

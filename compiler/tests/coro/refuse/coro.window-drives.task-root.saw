@@ -1,0 +1,41 @@
+// refuses: coro.window-drives at 29:17
+// message: this drop of `g: std.taskgroup.TaskGroup` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a group torn down in a function that does not suspend, run as a task root (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func bump() -> Int {
+    borrow var b = boot_slot() {
+        b = 1
+        if true {
+            var g = TaskGroup()
+            let _ = g.spawn(member())
+        }
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

@@ -1,0 +1,75 @@
+// accepts: coro.window-drives
+// both table calls after their windows (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func reset() {
+    borrow var b = boot_slot() {
+        b = 1
+    }
+}
+
+func tear_down(x: Int, y: Int) sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    x + y
+}
+
+struct Table {
+    named: FuncPointer<(Int, Int) sync -> Int>
+    literal: FuncPointer<(Int, Int, Int) sync -> Int>
+}
+
+static TABLE: Table = Table(named: tear_down, literal: { x, y, z in var g = TaskGroup(); let _ = g.spawn(member()); x })
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window (named): {}", b)
+    }
+    let n = TABLE.named(1, 2)
+    print("right after the action (named): {} {}", after(), n)
+    0
+}
+
+func bump2() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window (literal): {}", b)
+    }
+    let n = TABLE.literal(1, 2, 3)
+    print("right after the action (literal): {} {}", after(), n)
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+    print("bump2 returns {}", outer.spawn(bump2()).join())
+}

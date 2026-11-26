@@ -1,0 +1,30 @@
+// accepts: coro.window-drives
+// a channel's last handle dropped inside the window: its drop reaches the
+// gate's `destroy` through the `GateEngine` record, the one std load the
+// allow-list names for it, and frees the gate without running a task (K228)
+
+import std.channel.{Channel}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func make() unsafe -> Channel<Int> {
+    try! Channel<Int>()
+}
+
+func main() unsafe {
+    borrow var b = boot_slot() {
+        b = 1
+        let ch = make()
+        let _ = ch.try_receive()
+        print("inside the window: {}", b)
+    }
+    print("after the window")
+}

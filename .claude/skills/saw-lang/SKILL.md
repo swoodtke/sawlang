@@ -2571,7 +2571,7 @@ func work(n: Int) -> Int { yield_now(); n * n }  // any call may suspend
 func main() {
     var group = TaskGroup()
     let a = group.spawn(work(3))
-    print(a.join())        // structured join; group Deinit drains children
+    print(a.join())        // a task's join PARKS it (a pair); `main` suspends here
 }
 sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
 try! ch.receive()           // -> Result<T, ChannelError>; a task parks, a
@@ -2641,9 +2641,11 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   every value it carries across a suspension — params, across-suspend locals,
   embedded callees' too, AND the result type — must be `Send` (else a clean
   compile error naming it). A reference follows Rust's rule: `&var T` crosses
-  when `T: Send`, `&T` when `T: Sync`. A `TaskGroup` is not `Send` (nor is
-  `&TaskGroup`), so a spawned task suspends before making its own group, or
-  joins it first. An OWNING CONTAINER is Send iff its CONTENTS are, so moving a
+  when `T: Send`, `&T` when `T: Sync`. `TaskGroup` and `Task<T>` are
+  THREAD-BOUND (neither `Send` nor `Sync`, nor a reference to one): a spawned
+  task may HOLD one it made across a suspension, in every group form (a pool
+  pins that frame to the worker that first ran it), but may not take one as a
+  root parameter or return one. An OWNING CONTAINER is Send iff its CONTENTS are, so moving a
   `Vector<Int>`, a `Box`, a `Map`, a `Set`, a `Data` or a `StringBuilder` in is fine. A
   FUNCTION TYPE is `Send + Sync` exactly when it says `sendable`
   (`() sync sendable -> Int`, after `escaping` in the slot): a WRITTEN type
@@ -2712,7 +2714,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   says which one you are on:
   ```saw-fragment
   var t = try! Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() blocks a thread, parks a task
-  let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
+  let h = group.spawn(crunch(n))       // Task<Int>;   join() parks a task, sweeps a thread
   let b = Task.spawn(crunch(n))        // Task<Int>;   same engine, no group
   ```
   A `Void` body gives `Thread<Void>` / `Task<Void>` respectively: one handle
@@ -2812,9 +2814,11 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   where its values are released. So a detached background task lives no
   longer than the thread that spawned it, and a task's handle is used only on
   that thread (using it from another one panics).
-  GOTCHA: a SYNC `main` never yields, so its background tasks first run at that
-  exit join, already cancelled. Give them a `yield_now()`, join them, or spawn
-  from a suspending `main`.
+  GOTCHA: a `main` that never suspends never yields, so its background tasks
+  first run at that exit join, already cancelled. A `main` that joins a task
+  suspends there (its join parks), so the join runs them; `func main()
+  blocking` keeps the thread-context sweep. Give them a `yield_now()`, join
+  them, or spawn from a suspending `main`.
   BORROWS ARE REFUSED AT THE FORM (ruling 7) — a `&`/`&var` argument of the
   spawned call and a borrow capture inside it are both clean errors, because
   there is no scope to end the borrow at. Spawn into a `TaskGroup`, or hand the
@@ -2863,8 +2867,13 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   program calls, directly or by a bound; through a `sync` requirement or a
   `sync` generic, at a render, and in a hook the compiler calls (`deinit`,
   `copy()`, `any` dispatch) the default runs. std's pairs are
-  `Channel.receive` and `Thread.join()` (a task's join PARKS, a cancel does not
-  end it). A `main` that joins a thread therefore suspends and is a task root;
+  `Channel.receive`, `Thread.join()` and `Task.join()` (a task's join PARKS, a
+  cancel does not end it; `Task.join`'s twin sweeps the thread's tasks). A
+  `main` that joins a thread or a task therefore suspends and is a task root,
+  so it may not call a `blocking` function or drop a blocking value, and a
+  `sync` function, a non-`blocking` `deinit`, a closure body, a lock window or
+  an `@export` function that joins gets the usual refusal (an export says
+  `blocking`; `@export("f") func f() blocking`);
   `func main() blocking` joins in thread context instead, and is the
   EXECUTOR-FREE spelling: `std.thread` imports nothing from the executor
   (SL-965), so a blocking `main` that only starts, joins and detaches threads
@@ -2959,7 +2968,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   FORGETTING `close()` IS A DEADLOCK, and the executor reports it instead of
   hanging: every live task parked on a channel, nothing runnable, no io, no timer
   and no unjoined `Thread.spawn {}` task means nothing can ever run, so the program
-  panics with `dump_tasks()` attached and each waiter marked `channel-parked`.
+  panics with `dump_tasks()` attached and each waiter marked `channel-parked`
+  (a task parked in a `Task.join` counts as waiting too, and shows `joining`).
   It is decided by elimination, never by watching a task fail to progress —
   design 127's op budget makes a long computation present exactly like a
   permanent wait.
@@ -3154,7 +3164,16 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   while main is parked on accept — a live server WORKS. A TaskGroup is a
   lifetime/join SCOPE (its `Deinit` structured-joins its members at scope exit),
   not a separate executor; nested groups compose by construction; a task joining
-  another yields to the one scheduler (no nested loop). **Scope, not extender
+  another parks and yields to the one scheduler (no nested loop). **A group's
+  scope end in a TASK parks too (SL-1161 T2):** a `TaskGroup` local whose scope
+  ends in a suspending body or a task root with a member still live parks the
+  task there, on every edge out of the scope, until the group is empty (the
+  dump says `joining` at the group's line); thread context, a function that
+  does not suspend, a `Box`/`Arc`-held group and a pool's worker keep the
+  nested sweep, and no function becomes suspending by holding a group. A group
+  whose scope ends inside a static root's `borrows(sync)` window in a
+  suspending function is refused (declare it outside the window); inside a
+  lock's window it keeps the sweep. **Scope, not extender
   (design 124):** a task's owned values deinit when THE TASK completes, not at
   group teardown — a handler's `TcpStream` closes its fd on return, so the
   accept-loop above reclaims each connection as it finishes and a reader sees EOF
@@ -4196,7 +4215,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
     so `static REGISTRY: Mutex<Int>` works with no initializer exactly as
     `SpinLock` does. Blocks the calling THREAD; not reentrant: a thread that
     takes a mutex it already holds (a second `Arc` copy, a helper naming the
-    static, a task a `join()` runs inside the window) PANICS naming
+    static, a task a thread-context `join()` runs inside the window) PANICS naming
     `Mutex.lock`/`Mutex.get`, where it used to die silently on macOS
     (SIGKILL) and deadlock on Linux (SL-843).
   - **`Once<T>`** (`import std.once.*`) — state COMPUTED once at a moment

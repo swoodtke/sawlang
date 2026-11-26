@@ -1,0 +1,102 @@
+// probe: stated
+// about: what the static-window fence (`coro.window-drives`) leaves alone: a spawn into a group made before an exclusive static root's window and torn down after it, a teardown inside a shared window on the same root, and a call through a stored closure and through a `FuncPointer` that tear nothing down, conformance row K228 (SL-1161)
+// stage 0: accepts all three, since it has no window fence
+// speeds: -O0 -O2
+// prints: spawned inside the window: 1
+// prints: after the teardown: 101
+// prints: shared window: 3
+// prints: stored closure: 8
+// prints: function pointer: 8
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func tag() unsafe borrows(BOOT.tag) -> &Int {
+    lend BOOT.tag
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+// The group is made before the window and torn down after it: a spawn
+// inside the window starts nothing, and no drop runs there.
+func spawn_inside() -> Int {
+    yield_now()
+    var g = TaskGroup()
+    borrow var b = boot_slot() {
+        b = 1
+        let _ = g.spawn(member())
+        print("spawned inside the window: {}", b)
+    }
+    0
+}
+
+// A shared window admits the sweep, so a teardown inside it is legal.
+func teardown_in_a_shared_window() -> Int {
+    yield_now()
+    var seen = 0
+    borrow let t = tag() {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+        seen = t + 3
+    }
+    seen
+}
+
+struct Job {
+    run: () -> Int
+}
+
+// A call through a stored closure whose body tears nothing down.
+func stored_closure_in_the_window() -> Int {
+    yield_now()
+    let job = Job(run: { 7 })
+    var result = 0
+    borrow var b = boot_slot() {
+        b = 1
+        result = job.run() + b
+    }
+    result
+}
+
+struct Entry {
+    run: FuncPointer<() sync -> Int>
+}
+
+func seven() sync -> Int {
+    7
+}
+
+// A call through a `FuncPointer` to a function that tears nothing down.
+func function_pointer_in_the_window() -> Int {
+    yield_now()
+    let entry = Entry(run: seven)
+    var result = 0
+    borrow var b = boot_slot() {
+        b = 1
+        result = entry.run() + b
+    }
+    result
+}
+
+func main() {
+    let _ = spawn_inside()
+    let after = borrow var c = boot_slot() { c }
+    print("after the teardown: {}", after)
+    print("shared window: {}", teardown_in_a_shared_window())
+    print("stored closure: {}", stored_closure_in_the_window())
+    print("function pointer: {}", function_pointer_in_the_window())
+}

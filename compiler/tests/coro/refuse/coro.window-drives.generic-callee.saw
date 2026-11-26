@@ -1,0 +1,51 @@
+// refuses: coro.window-drives at 41:17
+// message: this call reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a generic callee dropping a group-holding argument, called inside the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+struct Holder {
+    group: TaskGroup
+    n: Int
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func discard<T>(x: T) -> Int {
+    1
+}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        let n = discard(Holder(group: TaskGroup(), n: 0))
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

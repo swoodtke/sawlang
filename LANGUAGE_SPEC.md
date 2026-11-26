@@ -6026,7 +6026,14 @@ one function and its callees can show, and the root's module owes the rest:
   windows may stand in several threads at once. A plain `static` already is.
 - A shared window may span a suspension. An exclusive root's function is
   declared `sync … borrows(sync, ROOT)`, so neither its body nor its window
-  suspends, and on one thread no other task runs inside it.
+  suspends, and on one thread no other task runs inside it. The window runs
+  from the `lend` to its close. The accessor's own code before the `lend` and
+  after the close is ordinary `unsafe` code naming the root's
+  `unsafe static var`, under the obligation below; a nested window's accessor,
+  opened inside the window, runs inside it. An accessor that holds such a
+  window open across its own `lend` lends inside it, so its callers' windows
+  are held to the same rule, through any number of such accessors, with or
+  without a root of their own.
 - **The `unsafe` obligation:** an exclusive window on a static root never
   overlaps another window on an overlapping root opened by another task or
   thread, by a spawned thread's brace, by an `@export` entry called from
@@ -7600,15 +7607,16 @@ would hand out two live `&var T` to one payload.
   it is refused.
 - Re-entry through another name panics at run time. The name can be a second
   `Arc` copy of the mutex, a static that a helper called inside the window
-  reaches, or a task the window's thread runs inside it, which a cooperative
+  reaches, or a task the window's thread runs inside it, which a thread-context
   `join()` does. The lock records its owner, and acquiring, by `lock()` or
   `get()`, panics when it finds its own, before it would wait. A lock that
   another thread holds is waited for as usual.
-- Every wait that runs other tasks reaches that last name. A cooperative
-  `join()`, a pool's `join()` or `Deinit`, and a thread-context
+- Every wait that runs other tasks reaches that last name. A thread-context
+  `Task.join()`, a pool's `join()` or `Deinit`, and a thread-context
   `Thread.join()` or `Channel.receive()` run the waiting thread's tasks inside
   the window while it has any, so a task they run that takes the lock the
-  window holds panics at its `lock()`.
+  window holds panics at its `lock()`. A task's own `join()` cannot be written
+  in the window at all: it suspends, and the window is `borrows(sync)`.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -11100,8 +11108,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
 - **The scheduler** is ambient and per-thread (design 89-b): spawned frames enter
   the thread's shared run queue and run EAGERLY — whenever the scheduler runs, not
   only at `join`. A group is a membership/lifetime scope, not a private executor:
-  its `join`/`Deinit` drive the shared queue until the group's own members
-  finish, honoring wake reasons — `yield_now` requeues immediately, `sleep(d)`
+  its `Deinit`, and a thread-context `join`, drive the shared queue until the
+  group's own members finish (a task's `join` parks instead and lets the
+  executor drive), honoring wake reasons — `yield_now` requeues immediately, `sleep(d)`
   is scheduled earliest-deadline over relative sleeps, and a channel wait parks
   until a send. Among sleepers past their deadline, the earliest deadline
   resumes first, and a tie goes to the sleep that began first, however late the
@@ -11111,13 +11120,70 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   a cancelled sleeper is made runnable and takes its cancel path on resume. The drive loop is `sync` (built from `resume`), which is what
   lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
   keeps its own queue and its own live worker pool instead (design 75/225).
+- **A group's teardown in a task parks.** When a `TaskGroup` local's scope ends
+  in a function that runs as a frame (a spawned task's root, a suspending
+  `main`, and every suspending function they call), the task parks there,
+  before the group's `Deinit`, until the group has no live task, and the
+  executor runs the thread's other tasks meanwhile. Every edge out of the scope
+  reaches the park: the fall-through, `break`, `continue`, `return`, a
+  same-scope redefinition and a `try` block's error edge. The `Deinit` then
+  finds nothing left to run; for a `TaskGroup(threads: N)` it only joins the
+  workers. The park is no cancellation point, the deadlock report counts it as
+  waiting, as it counts a join, and the task dump marks the task `joining` at
+  the group's line. Holding a group makes no function suspend, and the park
+  moves the task to no other thread, so a value live across it alone need not
+  be `Send`. Where the teardown cannot park, it keeps the nested sweep, which
+  runs the thread's other tasks inside the task's turn:
+  - in a function with no frame: a `sync` helper, thread context, or a function
+    that does not suspend;
+  - on a pool's worker, which runs no group of its own between resumes;
+  - inside a lock's `borrows(sync)` window, whose rules govern what runs there
+    (see [Synchronized Access](#synchronized-access));
+  - for a group the scope does not hold whole: in a struct field, an
+    `Optional` (dropped, or set to `None`), a tuple, a `Box` or an `Arc`, or
+    one replaced through a `&var` reference.
+
+  Inside a static root's exclusive window no other task may run
+  ([Lending a static](#lending-a-static)), so there a join, a call that may join
+  or tear a group down, a drive, and the drop of any value that holds a
+  `TaskGroup` are refused (`coro.window-drives`): drop the value after the
+  window closes. The check follows every call through its callees, in every
+  function. Two kinds of call it judges conservatively:
+  - A call through a function value (a closure or a `FuncPointer`) may run any
+    function value of that type the program makes: a closure, a named
+    function, one in a static's initializer. So it is refused when any of
+    them reaches the executor, even one the window never sees.
+  - A call whose code the compiler cannot see counts as one that runs the
+    executor: an `extern` with no body in the program (a seam of the runtime
+    ABI excepted, and one naming the program's own `@export`, which is
+    followed), and a call through a function value whose code the compiler
+    cannot see: one `FuncPointer.from_raw` made, one an `extern` returns or
+    writes through a reference or pointer (at any depth of fields and enum
+    payloads), one foreign code passes to an `@export` or may write in an
+    exported static, one loaded through a raw pointer or by a view's `read()`,
+    and one in any place whose address the program turns into a raw pointer
+    (`(&x) as UnsafePointer<U>`, any `U`), whatever then writes through that
+    address. The one load not counted is std's of its own records, the pool
+    and gate engines and the frame descriptors, which std fills only from its
+    statics and the descriptors the compiler writes. A raw pointer is assumed
+    to stay within the place it was made from; stepping it outside that place,
+    into a sibling field or another object, is the obligation of the `unsafe`
+    code that steps it. std's thread
+    observer is called through a `from_raw` pointer, so a `Thread.join` or
+    channel receive in thread context, a `Channel.send` and a `Thread.spawn`
+    are refused inside the window too.
 - **`Task<T>`** records the task's `(slot, generation)` in its group plus raw
   pointers into that task's group-owned CELL, which holds the result and the
   cancel word (design 134). The cell is not part of the frame and outlives it.
-  One rule covers every `T`, `Void` included. `join()` drives the group (a
-  multi-threaded group's pool is already running it, so there it WAITS instead)
-  then TAKES the result exactly once, and the caller owns that value outright:
-  it stays valid after the task is gone. A task yields its result once, so a
+  One rule covers every `T`, `Void` included. `join()` is a pair (see
+  [Pairs](#pairs)): in a task, and in a `main` that suspends, it PARKS the
+  joining task until the joined task finishes, and the executor runs the others
+  meanwhile; in thread context its `blocking` twin drives the group (a
+  multi-threaded group's pool is already running it, so there it WAITS
+  instead). Either way it TAKES the result exactly once, and the caller owns
+  that value outright: it stays valid after the task is gone. A join is not a
+  cancellation point: a cancel of the joining task does not end the wait. A
+  task yields its result once, so a
   second `join()`, or a `join()` after `detach()`, panics. `detach()` belongs to
   a `Task.spawn` handle; a handle
   from `group.spawn` panics at `detach()` ("Task.detach: this handle came from
@@ -11197,8 +11263,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
     a `deinit` the task's code runs included. Each thread's executor record
     names the task it is running a turn of; the executor sets that name around
     each resume and restores the previous one after it. A helper that waits
-    for other tasks (a group's teardown, a `join()` of a cooperative or a pool
-    task) runs their turns inside its own, so each of those tasks answers for
+    for other tasks (a group's teardown, a thread-context `join()`, a join a
+    pool's task makes of a task of its own worker) runs their turns inside its
+    own, so each of those tasks answers for
     itself, and the helper's answer is its own task's again once the wait
     returns, however deeply waits nest. An unclaimed result dropped at its
     task's completion (its handle was dropped or detached first) is that
@@ -11360,7 +11427,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   state is read twice with a nap between, because an abort is not a diagnostic.
   `close()` is the cooperative path and this is the backstop; a program that
   closes its channels never reaches it.
-  **The report's condition is that no task anywhere can run.** A task waiting
+  **The report's condition is that no task anywhere can run.** A task parked in
+  a `join()` of another task counts as waiting, like one parked on a channel:
+  it continues only once the joined task finishes, so a join of a task that
+  waits for good is reported with it, and the dump marks the joiner `joining`
+  at its join's line. A task waiting
   in a join or a drive further up its own thread's stack counts as unable to
   run, on a pool's worker too, since it continues only once the waits begun
   above it return. A task that can run (one ticking on a timer, one sleeping,
@@ -11399,10 +11470,13 @@ threads, no lock).
   every live task, and joins them; that is the structured join, and it is still
   exactly-once and idempotent.
 - **Inside a task, neither wait blocks the thread.** A `join()` of a pool's
-  task, and a pool's `Deinit`, made by a task run that task's thread's other
-  tasks until the pool's task finishes, or until the pool has no live task, as
-  a join and a teardown on the cooperative engine do. So a pool's task may wait
-  on a task of the thread that joins it. The teardown then waits for each
+  task made by a cooperative task parks that task until the pool's task
+  finishes, and the thread runs its other tasks meanwhile; a pool's `Deinit`
+  made by a task runs that task's thread's other tasks until the pool has no
+  live task, as a group's teardown on the cooperative engine does. A pool's
+  own task that joins a task of its worker's groups runs them in place
+  instead, since a worker runs no group of its own between resumes. So a
+  pool's task may wait on a task of the thread that joins it. The teardown then waits for each
   worker to end, and a worker's end closes that worker's own background group
   (*Background tasks: `Task.spawn`*, below): a background task a pool's task
   detached on the worker, parked where a cancel does not wake it, holds the
@@ -11423,24 +11497,26 @@ threads, no lock).
   the same re-entry as holding one across a cooperative `join()`: a task it
   runs that takes the lock panics at its `lock()`, naming the lock (see
   [Synchronized Access](#synchronized-access)).
-- **A wait made inside a task returns after the waits begun inside it.** The
-  joining task stays on its thread's stack while the thread runs its other
-  tasks, so when one of those joins too, the inner join returns first, on
-  either engine. A `join()` of a task that is itself further up the joining
-  thread's stack, waiting in a join or a drive this one is nested inside, can
-  never finish, so it panics at the join, before any other task runs, with
-  `Task.join: the task cannot finish while this join waits for it`. A group
-  torn down while one of its own tasks is further up the stack panics at the
-  teardown the same way. Both hold whatever else is alive, since the joined
-  task's state decides them alone. A spawned task cannot reach this shape: it
-  would hold its group and the joined task's handle across a suspension, which
-  the frame rule refuses (*Send-on-frames gate*, below), so a suspending `main`
-  is where it arises. A chain that passes through anything
-  but joins, such as a pool's task receiving what only an outer join's
-  continuation sends, is the deadlock report's (above): it is reported, naming
-  the join, when no task anywhere can run, and not while another task can.
-  `Thread.join()` from a task parks instead of nesting a drive, so it never
-  closes such a chain.
+- **A wait that nests returns after the waits begun inside it.** A task's
+  `join()` parks and nests nothing, so a joiner is never on its thread's stack
+  while the thread runs its other tasks, and two tasks may join each other's
+  children in any order. What still nests is a wait made in thread context (a
+  `Thread.spawn` body, a `blocking` function, a `blocking` `main`), a group's
+  teardown that has no frame to park in, and a join a pool's task makes of a
+  task of its worker's groups: the thread's other tasks run inside the
+  waiter's window, so when one of those waits too, the inner wait returns
+  first. A thread-context `join()` of a task
+  that is itself further up the joining thread's stack, waiting in a join or a
+  drive this one is nested inside, can never finish, so it panics at the join,
+  before any other task runs, with `Task.join: the task cannot finish while this
+  join waits for it`. A group torn down while one of its own tasks is further up
+  the stack panics at the teardown the same way. Both hold whatever else is
+  alive, since the joined task's state decides them alone. A chain that passes
+  through anything but nested waits, such as a pool's task receiving what only
+  an outer wait's continuation sends, is the deadlock report's (above): it is
+  reported when no task anywhere can run, and not while another task can.
+  `Thread.join()` and a task's `Task.join()` from a task park instead of
+  nesting a drive, so neither closes such a chain.
 - **What is observable, and what changed.** Multi-threaded execution order was
   never deterministic. What a live pool widens is WHEN that is visible: a task's
   effects — a channel send, an `Arc<Mutex<T>>` update — now become visible to the
@@ -11462,10 +11538,15 @@ threads, no lock).
   to `join()`). The compiler rejects the first non-`Send` value at the spawned
   function, naming it and its type. A reference is judged by Rust's rule at any
   depth: `&T` is `Send` when `T` is `Sync`, and `&var T` when `T` is `Send`
-  (*Send and Sync*, below). A `TaskGroup` and a `Task` handle are not `Send`, so
-  a spawned task may not hold its own group across a suspension; it suspends
-  before making the group, or joins it first. `Thread.spawn`'s brace keeps its
-  own capture audit.
+  (*Send and Sync*, below). A `TaskGroup` and a `Task` handle are thread-bound:
+  they are neither `Send` nor `Sync`, so nothing carries one to another thread,
+  and a spawned task may neither take one as a root parameter nor return one.
+  It may hold one it made across a suspension (a group of its own, or the
+  handle of a `Task.spawn` it joins later), because the frame that made the
+  handle runs only on the thread that made it: a cooperative frame never moves,
+  and a pool resumes such a frame only on the worker that first resumed it. The
+  rule is the same in every group form. `Thread.spawn`'s brace keeps its own
+  capture audit.
 - **D6 task confinement (paper 18).** A frame runs on ONE thread at a time; stealing
   moves frames between workers only BETWEEN suspensions. There are no migration
   guarantees beyond Send-correctness; `&var self` driven methods stay task-confined.
@@ -11838,12 +11919,14 @@ never suspends, or from a `Thread.spawn` body, compiles and blocks the calling
 thread. A call site carries no marker, and nothing lets a task block. A `main`
 declared `blocking` is thread context by its signature, and may not suspend.
 
-A `main` that never suspends may still drive a group by joining it, and its
-tasks are paused whenever `main` is blocked in a `blocking` call, so a call
-that waits on something one of those tasks would produce, before the join,
-never returns. The waits std makes there are not such calls: a pool's `join()`
-and `Deinit`, and in thread context `Thread.join()` and `Channel.receive()`,
-run the thread's tasks while it has any (see [Cooperative
+A `main` that joins a task suspends, so it runs the executor and is a task
+root. A `main` declared `blocking` drives a group by joining it in thread
+context instead, and its tasks are paused whenever `main` is blocked in a
+`blocking` call, so a call that waits on something one of those tasks would
+produce, before the join, never returns. The waits std makes there are not
+such calls: a pool's `join()` and `Deinit`, and in thread context
+`Task.join()`, `Thread.join()` and `Channel.receive()`, run the thread's
+tasks while it has any (see [Cooperative
 tasks](#cooperative-tasks-taskgroup), *Multi-threaded execution*).
 
 **A public function says so.** A `public` function whose body blocks must
@@ -11877,8 +11960,8 @@ redundant, the way `constexpr sync` is, and a `sync` function may call a
 ##### Pairs
 
 One operation may need to suspend in a task and block in a thread;
-`Channel.receive` and `Thread.join` are std's. It is declared twice: the
-DEFAULT declaration, and a `blocking` TWIN with the same signature.
+`Channel.receive`, `Thread.join` and `Task.join` are std's. It is declared
+twice: the DEFAULT declaration, and a `blocking` TWIN with the same signature.
 
 ```saw-fragment
 extension Mailbox {
@@ -11898,21 +11981,35 @@ A pair is context selection rather than overloading by effect: there is one
 operation, and no call can name the twin.
 
 `Thread.join()` from a task parks the task until the thread finishes, while
-the executor runs the others. A join is no cancellation point: a cancel does
-not end the wait, as it does not end an offloaded call's (see [Blocking
+the executor runs the others, and `Task.join()` from a task parks it until the
+joined task finishes in the same way. A join is no cancellation point: a cancel
+does not end the wait, as it does not end an offloaded call's (see [Blocking
 externs and the offload](#blocking-externs-and-the-offload)), since a thread
-cannot be asked to stop and its result has nowhere else to go. A `main` that joins a
-thread suspends there, so it runs the executor and is a task root, and a value
-whose drop blocks may not drop in it (see [Blocking drops](#blocking-drops)); a
-`main` declared `blocking` joins in thread context instead, which makes `func
-main() blocking` the executor-free spelling: `std.thread` needs no executor,
-so a program that only starts, joins and detaches threads that way links none
-of it. In thread context,
-in a `Thread.spawn` body, a `blocking` function or a `blocking` `main`,
-`Thread.join()` and `Channel.receive()` run the calling thread's own
-cooperative tasks while one of them is live, ready or parked, and block the
-thread only when it has none, so a thread may wait on what one of its own
-tasks sends.
+cannot be asked to stop, and a task's result has nowhere else to go. A `main`
+that joins a thread or a task suspends there, so it runs the executor and is a
+task root, and a value whose drop blocks may not drop in it (see [Blocking
+drops](#blocking-drops)); a `main` declared `blocking` joins in thread context
+instead. `func main() blocking` is the executor-free spelling for a program
+that only starts, joins and detaches threads: `std.thread` needs no executor,
+so such a program links none of it, where a plain `main` that joins links all
+of it. A `main` that drives tasks by joining them and calls a `blocking`
+function declares `blocking` too, since a task root may not reach one.
+In thread context, in a `Thread.spawn` body, a `blocking` function or a
+`blocking` `main`, `Task.join()`, `Thread.join()` and `Channel.receive()` run
+the calling thread's own cooperative tasks while one of them is live, ready or
+parked, and block the thread only when it has none, so a thread may wait on
+what one of its own tasks sends.
+
+`Task.join()` is the one wait here that a `sync` function, a `deinit` that is
+not `blocking`, a closure body, a `borrows(sync)` window and an `@export`
+function may not make: each is refused with the diagnostic that names its
+context, since a task's join suspends and nothing there can park. A join
+reached through a closure called directly or through a parameter, a function
+value, or an `any Trait` method is refused at the closure, the value or the
+erasure, as any suspension there is. An `@export` function that joins declares
+`blocking`, which takes the twin, so C can call it. A join handle is bound to
+the thread that made it: `Task<T>` is not `Send`, and joining from another
+thread panics (`this task belongs to another thread's group`).
 
 The selection reaches through the calls between: a thread-context copy of a
 generic helper, two calls deep or inside a std generic such as `Map.insert`'s
@@ -12076,7 +12173,7 @@ check above's, which reads the compiled program.
 
 A `deinit` not declared `blocking` runs wherever its value drops, a task
 included, so it may not block. One that calls a `blocking` function, or a
-pair whose default suspends, such as `Thread.join()`, is refused at the
+pair whose default suspends, such as `Thread.join()` or `Task.join()`, is refused at the
 declaration:
 
 ```saw-error
@@ -12288,14 +12385,17 @@ func main() {
 // (then: the task is cancelled, runs its cancel path, and `conn` closes)
 ```
 
-A SYNC `main` never yields, so its background tasks first run at that exit join
-— by which time they are already cancelled. That is the cooperative model being
-itself rather than a special case: a task runs when something cedes to it, and a
-`main` that never suspends never does. Give the tasks a `yield_now()`, or join
-them, or spawn them from a suspending `main`. A `Thread.spawn` body is `sync`
-in the same way, so its background tasks run while it joins one of them, while
-it waits in a pool's `join()`, `Thread.join()` or `Channel.receive()`, and at
-its end.
+A `main` that never suspends never yields, so its background tasks first run at
+that exit join — by which time they are already cancelled. That is the
+cooperative model being itself rather than a special case: a task runs when
+something cedes to it, and a `main` that never suspends never does. A `main`
+that joins a task suspends there, so the join gives the others their turns; the
+exception is `func main() blocking`, which joins in thread context and runs
+them inside the join. Give the tasks a `yield_now()`, or join them, or spawn
+them from a suspending `main`. A `Thread.spawn` body is `sync` in the same way,
+so its background tasks run while it joins one of them (`Task.join()`), while it
+waits in a pool's `join()`, `Thread.join()` or `Channel.receive()`, and at its
+end.
 
 THE THREAD'S END WAITS FOR THE JOIN, and so for every wait a cancel does not
 end. A background task parked in `Thread.join()` keeps waiting after its cancel
@@ -12655,7 +12755,7 @@ saw tasks: 2 live (unsynchronized snapshot)
 advancing across dumps is a slot that has been reused. The last word is the
 task's state: `running` (resumed right now, on some thread), `ready` (runnable,
 waiting its turn), `sleeping` (a timer), `io-parked` (a descriptor),
-`channel-parked` (a channel), `joining` (a `Thread.join`), `offload-parked` (an
+`channel-parked` (a channel), `joining` (a `Thread.join` or a `Task.join`), `offload-parked` (an
 offloaded `blocking` call), or `unrecorded` (it suspended without recording a
 park).
 
@@ -13077,8 +13177,8 @@ context that may block on FFI, and in that body `Thread.join()` and
 tasks meanwhile while it has any; a task that calls either parks instead (see
 [Pairs](#pairs)). `Task.spawn`/`TaskGroup`/`Task<T>`
 run on the **single-threaded cooperative executor** (above), where a body
-suspends, `Channel.receive()` among the calls that do, and a join drives the
-group; a suspending `main` runs there too. The call site's
+suspends, `Channel.receive()` and `Task.join()` among the calls that do, and a
+join parks until its task finishes; a suspending `main` runs there too. The call site's
 namespace says which machine it is on, and the two behave differently enough
 that reading it matters: one blocks and one suspends, and a handle's obligations
 differ (a `Thread<T>` and a `Task.spawn` `Task<T>` must be consumed; a group's

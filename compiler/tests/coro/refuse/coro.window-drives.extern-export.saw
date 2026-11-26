@@ -1,0 +1,58 @@
+// refuses: coro.window-drives at 47:17
+// message: this call reaches the executor's sweep
+// message: `probe_tear_down` → `tear_down`
+// an `extern "C"` declaration whose symbol the program's own `@export` defines (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+@export("probe_tear_down")
+func tear_down(x: Int32) sync -> Int32 {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    x
+}
+
+extern "C" {
+    func probe_tear_down(x: Int32) -> Int32
+}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        let n = probe_tear_down(1)
+        print("inside the window: {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+    print("after bump: {}", after())
+}

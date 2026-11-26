@@ -26,6 +26,9 @@ directory specifies:
   `// message:` lines, and every rule coroutine lowering refuses by
   (`coro_rules` in `compiler/coro/src/suspends.saw`) has a fixture, or, for
   a rule no source program reaches (`INJECTED_RULES`), a unit program;
+- each fixture in `accept/`, whose `// accepts: RULE` header names a rule of
+  `coro_rules`, is the control of that rule's refusals: it checks with no
+  `ERROR` and no `INVARIANT` line;
 - no golden or refusal record holds one `ERROR` line twice;
 - over every program of this lane, of the mono lane's goldens and of the run
   lane, coroutine lowering's frame decisions agree with typecheck's
@@ -60,6 +63,7 @@ import typecheck_lane  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
+ACCEPT = os.path.join(HERE, "accept")
 REFUSE_LAYOUT = os.path.join(HERE, "refuse_layout")
 MODULES = os.path.join(HERE, "modules")
 PARKS = os.path.join(HERE, "parks")
@@ -352,7 +356,7 @@ HEADER_RULE = fixture_headers.Rule(
 def header_files():
     """[(path, rule)] for each golden and refusal fixture, whose leading
     comment the lane reads."""
-    paths = [os.path.join(d, name) for d in (GOLDEN, REFUSE, REFUSE_LAYOUT) for name in sorted(os.listdir(d))
+    paths = [os.path.join(d, name) for d in (GOLDEN, REFUSE, ACCEPT, REFUSE_LAYOUT) for name in sorted(os.listdir(d))
              if name.endswith(".saw")]
     return [(path, HEADER_RULE) for path in paths]
 
@@ -419,6 +423,34 @@ def check_refusals(failures, counts, rules):
         if rule not in covered:
             failures.append("coro rule %s: no refusal fixture names it" % rule)
     counts["coro rules"] = len(rules)
+
+
+def check_acceptances(failures, counts, rules):
+    """Each fixture in `accept/` checks clean: no `ERROR` and no `INVARIANT`
+    line. Its `// accepts: RULE` header names the rule whose refusals it is
+    the control of, and the file is named for that rule."""
+    cases = sorted(glob.glob(os.path.join(ACCEPT, "*.saw")))
+    if not cases:
+        return
+    code, out = sawc(["--check", "--std-root", "std"] + module_args() + [rel(p) for p in cases])
+    got = borrowck_lane.records(out)
+    for path in cases:
+        header = _ACCEPTS.match(read_text(path).split("\n")[0])
+        if header is None:
+            failures.append("coro acceptance %s: no `// accepts: RULE` header" % rel(path))
+            continue
+        rule = header.group(1)
+        base = os.path.basename(path)
+        if not base.startswith(rule + "."):
+            failures.append("coro acceptance %s: the file is not named for %s" % (rel(path), rule))
+        if rule not in rules:
+            failures.append("coro acceptance %s: %s is no rule of coro_rules()" % (rel(path), rule))
+        record = got.get(rel(path), "")
+        found = errors(record)
+        if found:
+            failures.append("coro acceptance %s: refused, %s at %s" % (rel(path), found[0][0], found[0][1]))
+        check_invariants(failures, "acceptance", path, record)
+        counts["coro acceptance fixtures"] = counts.get("coro acceptance fixtures", 0) + 1
 
 
 def check_layout_refusals(failures, counts):
@@ -572,6 +604,7 @@ def run(write=False):
     build.guarded(failures, "coro bt stage0", check_bt_stage0, failures, counts)
     build.guarded(failures, "coro bt ir", check_bt_ir, failures, counts)
     build.guarded(failures, "coro refusal", check_refusals, failures, counts, rules)
+    build.guarded(failures, "coro acceptance", check_acceptances, failures, counts, rules)
     build.guarded(failures, "coro layout refusal", check_layout_refusals, failures, counts)
     build.guarded(failures, "coro task frame flag", check_task_frame_flag, failures, counts)
     build.guarded(failures, "coro agreement", check_agreement, failures, counts)

@@ -1,0 +1,26 @@
+// probe: custom
+// about: a task parked at a group's teardown waits for its member, so when the member waits on a channel nothing can send to and no task anywhere can run, the deadlock walk counts the teardown park as waiting and reports it, its dump marking the task `joining` at the group's line, conformance row K228 (SL-1161)
+// The lane's check (`check_teardown_park_reported`) reads the panic path's
+// dump, which a header line cannot state.
+import std.channel.{Channel}
+
+func stuck(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> 0 - 1
+    }
+}
+
+func scope(orders: Channel<Int>) -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(stuck(orders.copy()))
+    print("scope ends")
+    0
+}
+
+func main() {
+    let orders = try! Channel<Int>()
+    var outer = TaskGroup()
+    let h = outer.spawn(scope(orders.copy()))
+    print("joined {h.join()}")
+}

@@ -1,0 +1,56 @@
+// accepts: coro.window-drives
+// `apply(tear_down)` after the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func tear_down() sync -> Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    1
+}
+
+func apply(body: () sync -> Int) -> Int {
+    body()
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let n = apply(tear_down)
+    print("right after the action: {} {}", after(), n)
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+    print("after bump: {}", after())
+}

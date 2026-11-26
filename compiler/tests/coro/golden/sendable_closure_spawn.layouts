@@ -1,17 +1,19 @@
-frame #0: sendable_closure_spawn.main()  (size 536 align 8, lower bound 536)
+frame #0: sendable_closure_spawn.main()  (size 576 align 8, lower bound 576)
     suspend 1: bb2 call yield_now
     suspend 2: bb3 call Task.join
+    suspend 3: bb9 call __saw_park_thread
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[536: Void]  size 0 align 1  _0 result
-    (*frame).[520: Int]  size 8 align 8  _1 n  (across 1 2)
-    (*frame).[528: Int]  size 8 align 8  _2 base  (across 1 2)
-    (*frame).[208: std.taskgroup.TaskGroup]  size 192 align 8  _3 group  (across 1 2)
-    (*frame).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>]  size 200 align 8  _4  (across 1 2)
-    (*frame).[464: std.taskgroup.Task<Int>]  size 40 align 8  _6 h  (across 1 2)
-    (*frame).[504: (&Int, &Int)]  size 16 align 8  _9 environment  (across 1 2)
-    (*frame).[400: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
-    (*frame).[400: frame std.taskgroup.Task.join() args Int]  size 64 align 8  child  (across 2)
-    stack: _5 _7 _8 _10 _11 _12 _13 _14 _15
+    (*frame).[576: Void]  size 0 align 1  _0 result
+    (*frame).[552: Int]  size 8 align 8  _1 n  (across 1 2 3)
+    (*frame).[560: Int]  size 8 align 8  _2 base  (across 1 2 3)
+    (*frame).[224: std.taskgroup.TaskGroup]  size 208 align 8  _3 group  (across 1 2 3)
+    (*frame).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>]  size 216 align 8  _4  (across 1 2 3)
+    (*frame).[496: std.taskgroup.Task<Int>]  size 40 align 8  _6 h  (across 1 2)
+    (*frame).[536: (&Int, &Int)]  size 16 align 8  _9 environment  (across 1 2 3)
+    (*frame).[568: Int]  size 8 align 8  _15  (across 3)
+    (*frame).[432: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
+    (*frame).[432: frame std.taskgroup.Task.join() args Int]  size 64 align 8  child  (across 2)
+    stack: _5 _7 _8 _10 _11 _12 _13 _14 _16 _17 _18
 frame #11: sendable_closure_spawn.run(f: () -> Int) task root  (size 40 align 8, lower bound 40)
     suspend 1: bb0 call yield_now
     (*frame).[0: Int]  size 8 align 8  state

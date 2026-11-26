@@ -1,0 +1,45 @@
+// refuses: coro.window-drives at 34:17
+// message: this drop of `moved: std.box.Box<std.taskgroup.TaskGroup, std.alloc.GlobalAllocator>` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a `Box<TaskGroup>` made before the window and dropped inside it: the box's `deinit` drops its payload in place (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func bump() -> Int {
+    yield_now()
+    var bx = try! Box<TaskGroup>.make(TaskGroup())
+    borrow var g = bx.value() {
+        let _ = g.spawn(member())
+    }
+    borrow var b = boot_slot() {
+        b = 1
+        if true {
+            let moved = move bx
+        }
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

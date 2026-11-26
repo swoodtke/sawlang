@@ -1,0 +1,85 @@
+// probe: stated
+// about: a value that is not `Send` may be live across a group's teardown park alone, since the park returns on the thread it parked on and a pool's worker never takes it: a task root that never suspends, a suspending owner spawned cooperatively, one spawned on a pool, and the struct-field control whose drop keeps the sweep, conformance row K228 (SL-1161)
+// stage 0: builds it too, which is right: its teardown sweeps, so no park holds a value across a suspension, and r1 of this stage refused it
+// speeds: -O0 -O2
+// prints: root owner returns 3
+// prints: cooperative owner returns 3
+// prints: pool owner returns 3
+// prints: field owner returns 3
+import std.task.{yield_now}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+func make_buf() unsafe -> Buf {
+    Buf(raw: 0 as UnsafePointer<Int>)
+}
+
+func member() -> Int {
+    2
+}
+
+// A task root that never suspends: the park is its only suspension.
+func root_owner() -> Int {
+    let b = make_buf()
+    if true {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+    let held = b
+    3
+}
+
+func cooperative_owner() -> Int {
+    yield_now()
+    let b = make_buf()
+    if true {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+    let held = b
+    3
+}
+
+func pool_owner() -> Int {
+    yield_now()
+    let b = make_buf()
+    if true {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+    }
+    let held = b
+    3
+}
+
+struct Holder {
+    group: TaskGroup
+    n: Int
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func field_owner() -> Int {
+    let b = make_buf()
+    if true {
+        var h = Holder(group: TaskGroup(), n: 0)
+        let _ = h.group.spawn(member())
+    }
+    let held = b
+    3
+}
+
+func main() {
+    var outer = TaskGroup()
+    let r = outer.spawn(root_owner())
+    print("root owner returns {}", r.join())
+    let c = outer.spawn(cooperative_owner())
+    print("cooperative owner returns {}", c.join())
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(pool_owner())
+    print("pool owner returns {}", p.join())
+    let f = outer.spawn(field_owner())
+    print("field owner returns {}", f.join())
+}

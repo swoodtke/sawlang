@@ -1,0 +1,55 @@
+// refuses: coro.window-drives at 46:17
+// message: this statement reaches the executor's sweep
+// message: `Cheap.copy` → `tear_down`
+// the same tuple copied by a plain read (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Cheap {
+    n: Int
+}
+
+extension Cheap: Copy {
+    func copy(&self) -> Cheap {
+        tear_down()
+        Cheap(n: self.n)
+    }
+}
+
+func bump() -> Int {
+    yield_now()
+    let t = (Cheap(n: 1), 2)
+    borrow var b = boot_slot() {
+        b = 1
+        let u = t
+        print("inside the window: {} {}", b, u.1)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+}

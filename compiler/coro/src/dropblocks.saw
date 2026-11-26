@@ -34,7 +34,7 @@ import sawtypecheck.types.{TcKind}
 
 // What one item's body reaches that may drop on its thread: a drop's glue,
 // a call's item, a dispatch's slot items, or a closure's body.
-struct CoroDropEdge {
+public struct CoroDropEdge {
     target: Int
     // The place a drop names, or -1 for a call.
     place: Int
@@ -43,7 +43,7 @@ struct CoroDropEdge {
 }
 
 // The facts one run of the check builds, by item.
-struct CoroDropFacts {
+public struct CoroDropFacts {
     // Each item's edges, a run of `edges`.
     first: Vector<Int>
     count: Vector<Int>
@@ -100,7 +100,7 @@ func coro_any_sink(facts: &CoroDropFacts) -> Bool {
 // closure constructions, then its terminator's call. A `Thread.spawn`
 // brace is a closure construction too, and its body runs on the new
 // thread, so no edge reaches it.
-func coro_drop_facts(coro: &CoroProgram) -> CoroDropFacts {
+public func coro_drop_facts(coro: &CoroProgram) -> CoroDropFacts {
     var facts = CoroDropFacts(first: Vector<Int>(), count: Vector<Int>(), edges: Vector<CoroDropEdge>(),
                               blocks: Vector<Bool>(), sink: Vector<Bool>(), thread_body: Vector<Bool>(),
                               closure_body: Vector<Bool>())
@@ -153,41 +153,70 @@ func coro_item_edges(coro: &CoroProgram, k: Int, f: Int, facts: &var CoroDropFac
         var s = block.first
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
-            s = stmt.next
-            if stmt.kind == MirStmtKind.Drop {
-                let t = coro.mono.dp.bc.mir.places[stmt.place].ty
-                let glue = coro.mono.glue_item(t, MONO_KEY_DROP)
-                if glue >= 0 {
-                    try! facts.edges.push(CoroDropEdge(target: glue, place: stmt.place, item: k))
-                }
-            } else if stmt.kind == MirStmtKind.Assign {
-                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
-                if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
-                    let body = coro.mono.closure_item(stmt.rvalue)
-                    if body >= 0 && not facts.thread_body[body] {
-                        try! facts.edges.push(CoroDropEdge(target: body, place: -1, item: k))
-                    }
-                }
+            var targets = Vector<Int>()
+            coro_instruction_targets(&coro, s, -1, &facts.thread_body, &var targets)
+            let place = if stmt.kind == MirStmtKind.Drop { stmt.place } else { -1 }
+            var t = 0
+            while t < targets.len() {
+                try! facts.edges.push(CoroDropEdge(target: targets[t], place: place, item: k))
+                t = t + 1
             }
+            s = stmt.next
         }
         if block.term == MirTermKind.Call {
-            coro_call_edges(&coro, k, block.call, &var facts)
+            var targets = Vector<Int>()
+            coro_instruction_targets(&coro, -1, block.call, &facts.thread_body, &var targets)
+            var t = 0
+            while t < targets.len() {
+                try! facts.edges.push(CoroDropEdge(target: targets[t], place: -1, item: k))
+                t = t + 1
+            }
         }
     }
 }
 
-// A call's edges: the item it runs on this thread. A spawn or drive site's
-// root is a root of its own, checked there, and a `Thread.spawn` site's body
-// runs on the new thread.
-func coro_call_edges(coro: &CoroProgram, k: Int, c: Int, facts: &var CoroDropFacts) {
-    let call = coro.mono.dp.bc.mir.calls[c]
-    let kind = call.kind
+// THE INSTRUCTION-REACH FUNNEL: the items one instruction runs on this
+// thread. Statement `stmt` (a call `call` of -1) is a drop, whose glue is its
+// target, or a closure construction, whose body is, unless it is a
+// `Thread.spawn` brace's; call `call` (a `stmt` of -1) is the item it reaches
+// or, through a dispatch, every item its slot holds in a vtable of the trait.
+// A spawn or drive site's root and a `Thread.spawn` body run elsewhere, a
+// builtin is no item, and a call through a function value names none.
+// ENTRY POINTS:
+//   coro_item_edges
+//   coro_window_targets
+public func coro_instruction_targets(coro: &CoroProgram, stmt: Int, call: Int, thread_body: &Vector<Bool>,
+                                     out: &var Vector<Int>) {
+    if stmt >= 0 {
+        let st = coro.mono.dp.bc.mir.stmts[stmt]
+        if st.kind == MirStmtKind.Drop {
+            let t = coro.mono.dp.bc.mir.places[st.place].ty
+            let glue = coro.mono.glue_item(t, MONO_KEY_DROP)
+            if glue >= 0 {
+                try! out.push(glue)
+            }
+        } else if st.kind == MirStmtKind.Assign {
+            let rv = coro.mono.dp.bc.mir.rvalues[st.rvalue]
+            if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
+                let body = coro.mono.closure_item(st.rvalue)
+                if body >= 0 && not thread_body[body] {
+                    try! out.push(body)
+                }
+            }
+        }
+        return
+    }
+    if call < 0 {
+        return
+    }
+    let c = coro.mono.dp.bc.mir.calls[call]
+    let kind = c.kind
     if kind == MirCallKind.Spawn || kind == MirCallKind.Drive || kind == MirCallKind.Builtin || kind == MirCallKind.Value {
         return
     }
-    let slot = coro.mono.dispatch_slot(c)
+    let slot = coro.mono.dispatch_slot(call)
     if slot >= 0 {
-        let trait_decl = coro.mono.dp.bc.mir.tc.types.ty(call.owner).decl
+        let trait_decl = coro.mono.dp.bc.mir.tc.types.ty(c.owner).decl
         var v = 0
         while v < coro.mono.vtables.len() {
             let table = coro.mono.vtables[v]
@@ -197,14 +226,14 @@ func coro_call_edges(coro: &CoroProgram, k: Int, c: Int, facts: &var CoroDropFac
             }
             let target = coro.mono.vtable_slots[table.slot_first + slot]
             if target >= 0 {
-                try! facts.edges.push(CoroDropEdge(target: target, place: -1, item: k))
+                try! out.push(target)
             }
         }
         return
     }
-    let target = coro.mono.call_item(c)
+    let target = coro.mono.call_item(call)
     if target >= 0 {
-        try! facts.edges.push(CoroDropEdge(target: target, place: -1, item: k))
+        try! out.push(target)
     }
 }
 
@@ -367,7 +396,7 @@ func coro_append_drop_path(coro: &CoroProgram, facts: &CoroDropFacts, from: Int,
 
 // `` `x: T` `` for a whole named local, `` a `T` in `x` `` for a part of one,
 // and `` a temporary `T` `` otherwise.
-func coro_append_place(coro: &CoroProgram, item: Int, p: Int, msg: &var StringBuilder) {
+public func coro_append_place(coro: &CoroProgram, item: Int, p: Int, msg: &var StringBuilder) {
     let place = coro.mono.dp.bc.mir.places[p]
     let ty = coro.mono.dp.bc.mir.tc.type_text(place.ty)
     var name = -1

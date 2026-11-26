@@ -1,0 +1,39 @@
+// refuses: coro.window-drives at 29:9
+// message: this drop of a `std.taskgroup.TaskGroup` in `g` reaches the executor's sweep
+// message: `exec_run` → `sweep`, inside the `borrows(sync)` window of `boot_slot` opened at
+// a group replaced through a `&var` reference inside the window: the assignment drops the old group (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func replace_in_window(g: &var TaskGroup) -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        g = TaskGroup()
+        print("inside the window, after the teardown: {}", b)
+    }
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    print("returns {}", replace_in_window(&var g))
+}

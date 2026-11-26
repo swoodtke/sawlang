@@ -1,0 +1,60 @@
+// accepts: coro.window-drives
+// the `any Runner` call after the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+trait Runner {
+    func go(&self, x: Int) -> Int
+}
+
+struct Holder {
+    run: () sync -> Int
+}
+
+extension Holder: Runner {
+    func go(&self, x: Int) -> Int {
+        self.run() + x
+    }
+}
+
+func bump() -> Int {
+    yield_now()
+    let boxed = Box<any Runner>.make(Holder(run: { var g = TaskGroup(); let _ = g.spawn(member()); 1 }))
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let n = boxed.go(1)
+    print("right after the action: {} {}", after(), n)
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

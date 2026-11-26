@@ -1,0 +1,88 @@
+// accepts: coro.window-drives
+// the field called after the window (K228)
+
+import std.task.{yield_now}
+
+extern "C" {
+    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
+    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
+    func memcpy(dst: UnsafePointer<UInt8>, src: UnsafePointer<UInt8>, n: Int) -> UnsafePointer<UInt8>
+}
+
+static RTLD_LAZY: Int32 = 1
+
+struct SlotN {
+    f: FuncPointer<(Int8, Int16) sync -> Int8>
+    tag: Int
+}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+@export("sl1161_probe_tear_v6a")
+func probe_tear(a: Int8, b: Int16) sync -> Int8 {
+    tear_down()
+    a
+}
+
+func harmless(a: Int8, b: Int16) sync -> Int8 {
+    a
+}
+
+func fill(slot: &var SlotN) unsafe {
+    var text: [UInt8; 64] = [0; 64]
+    let name = "sl1161_probe_tear_v6a"
+    var i = 0
+    while i < name.len() {
+        text[i] = name.byte_at(i)
+        i = i + 1
+    }
+    var addr = dlsym(dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY), (&text) as UnsafePointer<UInt8>)
+    let _ = memcpy((&slot) as UnsafePointer<UInt8>, (&addr) as UnsafePointer<UInt8>, 8)
+}
+
+func bump() -> Int {
+    yield_now()
+    var slot = SlotN(f: harmless, tag: 0)
+    fill(&var slot)
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let n = slot.f(1 as Int8, 2 as Int16)
+    print("after the window: {}", n)
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+    print("after bump: {}", after())
+}

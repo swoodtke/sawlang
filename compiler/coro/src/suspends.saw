@@ -44,6 +44,7 @@ public func coro_rules() -> Vector<String> {
     try! out.push("coro.spawn-not-send")
     try! out.push("coro.suspending-cycle")
     try! out.push("coro.task-drop-blocks")
+    try! out.push("coro.window-drives")
     move out
 }
 

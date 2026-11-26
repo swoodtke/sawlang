@@ -1,0 +1,55 @@
+// refuses: coro.window-drives at 46:17
+// message: this call reaches the executor's sweep
+// message: `Dear.copy` → `tear_down`
+// the same, an `ExplicitCopy` element, copied by the tuple's `.copy()` (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Dear {
+    n: Int
+}
+
+extension Dear: ExplicitCopy {
+    func copy(&self) -> Dear {
+        tear_down()
+        Dear(n: self.n)
+    }
+}
+
+func bump() -> Int {
+    yield_now()
+    let t = (Dear(n: 1), 2)
+    borrow var b = boot_slot() {
+        b = 1
+        let u = t.copy()
+        print("inside the window: {} {}", b, u.1)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+}

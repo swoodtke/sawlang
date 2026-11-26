@@ -22,6 +22,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
+import sawcoro.lifetimes.{coro_windows_open}
 import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroResume, CoroSuspend, CoroUnlowered,
                         CoroUnloweredKind, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
@@ -1290,7 +1291,7 @@ func coro_context_place_to(coro: &var CoroProgram, ctx: Int, context_ty: Int, fi
 }
 
 // A new constant operand, the integer `value` of type `ty`.
-func coro_int_operand(coro: &var CoroProgram, ty: Int, value: Int) -> Int {
+public func coro_int_operand(coro: &var CoroProgram, ty: Int, value: Int) -> Int {
     var spelled = StringBuilder()
     try! spelled.append(value)
     let text = coro.mono.dp.bc.mir.tc.res.intern(spelled.build())
@@ -1316,7 +1317,7 @@ func coro_whole_place(coro: &var CoroProgram, l: Int, ty: Int) -> Int {
 }
 
 // A new operand, a copy of local `l` whole, or with `moved` a move.
-func coro_whole_operand(coro: &var CoroProgram, l: Int, ty: Int, moved: Bool) -> Int {
+public func coro_whole_operand(coro: &var CoroProgram, l: Int, ty: Int, moved: Bool) -> Int {
     let place = coro_whole_place(&var coro, l, ty)
     let kind = if moved { MirOperandKind.Move } else { MirOperandKind.Copy }
     let at = coro.mono.dp.bc.mir.operands.len()
@@ -1619,6 +1620,213 @@ func coro_lower_budget(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_l
     ends.otherwise = -1
     coro.mono.dp.bc.mir.blocks[now] = ends
     CoroBudgetYield(block: y, call: c)
+}
+
+// THE TEARDOWN PARK: a whole `TaskGroup` local whose drop is in a body that
+// has a frame parks there, before the drop, until the group has no live task,
+// so the group's `deinit` finds nothing to run and the executor's drive never
+// waits inside a task's turn. Only a body that already has a frame gains the
+// park, so no effect summary moves. Every other teardown keeps the deinit's
+// nested sweep: a body with no frame (thread context among them), a pool's
+// worker, whose check answers 0, and a group the drop does not name whole,
+// whose drop is in glue or through a reference: a struct field, an
+// `Optional`, a tuple, a `Box` or an `Arc`, a group replaced through `&var`.
+// A drop inside an open `borrows(sync)` window keeps it too, since the window
+// cannot span a suspension: a lock's window runs the sweep its own rules
+// govern, and inside a static root's window the drop is refused
+// (`coro_check_window_drives`). The park leaves the frame on its thread, so
+// the Send check counts no value live across it alone
+// (`coro_is_teardown_park`).
+// Each drop is lowered where elaboration left it, so the park sits under the
+// drop's own flag and every edge out of the group's scope reaches it through
+// the drop. It runs after the suspension solve and before the frames are
+// found, so every later step sees an ordinary thread park, the Send check
+// excepted:
+//
+//   bbB    ... ; goto -> bbK                  (the drop and what follows move)
+//   bbK    _r = &g; _w = __saw_exec_teardown_park(move _r) -> bbT
+//   bbT    _z = Eq(copy _w, const 0); switch move _z -> [true: bbD, false: bbP]
+//   bbP    __saw_park_thread(move _w) -> bbK  suspends
+//   bbD    drop(g); ... ; the block's own terminator
+//
+// ENTRY POINTS:
+//   coro_insert_teardown_parks
+public func coro_insert_teardown_parks(coro: &var CoroProgram) {
+    let group = coro.mono.dp.bc.mir.tc.known.task_group
+    if group < 0 {
+        return
+    }
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f >= 0 && coro.needs_frame(item) {
+            coro_teardown_parks_of(&var coro, f, group)
+        }
+    }
+}
+
+// Lowers each drop of a `TaskGroup` local in function `f`, `group` the
+// declaration, that no `borrows(sync)` window spans.
+func coro_teardown_parks_of(coro: &var CoroProgram, f: Int, group: Int) {
+    let open = coro_windows_open(&coro, f)
+    let width = coro.mono.dp.bc.mir.funcs[f].window_count
+    let window_first = coro.mono.dp.bc.mir.funcs[f].window_first
+    // By block: whether a `borrows(sync)` window is open at its entry. A
+    // block the lowering adds after a drop is a part of that drop's block.
+    var synced = Vector<Bool>()
+    var b = 0
+    while b < coro.mono.dp.bc.mir.funcs[f].block_count {
+        var sync = false
+        var w = 0
+        while w < width {
+            if open[b * width + w] && coro.mono.dp.bc.mir.windows[window_first + w].sync {
+                sync = true
+            }
+            w = w + 1
+        }
+        try! synced.push(sync)
+        b = b + 1
+    }
+    var done = Set<Int>()
+    b = 0
+    while b < coro.mono.dp.bc.mir.funcs[f].block_count {
+        let here = b
+        b = b + 1
+        if synced[here] {
+            continue
+        }
+        var s = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + here].first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            if stmt.kind == MirStmtKind.Drop && not done.contains(s) && coro_drops_group_local(&coro, stmt.place, group) {
+                let _ = try! done.insert(s)
+                coro_teardown_park(&var coro, f, here, s)
+                // The blocks the park added, the one now holding the drop
+                // among them, are outside every `borrows(sync)` window.
+                while synced.len() < coro.mono.dp.bc.mir.funcs[f].block_count {
+                    try! synced.push(false)
+                }
+                break
+            }
+            s = stmt.next
+        }
+    }
+}
+
+// Whether place `p` is a whole local of type `TaskGroup`, `group` its
+// declaration.
+func coro_drops_group_local(coro: &CoroProgram, p: Int, group: Int) -> Bool {
+    let pl = coro.mono.dp.bc.mir.places[p]
+    if pl.local < 0 || pl.count != 0 {
+        return false
+    }
+    coro.mono.dp.bc.mir.tc.nominal_decl(pl.ty) == group
+}
+
+// Lowers drop statement `s` of block `b` of function `f` into its teardown
+// park, as `coro_insert_teardown_parks` draws it. A std root with no park
+// word for it is a broken invariant, since mono reaches one at every drop of
+// a group.
+func coro_teardown_park(coro: &var CoroProgram, f: Int, b: Int, s: Int) {
+    let check_item = coro.mono.teardown_park_item
+    let park_decl = coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkThreadFunction)
+    if check_item < 0 || park_decl < 0 {
+        try! coro.problems.push("a group's drop reached coroutine lowering with no `__saw_exec_teardown_park` or thread park to lower its teardown to")
+        return
+    }
+    let stmt = coro.mono.dp.bc.mir.stmts[s]
+    // The park stands at the group's declaration, which a task dump names; a
+    // drop's own node is its scope, whose line is where the scope starts.
+    let local = coro.mono.dp.bc.mir.places[stmt.place].local
+    let declared = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + local].node
+    let node = if declared >= 0 { declared } else { stmt.node }
+    let closing = declared < 0 && stmt.closing
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let truth = coro.mono.dp.bc.mir.tc.bool_type()
+    // The drop and the statements after it, and the block's terminator, move
+    // to a new block.
+    var moved = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b]
+    var prev = -1
+    var at = moved.first
+    while at >= 0 && at != s {
+        prev = at
+        at = coro.mono.dp.bc.mir.stmts[at].next
+    }
+    let old_last = moved.last
+    moved.first = s
+    moved.last = old_last
+    let tail = coro_add_block(&var coro, f, moved)
+    // The check: a shared reference to the group, and the call answering the
+    // park word.
+    let reference = coro.mono.dp.bc.mir.rv_ref(false, stmt.place)
+    let ref_ty = coro.mono.dp.bc.mir.rvalues[reference].ty
+    let r = coro_add_local(&var coro, f, ref_ty)
+    let w = coro_add_local(&var coro, f, word)
+    let z = coro_add_local(&var coro, f, truth)
+    var check = coro_exec_call(&var coro, check_item, node)
+    let passed = coro_whole_operand(&var coro, r, ref_ty, true)
+    coro_push_arg(&var coro, &var check, passed)
+    check.dest = coro_whole_place(&var coro, w, word)
+    let checking = coro_add_exec_block(&var coro, f, check, check_item, node)
+    let held = coro_whole_place(&var coro, r, ref_ty)
+    coro_append_stmt(&var coro, f, checking, held, reference, node)
+    // The test: a zero word waits for nothing.
+    let test = coro_add_goto_block(&var coro, f, -1, node)
+    var ops = Vector<Int>()
+    try! ops.push(coro_whole_operand(&var coro, w, word, false))
+    try! ops.push(coro_int_operand(&var coro, word, 0))
+    let clear = coro.mono.dp.bc.mir.rv_over(MirRvalueKind.Binary, truth, "==", &ops)
+    let tested = coro_whole_place(&var coro, z, truth)
+    coro_append_stmt(&var coro, f, test, tested, clear, node)
+    // The park, which returns to the check.
+    var park = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
+    park.target = park_decl
+    park.suspend = MirSuspend.Always
+    park.next = checking
+    let parked_word = coro_whole_operand(&var coro, w, word, true)
+    coro_push_arg(&var coro, &var park, parked_word)
+    let park_item = coro_item_of_decl(&coro, park_decl)
+    let parking = coro_add_exec_block(&var coro, f, park, park_item, node)
+    try! coro.teardown_parks.push(coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + parking].call)
+    coro_end_in_test(&var coro, f, test, z, tail, parking)
+    let check_at = coro.mono.dp.bc.mir.funcs[f].block_first + checking
+    var checked = coro.mono.dp.bc.mir.calls[coro.mono.dp.bc.mir.blocks[check_at].call]
+    checked.next = test
+    coro.mono.dp.bc.mir.calls[coro.mono.dp.bc.mir.blocks[check_at].call] = checked
+    // Each added terminator stands at the group's declaration.
+    var added = checking
+    while added < coro.mono.dp.bc.mir.funcs[f].block_count {
+        let added_at = coro.mono.dp.bc.mir.funcs[f].block_first + added
+        var block = coro.mono.dp.bc.mir.blocks[added_at]
+        block.term_closing = closing
+        coro.mono.dp.bc.mir.blocks[added_at] = block
+        added = added + 1
+    }
+    // The drop's block keeps what preceded the drop, and goes to the check.
+    let block_at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var head = coro.mono.dp.bc.mir.blocks[block_at]
+    if prev < 0 {
+        head.first = -1
+        head.last = -1
+    } else {
+        var before = coro.mono.dp.bc.mir.stmts[prev]
+        before.next = -1
+        coro.mono.dp.bc.mir.stmts[prev] = before
+        head.last = prev
+    }
+    head.term = MirTermKind.Goto
+    head.target = checking
+    head.call = -1
+    head.operand = -1
+    head.place = -1
+    head.arm_first = 0
+    head.arm_count = 0
+    head.otherwise = -1
+    head.term_node = node
+    head.term_closing = closing
+    coro.mono.dp.bc.mir.blocks[block_at] = head
 }
 
 // Lowers every charge-only op-budget point of function `f` into a charge of
@@ -2208,4 +2416,29 @@ public func coro_add_local(coro: &var CoroProgram, f: Int, ty: Int) -> Int {
 // which descends from no such state (std.taskgroup's `bt_state_record`).
 public func coro_state_past(state: Int) -> Int {
     CORO_STATE_DONE - 1 - state
+}
+
+// THE TEARDOWN-PARK RECORD: whether MIR call `c` is a thread park a group's
+// teardown made. That park resumes on the thread it parked on, and a pool's
+// worker never takes it, so the Send check counts no value live across it
+// alone. A `Thread.join` park is the same call and is not recorded.
+// ENTRY POINTS:
+//   coro_teardown_park (records)
+//   coro_crosses_only_teardown (reads)
+public func coro_is_teardown_park(coro: &CoroProgram, c: Int) -> Bool {
+    var lo = 0
+    var hi = coro.teardown_parks.len()
+    while lo < hi {
+        let mid = (lo + hi) / 2
+        let at = coro.teardown_parks[mid]
+        if at == c {
+            return true
+        }
+        if at < c {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    false
 }

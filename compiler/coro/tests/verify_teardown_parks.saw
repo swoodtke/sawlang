@@ -1,0 +1,299 @@
+// The post-lowering verifier's rule 6 (compiler/tests/coro/README.md, "The
+// verifier"): a group's drop is guarded by the teardown park's whole shape.
+// The fixture `compiler/tests/coro/inject/teardown_park.saw` is lowered and
+// found clean; then the park of `owner`'s group `g` is edited into each shape
+// no lowering emits, and the verifier must report that one edit under rule 6
+// with its own text. Each case is undone before the next. Paths are the
+// repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file}
+import sawcoro.layout.{coro_lay_out_frames}
+import sawcoro.lower.{coro_add_local, coro_int_operand, coro_whole_operand}
+import sawcoro.program.{CoroProgram}
+import sawcoro.verify.{coro_verify_snapshot}
+// For `MirProgram.rv_over`, an extension of that module's.
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirArm, MirBlock, MirCall, MirLocal, MirOperand, MirPlace, MirRvalue, MirRvalueKind, MirStmt,
+                     MirStmtKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawresolve.lang.{ResLang}
+import sawtarget.layout.{target_front_end}
+import sawtypecheck.typeops.{TcClient}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The MIR function of the verified body whose item's name holds `name`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        k = k + 1
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return b.body
+        }
+    }
+    return -1
+}
+
+// The blocks and records of one group's teardown park: its drop block `d`,
+// the test `p` before it, the check `k` the test follows, and the park `q`
+// the test's `false` arm reaches; `z` and `w` are the test's and the check's
+// locals, `drop_place` the drop's place.
+struct Park {
+    d: Int
+    p: Int
+    k: Int
+    q: Int
+    z: Int
+    w: Int
+    drop_place: Int
+}
+
+// The park of the group local named `name` in function `f`.
+func find_park(coro: &CoroProgram, f: Int, name: String) -> Park {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var park = Park(d: -1, p: -1, k: -1, q: -1, z: -1, w: -1, drop_place: -1)
+    var b = 0
+    while b < info.block_count {
+        var s = coro.mono.dp.bc.mir.blocks[info.block_first + b].first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            if stmt.kind == MirStmtKind.Drop {
+                let pl = coro.mono.dp.bc.mir.places[stmt.place]
+                if pl.local >= 0 && pl.count == 0 && coro.mono.dp.bc.mir.tc.is_task_group(pl.ty) {
+                    let label = coro.mono.dp.bc.mir.locals[info.local_first + pl.local].name
+                    if coro.mono.dp.bc.mir.tc.name_text(label).equals(name) {
+                        park.d = b
+                        park.drop_place = stmt.place
+                    }
+                }
+            }
+            s = stmt.next
+        }
+        b = b + 1
+    }
+    assert(park.d >= 0, "`{}` has no group drop", name)
+    b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        if block.term == MirTermKind.Switch {
+            var a = 0
+            var true_here = false
+            var false_target = -1
+            while a < block.arm_count {
+                let arm = coro.mono.dp.bc.mir.arms[block.arm_first + a]
+                if arm.value == 1 && arm.target == park.d {
+                    true_here = true
+                }
+                if arm.value == 0 {
+                    false_target = arm.target
+                }
+                a = a + 1
+            }
+            if true_here {
+                park.p = b
+                park.q = false_target
+            }
+        }
+        b = b + 1
+    }
+    assert(park.p >= 0 && park.q >= 0, "the drop of `{}` has no teardown test", name)
+    b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        if block.term == MirTermKind.Call && b != park.q && coro.mono.dp.bc.mir.calls[block.call].next == park.p {
+            park.k = b
+        }
+        b = b + 1
+    }
+    assert(park.k >= 0, "the test of `{}` has no check", name)
+    let test = coro.mono.dp.bc.mir.blocks[info.block_first + park.p]
+    park.z = coro.mono.dp.bc.mir.places[coro.mono.dp.bc.mir.stmts[test.first].place].local
+    let check = coro.mono.dp.bc.mir.calls[coro.mono.dp.bc.mir.blocks[info.block_first + park.k].call]
+    park.w = coro.mono.dp.bc.mir.places[check.dest].local
+    park
+}
+
+// The records the cases edit, as they were.
+struct Saved {
+    blocks: Vector<MirBlock>
+    calls: Vector<MirCall>
+    stmts: Vector<MirStmt>
+    rvalues: Vector<MirRvalue>
+    operands: Vector<MirOperand>
+    lists: Vector<Int>
+    arms: Vector<MirArm>
+    places: Vector<MirPlace>
+    locals: Vector<MirLocal>
+    call_items: Vector<Int>
+    local_first: Int
+    local_count: Int
+}
+
+extension Saved: NoCopy {}
+
+func save(coro: &CoroProgram, f: Int) -> Saved {
+    Saved(blocks: coro.mono.dp.bc.mir.blocks.copy(), calls: coro.mono.dp.bc.mir.calls.copy(),
+          stmts: coro.mono.dp.bc.mir.stmts.copy(), rvalues: coro.mono.dp.bc.mir.rvalues.copy(),
+          operands: coro.mono.dp.bc.mir.operands.copy(), lists: coro.mono.dp.bc.mir.lists.copy(),
+          arms: coro.mono.dp.bc.mir.arms.copy(), places: coro.mono.dp.bc.mir.places.copy(),
+          locals: coro.mono.dp.bc.mir.locals.copy(), call_items: coro.mono.call_items.copy(),
+          local_first: coro.mono.dp.bc.mir.funcs[f].local_first,
+          local_count: coro.mono.dp.bc.mir.funcs[f].local_count)
+}
+
+func restore(coro: &var CoroProgram, f: Int, saved: &Saved) {
+    coro.mono.dp.bc.mir.blocks = saved.blocks.copy()
+    coro.mono.dp.bc.mir.calls = saved.calls.copy()
+    coro.mono.dp.bc.mir.stmts = saved.stmts.copy()
+    coro.mono.dp.bc.mir.rvalues = saved.rvalues.copy()
+    coro.mono.dp.bc.mir.operands = saved.operands.copy()
+    coro.mono.dp.bc.mir.lists = saved.lists.copy()
+    coro.mono.dp.bc.mir.arms = saved.arms.copy()
+    coro.mono.dp.bc.mir.places = saved.places.copy()
+    coro.mono.dp.bc.mir.locals = saved.locals.copy()
+    coro.mono.call_items = saved.call_items.copy()
+    var info = coro.mono.dp.bc.mir.funcs[f]
+    info.local_first = saved.local_first
+    info.local_count = saved.local_count
+    coro.mono.dp.bc.mir.funcs[f] = info
+    coro.problems = Vector<String>()
+}
+
+// The test statement's rvalue replaced by `_w <op> const <value>`.
+func replace_test(coro: &var CoroProgram, f: Int, park: &Park, op: String, value: Int) {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let truth = coro.mono.dp.bc.mir.tc.bool_type()
+    var ops = Vector<Int>()
+    try! ops.push(coro_whole_operand(&var coro, park.w, word, false))
+    try! ops.push(coro_int_operand(&var coro, word, value))
+    let rv = coro.mono.dp.bc.mir.rv_over(MirRvalueKind.Binary, truth, op, &ops)
+    let test = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + park.p]
+    var stmt = coro.mono.dp.bc.mir.stmts[test.first]
+    stmt.rvalue = rv
+    coro.mono.dp.bc.mir.stmts[test.first] = stmt
+}
+
+// The item whose label is `label`, or -1.
+func item_labelled(coro: &CoroProgram, label: String) -> Int {
+    var k = 0
+    while k < coro.mono.items.len() {
+        if coro.item_label(k).equals(label) {
+            return k
+        }
+        k = k + 1
+    }
+    -1
+}
+
+// Edits the park into case `which`'s shape.
+func mutate(coro: &var CoroProgram, f: Int, park: &Park, other: &Park, which: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let truth = coro.mono.dp.bc.mir.tc.bool_type()
+    let test_at = info.block_first + park.p
+    let check_at = info.block_first + park.k
+    let park_at = info.block_first + park.q
+    if which == 1 {
+        replace_test(&var coro, f, &park, "!=", 0)
+    } else if which == 2 {
+        replace_test(&var coro, f, &park, "==", 1)
+    } else if which == 3 {
+        let fresh = coro_add_local(&var coro, f, truth)
+        var test = coro.mono.dp.bc.mir.blocks[test_at]
+        test.operand = coro_whole_operand(&var coro, fresh, truth, true)
+        coro.mono.dp.bc.mir.blocks[test_at] = test
+    } else if which == 4 {
+        // The check is another call that takes the group: `TaskGroup.count`.
+        let counting = item_labelled(&coro, "TaskGroup.count")
+        assert(counting >= 0, "the fixture reaches no `TaskGroup.count`")
+        let at = coro.mono.dp.bc.mir.blocks[check_at].call
+        var call = coro.mono.dp.bc.mir.calls[at]
+        call.target = coro.mono.items[counting].decl
+        coro.mono.dp.bc.mir.calls[at] = call
+        coro.mono.set_call_item(at, counting)
+    } else if which == 5 {
+        // The check borrows the other group.
+        let held = coro.mono.dp.bc.mir.stmts[coro.mono.dp.bc.mir.blocks[check_at].last]
+        var reference = coro.mono.dp.bc.mir.rvalues[held.rvalue]
+        reference.place = other.drop_place
+        coro.mono.dp.bc.mir.rvalues[held.rvalue] = reference
+    } else if which == 6 {
+        let call = coro.mono.dp.bc.mir.calls[coro.mono.dp.bc.mir.blocks[park_at].call]
+        let parked = coro_whole_operand(&var coro, park.z, truth, false)
+        coro.mono.dp.bc.mir.lists[call.arg_first] = parked
+    } else if which == 7 {
+        var call = coro.mono.dp.bc.mir.calls[coro.mono.dp.bc.mir.blocks[park_at].call]
+        call.next = park.p
+        coro.mono.dp.bc.mir.calls[coro.mono.dp.bc.mir.blocks[park_at].call] = call
+    } else if which == 8 {
+        let test = coro.mono.dp.bc.mir.blocks[test_at]
+        var a = 0
+        while a < test.arm_count {
+            var arm = coro.mono.dp.bc.mir.arms[test.arm_first + a]
+            if arm.value == 0 {
+                arm.value = 1
+                coro.mono.dp.bc.mir.arms[test.arm_first + a] = arm
+            }
+            a = a + 1
+        }
+    }
+}
+
+// Runs case `which`: the edit, the verifier, and the one report it must make.
+func run_case(coro: &var CoroProgram, f: Int, park: &Park, other: &Park, saved: &Saved, which: Int, text: String) {
+    mutate(&var coro, f, &park, &other, which)
+    coro_verify_snapshot(&var coro)
+    assert(coro.problems.len() == 1, "case {}: the verifier reports {} problems, not one", which, coro.problems.len())
+    let found = coro.problems.get(0) ?? ""
+    assert(holds(&found, "verify rule 6 (teardown parks)"), "case {}: the report does not name rule 6: {}", which, found)
+    assert(holds(&found, text), "case {}: the report does not say `{}`: {}", which, text, found)
+    restore(&var coro, f, &saved)
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/teardown_park.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for()
+    coro_lay_out_frames(&var coro, &var target)
+    assert(coro.problems.len() == 0, "the fixture's layout is not clean: {}", coro.problems.get(0) ?? "")
+    // The verifier records the bodies it checks; rule 6 reads each as it is.
+    coro_verify_snapshot(&var coro)
+    assert(coro.problems.len() == 0, "the fixture's parks are not clean: {}", coro.problems.get(0) ?? "")
+    let f = body_of(&coro, "owner")
+    assert(f >= 0, "the verifier records no body for `owner`")
+    let g = find_park(&coro, f, "g")
+    let h = find_park(&coro, f, "h")
+    let saved = save(&coro, f)
+    run_case(&var coro, f, &g, &h, &saved, 1, "is not `_z = (_w == 0)`")
+    run_case(&var coro, f, &g, &h, &saved, 2, "is not `_z = (_w == 0)`")
+    run_case(&var coro, f, &g, &h, &saved, 3, "does not test its `_z`")
+    run_case(&var coro, f, &g, &h, &saved, 4, "check is not `__saw_exec_teardown_park`")
+    run_case(&var coro, f, &g, &h, &saved, 5, "check is not `__saw_exec_teardown_park`")
+    run_case(&var coro, f, &g, &h, &saved, 6, "does not park on the word")
+    run_case(&var coro, f, &g, &h, &saved, 7, "does not return to its check")
+    run_case(&var coro, f, &g, &h, &saved, 8, "does not send `true`")
+    // Every edit was undone: the park is clean again.
+    coro_verify_snapshot(&var coro)
+    assert(coro.problems.len() == 0, "the parks are not clean after the cases: {}", coro.problems.get(0) ?? "")
+}

@@ -1,0 +1,63 @@
+// refuses: coro.window-drives at 52:20
+// message: this interpolation reaches the executor's sweep
+// an interpolation of a user `Printable`, whose `format` tears a group down (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+struct Shown {
+    n: Int
+}
+
+extension Shown: Printable {
+    func format(&self, into: &var StringBuilder) {
+        tear_down()
+        try! into.append("shown")
+    }
+}
+
+func bump() -> Int {
+    yield_now()
+    let s = Shown(n: 1)
+    borrow var b = boot_slot() {
+        b = 1
+        let text = "x={s}"
+        print("inside the window (string interpolation): {} {}", b, text)
+    }
+    0
+}
+
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+    print("after bump: {}", after())
+}

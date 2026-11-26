@@ -1,0 +1,56 @@
+// accepts: coro.window-drives
+// the `extern` call after the window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+@export("probe_tear_down")
+func tear_down(x: Int32) sync -> Int32 {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    x
+}
+
+extern "C" {
+    func probe_tear_down(x: Int32) -> Int32
+}
+
+func bump() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        print("inside the window: {}", b)
+    }
+    let n = probe_tear_down(1)
+    print("right after the action: {} {}", after(), n)
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump())
+    print("bump returns {}", t.join())
+}

@@ -1,0 +1,58 @@
+// probe: stated
+// about: a `TaskGroup` local whose scope ends inside a lock's `borrows(sync)` window, in a function that suspends, is accepted and keeps the teardown's sweep, since the window cannot span the park: through a `match` arm's window, and through a `borrow var` block's, where a dump from the member reads the owner `running` where a parked owner reads `joining`, conformance row K228 (SL-1161)
+// stage 0: tears both groups down with a nested sweep, as here
+// speeds: -O0 -O2
+// prints: arm window: 1
+// prints: member dumps
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at teardown_in_a_lock_window_sweeps.saw:24 in dumping_member
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at teardown_in_a_lock_window_sweeps.saw:44 in in_a_block
+// prints: block window: 4
+import std.spinlock.{SpinLock}
+import std.task.{dump_tasks, yield_now}
+
+static LOCK: SpinLock<Int>
+
+func work() -> Int {
+    yield_now()
+    2
+}
+
+func dumping_member() -> Int {
+    yield_now()
+    print("member dumps")
+    dump_tasks()
+    2
+}
+
+func in_an_arm() -> Int {
+    yield_now()
+    match LOCK.try_lock() {
+        case Some(var c) -> {
+            var g = TaskGroup()
+            let _ = g.spawn(work())
+            c += 1
+            c
+        },
+        case None -> 0
+    }
+}
+
+func in_a_block() -> Int {
+    yield_now()
+    borrow var c = LOCK.lock() {
+        var g = TaskGroup()
+        let _ = g.spawn(dumping_member())
+        c += 3
+        c
+    }
+}
+
+func main() {
+    print("arm window: {}", in_an_arm())
+    var outer = TaskGroup()
+    let t = outer.spawn(in_a_block())
+    print("block window: {}", t.join())
+}

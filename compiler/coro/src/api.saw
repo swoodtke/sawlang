@@ -6,7 +6,8 @@ import sawcoro.dump.{coro_dump_items, coro_dump_layouts, coro_dump_lowered}
 import sawcoro.drive.{coro_check_drive_sites, coro_lower_drive_sites, coro_refuse_drive_sites}
 import sawcoro.frames.{coro_find_frames}
 import sawcoro.layout.{coro_lay_out_frames}
-import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_lower_frames, coro_refuse_unlowered}
+import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_insert_teardown_parks, coro_lower_frames,
+                      coro_refuse_unlowered}
 import sawcoro.program.{CoroProgram, coro_program}
 import sawcoro.dropblocks.{coro_check_blocking_drops}
 import sawcoro.send.{coro_check_frame_send}
@@ -14,6 +15,7 @@ import sawcoro.spawn.{coro_check_spawns, coro_lower_spawn_sites}
 import sawcoro.suspends.{coro_solve_suspension}
 import sawcoro.taskframe.{coro_check_task_frames}
 import sawcoro.verify.{coro_verify_lowering, coro_verify_snapshot}
+import sawcoro.windowdrives.{coro_check_window_drives}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
@@ -84,6 +86,8 @@ func coro_decide(mono: MonoProgram) -> CoroProgram {
     if not coro.blocked {
         coro_solve_suspension(&var coro)
         coro_refuse_drive_sites(&var coro)
+        coro_check_window_drives(&var coro)
+        coro_insert_teardown_parks(&var coro)
         coro_find_frames(&var coro)
         coro_check_frame_send(&var coro)
         coro_check_frame_alignment(&var coro)

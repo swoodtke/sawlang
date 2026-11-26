@@ -1,0 +1,47 @@
+// refuses: coro.window-drives at 38:17
+// message: this call through a function value of type `(Int8) sync -> Int8` may run any function value of that type in the program, and one of them reaches the executor's sweep
+// message: whose code the program cannot see
+// a closure read out of a `Vector` by std's raw load: only std's own engine and descriptor records are
+// exempt, so this load is unseen and the harmless call is refused, a stated cost (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func tear_down() sync {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+}
+
+func bump() -> Int {
+    yield_now()
+    var hooks = Vector<(Int8) sync -> Int8>()
+    let _ = hooks.push({ x in x })
+    borrow var b = boot_slot() {
+        b = 1
+        let first = hooks.get(0) ?? { x in x }
+        let n = first(1 as Int8)
+        print("inside the window: {} {}", b, n)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    print("bump returns {}", outer.spawn(bump()).join())
+}

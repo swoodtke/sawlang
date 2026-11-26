@@ -1,9 +1,10 @@
-resume #0: group_task_root.main()  (frame size 352 align 8, pointer _20)
+resume #0: group_task_root.main()  (frame size 368 align 8, pointer _23, context _24)
     state 0: bb0
-    state 1: bb2 drive #11 std.taskgroup.Task.join() args Int at (*frame).[200]
-    state 2: bb5 drive #14 std.taskgroup.Task.join() args Void at (*frame).[200]
-    spawn bb1 task root #6 group_task_root.double(n: Int) task root, descriptor _12, box _13
-    spawn bb4 task root #12 group_task_root.hello(name: String) task root, descriptor _16, box _17
+    state 1: bb2 drive #11 std.taskgroup.Task.join() args Int at (*frame).[216]
+    state 2: bb5 drive #14 std.taskgroup.Task.join() args Void at (*frame).[216]
+    state 3: bb10 park thread
+    spawn bb1 task root #6 group_task_root.double(n: Int) task root, descriptor _15, box _16
+    spawn bb4 task root #12 group_task_root.hello(name: String) task root, descriptor _19, box _20
 fn group_task_root.main() -> Void {
     let _0: Void;  // return
     let _1: std.taskgroup.TaskGroup;  // group
@@ -17,94 +18,117 @@ fn group_task_root.main() -> Void {
     let _9: &std.taskgroup.TaskGroup;
     let _10: std.taskgroup.Task<Void>;
     let _11: &std.taskgroup.Task<Void>;
-    let _12: UnsafePointer<std.taskgroup.FrameDescriptor>;
-    let _13: UnsafePointer<UInt8>;
-    let _14: UnsafePointer<std.taskgroup.TaskGroup>;
-    let _15: std.taskgroup.TaskProvenance;
-    let _16: UnsafePointer<std.taskgroup.FrameDescriptor>;
-    let _17: UnsafePointer<UInt8>;
-    let _18: UnsafePointer<std.taskgroup.TaskGroup>;
-    let _19: std.taskgroup.TaskProvenance;
-    let _20: &var Int;
+    let _12: &std.taskgroup.TaskGroup;
+    let _13: Int;
+    let _14: Bool;
+    let _15: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _16: UnsafePointer<UInt8>;
+    let _17: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _18: std.taskgroup.TaskProvenance;
+    let _19: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _20: UnsafePointer<UInt8>;
+    let _21: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _22: std.taskgroup.TaskProvenance;
+    let _23: &var Int;
+    let _24: &var std.taskgroup.TaskContext;
 
     bb0: {
         _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
     }
 
     bb1: {
-        (*_20).[8: std.taskgroup.TaskGroup] = move _2;
-        _4 = ref(shared, (*_20).[8: std.taskgroup.TaskGroup]);
-        _12 = spawn group group_task_root.double(n: Int) [] -> [return: bb7];
+        (*_23).[8: std.taskgroup.TaskGroup] = move _2;
+        _4 = ref(shared, (*_23).[8: std.taskgroup.TaskGroup]);
+        _15 = spawn group group_task_root.double(n: Int) [] -> [return: bb11];
     }
 
     bb2: {
-        (*_20).[264: std.taskgroup.Task<Int>] = move _5;
-        _6 = ref(shared, (*_20).[264: std.taskgroup.Task<Int>]);
-        (*_20).[224: &std.taskgroup.Task<Int>] = move _6;
-        (*_20).[0: Int] = const 1: Int;
-        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [] -> [return: bb12] suspends;
+        (*_23).[280: std.taskgroup.Task<Int>] = move _5;
+        _6 = ref(shared, (*_23).[280: std.taskgroup.Task<Int>]);
+        (*_23).[240: &std.taskgroup.Task<Int>] = move _6;
+        (*_23).[0: Int] = const 1: Int;
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [] -> [return: bb16] suspends;
     }
 
     bb3: {
-        call builtin print [format "{}", copy (*_20).[344: Int]] -> [return: bb4];
+        call builtin print [format "{}", copy (*_23).[360: Int]] -> [return: bb4];
     }
 
     bb4: {
-        _9 = ref(shared, (*_20).[8: std.taskgroup.TaskGroup]);
-        _16 = spawn group group_task_root.hello(name: String) [] -> [return: bb9];
+        _9 = ref(shared, (*_23).[8: std.taskgroup.TaskGroup]);
+        _19 = spawn group group_task_root.hello(name: String) [] -> [return: bb13];
     }
 
     bb5: {
-        (*_20).[304: std.taskgroup.Task<Void>] = move _10;
-        _11 = ref(shared, (*_20).[304: std.taskgroup.Task<Void>]);
-        (*_20).[216: &std.taskgroup.Task<Void>] = move _11;
-        (*_20).[0: Int] = const 2: Int;
-        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [] -> [return: bb13] suspends;
+        (*_23).[320: std.taskgroup.Task<Void>] = move _10;
+        _11 = ref(shared, (*_23).[320: std.taskgroup.Task<Void>]);
+        (*_23).[232: &std.taskgroup.Task<Void>] = move _11;
+        (*_23).[0: Int] = const 2: Int;
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [] -> [return: bb17] suspends;
     }
 
     bb6: {
-        drop((*_20).[304: std.taskgroup.Task<Void>]);
-        drop((*_20).[264: std.taskgroup.Task<Int>]);
-        drop((*_20).[8: std.taskgroup.TaskGroup]);
-        return;
+        drop((*_23).[320: std.taskgroup.Task<Void>]);
+        drop((*_23).[280: std.taskgroup.Task<Int>]);
+        goto -> bb8;
     }
 
     bb7: {
-        _13 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _12] -> [return: bb8];
+        drop((*_23).[8: std.taskgroup.TaskGroup]);
+        return;
     }
 
     bb8: {
-        (*_13).[0: Int] = const 0: Int;
-        (*_13).[16: Int] = const 4: Int;
-        _14 = cast(move _4 as UnsafePointer<std.taskgroup.TaskGroup>);
-        _15 = std.taskgroup.TaskProvenance::Group;
-        _5 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _14, copy _12, copy _13, move _15] -> [return: bb2];
+        _12 = ref(shared, (*_23).[8: std.taskgroup.TaskGroup]);
+        _13 = call std.taskgroup.__saw_exec_teardown_park(group: &std.taskgroup.TaskGroup) [move _12] -> [return: bb9];
     }
 
     bb9: {
-        _17 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _16] -> [return: bb10];
+        _14 = Eq(copy _13, const 0: Int);
+        switch move _14 -> [true: bb7, false: bb10];
     }
 
     bb10: {
-        (*_17).[0: Int] = const 0: Int;
-        (*_17).[8: String] = const "root": String;
-        _18 = cast(move _9 as UnsafePointer<std.taskgroup.TaskGroup>);
-        _19 = std.taskgroup.TaskProvenance::Group;
-        _10 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Void>) [copy _18, copy _16, copy _17, move _19] -> [return: bb5];
+        (*(*_24).park) = move _13;
+        call std.thread.__saw_park_thread(word: Int) [] -> [return: bb8] suspends;
     }
 
     bb11: {
-        (*_20).[344: Int] = move (*_20).[216: Int];
-        goto -> bb3;
+        _16 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _15] -> [return: bb12];
     }
 
     bb12: {
-        (*_20).[0: Int] = const -3: Int;
-        goto -> bb11;
+        (*_16).[0: Int] = const 0: Int;
+        (*_16).[16: Int] = const 4: Int;
+        _17 = cast(move _4 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _18 = std.taskgroup.TaskProvenance::Group;
+        _5 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _17, copy _15, copy _16, move _18] -> [return: bb2];
     }
 
     bb13: {
-        (*_20).[0: Int] = const -4: Int;
+        _20 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _19] -> [return: bb14];
+    }
+
+    bb14: {
+        (*_20).[0: Int] = const 0: Int;
+        (*_20).[8: String] = const "root": String;
+        _21 = cast(move _9 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _22 = std.taskgroup.TaskProvenance::Group;
+        _10 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Void>) [copy _21, copy _19, copy _20, move _22] -> [return: bb5];
+    }
+
+    bb15: {
+        (*_23).[360: Int] = move (*_23).[232: Int];
+        goto -> bb3;
+    }
+
+    bb16: {
+        (*_23).[0: Int] = const -3: Int;
+        goto -> bb15;
+    }
+
+    bb17: {
+        (*_23).[0: Int] = const -4: Int;
         goto -> bb6;
     }
 }
@@ -295,7 +319,7 @@ fn std.taskgroup.Task.join() -> Int {
 }
 resume #12: group_task_root.hello(name: String) task root  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #43 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #44 std.task.yield_now() at (*frame).[16]
 fn group_task_root.hello(name: String) -> Void {
     let _0: Void;  // return
     let _1: String;  // param name
@@ -493,7 +517,7 @@ fn std.taskgroup.Task.join() -> Void {
         call std.task.__saw_park_ready() [] -> [return: bb20] suspends;
     }
 }
-resume #43: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #44: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {

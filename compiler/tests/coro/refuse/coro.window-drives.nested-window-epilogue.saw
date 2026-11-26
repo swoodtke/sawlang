@@ -1,0 +1,105 @@
+// refuses: coro.window-drives at 64:24
+// message: this call reaches the executor's sweep
+// a nested window inside the fenced one whose accessor's epilogue tears a group down: that epilogue runs
+// inside the outer window (K228)
+
+import std.task.{yield_now}
+
+struct Boot {
+    count: Int
+    other: Int
+}
+
+unsafe static var BOOT: Boot
+
+static SHARED: Int = 7
+
+func boot_slot() unsafe sync borrows(sync, BOOT.count) -> &var Int {
+    lend BOOT.count
+}
+
+func member() -> Int {
+    borrow var c = boot_slot() {
+        c += 100
+    }
+    1
+}
+
+func after() -> Int {
+    let v = borrow var b = boot_slot() {
+        b
+    }
+    v
+}
+
+struct Cell {
+    v: Int
+}
+
+extension Cell {
+    func get(&var self) sync borrows(sync) -> &var Int {
+        var g = TaskGroup()
+        let _ = g.spawn(member())
+        lend self.v
+    }
+}
+
+func shared_slot() borrows(SHARED) -> &Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    lend SHARED
+}
+
+func other_slot() unsafe sync borrows(sync, BOOT.other) -> &var Int {
+    var g = TaskGroup()
+    let _ = g.spawn(member())
+    lend BOOT.other
+}
+
+func bump_a() -> Int {
+    yield_now()
+    var cell = Cell(v: 0)
+    borrow var b = boot_slot() {
+        b = 1
+        borrow var x = cell.get() {
+            x += 1
+        }
+        print("inside the window (a): {}", b)
+    }
+    0
+}
+
+func bump_b() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        borrow let s = shared_slot() {
+            print("shared {}", s)
+        }
+        print("inside the window (b): {}", b)
+    }
+    0
+}
+
+func bump_c() -> Int {
+    yield_now()
+    borrow var b = boot_slot() {
+        b = 1
+        borrow var o = other_slot() {
+            o += 1
+        }
+        print("inside the window (c): {}", b)
+    }
+    0
+}
+
+func main() {
+    var outer = TaskGroup()
+    let t = outer.spawn(bump_a())
+    print("a returns {}", t.join())
+    let t2 = outer.spawn(bump_b())
+    print("b returns {}", t2.join())
+    let t3 = outer.spawn(bump_c())
+    print("c returns {}", t3.join())
+    print("after: {}", after())
+}
