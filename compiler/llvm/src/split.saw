@@ -129,11 +129,14 @@ extension LlSplit: NoCopy {}
 
 // THE SPLIT: module text `text` cut into the units `plan` names, in plan
 // order, each holding at least one definition or global; or no units, with
-// the problem that stopped it in `problems`.
+// the problem that stopped it in `problems`. Under `pad`, each unit begins
+// with a one-instruction function: dsymutil drops the line table of a function
+// at address 0 of an LTO object, which is the unit's first one unless
+// something else is.
 //
 // ENTRY POINTS:
 //   driver_split_build
-public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<String>) -> Vector<LlUnit> {
+public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<String>, pad: Bool) -> Vector<LlUnit> {
     var s = LlSplit(entities: Vector<LlEntity>(), refs: Vector<Int>(), by_symbol: Map<String, Int>(),
                     meta: Vector<Int>(), attrs: Vector<Int>(), header_stop: 0, comdats: false, owner: Vector<Int>(),
                     owned_first: Vector<Int>(), owned: Vector<Int>(),
@@ -170,7 +173,7 @@ public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<Str
     while u < count {
         if s.owned_first[u + 1] > s.owned_first[u] {
             let name = plan.names.get(u) ?? "-unit"
-            let unit_text = ll_split_unit_text(&var s, &text, u, name)
+            let unit_text = ll_split_unit_text(&var s, &text, u, name, pad)
             try! units.push(LlUnit(name: name, text: unit_text))
         }
         u = u + 1
@@ -609,7 +612,7 @@ func ll_split_closure(s: &var LlSplit, u: Int, needed: &var Vector<Int>) -> Vect
 // attribute groups, named metadata and numbered metadata. Byte constants and
 // metadata take the unit's own numbers (`ll_split_number_unit`). A unit's
 // name is a module path or `-program`, which needs no escape in a quoted name.
-func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) -> String {
+func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String, pad: Bool) -> String {
     var needed = Vector<Int>()
     let held = ll_split_closure(&var s, u, &var needed)
     var pool = Vector<Int>()
@@ -634,8 +637,9 @@ func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) ->
             try! tail.push(e)
         }
     }
-    s.used_text = ll_split_used_text(&s, u)
-    if s.used_text.len() > 0 {
+    let pad_symbol = if pad { ll_split_pad_symbol(name) } else { "" }
+    s.used_text = ll_split_used_text(&s, u, pad_symbol)
+    if s.used_text.len() > 0 && s.used_entity >= 0 {
         try! globals.push(s.used_entity)
     }
     ll_split_by_symbol(&s, &var globals)
@@ -683,6 +687,14 @@ func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) ->
     }
     ll_split_write_all(&var out, &s, &text, &globals)
     ll_split_write_all(&var out, &s, &text, &declares)
+    if pad {
+        try! out.append("define hidden void ")
+        try! out.append(pad_symbol)
+        try! out.append("() noinline nounwind \{\nentry:\n  ret void\n\}\n")
+        if s.used_entity < 0 {
+            try! out.append(s.used_text)
+        }
+    }
     ll_split_write_all(&var out, &s, &text, &defines)
     k = 0
     while k < needed.len() {
@@ -710,11 +722,22 @@ func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) ->
     out.build()
 }
 
-// Unit `u`'s `@llvm.used` line: the elements of the module's list that `u`
+// The symbol of the padding function of the unit named `name`, which no other
+// unit's shares.
+func ll_split_pad_symbol(name: String) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"__saw_pad.")
+    try! out.append(name)
+    try! out.append("\"")
+    out.build()
+}
+
+// Unit `u`'s `@llvm.used` line (and `pad`, a padding function's symbol, when
+// it is not ""):the elements of the module's list that `u`
 // defines, in the list's order, each a symbol an optimizer or a link run on
 // the unit alone keeps; "" when it defines none. A unit lists only what it
 // defines, since a declaration roots nothing under ThinLTO.
-func ll_split_used_text(s: &LlSplit, u: Int) -> String {
+func ll_split_used_text(s: &LlSplit, u: Int, pad: String) -> String {
     var mine = Vector<String>()
     var k = 0
     while k < s.used_elements.len() {
@@ -722,6 +745,9 @@ func ll_split_used_text(s: &LlSplit, u: Int) -> String {
             try! mine.push(s.entities[s.used_elements[k]].symbol)
         }
         k = k + 1
+    }
+    if pad.len() > 0 {
+        try! mine.push(pad)
     }
     if mine.len() == 0 {
         return ""

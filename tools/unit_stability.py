@@ -136,7 +136,8 @@ def build_units(sawc, program, root, flags):
     for name, rel in program.packages:
         argv += ["--module-path", "%s=%s" % (name, rel)]
     argv += [program.entry, "-o", out]
-    r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=BUILD_TIMEOUT_S)
+    r = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=BUILD_TIMEOUT_S,
+                       env=dict(os.environ, SAWC_KEEP_UNITS="1"))
     if r.returncode != 0:
         raise RuntimeError("the build in %s exits %d: %s" % (root, r.returncode, (r.stdout + r.stderr)[-1500:]))
     units = {}

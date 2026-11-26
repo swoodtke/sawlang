@@ -204,7 +204,8 @@ func driver_speed_level(flag: String) -> String {
 // links them (`driver_split_build`), optimised across them as `--lto` says
 // (`driver_codegen_choice`), reusing the object of every unit whose key the
 // object cache holds unless `--no-object-cache` says otherwise
-// (`driver_object_key`); `--codegen-units=1`, the default, compiles the
+// (`driver_object_key`); a hosted build takes it by default, and
+// `--codegen-units=1`, the default of `-c` and `--freestanding`, compiles the
 // whole program as one module. `--link-object`, `--link-archive`,
 // `--link-library`, `--link-library-path` and `--link-framework` add C objects,
 // static archives and libraries to the executable's link, in `driver_link_tail`'s
@@ -333,7 +334,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if path.len() == 0 || (emit && out.len() > 0) {
         return driver_usage()
     }
-    let codegen = driver_codegen_choice(units, lto, speed)
+    let codegen = driver_codegen_choice(units, lto, speed, object || freestanding)
     if codegen.0.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
@@ -479,17 +480,18 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         // key holds, so a sanitized build is never cached.
         let objects_kind = driver_object_kind()
         let cache = if no_cache || sanitize || cache_entries == 0 { "" } else { driver_cache_directory(&objects_kind) }
+        // The processor count's scratch file goes under the default output.
+        if not driver_make_default_directory(defaulted) {
+            return 1
+        }
         let job = DriverSplit(clang: compiler, triple: clang_triple, speed: speed, sanitize: sanitize,
                               freestanding: freestanding, debug: debug, object: object, lto: lto, out: out,
-                              token: token, jobs: driver_jobs(out, token), timed: timed,
+                              token: token, timed: timed,
                               bare_metal: freestanding || target_bare_metal(triple),
                               objcopy: if cross { foreign_objcopy.build() } else { objcopy.build() },
                               cache: cache, cache_entries: cache_entries)
         if object && not target_mach_o(triple) && job.objcopy.len() == 0 {
             print("sawc build: a split -c object for {} needs llvm-objcopy to make its codegen units' hidden symbols local, and the target's record names none: compiler/tools/build.py records the one `clang -print-prog-name=llvm-objcopy` names, else llvm-objcopy or llvm-objcopy-NN on PATH, else Homebrew LLVM's; install LLVM's binary tools (Homebrew's `llvm`, Debian's `llvm-NN`) and run it again, or build with --codegen-units=1", triple)
-            return 1
-        }
-        if not driver_make_default_directory(defaulted) {
             return 1
         }
         let text = ir.build()
@@ -1114,16 +1116,18 @@ func driver_dsymutil(clang: String, out: String, dir: String, token: String) blo
 // one, as (`1` or `module`, `thin`, `full` or `none`); ("", "") once a usage
 // error is printed. `--codegen-units=` and `--lto=` win; without them,
 // `SAWC_CODEGEN_UNITS` and `SAWC_LTO`, which let a lane build every program
-// one way. A split build's link optimises across its units with ThinLTO
-// unless it is `-O0`; a whole-module build is already one unit, so `--lto`
-// takes a split one.
-func driver_codegen_choice(flag_units: String, flag_lto: String, speed: String) -> (String, String) {
+// one way. With neither, a hosted build is split and a `-c` or `--freestanding`
+// build (`one`) is one module. A split build's link optimises across its units
+// with ThinLTO unless it is `-O0`; a whole-module build is already one unit, so
+// an `--lto` flag takes a split one, and `SAWC_LTO` is read for a split build
+// alone.
+func driver_codegen_choice(flag_units: String, flag_lto: String, speed: String, one: Bool) -> (String, String) {
     var units = flag_units
     if units.len() == 0 {
         units = driver_environment("SAWC_CODEGEN_UNITS")
     }
     if units.len() == 0 {
-        units = "1"
+        units = if one { "1" } else { "module" }
     }
     if not (units.equals("1") || units.equals("module")) {
         print("sawc build: --codegen-units takes `1`, the whole program as one module, or `module`, one per Saw module, not `{}`", units)
@@ -1134,7 +1138,7 @@ func driver_codegen_choice(flag_units: String, flag_lto: String, speed: String) 
         print("sawc build: --lto takes a split build (--codegen-units=module): a whole-module build already optimises the whole program as one module")
         return ("", "")
     }
-    if lto.len() == 0 {
+    if lto.len() == 0 && units.equals("module") {
         lto = driver_environment("SAWC_LTO")
     }
     if lto.len() == 0 {
@@ -1207,7 +1211,7 @@ func driver_jobs(out: String, token: String) -> Int {
 // clang triple `triple` at `speed`, instrumented under `sanitize`, as a
 // `freestanding` object's when it is one, with line tables under `debug`;
 // then an object (`object`) or the executable `out`, optimised across the
-// units as `lto` says, `jobs` clang runs at once; under `timed`, a time line
+// units as `lto` says; under `timed`, a time line
 // per unit. `token` names the build's scratch files (`driver_scratch_path`).
 // `bare_metal` is a freestanding object's or a bare-metal target's,
 // which links with `ld.lld`. `objcopy` is the target's llvm-objcopy, or "".
@@ -1224,7 +1228,6 @@ struct DriverSplit {
     lto: String
     out: String
     token: String
-    jobs: Int
     timed: Bool
     bare_metal: Bool
     objcopy: String
@@ -1255,17 +1258,166 @@ extern "C" {
 // `sawc build --codegen-units=module`: the program's `.ll`, `text`, written to
 // `OUT.ll` as a whole-module build writes it, and cut by `plan` into one
 // module per Saw module (`ll_split`), each written to `OUT.units/uN.ll` and
-// compiled by clang, `split.jobs` at a time, then
+// compiled by clang, `driver_jobs` at a time, then
 // linked with `objects` into the executable `OUT`, or for `-c` into the one
 // object `OUT` by a relocatable link (`driver_split_link`). A unit whose key
 // the object cache holds takes its object from there and is not compiled, and
 // each one compiled is stored (`driver_cache_fetch`, `driver_cache_store`).
-// The unit objects are removed once linked. A clang that fails fails the
-// build with its exit status; with `--time-stages` each unit's compile time,
-// or `cached` and its fetch time, is a line of its own, in unit order, and
-// the cache's own work one more.
+// When the build ends, failed or not, it removes the files it wrote into
+// `OUT.units` and, when it made the directory, the directory too if nothing
+// else is in it; `SAWC_KEEP_UNITS`, which tooling reading the units' text sets,
+// keeps all of it. A directory that was there, and what the build did not
+// write into it, is never touched. A clang that fails fails the build with its
+// exit status; with `--time-stages` each unit's compile time, or `cached` and
+// its fetch time, is a line of its own, in unit order, and the cache's own
+// work one more.
 func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, objects: &Vector<String>,
                        inputs: &DriverLinkInputs) -> Int {
+    var named = StringBuilder()
+    try! named.append(split.out)
+    try! named.append(".units")
+    let dir = named.build()
+    // A directory sawc made and an earlier build left is sawc's still.
+    let existed = Directory.exists(Path(s: dir))
+    let ours = not existed || File.exists(Path(s: driver_made_marker(dir)))
+    if existed {
+        driver_reclaim_leftovers(dir)
+    }
+    var written = Vector<String>()
+    let status = driver_split_units(&split, &plan, &text, &objects, &inputs, &var written)
+    if driver_environment("SAWC_KEEP_UNITS").len() > 0 {
+        return status
+    }
+    var removed = 0
+    var k = 0
+    while k < written.len() {
+        let one = written[k]
+        k = k + 1
+        match File.remove(Path(s: one)) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                match e.kind() {
+                    case NotFound -> {},
+                    case _ -> {
+                        // What will not unlink is the link's directory of LTO
+                        // objects: one flat level, then the directory.
+                        if driver_remove_flat(one) != 0 {
+                            print("sawc build: cannot remove {}, a codegen unit's file: {}", one, e)
+                            removed = 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ours {
+        driver_release_marked(dir)
+    }
+    if status != 0 { status } else { removed }
+}
+
+// The marker file a directory sawc makes holds, written first.
+func driver_made_marker(dir: String) -> String {
+    driver_path(dir, ".sawc-made", "")
+}
+
+// Makes directory `dir` and writes its marker; false once the cause is printed.
+func driver_make_marked(dir: String) -> Bool {
+    match Directory.create(Path(s: dir)) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("sawc build: cannot create {}, where the codegen units are written: {}", dir, e)
+            return false
+        }
+    }
+    if not driver_write_file(driver_made_marker(dir), "") {
+        return false
+    }
+    true
+}
+
+// Removes directory `dir` when only its marker is left in it; anything else
+// there stays, with the marker.
+func driver_release_marked(dir: String) {
+    let found = match Directory.list(Path(s: dir)) {
+        case Ok(entries) -> move entries,
+        case Err(_) -> return
+    }
+    var others = 0
+    var k = 0
+    while k < found.len() {
+        if not driver_base_name(found[k].as_string()).equals(".sawc-made") {
+            others = others + 1
+        }
+        k = k + 1
+    }
+    if others > 0 {
+        return
+    }
+    let _ = File.remove(Path(s: driver_made_marker(dir)))
+    let _ = Directory.remove(Path(s: dir))
+}
+
+// Removes each `lto-N` in `dir` that carries the marker: what a build killed
+// before it cleaned up left. Its marker and its objects (`.o`) go, then the
+// directory; one that holds anything else stays, with a warning, since a
+// person put it there.
+func driver_reclaim_leftovers(dir: String) {
+    var number = 0
+    while File.exists(Path(s: driver_lto_path(dir, number))) {
+        let held = driver_lto_path(dir, number)
+        number = number + 1
+        if not File.exists(Path(s: driver_made_marker(held))) {
+            continue
+        }
+        let found = match Directory.list(Path(s: held)) {
+            case Ok(entries) -> move entries,
+            case Err(_) -> continue
+        }
+        var foreign = ""
+        var k = 0
+        while k < found.len() {
+            let name = driver_base_name(found[k].as_string())
+            if not (name.equals(".sawc-made") || name.ends_with(".o")) && foreign.len() == 0 {
+                foreign = name
+            }
+            k = k + 1
+        }
+        if foreign.len() > 0 {
+            print("sawc build: {} is marked as left by an interrupted build, but holds {}, which it leaves; delete the directory by hand", held, foreign)
+            continue
+        }
+        if driver_remove_flat(held) == 0 {
+            print("sawc build: removed {}, left by an interrupted build", held)
+        }
+    }
+}
+
+// Removes the files of directory `dir`, then `dir`; 0 when it is gone. A
+// directory inside it is left, and so is `dir`.
+func driver_remove_flat(dir: String) -> Int {
+    let found = match Directory.list(Path(s: dir)) {
+        case Ok(entries) -> move entries,
+        case Err(_) -> return 1
+    }
+    var j = 0
+    while j < found.len() {
+        match File.remove(Path(s: found[j].as_string())) {
+            case Ok(_) -> {},
+            case Err(_) -> return 1
+        }
+        j = j + 1
+    }
+    match Directory.remove(Path(s: dir)) {
+        case Ok(_) -> 0,
+        case Err(_) -> 1
+    }
+}
+
+// The body of `driver_split_build`: the units written, compiled and linked, and
+// in `made` every file it names in `OUT.units`.
+func driver_split_units(split: &DriverSplit, plan: &LlUnitPlan, text: &String, objects: &Vector<String>,
+                       inputs: &DriverLinkInputs, made: &var Vector<String>) -> Int {
     var whole = StringBuilder()
     try! whole.append(split.out)
     try! whole.append(".ll")
@@ -1275,9 +1427,13 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     if not written {
         return 1
     }
+    // Asked after the `.ll` is written: its scratch file names a random token, which a refused default
+    // output directory must not put in the message.
+    let workers = driver_jobs(split.out, split.token)
     let started = time.Instant.now()
     var problems = Vector<String>()
-    let units = ll_split(&text, &plan, &var problems)
+    let pad = split.debug && driver_mach_o(split.triple) && not split.lto.equals("none")
+    let units = ll_split(&text, &plan, &var problems, pad)
     if split.timed {
         driver_time_line("split", started.elapsed().as_nanos() as Int)
     }
@@ -1294,12 +1450,8 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     try! named.append(".units")
     let dir = named.build()
     if not Directory.exists(Path(s: dir)) {
-        match Directory.create(Path(s: dir)) {
-            case Ok(_) -> {},
-            case Err(e) -> {
-                print("sawc build: cannot create {}, where the codegen units are written: {}", dir, e)
-                return 1
-            }
+        if not driver_make_marked(dir) {
+            return 1
         }
     }
     stagetime_begin(StageTime.WriteLl)
@@ -1311,12 +1463,15 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
         try! stem.append("u")
         try! stem.append(k)
         let ll = driver_path(dir, stem.build(), ".ll")
+        let object = driver_path(dir, stem.build(), ".o")
+        try! made.push(ll)
+        try! made.push(object)
         if not driver_write_file(ll, units[k].text) {
             stagetime_end(StageTime.WriteLl)
             return 1
         }
         try! lls.push(ll)
-        try! compiled.push(driver_path(dir, stem.build(), ".o"))
+        try! compiled.push(object)
         k = k + 1
     }
     stagetime_end(StageTime.WriteLl)
@@ -1351,7 +1506,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     }
     var cache_nanos = looking.elapsed().as_nanos() as Int
     stagetime_begin(StageTime.Clang)
-    let done = driver_run_jobs(&jobs, split.jobs)
+    let done = driver_run_jobs(&jobs, workers)
     stagetime_end(StageTime.Clang)
     var status = 0
     var compile_nanos = Vector<Int>()
@@ -1400,7 +1555,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     if split.timed && cache.dir.len() > 0 {
         driver_time_line("object cache", cache_nanos)
     }
-    let linked = driver_split_link(&split, dir, &compiled, &objects, &inputs, &plan.exports, cache.thinlto)
+    let linked = driver_split_link(&split, dir, &compiled, &objects, &inputs, &plan.exports, cache.thinlto, workers, &var made)
     if linked != 0 {
         return linked
     }
@@ -1424,13 +1579,13 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
 // bare-metal ELF target does with `ld.lld`; an executable is linked with `objects` and the
 // target's libraries as `driver_link` links one module, and on Mach-O with
 // line tables as `driver_link_mach_o` does, the LTO objects kept in
-// `DIR/lto` for dsymutil and removed after it. Under `lto` the link
+// `DIR/lto-N` for dsymutil and removed after it. Under `lto` the link
 // optimises across the units (`-flto=`), with as many jobs as the compiles,
 // and keeps the C symbols `exports` global; a ThinLTO link keeps its
 // per-module results in `thinlto` when it names a directory
 // (`driver_thinlto_cache_arguments`).
 func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>,
-                       inputs: &DriverLinkInputs, exports: &Vector<String>, thinlto: String) -> Int {
+                       inputs: &DriverLinkInputs, exports: &Vector<String>, thinlto: String, workers: Int, made: &var Vector<String>) -> Int {
     let link = DriverLink(clang: split.clang, ll: "", out: split.out, speed: split.speed, sanitize: split.sanitize,
                           triple: split.triple, debug: split.debug, token: split.token)
     let mach_o = driver_mach_o(split.triple)
@@ -1443,7 +1598,7 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         try! arguments.push(driver_lto_flag(split.lto))
         var jobs = StringBuilder()
         try! jobs.append("-flto-jobs=")
-        try! jobs.append(split.jobs)
+        try! jobs.append(workers)
         try! arguments.push(jobs.build())
         driver_freestanding_arguments(&var arguments, split.freestanding)
         // An LTO backend run by `ld.lld -r` generates static code, whose
@@ -1466,6 +1621,12 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
                 x = x + 1
             }
         }
+    }
+    // Apple's linker folds identical functions into one, which leaves the
+    // other's call sites with no line (a whole-module build inlines the small
+    // identical ones, such as an accessor's prologues, and has none to fold).
+    if mach_o && split.debug && not split.object {
+        try! arguments.push("-Wl,-no_deduplicate")
     }
     // A bare-metal target has no system linker, and a hosted ELF one's may
     // have no LTO plugin.
@@ -1517,7 +1678,23 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
             var units_dir = StringBuilder()
             try! units_dir.append(driver_base_name(split.out))
             try! units_dir.append(".units")
-            kept = driver_path(driver_path(real_dir, units_dir.build(), ""), "lto", "")
+            // A path nothing holds yet, the lowest `lto-N` (the same one in
+            // every build, which the debug map records): the link writes the
+            // LTO objects into it (a directory under ThinLTO, one object under
+            // full LTO), and an entry of the user's is never written into.
+            let home = driver_path(real_dir, units_dir.build(), "")
+            var number = 0
+            kept = driver_lto_path(home, number)
+            while File.exists(Path(s: kept)) {
+                number = number + 1
+                kept = driver_lto_path(home, number)
+            }
+            // Made here and marked first, so a build killed before it removes
+            // the directory leaves one the next build recognizes as sawc's.
+            try! made.push(kept)
+            if not driver_make_marked(kept) {
+                return 1
+            }
             var path = StringBuilder()
             try! path.append("-Wl,-object_path_lto,")
             try! path.append(kept)
@@ -1541,6 +1718,14 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
     0
 }
 
+// `DIR/lto-N`, where a split link keeps its LTO objects.
+func driver_lto_path(dir: String, number: Int) -> String {
+    var name = StringBuilder()
+    try! name.append("lto-")
+    try! name.append(number)
+    driver_path(dir, name.build(), "")
+}
+
 // The linker flag that keeps C symbol `symbol` global through an LTO link:
 // Mach-O names it with its leading underscore, ELF as written.
 func driver_export_argument(symbol: String, mach_o: Bool) -> String {
@@ -1554,18 +1739,9 @@ func driver_export_argument(symbol: String, mach_o: Bool) -> String {
     flag.build()
 }
 
-// Removes the LTO objects a link kept at `kept` for dsymutil: under ThinLTO a
-// directory of them, under full LTO one object.
+// Removes the LTO objects a link kept in the directory `kept` for dsymutil
+// (ThinLTO's, or full LTO's one), its marker, and the directory.
 func driver_remove_lto_objects(kept: String, lto: String) -> Int {
-    if lto.equals("full") {
-        return match File.remove(Path(s: kept)) {
-            case Ok(_) -> 0,
-            case Err(e) -> {
-                print("sawc build: cannot remove {}, the LTO object the .dSYM was written from: {}", kept, e)
-                1
-            }
-        }
-    }
     let listed = Directory.list(Path(s: kept))
     let entries = match listed {
         case Ok(found) -> move found,

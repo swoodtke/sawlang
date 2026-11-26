@@ -18350,10 +18350,12 @@ sawc --build-id [--std-root DIR]
   runtime provider: its `@export`s may be the frozen seams, each checked
   against `runtime/ABI.md`, and a hosted one links with none of sawc's runtime
   objects (see Profiles). It combines with `--freestanding` and `-c`.
-- `--codegen-units=module` compiles the program as one LLVM module per Saw
-  module, the modules in parallel, then links them into the one executable
-  or, with `-c` or `--freestanding`, the one object. `--codegen-units=1`, the
-  default, compiles it as a single module. A split build optimises across its
+- `--codegen-units=module`, the default of a hosted build, compiles the
+  program as one LLVM module per Saw module, the modules in parallel, then
+  links them into the one executable or, with `-c` or `--freestanding`, the
+  one object. `--codegen-units=1`, the default of `-c` and `--freestanding`,
+  compiles it as a single module. A split build leaves nothing beside its
+  output but the `.ll`. A split build optimises across its
   modules at the link as `--lto` says: `thin` (ThinLTO, the default above
   `-O0`), `full` (full LTO), or `none` (the default at `-O0`). `--lto` takes
   a split build only. Either way the program's meaning is the same and

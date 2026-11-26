@@ -301,17 +301,39 @@ objects, or for `-c` and `--freestanding` one object by a relocatable link
 keeps a hidden symbol global, so an ELF object is then passed through
 `llvm-objcopy --localize-hidden`, the one the target's record names
 (`build.py`'s `choose_objcopy`), and a split `-c` for a target whose record
-names none is refused, naming it. `OUT.ll` and the units'
-`.ll` stay after every build, as a whole-module build's `OUT.ll` does; the
-unit objects are removed once linked, so after a failed compile or link they
-stay too, for inspecting the unit that failed. `--lto=thin`, the default
+names none is refused, naming it. `OUT.ll` stays after every build, as a
+whole-module build's does, and it is all that stays: the units' `.ll`, their
+objects and on Mach-O with `-g` and LTO the `lto/` directory, which the build
+writes into `OUT.units/`, are removed when the build ends, failed or not, and
+so is the directory when the build made it and it is empty. A directory that
+was there, and what the build did not write into it, is left alone.
+The link's LTO objects go to the lowest `OUT.units/lto-N` nothing holds
+(`lto-0` in a normal build, which keeps the debug map and so the binary the
+same from build to build). Each directory a build makes (`OUT.units/` and
+`lto-N`) holds a `.sawc-made` marker, written first, and the next build to the
+same output removes a marked `lto-N` a killed build left (its marker and `.o`
+files; one holding anything else stays, with a warning) and a marked, empty
+`OUT.units/`; an unmarked entry is never touched. Simultaneous builds to one
+output path are not supported.
+`SAWC_KEEP_UNITS`, set non-empty, keeps it as the build left it, for tooling that reads the
+units' text (`check_unit_stability`, `tools/unit_stability.py`) and for
+inspecting the unit that failed. `--lto=thin`, the default
 above `-O0`, links the units with ThinLTO; `--lto=full` with full LTO;
-`--lto=none` links them as compiled. An LTO link keeps exactly the program's
+`--lto=none` links them as compiled. On Mach-O with line tables, every unit of
+an LTO link begins with a one-instruction function (`__saw_pad.UNIT`), since
+dsymutil drops the line table of a function at address 0 of an LTO object, and
+the link passes `-no_deduplicate`, since Apple's linker folds identical
+functions (a whole-module build inlines the small ones and has none to fold) and
+a folded function's other call sites lose their line; `check_symbolization`
+pins both. An LTO link keeps exactly the program's
 `@export`s global (`-exported_symbol` on Mach-O, `--export-dynamic-symbol` on
 ELF), so an `@export` stays visible to `dlsym` and every other symbol is the
-link's to internalize. `--codegen-units=1` is the default and
-the whole-module build. `SAWC_CODEGEN_UNITS` and `SAWC_LTO` set the two for
-every build that does not name them, which is how a lane runs split.
+link's to internalize. `--codegen-units=module` is the default of a hosted
+build; `-c` and `--freestanding` default to `--codegen-units=1`, the
+whole-module build (SL-1190). `SAWC_CODEGEN_UNITS` and `SAWC_LTO` set the two
+for every build that does not name them, which is how a lane runs one way;
+`SAWC_LTO` is read for a split build alone, so it never refuses a one-module
+build, where an `--lto` flag does.
 `--emit-ll` ignores both. SL-955's comments hold the measured trade-off of
 each.
 

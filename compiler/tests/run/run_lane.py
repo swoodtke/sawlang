@@ -886,9 +886,15 @@ def symbolized(triple, clang, binary, address):
     return function, os.path.basename(m.group(1)), int(m.group(2))
 
 
+# The builds `check_symbolization` symbolizes: the default (split, ThinLTO
+# above -O0), then at -O2 the other links of a split build and the whole module.
+SYMBOLIZATION_BUILDS = (("-O0", []), ("-O2", []), ("-O2", ["--lto=none"]), ("-O2", ["--lto=full"]),
+                        ("-O2", ["--codegen-units=1"]))
+
+
 def check_symbolization(failures, counts):
-    """Each line-table program, built by sawc at -O0 and -O2 with its default
-    line tables, prints nothing and panics. Then every call into the failure
+    """Each line-table program, built by sawc at -O0 and -O2 (`SYMBOLIZATION_BUILDS`)
+    with its default line tables, prints nothing and panics. Then every call into the failure
     funnel whose innermost frame is in the program's file, wherever clang
     inlined it, symbolizes to the panic's own `FILE:LINE` in the function
     that panics, and there is one: through `atos` and the `.dSYM` on Mach-O,
@@ -903,11 +909,11 @@ def check_symbolization(failures, counts):
     for src, function in ((DEBUG_PANIC, "panic_lines.crash(n: Int)"), (DEBUG_CORO, "coro_lines.step(n: Int)"),
                           (DEBUG_TRY, "try_lines.claim(n: Int)")):
         name = os.path.splitext(os.path.basename(src))[0]
-        for speed in ("-O0", "-O2"):
-            where = "run line tables %s %s" % (name, speed)
-            binary = os.path.join(OUT, "%s.lines%s" % (name, speed[1:]))
+        for speed, flags in SYMBOLIZATION_BUILDS:
+            where = "run line tables %s %s %s" % (name, speed, " ".join(flags) or "(default)")
+            binary = os.path.join(OUT, "%s.lines%s%s" % (name, speed[1:], "".join(f.strip("-") for f in flags)))
             shutil.rmtree(binary + ".dSYM", ignore_errors=True)
-            r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags()
+            r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + flags + target_flags()
                                + [rel(src), "-o", binary], cwd=REPO, capture_output=True, text=True,
                                timeout=BUILD_TIMEOUT)
             said = (r.stdout + r.stderr).strip()
@@ -1430,10 +1436,10 @@ def check_time_stages(failures, counts):
     first = subprocess.run([build.SAWC, "build", "-g0"] + target_flags() + [src, "-o", plain], cwd=work,
                            capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     # The second computes every layer, the third loads them all.
-    second = subprocess.run([build.SAWC, "build", "-g0", "--time-stages", "--no-front-cache"] + target_flags()
-                            + [src, "-o", timed],
+    second = subprocess.run([build.SAWC, "build", "-g0", "--time-stages", "--no-front-cache", "--codegen-units=1"]
+                            + target_flags() + [src, "-o", timed],
                             cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    third = subprocess.run([build.SAWC, "build", "-g0", "--time-stages", "--codegen-units=module"] + target_flags()
+    third = subprocess.run([build.SAWC, "build", "-g0", "--time-stages"] + target_flags()
                            + [src, "-o", split], cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if first.returncode != 0 or second.returncode != 0 or third.returncode != 0:
         failures.append("run time stages: the build fails (%d, %d, %d): %s"
@@ -1523,8 +1529,9 @@ def check_codegen_units(failures, counts):
     module per Saw module, compiled apart and linked at every `--lto`, with
     line tables and without, runs as the whole-module build does, keeps its
     `@export` a global symbol (under LTO on Mach-O, the only one), writes the
-    same `.ll` beside it, and leaves no
-    unit object behind; `-c` writes
+    same `.ll` beside it, and leaves no unit object behind, and no `OUT.units`
+    at all unless `SAWC_KEEP_UNITS` keeps it, when it holds only `.ll` files;
+    `-c` writes
     the one object, which links into the same program; `--emit-ll` ignores
     the flag; and a bad value, or `--lto` on a whole-module build, is a usage
     error."""
@@ -1537,9 +1544,13 @@ def check_codegen_units(failures, counts):
     with open(os.path.join(work, "helper.saw"), "w") as fh:
         fh.write(CODEGEN_UNITS_HELPER)
 
-    def sawc(args):
+    def sawc(args, keep=True):
+        env = dict(os.environ)
+        env.pop("SAWC_KEEP_UNITS", None)
+        if keep:
+            env["SAWC_KEEP_UNITS"] = "1"
         return subprocess.run([build.SAWC, "build"] + target_flags() + args, cwd=work, capture_output=True,
-                              text=True, timeout=BUILD_TIMEOUT)
+                              text=True, timeout=BUILD_TIMEOUT, env=env)
 
     def ran(binary, where):
         code, out, err = execute(binary)
@@ -1549,7 +1560,7 @@ def check_codegen_units(failures, counts):
 
     def left(binary, where):
         units = binary + ".units"
-        stray = sorted(f for f in os.listdir(units) if not f.endswith(".ll")) if os.path.isdir(units) else ["?"]
+        stray = sorted(f for f in os.listdir(units) if not f.endswith(".ll") and f != ".sawc-made") if os.path.isdir(units) else ["?"]
         if stray:
             failures.append("run codegen units: %s leaves %r beside its units" % (where, stray))
 
@@ -1629,6 +1640,161 @@ def check_codegen_units(failures, counts):
     counts["run codegen unit builds checked"] = len(CODEGEN_UNITS_BUILDS) + 1
 
 
+def check_default_codegen_units(failures, counts):
+    """With no `--codegen-units` and no `SAWC_CODEGEN_UNITS`, a hosted
+    executable build is split (a `split` line under `--time-stages`) and
+    leaves no `OUT.units` it made, and nothing of a user's in one that was
+    there, while `SAWC_KEEP_UNITS` keeps its units; a `-c` build and
+    a `--freestanding` build are one module, and `SAWC_LTO` does not refuse
+    either (it applies to a split build alone)."""
+    work = os.path.join(OUT, "default-codegen-units")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    src = os.path.join(work, "main.saw")
+    with open(src, "w") as fh:
+        fh.write(TIME_STAGES_SOURCE)
+    bare = os.path.join(PROBES, FREESTANDING_PROBE)
+
+    def sawc(args, env_extra=None):
+        env = dict(os.environ)
+        for name in ("SAWC_CODEGEN_UNITS", "SAWC_LTO", "SAWC_KEEP_UNITS"):
+            env.pop(name, None)
+        env.update(env_extra or {})
+        return subprocess.run([build.SAWC, "build", "-g0", "--time-stages"] + args, cwd=work, capture_output=True,
+                              text=True, timeout=BUILD_TIMEOUT, env=env)
+
+    def is_split(r):
+        return any(TIME_STAGES_SPLIT.match(line) for line in r.stderr.splitlines())
+
+    out = os.path.join(work, "program")
+    r = sawc(target_flags() + [src, "-o", out])
+    if r.returncode != 0:
+        failures.append("run default codegen units: the default build fails: %s" % (r.stdout + r.stderr).strip()[:300])
+    else:
+        if not is_split(r):
+            failures.append("run default codegen units: a hosted build with no flag is not split")
+        if os.path.exists(out + ".units"):
+            failures.append("run default codegen units: a split build leaves %s.units" % rel(out))
+    # A directory that was there is the user's: what the build did not write
+    # into it, nested files and an `lto` of its own included, is still there,
+    # at every optimisation and link, and its own files are gone.
+    theirs = ["keep.txt", os.path.join("notes", "deep.txt"), os.path.join("lto", "user.txt")]
+    for tag, flags, ok in (("o0", [], True), ("o2", ["-O2"], True), ("o2g", ["-O2", "-g"], True),
+                           ("full", ["-O2", "--lto=full", "-g"], True),
+                           ("failed", ["-O2", "-g", "--link-library", "sawc_no_such_library"], False)):
+        mine = os.path.join(work, "mine-" + tag)
+        os.makedirs(os.path.join(mine + ".units", "notes"))
+        os.makedirs(os.path.join(mine + ".units", "lto"))
+        for name in theirs:
+            with open(os.path.join(mine + ".units", name), "w") as fh:
+                fh.write("user data\n")
+        r = sawc(target_flags() + flags + [src, "-o", mine])
+        left = sorted(os.path.relpath(os.path.join(d, f), mine + ".units")
+                      for d, _, files in os.walk(mine + ".units") for f in files)
+        if (r.returncode == 0) != ok or left != sorted(theirs):
+            failures.append("run default codegen units: a %s build beside an existing %s.units exits %d and leaves "
+                            "%r, not the user's three files: %s"
+                            % (" ".join(flags) or "default", rel(mine), r.returncode, left,
+                               (r.stdout + r.stderr).strip()[:300]))
+    fresh = os.path.join(work, "fresh")
+    r = sawc(target_flags() + ["-O2", "-g", src, "-o", fresh])
+    if r.returncode != 0 or os.path.exists(fresh + ".units"):
+        failures.append("run default codegen units: a fresh -O2 -g build exits %d and leaves %s.units: %s"
+                        % (r.returncode, rel(fresh), (r.stdout + r.stderr).strip()[:300]))
+    # An `lto-0` the build did not make is not touched, and the build links
+    # with the next name.
+    held = os.path.join(work, "held")
+    os.makedirs(held + ".units")
+    with open(os.path.join(held + ".units", "lto-0"), "w") as fh:
+        fh.write("user data\n")
+    r = sawc(target_flags() + ["-O2", "-g", src, "-o", held])
+    with open(os.path.join(held + ".units", "lto-0")) as fh:
+        text = fh.read() if os.path.isfile(os.path.join(held + ".units", "lto-0")) else None
+    if r.returncode != 0 or text != "user data\n" or os.listdir(held + ".units") != ["lto-0"]:
+        failures.append("run default codegen units: a build beside an existing %s.units/lto-0 exits %d and "
+                        "leaves %r, not the user's file alone: %s"
+                        % (rel(held), r.returncode, os.listdir(held + ".units"), (r.stdout + r.stderr).strip()[:300]))
+    # Two cold builds at one output path are the same bytes: the path of the
+    # link's LTO objects, which the debug map records, is the same in each.
+    again = os.path.join(work, "again")
+    images = []
+    for _ in range(2):
+        r = sawc(target_flags() + ["-O2", "-g", "--no-object-cache", src, "-o", again])
+        if r.returncode != 0:
+            failures.append("run default codegen units: a cold -O2 -g build fails: %s"
+                            % (r.stdout + r.stderr).strip()[:300])
+            break
+        with open(again, "rb") as fh:
+            images.append(fh.read())
+        shutil.rmtree(again + ".dSYM", ignore_errors=True)
+    if len(images) == 2 and images[0] != images[1]:
+        failures.append("run default codegen units: two cold -O2 -g builds at one output path differ")
+    # What a killed build leaves is marked: a marked `lto-0` of objects is
+    # reclaimed and the build is on `lto-0` again, so its binary is a clean
+    # build's; one holding a person's file stays, with a warning; a marked,
+    # empty `OUT.units` goes with the next build.
+    marker = ".sawc-made"
+
+    def seed(units, lto_files):
+        shutil.rmtree(units, ignore_errors=True)
+        os.makedirs(os.path.join(units, "lto-0"))
+        for path in (os.path.join(units, marker), os.path.join(units, "lto-0", marker)):
+            with open(path, "w"):
+                pass
+        for name in lto_files:
+            with open(os.path.join(units, "lto-0", name), "w") as fh:
+                fh.write("left\n")
+
+    # The reclaim consumes what it finds, so the twin (one call, two binaries) cannot judge it.
+    if len(images) == 2 and not under_twin():
+        seed(again + ".units", ["0.arm64.thinlto.o"])
+        r = sawc(target_flags() + ["-O2", "-g", "--no-object-cache", src, "-o", again])
+        shutil.rmtree(again + ".dSYM", ignore_errors=True)
+        with open(again, "rb") as fh:
+            rebuilt = fh.read()
+        if r.returncode != 0 or "removed" not in r.stdout or "interrupted" not in r.stdout \
+                or os.path.exists(again + ".units") or rebuilt != images[0]:
+            failures.append("run default codegen units: a build beside a marked leftover lto-0 exits %d, leaves "
+                            "%s.units %s and builds %s clean build: %s"
+                            % (r.returncode, rel(again), "behind" if os.path.exists(again + ".units") else "no",
+                               "as the" if rebuilt == images[0] else "unlike the",
+                               (r.stdout + r.stderr).strip()[:300]))
+    person = os.path.join(work, "person")
+    seed(person + ".units", ["user.txt"])
+    r = sawc(target_flags() + ["-O2", "-g", src, "-o", person])
+    if r.returncode != 0 or "user.txt" not in r.stdout \
+            or not os.path.isfile(os.path.join(person + ".units", "lto-0", "user.txt")):
+        failures.append("run default codegen units: a build beside a marked lto-0 holding user.txt exits %d, "
+                        "does not leave it or does not say so: %s" % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    empty = os.path.join(work, "empty")
+    os.makedirs(empty + ".units")
+    with open(os.path.join(empty + ".units", marker), "w"):
+        pass
+    r = sawc(target_flags() + [src, "-o", empty])
+    if r.returncode != 0 or os.path.exists(empty + ".units"):
+        failures.append("run default codegen units: a build leaves a marked, empty %s.units: %s"
+                        % (rel(empty), (r.stdout + r.stderr).strip()[:300]))
+    kept = os.path.join(work, "kept")
+    r = sawc(target_flags() + [src, "-o", kept], {"SAWC_KEEP_UNITS": "1"})
+    if r.returncode != 0 or not os.path.isfile(os.path.join(kept + ".units", "u0.ll")):
+        failures.append("run default codegen units: SAWC_KEEP_UNITS=1 does not keep its units in %s.units: %s"
+                        % (rel(kept), (r.stdout + r.stderr).strip()[:300]))
+    obj = os.path.join(work, "object.o")
+    r = sawc(target_flags() + ["-c", src, "-o", obj], {"SAWC_LTO": "full"})
+    if r.returncode != 0 or is_split(r) or os.path.exists(obj + ".units"):
+        failures.append("run default codegen units: a -c build is split or fails (SAWC_LTO=full): %s"
+                        % (r.stdout + r.stderr).strip()[:300])
+    if bare_metal_record_problem(rel(bare)):
+        counts["run default codegen units checked"] = 1
+        return
+    free = os.path.join(work, "free.o")
+    r = sawc(["--freestanding", "--target", BARE_METAL_TARGET, bare, "-o", free], {"SAWC_LTO": "full"})
+    if r.returncode != 0 or is_split(r) or os.path.exists(free + ".units"):
+        failures.append("run default codegen units: a --freestanding build is split or fails (SAWC_LTO=full): %s"
+                        % (r.stdout + r.stderr).strip()[:300])
+    counts["run default codegen units checked"] = 1
+
+
 # The edits `check_unit_stability` makes to CODEGEN_UNITS' program, each
 # (file, text replaced, replacement, the edited module's name): a body, a new
 # function and a new string literal in the helper, below its suspension point
@@ -1669,7 +1835,7 @@ def check_unit_stability(failures, counts):
         out = os.path.join(root, "program")
         r = subprocess.run([build.SAWC, "build", "-O0", "--codegen-units=module"] + flags + target_flags()
                            + ["main.saw", "-o", out], cwd=root, capture_output=True, text=True,
-                           timeout=BUILD_TIMEOUT)
+                           timeout=BUILD_TIMEOUT, env=dict(os.environ, SAWC_KEEP_UNITS="1"))
         if r.returncode != 0:
             failures.append("run unit stability: the %s build fails: %s" % (name, (r.stdout + r.stderr).strip()[:300]))
             return None
@@ -3024,7 +3190,8 @@ def check_front_cache(failures, counts):
     unused = os.path.join(work, "unused")
     for args, extra, why in ((["--no-front-cache"], None, "--no-front-cache"),
                              ([], {"SAWC_FRONT_CACHE": "off"}, "SAWC_FRONT_CACHE=off")):
-        for command in (["build", "-g0"] + args + ["main.saw", "-o", "switched"],
+        # A whole-module build, since a split one stores its objects in the cache.
+        for command in (["build", "-g0", "--codegen-units=1"] + args + ["main.saw", "-o", "switched"],
                         ["typecheck", "--check"] + args + ["main.saw"], ["coro", "--check"] + args + ["main.saw"]):
             r = sawc(command, unused, extra)
             if r.returncode != 0 or os.path.exists(unused) or r.stderr:
@@ -5570,6 +5737,7 @@ def run(names=None, write=False):
         run_check(check_build_id, failures, counts)
         check_time_stages(failures, counts)
         check_codegen_units(failures, counts)
+        check_default_codegen_units(failures, counts)
         check_unit_stability(failures, counts)
         check_split_object(failures, counts)
         check_placed_symbols(failures, counts)
