@@ -1,0 +1,38 @@
+// refuses: borrows.root-value at 35:17
+// flags: --module-path gpk=compiler/tests/packages/layers/gpk --module-path zroot=compiler/tests/packages/layers/zroot
+// A closure that outlives its statement and compares tuples over `T`, made in a package that sorts
+// before the root's, is judged where the instance is reached (SL-1156).
+// errors: 1
+// message: may open a window on
+import gpk.*
+import zroot.*
+
+struct R {
+    n: Int
+}
+
+extension R: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+struct C {
+    n: Int
+}
+
+extension C: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func main() {
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let g = later_eq(C(n: 1))
+        let f = later_eq(R(n: 42))
+        print("tag {} {} {}", b.tag, g(), f())
+    }
+}

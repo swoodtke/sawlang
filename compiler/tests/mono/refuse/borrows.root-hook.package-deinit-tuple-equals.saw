@@ -1,0 +1,41 @@
+// refuses: borrows.root-hook at 34:23
+// flags: --module-path gpk=compiler/tests/packages/layers/gpk --module-path zroot=compiler/tests/packages/layers/zroot
+// A package's generic `deinit` that compares tuples over `T` runs the `==` of `T` where the
+// compiler drops, in a package that sorts before the root's (SL-1156).
+// errors: 1
+// message: may open a window on
+import gpk.*
+import zroot.*
+
+struct R {
+    n: Int
+}
+
+extension R: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+struct C {
+    n: Int
+}
+
+extension C: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func main() {
+    borrow var b = boot_slot() {
+        b.tag = 7
+        if b.tag == 7 {
+            let calm = Guarded(t: C(n: 1))
+            let w = Guarded(t: R(n: 42))
+            print("made {} {}", calm.t.n, w.t.n)
+        }
+        print("tag {}", b.tag)
+    }
+}

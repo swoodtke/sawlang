@@ -1,0 +1,35 @@
+// refuses: borrows.root-hook at 26:10
+// errors: 1
+// a `Printable.format` is called by a render into stack scratch, so it reaches no static root (SL-1156)
+// message: is `Printable.format`, which a render calls into stack scratch
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct Shown {
+    n: Int
+}
+
+extension Shown: Printable {
+    func format(&self, into: &var StringBuilder) {
+        install(self.n)
+        try! into.append(self.n)
+    }
+}
+
+func main() {
+    let s = Shown(n: 1)
+    print("{s}")
+}

@@ -1,0 +1,61 @@
+// refuses: borrows.root-value at 50:5
+// A function value an implementation makes over a type parameter is judged where the instance is
+// reached, even through a bound no call site of the generic sees (SL-1156).
+// message: may open a window on
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+trait Cleanup {
+    static func boom()
+}
+
+struct R {
+    n: Int
+}
+
+extension R: Cleanup {
+    static func boom() {
+        install(42)
+    }
+}
+
+trait Maker {
+    func make(&self) -> () -> Void
+}
+
+struct B<T: Cleanup> {
+    t: T
+}
+
+extension B<T: Cleanup>: Maker {
+    func make(&self) -> () -> Void {
+        { T.boom() }
+    }
+}
+
+func via<M: Maker>(m: &M) -> () -> Void {
+    m.make()
+}
+
+func main() {
+    let b = B(t: R(n: 1))
+    let f = via(&b)
+    borrow var w = boot_slot() {
+        w.tag = 7
+        f()
+        print("tag {}", w.tag)
+    }
+}

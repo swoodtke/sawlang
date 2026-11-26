@@ -1,0 +1,49 @@
+// refuses: borrows.root-hook at 37:40
+// std's `Vector<T, A>` frees through `A.dealloc`, so a vector over an allocator whose `dealloc`
+// opens a window is refused where its `deinit` is reached (SL-1156).
+// message: may open a window on
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+// An allocator whose `dealloc` opens BOOT's window: std's `Vector.deinit`
+// reaches it only through its `A: Allocator` parameter.
+struct Heap {
+}
+
+extension Heap: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        GlobalAllocator().alloc(size, align)
+    }
+
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        install(42)
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func sink(v: Vector<Int, Heap>) -> Int {
+    v.len()
+}
+
+func main() {
+    var v = Vector<Int, Heap>()
+    try! v.push(1)
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let n = sink(move v)
+        print("dropped {}: tag {}", n, b.tag)
+    }
+}

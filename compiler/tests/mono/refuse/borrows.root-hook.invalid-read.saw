@@ -1,0 +1,79 @@
+// refuses: borrows.root-hook at 65:19
+// A generic `deinit` whose cleanup replaces the static root under a `&String` borrowed from it is
+// refused where the instance is reached, so the read after the drop never runs (SL-1156).
+// message: may open a window on
+
+struct Label {
+    s: String
+}
+
+extension Label: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+struct Boot {
+    count: Int
+    name: Label?
+}
+
+extension Boot: NoCopy {}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, name: None)
+}
+
+func seed() {
+    var text = StringBuilder()
+    try! text.append("a label long enough to live on the heap")
+    boot_slot() = Boot(count: 1, name: Label(s: text.build()))
+}
+
+trait Cleanup {
+    func cleanup(&self)
+}
+
+struct R {
+    n: Int
+}
+
+extension R: Cleanup {
+    func cleanup(&self) {
+        install(self.n)
+    }
+}
+
+struct W<T: Cleanup> {
+    t: T
+}
+
+extension W<T: Cleanup>: NoCopy {
+    func deinit(&var self) {
+        self.t.cleanup()
+    }
+}
+
+// `s` borrows the label inside BOOT; the drop of `w` replaces BOOT under it.
+func probe(s: &String) -> Int {
+    let before = s.len()
+    if before > 0 {
+        let w = W(t: R(n: 2))
+        print("made {}", w.t.n)
+    }
+    print("before {} after {}", before, s.len())
+    s.len()
+}
+
+func main() {
+    seed()
+    borrow var b = boot_slot() {
+        let n = probe(&b.name!.s)
+        print("count {} n {}", b.count, n)
+    }
+}

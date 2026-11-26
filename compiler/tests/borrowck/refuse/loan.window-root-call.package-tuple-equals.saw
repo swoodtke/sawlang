@@ -1,0 +1,36 @@
+// refuses: loan.window-root-call at 33:17
+// flags: --module-path gpk=compiler/tests/packages/layers/gpk --module-path zroot=compiler/tests/packages/layers/zroot
+// Generic code in a package that sorts before the root's makes the `==` it runs on each tuple part
+// where its own layer is summarized, so a held window on the root refuses the call (SL-1156).
+import gpk.*
+import zroot.*
+
+struct R {
+    n: Int
+}
+
+extension R: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+struct C {
+    n: Int
+}
+
+extension C: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func main() {
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let calm = eq_tuple(C(n: 1), C(n: 1))
+        let r = eq_tuple(R(n: 42), R(n: 42))
+        print("tag {} {} {}", b.tag, calm, r)
+    }
+}

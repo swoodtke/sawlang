@@ -1,0 +1,32 @@
+// refuses: borrows.root-value at 25:36
+// errors: 1
+// a closure literal that is the default of an `escaping` parameter outlives the call that leaves the argument out, so it reaches no static root (SL-1156)
+// message: may outlive the statement that makes it
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct Holder {
+    f: () -> Void
+}
+
+func keep(f: () escaping -> Void = { install(42) }) -> Holder {
+    Holder(f: f)
+}
+
+func main() {
+    let h = keep()
+    h.f()
+}

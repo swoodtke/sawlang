@@ -1,0 +1,32 @@
+// refuses: loan.window-root-call at 29:17
+// flags: --module-path gpk=compiler/tests/packages/layers/gpk --module-path zroot=compiler/tests/packages/layers/zroot
+// A `&String` borrowed from the root's label is read after a package's tuple `==` replaced the
+// root: the call is refused where it runs, so the read never happens (SL-1156).
+import gpk.*
+import zroot.*
+
+struct R {
+    n: Int
+}
+
+extension R: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+func probe(s: &String) -> Int {
+    let before = s.len()
+    let same = eq_tuple(R(n: 2), R(n: 2))
+    print("before {} after {} same {}", before, s.len(), same)
+    s.len()
+}
+
+func main() {
+    seed()
+    borrow var b = boot_slot() {
+        let n = probe(&b.name!.s)
+        print("count {} n {}", b.count, n)
+    }
+}

@@ -1,0 +1,55 @@
+// refuses: borrows.root-erased at 54:17
+// errors: 1
+// a generic body that erases its own parameter to `any` is judged at the instantiation whose implementation opens a window (SL-1156)
+// message: its body makes it `any` at
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+trait Probe {
+    func look(&self) -> Int
+}
+
+struct Writer {
+    n: Int
+}
+
+extension Writer: Probe {
+    func look(&self) -> Int {
+        boot_slot() = Boot(count: self.n, tag: self.n)
+        self.n
+    }
+}
+
+struct Quiet {
+    n: Int
+}
+
+extension Quiet: Probe {
+    func look(&self) -> Int {
+        self.n
+    }
+}
+
+func use(p: &any Probe) -> Int {
+    p.look()
+}
+
+func erase<T: Probe>(t: &T) -> Int {
+    use(&t)
+}
+
+func main() {
+    let q = Quiet(n: 1)
+    let w = Writer(n: 2)
+    print("{}", erase(&q))
+    print("{}", erase(&w))
+}

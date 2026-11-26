@@ -1,0 +1,35 @@
+// refuses: borrows.root-hook at 26:10
+// errors: 1
+// a policy `copy()` runs where the compiler copies the value, so it reaches no static root (SL-1156)
+// message: is a copy policy's `copy()`
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct Token {
+    n: Int
+}
+
+extension Token: ExplicitCopy {
+    func copy(&self) -> Token {
+        install(self.n)
+        Token(n: self.n)
+    }
+}
+
+func main() {
+    let t = Token(n: 1)
+    print("{}", t.copy().n)
+}

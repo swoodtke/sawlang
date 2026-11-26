@@ -430,7 +430,8 @@ sections, each with an owner, every path it names existing, every row the
 borrow check owns, U6d1's or U6d2's, naming a fixture or golden here); that
 each golden's record equals its `.borrowck` file byte for byte (`--write`
 rewrites them); that each refusal fixture is refused first at its header's
-position (`--fill` writes a `// refuses: TODO` header) and by no rule on
+position (`--fill` writes a `// refuses: TODO` header; a `// flags: ...` line
+passes flags, as `--module-path` does for a fixture over packages) and by no rule on
 more than one `ERROR` line, since a fixture is one conflict per rule and a
 second line of a rule is that conflict refused again, with no `INVARIANT`
 under `sawc borrowck` and neither an `ERROR` nor an `INVARIANT` under `sawc

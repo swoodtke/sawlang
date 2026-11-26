@@ -1,0 +1,49 @@
+// refuses: borrows.root-hook at 48:5
+// A `Printable.format` that reaches a static root only through a type parameter's requirement is
+// judged at the instance a render reaches (SL-1156).
+// message: may open a window on
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+trait Poke {
+    func poke(&self)
+}
+
+struct R {
+    n: Int
+}
+
+extension R: Poke {
+    func poke(&self) {
+        install(self.n)
+    }
+}
+
+struct Wrap<T: Poke> {
+    t: T
+}
+
+extension Wrap<T: Poke>: Printable {
+    func format(&self, into: &var StringBuilder) {
+        self.t.poke()
+        try! into.append("wrap")
+    }
+}
+
+func main() {
+    let w = Wrap(t: R(n: 3))
+    print("{}", w)
+}

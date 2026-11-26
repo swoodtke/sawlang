@@ -5945,13 +5945,12 @@ pointer.
 
 #### Lending a static
 
-**Status: grammar and declaration rules landing (SL-1156). Built: the
-declaration rules, the naming rule, the callee's `lend` and the caller's
-window, which charges the root, the `Sync` check on a shared root, shared
-windows across threads, and the `deinit` a declared root
-`unsafe static var` may hold. Not built yet: the call summary, so a callee
-that opens a window on the same root inside a caller's window goes
-unchecked.** A function with no receiver may lend a module static if it
+**Status: landing (SL-1156). Built: the declaration rules, the naming
+rule, the callee's `lend` and the caller's window, which charges the root,
+the `Sync` check on a shared root, shared windows across threads, the
+`deinit` a declared root `unsafe static var` may hold, the call summary
+and its check, and the three creation rules below. Not built yet: the
+skill's chapter and the twin.** A function with no receiver may lend a module static if it
 declares which one: `borrows(ROOT)` names the root, and `lend` may hand out a
 place under it.
 
@@ -5988,8 +5987,37 @@ goes through a window the compiler can see.
 The caller's window charges the root's static path, so two windows on
 overlapping roots conflict under the Law of Exclusivity, and disjoint field
 roots (`BOOT.system` and `BOOT.count`) coexist. A call that may open a
-conflicting window on the root, through any chain of callees, is refused inside
-a live window on it, and so is a call the compiler cannot see into.
+conflicting window on the root, through any chain of callees (across modules,
+through operators (the equality, ordering and hashing a tuple, an `Optional` or
+an array compares by, and the inserts a collection literal makes, included),
+`for`, defaults and non-escaping closures a call is handed),
+is refused inside a live window on it. A call through the function's own
+non-escaping function parameter, or through a type parameter's requirement in
+a generic body, is refused too while such a window is live, since the
+function cannot see which window the argument or the instantiation opens.
+
+Everything else a call can reach is made root-free where it is made, so a call
+through it needs no summary:
+
+- `borrows.root-value`: a closure that may escape (let-bound, stored,
+  returned, or passed to an `escaping` parameter, wherever it is written: a
+  static's initializer, a parameter default and a test case included), a
+  `FuncPointer` and a function name kept as a value are refused when their
+  code reaches a root. A closure or name passed straight to a non-escaping
+  parameter, or given as that parameter's default, is not a value; the call
+  counts it. A `Thread.spawn` brace is exempt.
+- `borrows.root-erased`: erasing a type to `any Trait`, the error a `try`
+  boxes into `Box<any Error>` included, is refused when an implementation of
+  one of the trait's requirements, `sync` ones included, reaches a root.
+- `borrows.root-hook`: a `deinit`, a policy `copy()` and a `Printable.format`
+  that reach a root are refused at their declaration. The compiler calls them
+  for drops, copies and renders, at positions no source call names.
+
+A generic closure, erasure or hook is judged at each instantiation, an
+implementation reached through a bound included: one that reaches a root only
+through a type argument is refused where the program first reaches that
+instance. std's `Vector<T, A>` frees through `A.dealloc`, so a vector over an
+allocator whose `dealloc` reaches a root is refused that way.
 
 A static is reachable from every task and thread, so the compiler checks what
 one function and its callees can show, and the root's module owes the rest:
@@ -6001,7 +6029,9 @@ one function and its callees can show, and the root's module owes the rest:
   suspends, and on one thread no other task runs inside it.
 - **The `unsafe` obligation:** an exclusive window on a static root never
   overlaps another window on an overlapping root opened by another task or
-  thread. Every function that can open one names an `unsafe static var` and is
+  thread, by a spawned thread's brace, by an `@export` entry called from
+  foreign code, through `FuncPointer.from_raw`, or through an unsafe pointer
+  to a path under the root. Every function that can open one names an `unsafe static var` and is
   declared `unsafe`, in one module, so that module states the argument (start-up
   before threads, a lock, one thread), as `claim()` does for `TABLE` in
   [`unsafe static var`](#unsafe-static-var--mutable-statics-for-compound-state).

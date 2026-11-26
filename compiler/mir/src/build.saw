@@ -1175,6 +1175,19 @@ extension MirProgram {
         self.tc.flat_call_roots(&acc, &var keys)
     }
 
+    // The static roots the collection literal of type `t`, written in
+    // function `f`, may open a window on through its container's `init()` and
+    // its entry inserts (`eval_literal`): the keys, sorted, and whether the
+    // literal is opaque. A program with no key opens none.
+    public func literal_roots(&var self, f: Int, t: Int, keys: &var Vector<Int>) -> Bool {
+        if self.tc.root_keys.len() == 0 {
+            return false
+        }
+        var acc = TcAcc(owner: self.funcs[f].owner, unit: -1)
+        self.tc.eval_literal(t, -1, &var acc)
+        self.tc.flat_call_roots(&acc, &var keys)
+    }
+
     // Marks call `c` at source node `e` by whether it may drive the executor,
     // for a window half that is no suspension point (`suspension` marks the
     // rest).

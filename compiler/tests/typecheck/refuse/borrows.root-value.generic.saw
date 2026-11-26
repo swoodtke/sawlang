@@ -1,0 +1,50 @@
+// refuses: borrows.root-value at 48:13
+// errors: 1
+// a closure that calls through a bound and may escape is judged at the instantiation whose implementation opens a window (SL-1156)
+// message: whose `Probe.look` may open a window
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+trait Probe {
+    static func look() -> Int
+}
+
+struct Writer {
+    n: Int
+}
+
+extension Writer: Probe {
+    static func look() -> Int {
+        boot_slot() = Boot(count: 1, tag: 1)
+        1
+    }
+}
+
+struct Quiet {
+    n: Int
+}
+
+extension Quiet: Probe {
+    static func look() -> Int {
+        2
+    }
+}
+
+func later<T: Probe>() -> () sync -> Int {
+    { T.look() }
+}
+
+func main() {
+    let _ = later<Quiet>()
+    let f = later<Writer>()
+    print("{}", f())
+}

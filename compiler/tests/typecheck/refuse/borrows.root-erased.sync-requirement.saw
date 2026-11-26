@@ -1,0 +1,38 @@
+// refuses: borrows.root-erased at 37:21
+// errors: 1
+// a root function is `sync`, so a requirement declared `sync` is judged too (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+trait Probe {
+    func look(&self) sync -> Int
+}
+
+struct Writer {
+    n: Int
+}
+
+extension Writer: Probe {
+    func look(&self) sync -> Int {
+        boot_slot() = Boot(count: self.n, tag: self.n)
+        self.n
+    }
+}
+
+func use(p: &any Probe) -> Int {
+    p.look()
+}
+
+func main() {
+    let w = Writer(n: 1)
+    print("{}", use(&w))
+}

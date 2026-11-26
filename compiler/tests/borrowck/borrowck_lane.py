@@ -21,7 +21,8 @@ directory specifies:
   `golden/NAME.borrowck`, which carries no `ERROR` or `INVARIANT` line and
   leaves out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
-  refused first by RULE at the position its `// refuses:` header names, and
+  refused first by RULE at the position its `// refuses:` header names, with
+  the flags its `// flags: ...` line passes (`--module-path`, for packages), and
   by no rule on more than one `ERROR` line, with
   no `INVARIANT` line under `sawc borrowck` nor under `sawc mir`, and every
   rule the borrow check refuses by (`borrowck_rules` in
@@ -119,6 +120,7 @@ _ROW = re.compile(r"^\| ([A-Z]\d+) \|")
 _PATH = re.compile(r"`(compiler/tests/[^`]+)`")
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at (\d+:\d+))?$")
 _DUE = re.compile(r"^// due: (\S+) when (.+)$")
+_FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 _EXPECT = re.compile(r"//\s*EXPECT-ERROR-CONTAINS:\s*(.*)")
 # An expected diagnostic that names a move: the programs the differential
@@ -136,7 +138,8 @@ _NOT_LOAN_ERROR = re.compile(r"immutable", re.I)
 # A due fixture's `// due:` is its first line, ahead of its `// refuses:`.
 HEADER_RULE = fixture_headers.Rule(
     [fixture_headers.Header("due", _DUE.pattern, "// due: RULE when REASON", rows=(1,)),
-     fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1, 2))])
+     fixture_headers.Header("refuses", _HEADER.pattern, "// refuses: RULE at ROW:COL", rows=(1, 2)),
+     fixture_headers.Header("flags", _FLAGS.pattern, "// flags: FLAGS", rows=(2, 3))])
 
 
 def header_files():
@@ -434,12 +437,29 @@ def borrowck_rules():
     return _RULE.findall(body)
 
 
+def refusal_flags(path):
+    """The flags a refusal fixture's `// flags: ...` line passes (`--module-path`,
+    for a program built over packages), read from its leading comment."""
+    with open(path) as fh:
+        for _ in range(3):
+            m = _FLAGS.match(fh.readline().rstrip("\n"))
+            if m:
+                return tuple(m.group(1).split())
+    return ()
+
+
 def check_refusals(failures, counts, fill):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc(["--check"] + [rel(p) for p in cases])
-    got = stripped_records(out)
-    code, lowered_out = sawc(["--check"] + [rel(p) for p in cases], stage="mir")
-    lowered = stripped_records(lowered_out)
+    groups = {}
+    for path in cases:
+        groups.setdefault(refusal_flags(path), []).append(rel(path))
+    got = {}
+    lowered = {}
+    for flags, paths in sorted(groups.items()):
+        code, out = sawc(["--check"] + list(flags) + paths)
+        got.update(stripped_records(out))
+        code, lowered_out = sawc(["--check"] + list(flags) + paths, stage="mir")
+        lowered.update(stripped_records(lowered_out))
     covered = set()
     for path in cases:
         record = got.get(rel(path), "")

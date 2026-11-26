@@ -1,0 +1,53 @@
+// refuses: loan.window-root-call at 50:20
+// a fixed array compares by the equality of each element, which the compiler calls, so `==` on one
+// whose element opens a window on a static root is refused inside that window (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct HKey {
+    n: Int
+}
+
+extension HKey: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+extension HKey: Hashable {
+    func hash(&self, h: &var Hasher) {
+        install(self.n)
+        h.write_int(self.n)
+    }
+}
+
+extension HKey: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        install(self.n)
+        self.n.compare(&other.n)
+    }
+}
+
+func main() {
+    let x = [HKey(n: 43), HKey(n: 43)]
+    let y = [HKey(n: 43), HKey(n: 43)]
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let same = x == y
+        print("tag {} {}", b.tag, same)
+    }
+}

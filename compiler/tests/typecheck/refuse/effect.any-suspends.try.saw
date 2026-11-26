@@ -1,0 +1,39 @@
+// refuses: effect.any-suspends at 30:17
+// errors: 1
+// `try` boxes the error it propagates into the `Box<any Error>` its function returns, and a dispatch through `any` to a suspending implementation is refused there as it is at a `return` (SL-1156)
+// message: may suspend
+
+import std.task.*
+
+struct Bad {
+    n: Int
+}
+
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.n)
+    }
+
+    func to_string(&self) -> String {
+        yield_now()
+        "bad"
+    }
+}
+
+extension Bad: Error {}
+
+func fail() -> Result<Int, Bad> {
+    Bad(n: 42)
+}
+
+func outer() -> Result<Int, Box<any Error>> {
+    let x = try fail()
+    x
+}
+
+func main() {
+    match outer() {
+        case Ok(v) -> print(v),
+        case Err(e) -> print(e.to_string())
+    }
+}

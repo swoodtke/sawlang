@@ -1,0 +1,162 @@
+// flags: --std-root std
+// What the root-free-at-creation rules accept (SL-1156): a closure, a
+// `FuncPointer` and an erasure whose code reaches no static root; a hook that
+// opens no window or only a shared-only static's; a non-escaping closure and a
+// `Thread.spawn` brace that do reach one; and a generic judged at an
+// instantiation that reaches none.
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+struct Pool {
+    slots: Int
+}
+
+unsafe static var BOOT: Boot
+
+unsafe static var TABLE: Pool
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func table() unsafe borrows(TABLE.slots) -> &Int {
+    lend TABLE.slots
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+func pure(n: Int) sync -> Int {
+    n + 1
+}
+
+func run(body: () sync -> Void) sync {
+    body()
+}
+
+// A closure that reaches no root may be kept, returned and called anywhere.
+func quiet() -> () -> Int {
+    let held = { pure(1) }
+    held
+}
+
+// A `FuncPointer` to a root-free function.
+func pointer() -> Int {
+    let p: FuncPointer<(Int) sync -> Int> = pure
+    p(2)
+}
+
+// An erasure of a type whose methods open nothing.
+trait Probe {
+    func look(&self) -> Int
+}
+
+struct Quiet {
+    n: Int
+}
+
+extension Quiet: Probe {
+    func look(&self) -> Int {
+        self.n
+    }
+}
+
+struct Writer {
+    n: Int
+}
+
+extension Writer: Probe {
+    func look(&self) -> Int {
+        install(self.n)
+        self.n
+    }
+}
+
+func through_any(p: &any Probe) -> Int {
+    p.look()
+}
+
+func erase_quiet() -> Int {
+    let q = Quiet(n: 3)
+    through_any(&q)
+}
+
+// A `deinit` that opens no window, and one that reaches only a static no root
+// function lends exclusively.
+struct Tidy {
+    n: Int
+}
+
+extension Tidy: NoCopy {
+    func deinit(&var self) {
+        self.n = 0
+    }
+}
+
+struct Reader {
+    n: Int
+}
+
+extension Reader: NoCopy {
+    func deinit(&var self) {
+        self.n = table()
+    }
+}
+
+// A non-escaping closure and a named function run at the call that takes them.
+func reset() sync {
+    install(0)
+}
+
+func scoped() {
+    run(reset)
+    run({ install(1) })
+}
+
+// A `Thread.spawn` brace is the root module's obligation on other threads.
+func spawned() {
+    var h = try! Thread.spawn { install(2) }
+    h.detach()
+}
+
+// A static `FuncPointer` literal that reaches no root, a default literal and a
+// default name handed to a non-escaping parameter, which the call counts, and a
+// test case that calls a root function directly.
+struct Handler {
+    run: FuncPointer<() sync -> Void>
+}
+
+static QUIET_TABLE: Handler = Handler(run: { pure(1) })
+
+func use_literal(f: () sync -> Void = { install(5) }) {
+    f()
+}
+
+func use_name(f: () sync -> Void = reset) {
+    f()
+}
+
+@test "case calls a root function" {
+    install(3)
+}
+
+// A generic whose erasure reaches a root only at an instantiation (Writer, never made here).
+func later<T: Probe>(t: T) -> Int {
+    through_any(&t)
+}
+
+func main() {
+    print("{}", quiet()())
+    print("{}", pointer())
+    print("{}", erase_quiet())
+    print("{}", later(Quiet(n: 4)))
+    scoped()
+    spawned()
+    QUIET_TABLE.run()
+    use_literal()
+    use_name()
+}

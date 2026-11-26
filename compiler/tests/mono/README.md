@@ -443,7 +443,9 @@ fixture in `refuse/` is refused first at its header's position by the rule its
 name starts with, that refusal's message holding each `// message: TEXT` line
 of the fixture's leading comment and its record holding exactly N `ERROR`
 lines when a `// errors: N` line (after `// refuses:` and `// flags:`, before
-`// message:`) states N, and every rule has a fixture; that each
+`// message:`) states N, and every rule has a fixture (a fixture over packages
+passes `--module-path` in its `// flags:` line, to a package under
+`compiler/tests/packages/`, shared with the borrow check's lane); that each
 program in `backend/`, built by `sawc build --emit-ll`, is refused first at its
 header's position by its header's rule, holding each `// message:` line; that
 no refusal record holds one `ERROR` line twice; and that each type of a

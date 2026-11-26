@@ -20,12 +20,15 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
 // For the extension giving `export_class`, the C-ABI set an offload carries.
 import sawtypecheck.exports.{tc_export_rules}
+import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.nodetable.{TcNodeTable}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_PAIRED, TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS,
                                TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_VARIADIC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
-                               TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD,
+                               TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_ROOT_ERASED, TC_FORBID_ROOT_VALUE,
+                               TC_FORBID_SYNC, TC_FORBID_THREAD,
                                TcReceiver, TC_ITEM_CALL, TC_ITEM_CAPTURE, TC_ITEM_COPY, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
@@ -114,6 +117,8 @@ extension TcProgram {
         self.check_entry_root()
         self.check_blocking_declarations(&layer)
         self.check_function_values(&layer)
+        self.check_root_values(&layer)
+        self.check_root_hooks(&layer)
     }
 
     // Each named function taken as a function value (`function_value`), once
@@ -1084,6 +1089,13 @@ extension TcProgram {
             return
         }
         var acc = TcAcc(owner: owner, unit: -1)
+        if a.kind == TC_FORBID_ROOT_VALUE || a.kind == TC_FORBID_ROOT_ERASED {
+            self.eval_root_condition(recv, a.req, e, &var acc)
+            if acc.roots.len() > 0 {
+                self.refuse_forbidden(e, d, &a, recv)
+            }
+            return
+        }
         let sync_kind = a.kind == TC_FORBID_SYNC
         self.eval_condition(recv, a.req, e, not sync_kind, &var acc)
         if a.kind == TC_FORBID_THREAD {
@@ -1115,6 +1127,18 @@ extension TcProgram {
             self.eval_condition(from, req, id, true, &var acc)
             if acc.suspends {
                 self.refuse_suspending_dispatch(id, from, tr, req)
+                return
+            }
+        }
+        let every = self.dispatched_every_requirement(tr)
+        k = 0
+        while k < every.len() {
+            let req = every[k]
+            k = k + 1
+            var acc = TcAcc(owner: owner, unit: -1)
+            self.eval_root_condition(from, req, id, &var acc)
+            if acc.roots.len() > 0 {
+                self.refuse_root_dispatch(id, from, tr, req, &acc.roots)
                 return
             }
         }
@@ -2306,6 +2330,10 @@ extension TcProgram {
 
     func refuse_forbidden(&var self, e: Int, d: Int, a: &TcAtom, t: Int) {
         let m = self.node_module(a.origin)
+        if a.kind == TC_FORBID_ROOT_VALUE || a.kind == TC_FORBID_ROOT_ERASED {
+            self.refuse_forbidden_root(e, d, &a, t)
+            return
+        }
         var msg = StringBuilder()
         try! msg.append("this calls `")
         try! msg.append(self.res.decl_path(d))
@@ -2378,6 +2406,425 @@ extension TcProgram {
         }
         try! msg.append(" may suspend: a dispatch through `any` to a suspending implementation is refused, so call it on the concrete type, or take it as a generic parameter bounded by the trait")
         self.refuse_at(id, "effect.any-suspends", msg.build())
+    }
+}
+
+// THE ROOT-FREE-AT-CREATION RULES: a call
+// through a function value, an `any` dispatch and a call the compiler makes
+// for a drop, a copy or a render run code no summary can follow to its
+// source, so the code they run reaches no static root. Each rule is judged
+// where the value, the erasure or the hook is made.
+// ENTRY POINTS:
+//     check_effects
+//     check_erasure
+//     check_forbid_atom
+extension TcProgram {
+    // THE ROOT-VALUE CHECK (`borrows.root-value`): each closure that may
+    // escape, each `FuncPointer` literal or name, and each function name
+    // taken as a value that is not handed straight to a non-escaping
+    // parameter, whose code reaches a static root. A `Thread.spawn` brace is
+    // the root module's obligation on other threads.
+    func check_root_values(&var self, layer: &FrontLayer) {
+        if self.root_keys.len() == 0 {
+            return
+        }
+        var k = layer.closure_first
+        while k < self.closures.len() {
+            let e = self.closures[k]
+            k = k + 1
+            if not self.closure_is_root_value(e) {
+                continue
+            }
+            let found = self.closure_units.first(e, 0)
+            if found < 0 {
+                continue
+            }
+            let y = self.closure_units.value(found)
+            let unit = self.units[y]
+            if unit.root_count == 0 {
+                continue
+            }
+            var keys = Vector<Int>()
+            self.unit_keys_into(y, &var keys)
+            var msg = StringBuilder()
+            try! msg.append("this closure may outlive the statement that makes it, and its body may open a window on ")
+            try! msg.append(self.root_keys_text(&keys))
+            let chain = self.closure_root_chain(y, &keys)
+            if chain.len() > 0 {
+                try! msg.append(" (")
+                try! msg.append(chain)
+                try! msg.append(")")
+            }
+            try! msg.append(": ")
+            try! msg.append(self.root_value_reason())
+            self.refuse_at(e, "borrows.root-value", msg.build())
+        }
+        self.check_root_function_values(&layer)
+    }
+
+    // Why a function value that may escape reaches no static root.
+    func root_value_reason(&self) -> String {
+        "a call through a function value is not followed to its body, so wherever the value goes it could open that window inside one a caller holds. Call the function by name, or keep the window work out of the value"
+    }
+
+    func check_root_function_values(&var self, layer: &FrontLayer) {
+        var named = Vector<Int>()
+        var pointers = Vector<Int>()
+        var k = layer.function_value_first
+        while k < self.function_values.len() {
+            let e = self.function_values[k]
+            k = k + 1
+            let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+            let d = if at >= 0 { self.calls[at].target } else { -1 }
+            if d >= 0 && self.is_function_decl(d) && self.summaries[d].state == TC_SUMMARY_BODY && self.summaries[d].root_count > 0 {
+                try! named.push(e)
+            }
+        }
+        let fp = self.known.func_pointer
+        k = layer.tc_call_first
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if c.role != TcRole.Value || c.owner >= 0 || c.target < 0 || fp < 0 || not self.is_function_decl(c.target) {
+                continue
+            }
+            if c.node >= self.expr_types.len() || not self.is_nominal_of(self.expr_types[c.node], fp) {
+                continue
+            }
+            let s = self.summaries[c.target]
+            if s.state == TC_SUMMARY_BODY && s.root_count > 0 {
+                try! pointers.push(c.node)
+            }
+        }
+        if named.len() > 0 {
+            let parents = self.layer_parents(&layer)
+            k = 0
+            while k < named.len() {
+                let e = named[k]
+                k = k + 1
+                if self.closure_escapes(e, &parents) {
+                    self.refuse_root_function_value(e)
+                }
+            }
+        }
+        k = 0
+        while k < pointers.len() {
+            self.refuse_root_function_value(pointers[k])
+            k = k + 1
+        }
+    }
+
+    // Function name `e`, taken as a value, refused for what its body opens.
+    func refuse_root_function_value(&var self, e: Int) {
+        let d = self.calls[self.call_at[e]].target
+        let s = self.summaries[d]
+        var keys = Vector<Int>()
+        var j = 0
+        while j < s.root_count {
+            try! keys.push(self.root_sets[s.root_first + j])
+            j = j + 1
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` is taken as a function value that may escape, and its body may open a window on ")
+        try! msg.append(self.root_keys_text(&keys))
+        try! msg.append(" (")
+        try! msg.append(self.root_chain_from(d, &keys))
+        try! msg.append("): ")
+        try! msg.append(self.root_value_reason())
+        self.refuse_at(e, "borrows.root-value", msg.build())
+    }
+
+    // THE ROOT-HOOK CHECK (`borrows.root-hook`), its declaration half: a
+    // `deinit`, a policy `copy()` and a `Printable.format` run where the
+    // compiler drops, copies or renders, at positions no source call names,
+    // so one reaches no static root, as one that suspends is refused
+    // (`check_format_hooks`). Only the roots a hook's body reaches by name
+    // are judged; what it reaches through a type parameter's requirement is
+    // the instantiation's, which has no site here.
+    func check_root_hooks(&var self, layer: &FrontLayer) {
+        if self.root_keys.len() == 0 {
+            return
+        }
+        var refused = Vector<Int>()
+        let format = self.format_requirement()
+        var d = layer.decl_first
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            if info.kind == ResDeclKind.Method && self.name_text(info.name).equals("deinit") {
+                self.check_root_hook(d, self.hook_what(1), &var refused)
+            }
+            d = d + 1
+        }
+        var k = layer.tc_conformance_first
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl < 0 {
+                continue
+            }
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.kind != TcStatusKind.Written || st.member < 0 || not self.is_function_decl(st.member) {
+                    continue
+                }
+                if self.is_copy_requirement(st.requirement) {
+                    self.check_root_hook(st.member, self.hook_what(2), &var refused)
+                } else if format >= 0 && st.requirement == format {
+                    self.check_root_hook(st.member, self.hook_what(3), &var refused)
+                }
+            }
+        }
+    }
+
+    // What a hook of role `role` (`hook_role`) is, as a refusal says it.
+    func hook_what(&self, role: Int) -> String {
+        if role == 1 {
+            return "a `deinit`, which runs where a value is dropped"
+        }
+        if role == 2 {
+            return "a copy policy's `copy()`, which runs where the compiler copies the value"
+        }
+        "`Printable.format`, which a render calls into stack scratch"
+    }
+
+    // Function `d`'s hook role: 1 for a `deinit`, 2 for a written copy
+    // policy's `copy()`, 3 for a written `Printable.format`, 0 for no hook.
+    // The role fixes which instance a hook is judged at (`check_root_hooks`,
+    // mono's `judge_instance_roots`).
+    public func hook_role(&self, d: Int) -> Int {
+        if d < 0 || d >= self.res.decls.len() {
+            return 0
+        }
+        let info = self.res.decls[d]
+        if info.kind == ResDeclKind.Method && self.name_text(info.name).equals("deinit") {
+            return 1
+        }
+        let owner = self.owner_type_decl(d)
+        if owner < 0 {
+            return 0
+        }
+        let format = self.format_requirement()
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != owner {
+                continue
+            }
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.kind != TcStatusKind.Written || st.member != d {
+                    continue
+                }
+                if self.is_copy_requirement(st.requirement) {
+                    return 2
+                }
+                if format >= 0 && st.requirement == format {
+                    return 3
+                }
+            }
+        }
+        0
+    }
+
+    // Hook `d` (role `role`), run at instance `instance` where the type
+    // argument its condition names is `t`, whose requirement `req` opens a
+    // window on `keys`: the refusal mono makes where the instance is reached.
+    public func root_hook_instance_text(&var self, d: Int, role: Int, instance: String, t: Int, req: Int, keys: &Vector<Int>) -> String {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(instance)
+        try! msg.append("` (`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("`) is ")
+        try! msg.append(self.hook_what(role))
+        try! msg.append(", and with `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` as its type argument its `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("` may open a window on ")
+        try! msg.append(self.root_keys_text(&keys))
+        let impl = self.impl_of(self.strip_refs(t), req)
+        if impl >= 0 {
+            try! msg.append(" (")
+            try! msg.append(self.root_chain_from(impl, &keys))
+            try! msg.append(")")
+        }
+        try! msg.append(": the compiler calls a hook at positions no source call names, inside whatever window is held there, so a hook reaches no static root at any instantiation. Keep the window work out of `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("`'s implementation for `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, or out of the hook")
+        msg.build()
+    }
+
+    func check_root_hook(&var self, hook: Int, what: String, refused: &var Vector<Int>) {
+        let s = self.summaries[hook]
+        if s.state != TC_SUMMARY_BODY || tc_contains(&refused, hook) {
+            return
+        }
+        var keys = Vector<Int>()
+        var j = 0
+        while j < s.root_count {
+            try! keys.push(self.root_sets[s.root_first + j])
+            j = j + 1
+        }
+        if keys.len() == 0 {
+            return
+        }
+        try! refused.push(hook)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(hook))
+        try! msg.append("` is ")
+        try! msg.append(what)
+        try! msg.append(", and its body may open a window on ")
+        try! msg.append(self.root_keys_text(&keys))
+        try! msg.append(" (")
+        try! msg.append(self.root_chain_from(hook, &keys))
+        try! msg.append(")")
+        try! msg.append(": the compiler calls it at positions no source call names, inside whatever window is held there, so a hook reaches no static root. Do the window work in a function the program calls by name")
+        let info = self.res.decls[hook]
+        let site = self.decl_site(hook)
+        self.refuse_in(info.module, site, "borrows.root-hook", msg.build())
+    }
+
+    // `` `a`, `b` ``: the windows keys `keys` name.
+    func root_keys_text(&self, keys: &Vector<Int>) -> String {
+        var out = StringBuilder()
+        var k = 0
+        while k < keys.len() {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            try! out.append("`")
+            try! out.append(self.root_key_text(keys[k]))
+            try! out.append("`")
+            k = k + 1
+        }
+        out.build()
+    }
+
+    // `` `f` → `g` ``: the path from function `d` to a call that opens one of
+    // `keys`.
+    func root_chain_from(&var self, d: Int, keys: &Vector<Int>) -> String {
+        self.path_keys = keys.copy()
+        let text = self.chain_from(d, TcPathKind.Roots)
+        self.path_keys = Vector<Int>()
+        text
+    }
+
+    // The path from the first call in closure unit `y`'s body that opens one
+    // of `keys`, or "".
+    func closure_root_chain(&var self, y: Int, keys: &Vector<Int>) -> String {
+        let top = self.units[self.units[y].top]
+        self.path_keys = keys.copy()
+        var out = ""
+        var k = top.item_first
+        while k < top.item_end {
+            let item = self.items[k]
+            k = k + 1
+            if item.kind != TC_ITEM_CALL || item.unit != y {
+                continue
+            }
+            var acc = TcAcc(owner: top.decl, unit: -1)
+            self.eval_call(item.node, &var acc)
+            if self.path_takes(&acc, TcPathKind.Roots) {
+                out = self.effect_path(item.node, top.decl, TcPathKind.Roots)
+                break
+            }
+        }
+        self.path_keys = Vector<Int>()
+        out
+    }
+
+    // A coercion at `id` of `from` into `any trait`, refused: requirement
+    // `req`'s implementation opens a window on a static root.
+    func refuse_root_dispatch(&var self, id: Int, from: Int, tr: Int, req: Int, keys: &Vector<Int>) {
+        let impl = self.impl_of(from, req)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(from))
+        try! msg.append("` becomes `any ")
+        try! msg.append(self.nominal_name(tr))
+        try! msg.append("` here, and its implementation of `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("`")
+        if impl >= 0 {
+            try! msg.append(", `")
+            try! msg.append(self.res.decl_path(impl))
+            try! msg.append("`,")
+        }
+        try! msg.append(" may open a window on ")
+        try! msg.append(self.root_keys_text(&keys))
+        if impl >= 0 {
+            try! msg.append(" (")
+            try! msg.append(self.root_chain_from(impl, &keys))
+            try! msg.append(")")
+        }
+        try! msg.append(": a dispatch through `any` is not followed to its implementation, so a type erased to `any` reaches no static root. Take it as a generic parameter bounded by the trait, or keep the window work out of the trait's methods")
+        self.refuse_at(id, "borrows.root-erased", msg.build())
+    }
+
+    // Forbidden root condition `a` of function `d`, met at `e` with its
+    // subject `t`: the implementation `t` has opens a window on a static root.
+    func refuse_forbidden_root(&var self, e: Int, d: Int, a: &TcAtom, t: Int) {
+        var acc = TcAcc(owner: d, unit: -1)
+        self.eval_root_condition(t, a.req, e, &var acc)
+        var lead = StringBuilder()
+        try! lead.append("this calls `")
+        try! lead.append(self.res.decl_path(d))
+        try! lead.append("` with `")
+        try! lead.append(self.type_text(a.ty))
+        try! lead.append("` as `")
+        try! lead.append(self.type_text(t))
+        try! lead.append("`")
+        let text = self.forbidden_root_text(lead.build(), &a, t, &acc.roots)
+        if a.kind == TC_FORBID_ROOT_ERASED {
+            self.refuse_at(e, "borrows.root-erased", text)
+        } else {
+            self.refuse_at(e, "borrows.root-value", text)
+        }
+    }
+
+    // The refusal of forbidden root condition `a`, whose subject is `t` and
+    // whose requirement opens `roots`, after `lead` has said where it was met.
+    public func forbidden_root_text(&var self, lead: String, a: &TcAtom, t: Int, roots: &Vector<Int>) -> String {
+        let m = self.node_module(a.origin)
+        let impl = self.impl_of(self.strip_refs(t), a.req)
+        var msg = StringBuilder()
+        try! msg.append(lead)
+        try! msg.append(", whose `")
+        try! msg.append(self.res.decl_path(a.req))
+        try! msg.append("` may open a window on ")
+        try! msg.append(self.root_keys_text(&roots))
+        if impl >= 0 {
+            try! msg.append(" (")
+            try! msg.append(self.root_chain_from(impl, &roots))
+            try! msg.append(")")
+        }
+        try! msg.append(", and its body ")
+        if a.kind == TC_FORBID_ROOT_ERASED {
+            try! msg.append("makes it `any` at ")
+        } else {
+            try! msg.append("makes a function value that may escape at ")
+        }
+        try! msg.append(self.res.module_file(m))
+        try! msg.append(":")
+        try! msg.append(self.res.node_position(m, a.origin))
+        if a.kind == TC_FORBID_ROOT_ERASED {
+            try! msg.append(": a dispatch through `any` is not followed to its implementation, so a type erased to `any` reaches no static root")
+        } else {
+            try! msg.append(": ")
+            try! msg.append(self.root_value_reason())
+        }
+        msg.build()
     }
 }
 

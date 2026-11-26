@@ -1,0 +1,34 @@
+// refuses: loan.window-root-call at 31:9
+// a function name that is a non-escaping parameter's default is handed to the
+// callee at each call that leaves the argument out, so the call counts the
+// root it opens (SL-1156)
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func count() unsafe borrows(BOOT.count) -> &Int {
+    lend BOOT.count
+}
+
+func reset() sync {
+    boot_slot() = Boot(count: 0, tag: 0)
+}
+
+func use_it(f: () sync -> Void = reset) {
+    f()
+}
+
+func main() {
+    borrow let c = count() {
+        use_it()
+        print("{}", c)
+    }
+}

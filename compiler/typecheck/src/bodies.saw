@@ -17022,13 +17022,24 @@ extension TcProgram {
     // storage position therefore escapes with no change here. Every reader
     // takes the answer from `closure_escaping`, mono's environment refusal
     // among them (SL-608).
-    func closure_escapes(&var self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
+    public func closure_escapes(&var self, e: Int, parents: &TcNodeTable<Int>) -> Bool {
         let up = parents[e]
         if up < 0 {
             return true
         }
         if self.in_place_callee(e, &parents) {
             return false
+        }
+        // A default value is handed to its parameter at each call that leaves
+        // it out, so it escapes exactly when the parameter does.
+        var held = e
+        var above = up
+        while above >= 0 && self.has_alt(above, Alt.Expr_Paren) {
+            held = above
+            above = parents[above]
+        }
+        if above >= 0 && self.has_alt(above, Alt.Decl_Param_Default) && self.res.last_node_child(above) == held {
+            return not self.nonescaping_bindings[self.res.first_leaf(above)]
         }
         var call = -1
         var arg = e

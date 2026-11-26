@@ -479,6 +479,9 @@ public static TC_ITEM_CALL: Int = 1
 public static TC_ITEM_COPY: Int = 2
 public static TC_ITEM_ERASE: Int = 3
 public static TC_ITEM_CAPTURE: Int = 4
+// A collection literal, which mono expands into its container's `init()` and an
+// insert per entry (`eval_literal`).
+public static TC_ITEM_LITERAL: Int = 5
 
 // `copy_partner`'s mark on a copy whose Copy requirement another read of the
 // same local carries, so it adds no item of its own.
@@ -495,6 +498,10 @@ public static TC_FORBID_THREAD: Int = 4
 // A copy that runs generated glue or a type parameter's copy, which cannot
 // suspend (SL-877): refused where the copy's hook would.
 public static TC_FORBID_COPY: Int = 5
+// A function value that may escape, or a coercion to `any`, whose code at some
+// instantiation reaches a static root (`borrows.root-value`, `borrows.root-erased`).
+public static TC_FORBID_ROOT_VALUE: Int = 6
+public static TC_FORBID_ROOT_ERASED: Int = 7
 
 // One condition of a summary: requirement `req` called through `ty`, a type
 // parameter or a trait's `Self`. `site` is the node in the summarized body

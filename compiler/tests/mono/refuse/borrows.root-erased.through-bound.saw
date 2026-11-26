@@ -1,0 +1,80 @@
+// refuses: borrows.root-erased at 70:5
+// An erasure an implementation makes of a type built over a type parameter is judged where the
+// instance is reached, even through a bound no call site of the generic sees (SL-1156).
+// message: may open a window on
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+trait Cleanup {
+    static func boom()
+}
+
+struct R {
+    n: Int
+}
+
+extension R: Cleanup {
+    static func boom() {
+        install(42)
+    }
+}
+
+trait Probe {
+    func look(&self) -> Int
+}
+
+struct Q<T: Cleanup> {
+    n: Int
+}
+
+extension Q<T: Cleanup>: Probe {
+    func look(&self) -> Int {
+        T.boom()
+        self.n
+    }
+}
+
+func use_probe(p: &any Probe) -> Int {
+    p.look()
+}
+
+trait Maker {
+    func make(&self) -> Int
+}
+
+struct B<T: Cleanup> {
+    t: T
+}
+
+extension B<T: Cleanup>: Maker {
+    func make(&self) -> Int {
+        let q = Q<T>(n: 1)
+        use_probe(&q)
+    }
+}
+
+func via<M: Maker>(m: &M) -> Int {
+    m.make()
+}
+
+func main() {
+    let b = B(t: R(n: 1))
+    borrow var w = boot_slot() {
+        w.tag = 7
+        let k = via(&b)
+        print("tag {} {}", w.tag, k)
+    }
+}

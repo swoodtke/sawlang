@@ -1,0 +1,60 @@
+//! Generic code over a type parameter whose requirement may open a window on a static root,
+//! in a package that sorts before the root's (`zroot`), so its summary is made before any
+//! root key exists (SL-1156).
+
+public trait Cleanup {
+    func cleanup(&self)
+}
+
+public trait Look {
+    func look(&self) sync -> Int
+}
+
+public struct Q<T: Cleanup> {
+    t: T
+}
+
+extension Q<T: Cleanup>: Look {
+    func look(&self) sync -> Int {
+        self.t.cleanup()
+        1
+    }
+}
+
+func use_look(p: &any Look) -> Int {
+    p.look()
+}
+
+/// Erases `Q<T>` to `any Look`, whose implementation runs `T`'s cleanup.
+public func erase_q<T: Cleanup + Copy>(t: T) -> Int {
+    let q = Q(t: t)
+    use_look(&q)
+}
+
+/// Compares tuples over `T`: the compiler runs `T`'s `==` on each part.
+public func eq_tuple<T: Equatable + Copy>(a: T, b: T) -> Bool {
+    (a, 1) == (b, 1)
+}
+
+/// Builds a `Set<T>` literal: the compiler hashes and compares each entry.
+public func set_lit<T: Hashable + Copy>(a: T, b: T) -> Int {
+    let s: Set<T> = {a, b}
+    s.len()
+}
+
+/// A closure that outlives its statement and compares tuples over `T`.
+public func later_eq<T: Equatable + Copy>(a: T) -> () -> Bool {
+    { (a, 1) == (a, 1) }
+}
+
+public struct Guarded<T: Equatable + Copy> {
+    t: T
+}
+
+extension Guarded<T: Equatable + Copy>: NoCopy {
+    func deinit(&var self) {
+        if (self.t, 1) == (self.t, 2) {
+            print("never")
+        }
+    }
+}

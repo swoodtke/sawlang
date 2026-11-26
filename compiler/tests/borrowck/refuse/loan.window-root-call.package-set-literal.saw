@@ -1,0 +1,48 @@
+// refuses: loan.window-root-call at 45:17
+// flags: --module-path gpk=compiler/tests/packages/layers/gpk --module-path zroot=compiler/tests/packages/layers/zroot
+// A `Set` literal over a type parameter in a package that sorts before the root's hashes each
+// entry through the element's `Hashable`, which the held window refuses (SL-1156).
+import gpk.*
+import zroot.*
+
+struct R {
+    n: Int
+}
+
+extension R: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+extension R: Hashable {
+    func hash(&self, h: &var Hasher) {
+        install(self.n)
+        h.write_int(self.n)
+    }
+}
+
+struct C {
+    n: Int
+}
+
+extension C: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+extension C: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(self.n)
+    }
+}
+
+func main() {
+    borrow var b = boot_slot() {
+        b.tag = 7
+        let calm = set_lit(C(n: 1), C(n: 2))
+        let r = set_lit(R(n: 42), R(n: 43))
+        print("tag {} {} {}", b.tag, calm, r)
+    }
+}

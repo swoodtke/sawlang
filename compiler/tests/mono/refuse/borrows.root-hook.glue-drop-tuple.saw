@@ -1,0 +1,47 @@
+// refuses: borrows.root-hook at 44:13
+// A tuple holding a `W<R>` drops it through drop glue, which reaches the instance's `deinit` (SL-1156).
+// message: may open a window on
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+trait Cleanup {
+    func cleanup(&self)
+}
+
+struct R {
+    n: Int
+}
+
+extension R: Cleanup {
+    func cleanup(&self) {
+        install(self.n)
+    }
+}
+
+struct W<T: Cleanup> {
+    t: T
+}
+
+extension W<T: Cleanup>: NoCopy {
+    func deinit(&var self) {
+        self.t.cleanup()
+    }
+}
+
+func main() {
+    let pair = (W(t: R(n: 1)), 5)
+    print("{}", pair.1)
+}

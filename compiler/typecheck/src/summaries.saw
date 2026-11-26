@@ -26,9 +26,10 @@ import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKING, TC_CAUSE_BLOCKS_T
                                TC_CAUSE_COOPERATIVE, TC_CAUSE_DISPATCH, TC_CAUSE_PAIRED, TC_CAUSE_TEST_SUSPEND,
                                TC_CAUSE_UNCLASSIFIED,
                                TC_COPY_COVERED, TC_EFFECT_CONSTEXPR, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
-                               TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD,
+                               TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_ROOT_ERASED, TC_FORBID_ROOT_VALUE,
+                               TC_FORBID_SYNC, TC_FORBID_THREAD,
                                TC_ITEM_CALL, TC_ITEM_CAPTURE, TC_ITEM_COPY,
-                               TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
+                               TC_ITEM_ERASE, TC_ITEM_LITERAL, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
                                TcCall, TcConformance, TcDefault, TcItem, TcParam, TcReceiver, TcRole, TcRootKey, TcSig, TcStatus,
                                TcStatusKind, TcSummary, TcTier, TcUnit, TcUse}
@@ -165,6 +166,7 @@ extension TcProgram {
             k = k + 1
         }
         self.run_worklist(&layer)
+        self.summarize_remaining_units(&layer)
     }
 
     // Whether declaration `d` is a function a summary describes: a free
@@ -416,7 +418,7 @@ extension TcProgram {
                 continue
             }
             var here = owner
-            if id != root && self.has_alt(id, Alt.Expr_Closure) {
+            if self.has_alt(id, Alt.Expr_Closure) {
                 self.note_capture_items(id, owner)
                 here = self.units.len()
                 let first = self.items.len()
@@ -489,6 +491,101 @@ extension TcProgram {
         if self.erased_trait(id) >= 0 {
             try! self.items.push(TcItem(kind: TC_ITEM_ERASE, node: id, unit: u))
         }
+        if self.is_collection_literal(id) {
+            try! self.items.push(TcItem(kind: TC_ITEM_LITERAL, node: id, unit: u))
+        }
+    }
+
+    // Whether node `id` is a `Set`, `Map` or `Vector` literal.
+    func is_collection_literal(&self, id: Int) -> Bool {
+        if not (self.has_alt(id, Alt.Expr_Set) || self.has_alt(id, Alt.Expr_Map_Entries) || self.has_alt(id, Alt.Expr_Map_Empty) || self.has_alt(id, Alt.Expr_Array)) {
+            return false
+        }
+        let t = if id < self.expr_types.len() { self.expr_types[id] } else { -1 }
+        t >= 0 && self.kind_of(t) == TcKind.Nominal && (self.is_nominal_of(t, self.known.set) || self.is_nominal_of(t, self.known.map) || self.is_nominal_of(t, self.known.vector))
+    }
+
+    // THE COLLECTION-LITERAL FUNNEL: a literal of type `t` at node `e` is its
+    // container's `init()` and an `insert` (`push` for a `Vector`) per entry,
+    // which mono makes (`resolve_collection_literal`); the roots they reach
+    // join `acc`, as a call of each does. A literal with no entry makes no
+    // insert.
+    // ENTRY POINTS:
+    //     gather_items
+    //     MirProgram.literal_roots
+    public func eval_literal(&var self, t: Int, e: Int, acc: &var TcAcc) {
+        if t < 0 || self.kind_of(t) != TcKind.Nominal {
+            return
+        }
+        var entries = true
+        if e >= 0 {
+            entries = false
+            var k = self.child_count(e) - 1
+            while k >= 0 && not entries {
+                entries = not self.is_leaf(self.child(e, k))
+                k = k - 1
+            }
+        }
+        var labels = Vector<String>()
+        var op = "insert"
+        if self.is_nominal_of(t, self.known.vector) {
+            op = "push"
+        } else if self.is_nominal_of(t, self.known.map) {
+            try! labels.push("key")
+        }
+        try! labels.push("value")
+        let none = Vector<String>()
+        let made = self.literal_member(t, "init", &none)
+        if made >= 0 {
+            self.literal_member_roots(made, t, e, &var acc)
+        }
+        let inserts = if entries { self.literal_member(t, op, &labels) } else { -1 }
+        if inserts >= 0 {
+            self.literal_member_roots(inserts, t, e, &var acc)
+        }
+    }
+
+    // What member `m`, run on receiver type `t`, adds to `acc`.
+    func literal_member_roots(&var self, m: Int, t: Int, e: Int, acc: &var TcAcc) {
+        let s = self.summary_for(m, &acc)
+        self.note_hook_roots(&s, m, t, e, &var acc)
+    }
+
+    // The member of `t`'s declaration that is named `name` and takes exactly
+    // `labels`, as mono finds a literal's `init` and insert, or -1.
+    func literal_member(&var self, t: Int, name: String, labels: &Vector<String>) -> Int {
+        let d = self.nominal_decl(t)
+        if d < 0 || d >= self.member_first.len() || self.member_first[d] < 0 {
+            return -1
+        }
+        let first = self.member_first[d]
+        let count = self.member_count[d]
+        let id = self.res.intern(name)
+        var j = first
+        while j < first + count {
+            let member = self.members[j]
+            j = j + 1
+            if member.name != id || not self.extension_applies(member.ext, t) {
+                continue
+            }
+            let s = self.sigs[member.decl]
+            if s.param_count != labels.len() {
+                continue
+            }
+            var same = true
+            var p = 0
+            while p < s.param_count {
+                let label = self.res.intern(labels.get(p) ?? "")
+                if self.params[s.param_first + p].name != label {
+                    same = false
+                }
+                p = p + 1
+            }
+            if same {
+                return member.decl
+            }
+        }
+        -1
     }
 
     // The type copy item `id` duplicates: the one its position implies, else
@@ -582,12 +679,25 @@ extension TcProgram {
         while a >= 0 {
             let adj = self.adjusts[a]
             if adj.kind == TcAdjustKind.Erase {
-                return t
+                return self.erased_part(adj.to, t)
             }
             t = adj.to
             a = adj.next
         }
         t
+    }
+
+    // The part of `before` that an erasure to `to` makes `any`: the error of
+    // a `Result` whose error `to` boxes, which is what `try` erases, else the
+    // whole. `existential_trait` and `erased_from` both read it, so the trait
+    // and the type they name cannot disagree.
+    func erased_part(&self, to: Int, before: Int) -> Int {
+        let target = self.strip_refs(to)
+        if before >= 0 && self.is_result(before) && self.is_result(target) && self.types.ty(target).count >= 2 && self.types.ty(before).count >= 2 &&
+                self.existential_trait(self.types.arg(target, 1)) >= 0 && self.existential_trait(self.types.arg(target, 0)) < 0 {
+            return self.types.arg(before, 1)
+        }
+        before
     }
 
     // The trait of `any Trait`, of `Box<any Trait>`, or of a reference to
@@ -603,6 +713,13 @@ extension TcProgram {
             let ii = self.types.ty(inner)
             if ii.kind == TcKind.Any {
                 return ii.decl
+            }
+        }
+        // The error arm of a `Result`: the erasure `try` makes.
+        if self.is_result(t) && info.count >= 2 {
+            let inner = self.existential_trait(self.types.arg(t, 1))
+            if inner >= 0 {
+                return inner
             }
         }
         return -1
@@ -704,6 +821,7 @@ extension TcProgram {
             let k = self.default_at.value(at)
             var info = self.defaults[k]
             var acc = self.summarize_items(info.unit, info.item_first, info.item_end, u)
+            self.join_default_value(d, j - 1, &var acc)
             let fresh = self.summary_from(d, &var acc)
             if not self.same_summary(&info.summary, &fresh) {
                 changed = true
@@ -712,6 +830,81 @@ extension TcProgram {
             }
         }
         changed
+    }
+
+    // What default value `j` of function `d` hands the callee, counted where
+    // the default is summarized: a closure literal's keys and conditions, or
+    // a named function's, when the parameter is a function type that does not
+    // say `escaping`. The call that leaves the argument out takes the
+    // default's summary, so the call counts what the callee is handed.
+    func join_default_value(&var self, d: Int, j: Int, acc: &var TcAcc) {
+        let p = self.params[self.sigs[d].param_first + j]
+        if self.kind_of(p.ty) != TcKind.Func || p.escaping {
+            return
+        }
+        let v = self.default_value_node(d, j)
+        let at = if v >= 0 { self.unparen(v) } else { -1 }
+        if at < 0 {
+            return
+        }
+        if self.has_alt(at, Alt.Expr_Closure) {
+            let found = self.closure_units.first(at, 0)
+            if found >= 0 {
+                let y = self.closure_units.value(found)
+                self.unit_keys_into(y, &var acc.roots)
+                self.unit_whens_into(y, &var acc.root_when)
+            }
+            return
+        }
+        self.root_function_value(v, &var acc)
+    }
+
+    // The default value node of parameter `j` of declaration `d`, counted as
+    // a signature counts them, or -1.
+    func default_value_node(&self, d: Int, j: Int) -> Int {
+        let node = self.res.decls[d].node
+        if node < 0 {
+            return -1
+        }
+        var index = 0
+        let n = self.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            k = k + 1
+            let defaulted = self.has_alt(c, Alt.Decl_Param_Default)
+            if not defaulted && not self.has_alt(c, Alt.Decl_Param_Plain) {
+                continue
+            }
+            if index == j {
+                return if defaulted { self.last_node_of(c) } else { -1 }
+            }
+            index = index + 1
+        }
+        -1
+    }
+
+    // THE POST-FIXPOINT PASS: each top unit the worklist left out (a static's
+    // initializer, a test case's body, a declaration that is no function) is
+    // summarized once, so the closure units inside it resolve their root sets.
+    // Every summary it reads is final, and it reads as none.
+    func summarize_remaining_units(&var self, layer: &FrontLayer) {
+        if self.root_keys.len() == 0 {
+            return
+        }
+        var u = layer.unit_first
+        while u < self.units.len() {
+            let unit = self.units[u]
+            u = u + 1
+            if unit.top != u - 1 {
+                continue
+            }
+            let run = unit.decl >= 0 && (self.is_function_decl(unit.decl) || self.has_default_values(unit.decl))
+            if run {
+                continue
+            }
+            let _ = self.summarize_items(u - 1, unit.item_first, unit.item_end, -1)
+        }
     }
 
     // Whether any parameter of declaration `d` has a checked default value.
@@ -812,9 +1005,50 @@ extension TcProgram {
                 self.route_roots(&var acc, &inner, item.unit, u)
             } else if item.kind == TC_ITEM_ERASE {
                 self.erase_conditions(item.node, &var acc)
+            } else if item.kind == TC_ITEM_LITERAL {
+                var inner = TcAcc(owner: unit.decl, unit: reader)
+                self.eval_literal(self.expr_types[item.node], item.node, &var inner)
+                self.route_roots(&var acc, &inner, item.unit, u)
             }
         }
         self.resolve_closure_roots(u, &var acc)
+        self.forbid_value_roots(u, &var acc)
+    }
+
+    // Whether closure literal `e` is a value that outlives its statement, so
+    // that its code runs where nothing sees it: one that may escape, or a
+    // literal that becomes a `FuncPointer`. A `Thread.spawn` brace is not one;
+    // its overlap is the root module's obligation on other threads.
+    public func closure_is_root_value(&self, e: Int) -> Bool {
+        let found = self.closure_index.first(e, 0)
+        if found < 0 || tc_contains(&self.thread_braces, e) {
+            return false
+        }
+        let ordinal = self.closure_index.value(found)
+        if tc_contains(&self.func_pointer_literals, e) {
+            return true
+        }
+        ordinal >= self.closure_escaping.len() || self.closure_escaping[ordinal]
+    }
+
+    // A closure of top unit `u` that is a value (`closure_is_root_value`) and
+    // calls through one of the owner's own type parameters may reach a root at
+    // an instantiation: the condition `borrows.root-value` refuses by there.
+    func forbid_value_roots(&var self, u: Int, acc: &var TcAcc) {
+        var y = u + 1
+        while y < self.units.len() && self.units[y].top == u {
+            let unit = self.units[y]
+            y = y + 1
+            if unit.node < 0 || unit.root_when_count == 0 || not self.closure_is_root_value(unit.node) {
+                continue
+            }
+            var k = 0
+            while k < unit.root_when_count {
+                let a = self.atoms[unit.root_when_first + k]
+                k = k + 1
+                try! acc.forbids.push(TcAtom(ty: a.ty, req: a.req, site: unit.node, origin: unit.node, kind: TC_FORBID_ROOT_VALUE))
+            }
+        }
     }
 
     // A call in a `sync` body, evaluated into `inner`: what would make it
@@ -1923,7 +2157,21 @@ extension TcProgram {
         let tr = self.erased_trait(id)
         let before = self.erased_from(id)
         let from = self.strip_refs(before)
-        if tr < 0 || not self.is_own_condition(from, acc.owner) {
+        if tr < 0 {
+            return
+        }
+        if not self.is_own_condition(from, acc.owner) {
+            // A type built over the owner's parameters answers only the root
+            // question, which each instantiation judges (mono's
+            // `judge_instance_roots`).
+            if from >= 0 && self.mentions_param(from) {
+                let every = self.dispatched_every_requirement(tr)
+                var j = 0
+                while j < every.len() {
+                    try! acc.forbids.push(TcAtom(ty: from, req: every[j], site: id, origin: id, kind: TC_FORBID_ROOT_ERASED))
+                    j = j + 1
+                }
+            }
             return
         }
         let reqs = self.dispatched_requirements(tr)
@@ -1932,6 +2180,36 @@ extension TcProgram {
             try! acc.forbids.push(TcAtom(ty: from, req: reqs[k], site: id, origin: id, kind: TC_FORBID_ERASE))
             k = k + 1
         }
+        // A root function is `sync`, so a `sync` requirement's implementation
+        // may open a window too.
+        let every = self.dispatched_every_requirement(tr)
+        k = 0
+        while k < every.len() {
+            try! acc.forbids.push(TcAtom(ty: from, req: every[k], site: id, origin: id, kind: TC_FORBID_ROOT_ERASED))
+            k = k + 1
+        }
+    }
+
+    // Every requirement of trait `tr` and the traits it refines that a
+    // dispatch through `any` reaches, `sync` ones included (generic ones are
+    // left out, as `dispatched_requirements` does).
+    public func dispatched_every_requirement(&self, tr: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let traits = self.trait_and_ancestors(tr)
+        var t = 0
+        while t < traits.len() {
+            let members = self.members_of(traits[t])
+            var k = 0
+            while k < members.len() {
+                let r = members[k]
+                k = k + 1
+                if self.res.decls[r].kind == ResDeclKind.Requirement && self.sigs[r].generic_count == 0 {
+                    try! out.push(r)
+                }
+            }
+            t = t + 1
+        }
+        move out
     }
 
     // The requirements of trait `tr` and the traits it refines that a
@@ -1965,8 +2243,9 @@ extension TcProgram {
 // (static, field path, exclusive); a summary holds the keys its body's calls
 // may open a window on, through any chain, and the conditions "plus whatever
 // `T`'s `req` reaches" a generic body keeps. The join is a union, so the
-// worklist reaches the least fixpoint as it does for suspension. Nothing here
-// runs in a program whose layers intern no key (SL-1156).
+// worklist reaches the least fixpoint as it does for suspension. A layer's
+// summary is a fact about that layer alone: the conditions it keeps are made
+// whether or not a key exists when the layer is summarized (SL-1156).
 extension TcProgram {
     // Whether `d` is a root function: a free function or a static method
     // declaring `borrows(ROOT)` over a module-private static of its module.
@@ -2113,7 +2392,7 @@ extension TcProgram {
         self.eval_root_condition(self.strip_refs(owner), req, e, &var acc)
     }
 
-    func eval_root_condition(&var self, t: Int, req: Int, e: Int, acc: &var TcAcc) {
+    public func eval_root_condition(&var self, t: Int, req: Int, e: Int, acc: &var TcAcc) {
         var followed = tc_memo()
         self.eval_root_condition_in(t, req, e, &var acc, &var followed)
     }
@@ -2140,7 +2419,7 @@ extension TcProgram {
         }
         let impl = self.impl_of(recv, req)
         if impl < 0 {
-            if self.is_synthesized(recv, req) {
+            if self.is_synthesized(recv, req) || self.is_structural(recv, req) {
                 self.eval_synthesized_parts(recv, req, e, &var acc, &var followed)
             }
             return
@@ -2159,6 +2438,22 @@ extension TcProgram {
             let inner = self.impl_subst(a.ty, impl, recv)
             self.eval_root_condition_in(inner, a.req, e, &var acc, &var followed)
         }
+    }
+
+    // Whether `t` meets `req`, a member of `Equatable`, `Hashable` or
+    // `Comparable`, by the structure the compiler gives a tuple, an array or an
+    // `Optional`, which runs it on each part: the parts' implementations are
+    // what a use of `t` opens.
+    func is_structural(&self, t: Int, req: Int) -> Bool {
+        if req < 0 {
+            return false
+        }
+        let kind = self.kind_of(t)
+        if kind != TcKind.Tuple && kind != TcKind.Array && kind != TcKind.Nominal {
+            return false
+        }
+        let tr = self.res.decls[req].parent
+        tr >= 0 && (tr == self.known.equatable || tr == self.known.hashable || tr == self.known.comparable)
     }
 
     // Whether concrete type `t` meets requirement `req` by `@synthesize`.
@@ -2192,6 +2487,21 @@ extension TcProgram {
     // they do.
     func eval_synthesized_parts(&var self, t: Int, req: Int, e: Int, acc: &var TcAcc, followed: &var TcMemo) {
         let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var p = 0
+            while p < info.count {
+                self.eval_root_condition_in(self.types.arg(t, p), req, e, &var acc, &var followed)
+                p = p + 1
+            }
+            return
+        }
+        if info.kind == TcKind.Array {
+            self.eval_root_condition_in(info.b, req, e, &var acc, &var followed)
+            return
+        }
+        if info.kind != TcKind.Nominal || self.is_primitive_decl(info.decl) {
+            return
+        }
         let d = info.decl
         var args = Vector<Int>()
         var k = 0
@@ -2525,7 +2835,7 @@ extension TcProgram {
         tc_insert_at(&var seen, x, at)
     }
 
-    func unit_keys_into(&self, z: Int, out: &var Vector<Int>) {
+    public func unit_keys_into(&self, z: Int, out: &var Vector<Int>) {
         let unit = self.units[z]
         var k = 0
         while k < unit.root_count {
@@ -2756,6 +3066,10 @@ extension TcProgram {
                 try! one.append("(thread ")
             } else if a.kind == TC_FORBID_COPY {
                 try! one.append("(copy ")
+            } else if a.kind == TC_FORBID_ROOT_VALUE {
+                try! one.append("(root-value ")
+            } else if a.kind == TC_FORBID_ROOT_ERASED {
+                try! one.append("(root-any ")
             }
             try! one.append(self.type_text(a.ty))
             if a.req >= 0 {
@@ -2834,6 +3148,7 @@ extension TcProgram {
                 continue
             }
             var acc = self.summarize_items(dv.unit, dv.item_first, dv.item_end, -1)
+            self.join_default_value(dv.decl, dv.param, &var acc)
             let fresh = self.summary_from(dv.decl, &var acc)
             if not self.same_summary(&dv.summary, &fresh) {
                 let what = "has a default value that is not a fixpoint: one more step changes it"
@@ -2898,12 +3213,15 @@ extension TcProgram {
         while r < 10 {
             let first = runs[r]
             let count = runs[r + 1]
+            let forbids = r == 8
             r = r + 2
             var k = 0
             while k < count {
                 let a = self.atoms[first + k]
                 k = k + 1
-                if not self.is_own_condition(a.ty, d) {
+                // An erasure of a type built over parameters is judged at each instance.
+                let built = forbids && a.kind == TC_FORBID_ROOT_ERASED && self.mentions_param(a.ty)
+                if not built && not self.is_own_condition(a.ty, d) {
                     try! out.push(self.summary_problem(d, "has a condition over a type that is not its own parameter"))
                 }
             }

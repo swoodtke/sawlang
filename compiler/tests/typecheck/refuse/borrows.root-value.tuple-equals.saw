@@ -1,0 +1,43 @@
+// refuses: borrows.root-value at 41:13
+// errors: 1
+// a closure that compares tuples calls the elements' equality, which the compiler makes, so one that may outlive
+// its statement and reaches a static root through it is refused (SL-1156)
+// message: may outlive the statement that makes it
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct HKey {
+    n: Int
+}
+
+extension HKey: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+extension HKey: Hashable {
+    func hash(&self, h: &var Hasher) {
+        install(self.n)
+        h.write_int(self.n)
+    }
+}
+
+func main() {
+    let f = { (HKey(n: 42), 1) == (HKey(n: 42), 1) }
+    print("{}", f())
+}

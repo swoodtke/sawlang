@@ -15,7 +15,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
-import sawmir.model.{MirCall, MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProj, MirProjKind, MirRvalueKind, MirStmtKind,
+import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProj, MirProjKind, MirRvalueKind, MirStmtKind,
                          MirSuspend, MirTermKind}
 import sawmir.program.{MirProgram, mir_diag_message}
 import sawmir.states.{MirCursor, mir_cursor}
@@ -28,6 +28,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.effects.{tc_check_effects}
 import sawtypecheck.model.{TC_EFFECT_BORROWS_SYNC, TcLend, TcReceiver}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell
 import sawtypecheck.summaries.{tc_sorted_unique}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
@@ -153,6 +154,9 @@ extension BorrowckProgram {
                 self.check_access(f, &a, -1, &inits, at, &var facts, &live.state, lives[i], &made.state, &open,
                                   &var reported)
                 k = k + 1
+            }
+            if s >= 0 && not restore {
+                self.check_literal_roots(f, s, &var facts, &live.state, lives[i], &made.state, &open, &var reported)
             }
             if i == count - 1 && block.term == MirTermKind.Call {
                 let c = self.mir.calls[block.call]
@@ -631,16 +635,64 @@ extension BorrowckProgram {
         if window && c.target >= 0 && c.target < self.mir.tc.sig_key.len() {
             own = self.mir.tc.sig_key[c.target]
         }
+        var keys = Vector<Int>()
         var k = 0
         while k < c.root_count {
-            let id = self.mir.roots[c.root_first + k]
+            try! keys.push(self.mir.roots[c.root_first + k])
+            k = k + 1
+        }
+        self.check_root_keys(f, c.node, -1, &keys, c.root_opaque, skip, own, &var facts, &live, live_root, &created,
+                             &open, &var reported)
+    }
+
+    // A collection literal at statement `s` of block `b`, an aggregate of a
+    // `Set`, `Map` or `Vector`, is its container's `init()` and an entry's
+    // `insert` or `push`, which mono makes: judged as a call of them is.
+    //
+    // ENTRY POINTS:
+    //     check_block
+    func check_literal_roots(&var self, f: Int, s: Int, facts: &var BorrowckLoans, live: &Vector<Int>,
+                             live_root: Int, created: &Vector<Int>, open: &Vector<Int>,
+                             reported: &var Vector<Int>) {
+        let stmt = self.mir.stmts[s]
+        if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 || stmt.node < 0 || borrowck_seen(&reported, stmt.node) {
+            return
+        }
+        let rv = self.mir.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Aggregate || (rv.aggregate != MirAggregate.Vector && rv.aggregate != MirAggregate.Map &&
+                rv.aggregate != MirAggregate.Set) {
+            return
+        }
+        var keys = Vector<Int>()
+        let opaque = self.mir.literal_roots(f, rv.ty, &var keys)
+        if keys.len() == 0 && not opaque {
+            return
+        }
+        self.check_root_keys(f, stmt.node, rv.ty, &keys, opaque, -1, -1, &var facts, &live, live_root, &created,
+                             &open, &var reported)
+    }
+
+    // THE ROOT-KEYS CORE of the root-call rule: `keys` the keys a call at
+    // `node`, or the collection literal of type `literal`, may open, and
+    // whether it is opaque. `skip` is a window call's own call and `own` its
+    // own key.
+    //
+    // ENTRY POINTS:
+    //     check_root_call
+    //     check_literal_roots
+    func check_root_keys(&var self, f: Int, node: Int, literal: Int, keys: &Vector<Int>, opaque: Bool, skip: Int, own: Int,
+                         facts: &var BorrowckLoans, live: &Vector<Int>, live_root: Int, created: &Vector<Int>,
+                         open: &Vector<Int>, reported: &var Vector<Int>) {
+        var k = 0
+        while k < keys.len() {
+            let id = keys[k]
             k = k + 1
             if id == own {
                 continue
             }
             let n = self.root_loan(id, skip, &var facts, &live, live_root, &created, &open)
             if n >= 0 {
-                self.report_root_call(f, c, id, n, "loan.window-root-call", &var facts, &var reported)
+                self.report_root_call(f, node, literal, id, n, "loan.window-root-call", &var facts, &var reported)
                 return
             }
         }
@@ -649,24 +701,24 @@ extension BorrowckProgram {
         if body && info.decl >= 0 && self.holds_shared_root(info.decl) {
             let held = self.declared_root_path(info.decl, &var facts)
             k = 0
-            while k < c.root_count {
-                let id = self.mir.roots[c.root_first + k]
+            while k < keys.len() {
+                let id = keys[k]
                 k = k + 1
                 let path = self.key_path(id, &var facts)
                 if self.mir.tc.root_keys[id].exclusive && facts.overlaps(&path, &held) {
-                    self.report_held_root(f, c, id, info.decl, &var reported)
+                    self.report_held_root(f, node, literal, id, info.decl, &var reported)
                     return
                 }
             }
         }
-        if not c.root_opaque {
+        if not opaque {
             return
         }
         var id = 0
         while id < self.mir.tc.root_keys.len() {
             let n = self.root_loan(id, skip, &var facts, &live, live_root, &created, &open)
             if n >= 0 {
-                self.report_opaque_call(f, c, id, n, &var facts, &var reported)
+                self.report_opaque_call(f, node, literal, id, n, &var facts, &var reported)
                 return
             }
             id = id + 1
@@ -693,9 +745,10 @@ extension BorrowckProgram {
     }
 
     // `` `BOOT.count` `` held by loan `n`, in the words of the refusals of a
-    // call that may open a window on root key `id`.
-    func report_root_call(&var self, f: Int, c: MirCall, id: Int, n: Int, rule: String, facts: &var BorrowckLoans,
-                          reported: &var Vector<Int>) {
+    // call at `node`, or of the collection literal of type `literal`, that may
+    // open a window on root key `id`.
+    func report_root_call(&var self, f: Int, node: Int, literal: Int, id: Int, n: Int, rule: String,
+                          facts: &var BorrowckLoans, reported: &var Vector<Int>) {
         var mode = "a shared"
         if self.mir.tc.root_keys[id].exclusive {
             mode = "an exclusive"
@@ -703,47 +756,76 @@ extension BorrowckProgram {
         var keys = Vector<Int>()
         try! keys.push(id)
         var msg = StringBuilder()
-        try! msg.append("this call may open ")
+        try! msg.append(self.root_subject(literal))
+        try! msg.append(" may open ")
         try! msg.append(mode)
         try! msg.append(" window on `")
         try! msg.append(self.mir.tc.root_key_text(id))
-        try! msg.append("` (through ")
-        try! msg.append(self.mir.tc.root_chain(c.node, self.mir.funcs[f].owner, &keys))
-        try! msg.append(") while ")
+        try! msg.append("`")
+        if literal < 0 {
+            try! msg.append(" (through ")
+            try! msg.append(self.mir.tc.root_chain(node, self.mir.funcs[f].owner, &keys))
+            try! msg.append(")")
+        }
+        try! msg.append(" while ")
         try! msg.append(self.loan_origin(f, n, &var facts))
         try! msg.append("; a window on a static root admits no overlapping window until it closes")
-        self.report_loan(f, c.node, rule, msg.build(), &var reported)
+        self.report_loan(f, node, rule, msg.build(), &var reported)
     }
 
-    // A call that may open window `id` while the shared root `decl` declares
-    // is held by its own body.
-    func report_held_root(&var self, f: Int, c: MirCall, id: Int, decl: Int, reported: &var Vector<Int>) {
+    // The words a root-call refusal opens with: a call, or the inserts a
+    // collection literal of type `literal` makes.
+    func root_subject(&var self, literal: Int) -> String {
+        if literal < 0 {
+            return "this call"
+        }
+        var out = StringBuilder()
+        try! out.append("this `")
+        try! out.append(self.mir.tc.type_text(literal))
+        try! out.append("` literal, which builds its container and inserts each entry,")
+        out.build()
+    }
+
+    // A call or literal that may open window `id` while the shared root
+    // `decl` declares is held by its own body.
+    func report_held_root(&var self, f: Int, node: Int, literal: Int, id: Int, decl: Int, reported: &var Vector<Int>) {
         var keys = Vector<Int>()
         try! keys.push(id)
         var msg = StringBuilder()
-        try! msg.append("this call may open an exclusive window on `")
+        try! msg.append(self.root_subject(literal))
+        try! msg.append(" may open an exclusive window on `")
         try! msg.append(self.mir.tc.root_key_text(id))
-        try! msg.append("` (through ")
-        try! msg.append(self.mir.tc.root_chain(c.node, self.mir.funcs[f].owner, &keys))
-        try! msg.append(") inside the body of `")
+        try! msg.append("`")
+        if literal < 0 {
+            try! msg.append(" (through ")
+            try! msg.append(self.mir.tc.root_chain(node, self.mir.funcs[f].owner, &keys))
+            try! msg.append(")")
+        }
+        try! msg.append(" inside the body of `")
         try! msg.append(self.mir.decl_name(decl))
         try! msg.append("`, which holds `")
         try! msg.append(self.root_text(decl))
         try! msg.append("` shared; a window on a static root admits no overlapping window until it closes")
-        self.report_loan(f, c.node, "loan.window-root-call", msg.build(), &var reported)
+        self.report_loan(f, node, "loan.window-root-call", msg.build(), &var reported)
     }
 
-    // A call whose callee this function cannot see, while loan `n` holds a
-    // root it may open a window on, `id`.
-    func report_opaque_call(&var self, f: Int, c: MirCall, id: Int, n: Int, facts: &var BorrowckLoans,
+    // A call whose callee this function cannot see, or a literal whose
+    // entries it cannot see, while loan `n` holds a root it may open a window
+    // on, `id`.
+    func report_opaque_call(&var self, f: Int, node: Int, literal: Int, id: Int, n: Int, facts: &var BorrowckLoans,
                             reported: &var Vector<Int>) {
         var msg = StringBuilder()
-        try! msg.append("this call goes through a function parameter's argument, or a bound's implementation, that this function cannot see, so it may open a window on `")
+        if literal < 0 {
+            try! msg.append("this call goes through a function parameter's argument, or a bound's implementation, that this function cannot see, so it may open a window on `")
+        } else {
+            try! msg.append(self.root_subject(literal))
+            try! msg.append(" goes through a bound's implementation that this function cannot see, so it may open a window on `")
+        }
         try! msg.append(self.mir.tc.root_key_text(id))
         try! msg.append("` while ")
         try! msg.append(self.loan_origin(f, n, &var facts))
         try! msg.append("; a window on a static root admits no overlapping window until it closes")
-        self.report_loan(f, c.node, "loan.window-root-opaque", msg.build(), &var reported)
+        self.report_loan(f, node, "loan.window-root-opaque", msg.build(), &var reported)
     }
 
     // Access `made`, made by instruction `at`, against every live loan on an

@@ -20,7 +20,7 @@ import sawtarget.layout.{Target, target_enum_cases, target_member_type, target_o
 import sawmono.program.{MONO_CHAIN_LIMIT, MONO_DEPTH_LIMIT, MONO_KEY_CONSTANT_CHECK, MONO_KEY_COPY, MONO_KEY_DEALLOC,
                             MONO_KEY_DISPATCHED, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
                             MONO_KEY_INSTANCE_CHECKED, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
-                            MONO_KEY_RENDER_SLOT, MONO_KEY_SIZE_CHECKED, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
+                            MONO_KEY_RENDER_SLOT, MONO_KEY_ROOT_JUDGED, MONO_KEY_SIZE_CHECKED, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
                             MONO_KEY_VTABLE, MonoItem,
                             MONO_KEY_STUCK_REPORTED, MonoItemKind, MonoProgram, MonoStuckMeeting, MonoThreadSpawn, MonoVtable}
 import sawtypecheck.arith.{TcFault, tc_arith_normalize, tc_arith_text}
@@ -36,8 +36,10 @@ import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.effects
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcConstPosition, TcStatus, TcStatusKind, TcUnmetBound}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FORBID_ROOT_ERASED,
+                               TC_FORBID_ROOT_VALUE, TC_SUMMARY_BODY, TcConstPosition, TcStatus, TcStatusKind, TcUnmetBound}
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -47,6 +49,9 @@ import sawtypecheck.types.{TC_HOLDS_UNFOLDED, TcKind, tc_kind_wraps}
 public func mono_rules() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("atomic.width")
+    try! out.push("borrows.root-erased")
+    try! out.push("borrows.root-hook")
+    try! out.push("borrows.root-value")
     try! out.push("constant.divide-by-zero")
     try! out.push("constant.negative-length")
     try! out.push("constant.overflow")
@@ -940,6 +945,7 @@ extension MonoProgram {
                 done.body = f
                 self.items[k] = done
                 self.refuse_relocations(k)
+                self.judge_instance_roots(k)
                 // A task root's descriptor destroys a result nobody takes,
                 // which no statement of any body drops.
                 if self.is_task_root(k) {
@@ -1060,9 +1066,87 @@ extension MonoProgram {
         }
     }
 
+    // THE INSTANCE-ROOT JUDGE: a hook (`deinit`, a policy `copy()`,
+    // `Printable.format`) whose summary reaches a static root only through a
+    // type parameter's requirement, and a function whose escaping closure or
+    // erasure does, are judged at each concrete instance, which is every one
+    // that runs; typecheck has no site for either. Judged once per
+    // declaration and arguments, where the instance is first reached (SL-1156).
+    // ENTRY POINTS:
+    //     instantiate
+    func judge_instance_roots(&var self, k: Int) {
+        if self.dp.bc.mir.tc.root_keys.len() == 0 {
+            return
+        }
+        let it = self.items[k]
+        let d = it.decl
+        if d < 0 || not self.dp.bc.mir.tc.is_function_decl(d) || self.dp.bc.mir.tc.summaries[d].state != TC_SUMMARY_BODY || self.instance_judged(k, MONO_KEY_ROOT_JUDGED) {
+            return
+        }
+        self.by_key.add(d, MONO_KEY_ROOT_JUDGED, k)
+        let s = self.dp.bc.mir.tc.summaries[d]
+        var site = -1
+        var from = k
+        while from >= 0 && site < 0 {
+            site = self.items[from].origin_node
+            from = self.items[from].origin
+        }
+        if site < 0 {
+            site = self.dp.bc.mir.tc.decl_site(d)
+        }
+        let role = self.dp.bc.mir.tc.hook_role(d)
+        var j = 0
+        while role > 0 && j < s.root_when_count {
+            let a = self.dp.bc.mir.tc.atoms[s.root_when_first + j]
+            j = j + 1
+            let t = self.substituted(k, a.ty)
+            var acc = TcAcc(owner: -1, unit: -1)
+            self.dp.bc.mir.tc.eval_root_condition(self.dp.bc.mir.tc.strip_refs(t), a.req, site, &var acc)
+            if acc.roots.len() > 0 {
+                let text = self.dp.bc.mir.tc.root_hook_instance_text(d, role, self.instance_text(k), t, a.req, &acc.roots)
+                self.refuse(site, "borrows.root-hook", text)
+                return
+            }
+        }
+        j = 0
+        while j < s.forbid_count {
+            let a = self.dp.bc.mir.tc.atoms[s.forbid_first + j]
+            j = j + 1
+            if a.kind != TC_FORBID_ROOT_VALUE && a.kind != TC_FORBID_ROOT_ERASED {
+                continue
+            }
+            let t = self.substituted(k, a.ty)
+            var acc = TcAcc(owner: -1, unit: -1)
+            self.dp.bc.mir.tc.eval_root_condition(self.dp.bc.mir.tc.strip_refs(t), a.req, site, &var acc)
+            if acc.roots.len() > 0 {
+                var lead = StringBuilder()
+                try! lead.append("`")
+                try! lead.append(self.instance_text(k))
+                try! lead.append("` has `")
+                try! lead.append(self.dp.bc.mir.tc.type_text(a.ty))
+                try! lead.append("` as `")
+                try! lead.append(self.dp.bc.mir.tc.type_text(t))
+                try! lead.append("`")
+                let text = self.dp.bc.mir.tc.forbidden_root_text(lead.build(), &a, t, &acc.roots)
+                if a.kind == TC_FORBID_ROOT_ERASED {
+                    self.refuse(site, "borrows.root-erased", text)
+                } else {
+                    self.refuse(site, "borrows.root-value", text)
+                }
+                return
+            }
+        }
+    }
+
     // Whether an item of `k`'s declaration at `k`'s arguments has had its
     // moves judged.
     func relocations_judged(&self, k: Int) -> Bool {
+        self.instance_judged(k, MONO_KEY_RELOCATIONS)
+    }
+
+    // Whether an item of `k`'s declaration at `k`'s arguments is recorded
+    // under `key`.
+    func instance_judged(&self, k: Int, key: Int) -> Bool {
         let it = self.items[k]
         var args = Vector<Int>()
         var j = 0
@@ -1076,7 +1160,7 @@ extension MonoProgram {
             try! inst.push(self.item_types[it.inst_first + j])
             j = j + 1
         }
-        var at = self.by_key.first(it.decl, MONO_KEY_RELOCATIONS)
+        var at = self.by_key.first(it.decl, key)
         while at >= 0 {
             let judged = self.by_key.value(at)
             if self.same_arguments(judged, &args, &inst, it.self_type) {

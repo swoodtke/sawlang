@@ -1,0 +1,53 @@
+// refuses: borrows.root-erased at 43:17
+// errors: 1
+// `try` boxes the error it propagates into the `Box<any Error>` its function returns, which is an erasure like `return Bad(n: 1)`, so the error's methods reach no static root (SL-1156)
+// message: its implementation of `Printable.to_string`
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct Bad {
+    n: Int
+}
+
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.n)
+    }
+
+    func to_string(&self) -> String {
+        install(self.n)
+        "bad"
+    }
+}
+
+extension Bad: Error {}
+
+func fail() -> Result<Int, Bad> {
+    Bad(n: 42)
+}
+
+func outer() -> Result<Int, Box<any Error>> {
+    let x = try fail()
+    x
+}
+
+func main() {
+    let r = outer()
+    match r {
+        case Ok(v) -> print(v),
+        case Err(e) -> print(e.to_string())
+    }
+}

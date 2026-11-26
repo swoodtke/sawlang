@@ -4,7 +4,7 @@
 // `for`'s `next`, a default, a method and a static method, a pair's twin, a
 // generic per instance, a closure literal or named function passed to a
 // non-escaping parameter, and a closure nested in one. A function's set leaves
-// out its own root; a spawned task's, a let-bound closure's and a shared-only
+// out its own root; a spawned task's, a shared-only
 // or plain static's add nothing.
 import std.task.*
 
@@ -364,10 +364,9 @@ func with_named() -> Int {
     run(sync_install)
 }
 
-func stored_call() -> Int {
-    let f = { install(4)
-              4 }
-    f()
+func in_place_call() -> Int {
+    { install(4)
+      4 }()
 }
 
 func hand_on(body: () sync -> Int) sync -> Int {
@@ -390,6 +389,6 @@ func spawner() -> Int {
 func main() {
     print(by_operator(&Key(n: 1), &Key(n: 2)))
     print(by_for())
-    print(use_default() + give_argument() + with_literal() + with_nested() + with_named() + stored_call())
+    print(use_default() + give_argument() + with_literal() + with_nested() + with_named() + in_place_call())
     print(read_count() + read_table() + read_limit() + spawner())
 }

@@ -1,0 +1,64 @@
+// refuses: borrows.root-erased at 63:21
+// errors: 1
+// a method that compares tuples reaches a static root through the elements' equality, so the type erased to
+// `any Trait` whose method it is refused where it is erased (SL-1156)
+// message: may open a window
+
+struct Boot {
+    count: Int
+    tag: Int
+}
+
+unsafe static var BOOT: Boot
+
+func boot_slot() unsafe sync borrows(sync, BOOT) -> &var Boot {
+    lend BOOT
+}
+
+func install(n: Int) sync {
+    boot_slot() = Boot(count: n, tag: n)
+}
+
+struct HKey {
+    n: Int
+}
+
+extension HKey: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        install(self.n)
+        self.n == other.n
+    }
+}
+
+extension HKey: Hashable {
+    func hash(&self, h: &var Hasher) {
+        install(self.n)
+        h.write_int(self.n)
+    }
+}
+
+trait Probe {
+    func look(&self) -> Int
+}
+
+struct Writer {
+    n: Int
+}
+
+extension Writer: Probe {
+    func look(&self) -> Int {
+        if (HKey(n: self.n), 1) == (HKey(n: self.n), 1) {
+            return 1
+        }
+        0
+    }
+}
+
+func use(p: &any Probe) -> Int {
+    p.look()
+}
+
+func main() {
+    let w = Writer(n: 42)
+    print("{}", use(&w))
+}
