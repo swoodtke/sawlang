@@ -18,9 +18,9 @@
 // visibility, which is exactly what makes extending a std type from a package
 // safe. Two modules can each have their own without colliding.)
 
-import blade.sosimg.{elf_to_sosimg, arch_for_target}
+import blade.sosimg.{elf_to_sosimg, arch_for_target, image_version}
 import imgformat.{
-    SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
+    SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION, SOSIMG_VERSION_NO_RT_MAP,
     fits_target_word,
 }
 import std.data.{Data}
@@ -196,11 +196,11 @@ func check_image(img: &Data, entry: UInt, arch: SosimgArch, content_off: Int) {
     assert(img.at(2) == 83, "magic byte 2 is 'S'")
     assert(img.at(3) == 73, "magic byte 3 is 'I'")
     assert(img.le32(0) == (SOSIMG_MAGIC as UInt), "magic reads back as one word")
-    assert(img.le16(4) == (SOSIMG_VERSION as UInt), "version at offset 4")
+    assert(img.le16(4) == (SOSIMG_VERSION_NO_RT_MAP as UInt), "version 3 at offset 4 when no rt level is named")
     assert(img.at(6) == 1, "seg_count at offset 6")
     assert(img.at(7) == (arch.tag() as UInt), "arch tag at offset 7")
     assert(img.le32(8) == TEST_PRIO_MAP, "prio_map at offset 8")
-    assert(img.le32(12) == 0, "reserved0 at offset 12 is zero")
+    assert(img.le32(12) == 0, "rt_map at offset 12 is zero when none is named")
     // The 8-byte field sits at an 8-byte boundary, which is what lets both
     // profiles overlay this struct with no interior padding.
     assert(img.le64(16) == entry, "entry at offset 16, taken from e_entry")
@@ -229,7 +229,7 @@ func check_image(img: &Data, entry: UInt, arch: SosimgArch, content_off: Int) {
 
 func check_conversion_32() {
     let elf = minimal_elf32()
-    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Riscv32) {
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, 0, SosimgArch.Riscv32) {
         case Ok(bytes) -> move bytes,
         case Err(e) -> panic("the minimal ELF32 should convert: {e.text()}")
     }
@@ -239,7 +239,7 @@ func check_conversion_32() {
 
 func check_conversion_64() {
     let elf = minimal_elf64(TEST_ENTRY_64)
-    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, 0, SosimgArch.Arm64) {
         case Ok(bytes) -> move bytes,
         case Err(e) -> panic("the minimal ELF64 should convert: {e.text()}")
     }
@@ -250,7 +250,7 @@ func check_conversion_64() {
 /// Xtensa images are ELF32 like riscv32's; the tag byte at offset 7 is 3.
 func check_conversion_xtensa() {
     let elf = minimal_elf32()
-    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Xtensa) {
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, 0, SosimgArch.Xtensa) {
         case Ok(bytes) -> move bytes,
         case Err(e) -> panic("the minimal ELF32 should convert for xtensa: {e.text()}")
     }
@@ -273,7 +273,7 @@ func check_conversion_xtensa() {
 func check_high_addresses_round_trip() {
     let high: UInt = 0x1_0000_0040
     let elf = minimal_elf64(high)
-    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, 0, SosimgArch.Arm64) {
         case Ok(bytes) -> move bytes,
         case Err(e) -> panic("v3 carries a 64-bit address: {e.text()}")
     }
@@ -283,6 +283,23 @@ func check_high_addresses_round_trip() {
     // than passing on the strength of the bottom four bytes.
     assert(img.le32(16) == 0x40, "low half of the entry")
     assert(img.le32(20) == 1, "high half of the entry")
+}
+
+/// A nonzero `rt_map` lands at offset 12, low byte first, and moves nothing
+/// else: `entry` stays at 16.
+func check_rt_map_on_the_wire() {
+    let elf = minimal_elf32()
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, 0x0605_0403, SosimgArch.Riscv32) {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> panic("the minimal ELF32 should convert: {e.text()}")
+    }
+    assert(img.le16(4) == (SOSIMG_VERSION as UInt), "an rt_map makes the image version 4")
+    assert(image_version(0) == SOSIMG_VERSION_NO_RT_MAP, "no rt_map stays version 3")
+    assert(image_version(0x0605_0403) == SOSIMG_VERSION, "any rt_map is version 4")
+    assert(img.le32(8) == TEST_PRIO_MAP, "prio_map is untouched by rt_map")
+    assert(img.le32(12) == 0x0605_0403, "rt_map at offset 12")
+    assert(img.at(12) == 3 && img.at(15) == 6, "rt0 is the low byte")
+    assert(img.le64(16) == TEST_ENTRY_32, "entry stays at offset 16")
 }
 
 func check_arch_for_target() {
@@ -318,25 +335,26 @@ func check_shared_predicates() {
     assert(sizeof<SosimgSeg>() == 24, "segment record must be 24 bytes")
 
     let good = SosimgHeader(
-        magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 1u8,
-        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        magic: SOSIMG_MAGIC, version: SOSIMG_VERSION_NO_RT_MAP, seg_count: 1u8,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, rt_map: 0u32,
         entry: 0x80200000u64,
     )
     assert(good.is_wellformed(), "a header the emitter builds is well-formed")
+    assert(good.is_wellformed(reads_rt_map: true), "...to a loader reading rt_map too")
     assert(good.is_for_arch(SosimgArch.Riscv32 as UInt8), "it is for the profile it says")
     assert(not good.is_for_arch(SosimgArch.Arm64 as UInt8),
            "and not for the other one — the check the kernel makes before jumping")
 
     let wrong_magic = SosimgHeader(
         magic: 0u32, version: SOSIMG_VERSION, seg_count: 1u8,
-        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, rt_map: 0u32,
         entry: 0x80200000u64,
     )
     assert(not wrong_magic.is_wellformed(), "a zero magic is rejected")
 
     let no_segments = SosimgHeader(
         magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 0u8,
-        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, rt_map: 0u32,
         entry: 0x80200000u64,
     )
     assert(not no_segments.is_wellformed(), "an image with no segments is not loadable")
@@ -344,8 +362,8 @@ func check_shared_predicates() {
     // The version the loader will accept is the one the emitter writes, and a
     // header carrying any other is not this build's to read.
     let stale = SosimgHeader(
-        magic: SOSIMG_MAGIC, version: (SOSIMG_VERSION - 1u16), seg_count: 1u8,
-        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        magic: SOSIMG_MAGIC, version: (SOSIMG_VERSION_NO_RT_MAP - 1u16), seg_count: 1u8,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, rt_map: 0u32,
         entry: 0x80200000u64,
     )
     assert(not stale.has_known_version(), "the previous version is refused, not guessed at")
@@ -390,7 +408,7 @@ func check_rejects_non_elf() {
         try! junk.push(0u8)
         i = i + 1
     }
-    match elf_to_sosimg(&junk, 0, SosimgArch.Riscv32) {
+    match elf_to_sosimg(&junk, 0, 0, SosimgArch.Riscv32) {
         case Ok(_) -> panic("a zeroed buffer is not an ELF"),
         case Err(e) -> assert(not e.text().is_empty(), "the refusal says why")
     }
@@ -401,6 +419,7 @@ func main() {
     check_conversion_64()
     check_conversion_xtensa()
     check_high_addresses_round_trip()
+    check_rt_map_on_the_wire()
     check_arch_for_target()
     check_shared_predicates()
     check_rejects_non_elf()

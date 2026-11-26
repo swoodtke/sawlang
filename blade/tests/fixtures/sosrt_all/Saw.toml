@@ -1,0 +1,9 @@
+[package]
+name = "sosrt_all"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "root.ld"
+priorities = { low = 2, rt0 = 3, rt1 = 4, rt2 = 5, rt3 = 6 }

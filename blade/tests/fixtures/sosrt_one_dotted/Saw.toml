@@ -1,0 +1,12 @@
+[package]
+name = "sosrt_one_dotted"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "root.ld"
+
+[sos.priorities]
+low = 2
+rt1 = 5

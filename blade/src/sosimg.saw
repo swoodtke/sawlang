@@ -24,6 +24,7 @@ import toml.{TomlKind, TomlTable}
 import blade.manifest.{in_manifest, read_manifest}
 import imgformat.{
     SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
+    SOSIMG_VERSION_NO_RT_MAP,
 }
 import std.data.{Data}
 import std.env.{Env}
@@ -134,6 +135,9 @@ static SEG_COUNT_MAX: Int = 255
 static PRIORITY_LEVEL_MAX: Int = 7
 static BAND_COUNT: Int = 4
 static BITS_PER_BAND: Int = 8
+static RT_BAND_COUNT: Int = 4
+// What `rt_level` reports for an rt key the manifest does not name.
+static RT_UNNAMED: Int = -1
 
 // =============================================================================
 // `[sos]` manifest section
@@ -172,6 +176,9 @@ public struct SosConfig {
     /// The spec §7 band -> level map, packed one byte per band, low byte first:
     /// background, low, normal, high.
     prio_map: UInt
+    /// The realtime bands' levels, packed one byte per band, low byte first:
+    /// rt0, rt1, rt2, rt3. Zero when `[sos] priorities` names none of them.
+    rt_map: UInt
     /// The MMIO window this image asks to be granted, and its size in bytes —
     /// zero for a program that drives no device, which is every program that is
     /// not a driver.
@@ -274,22 +281,40 @@ func band_level(p: &TomlTable, manifest: String, band: String, fallback: Int) ->
 // The `[sos]` priorities table. TOML gives it two spellings, an inline
 // `priorities = { ... }` in `[sos]` and a `[sos.priorities]` header, and they
 // read the same; the parser refuses a file that states both.
-func read_priorities(sos: &TomlTable, manifest: String) -> Result<UInt, Box<any Error>> {
+func read_priorities(sos: &TomlTable, manifest: String) -> Result<PriorityMaps, Box<any Error>> {
     let stated = try in_manifest(manifest, sos.expect("priorities", TomlKind.Table))
     if stated {
         if let p = sos.table("priorities") {
             return priorities_from(&p, manifest)
         }
     }
-    pack_priorities(DEFAULT_BACKGROUND, DEFAULT_LOW, DEFAULT_NORMAL, DEFAULT_HIGH)
+    PriorityMaps(prio_map: pack_priorities(DEFAULT_BACKGROUND, DEFAULT_LOW, DEFAULT_NORMAL, DEFAULT_HIGH),
+                 rt_map: 0)
 }
 
-func priorities_from(p: &TomlTable, manifest: String) -> Result<UInt, Box<any Error>> {
+/// The two header words `[sos] priorities` produces.
+struct PriorityMaps {
+    prio_map: UInt
+    rt_map: UInt
+}
+
+/// The level `rt_band` names, or `RT_UNNAMED`. A level is never negative, so
+/// the sentinel cannot collide with one `band_level` accepts.
+func rt_level(p: &TomlTable, manifest: String, rt_band: String) -> Result<Int, Box<any Error>> {
+    band_level(&p, manifest, rt_band, RT_UNNAMED)
+}
+
+func priorities_from(p: &TomlTable, manifest: String) -> Result<PriorityMaps, Box<any Error>> {
     let background = try band_level(&p, manifest, "background", DEFAULT_BACKGROUND)
     let low = try band_level(&p, manifest, "low", DEFAULT_LOW)
     let normal = try band_level(&p, manifest, "normal", DEFAULT_NORMAL)
     let high = try band_level(&p, manifest, "high", DEFAULT_HIGH)
-    pack_priorities(background, low, normal, high)
+    let rt0 = try rt_level(&p, manifest, "rt0")
+    let rt1 = try rt_level(&p, manifest, "rt1")
+    let rt2 = try rt_level(&p, manifest, "rt2")
+    let rt3 = try rt_level(&p, manifest, "rt3")
+    PriorityMaps(prio_map: pack_priorities(background, low, normal, high),
+                 rt_map: pack_realtime(rt0, rt1, rt2, rt3, high))
 }
 
 // The `[sos]` / `[sos.<triple>]` toolchain keys `load_sos_config` folds into
@@ -432,6 +457,12 @@ static HEX_PREFIX_LEN: Int = 2      // "0x"
 ///     linker-script = "../hal/arm64/user/root.ld"
 ///     native = "..."
 ///
+/// `priorities` names levels (0..7) for the bands `background`, `low`, `normal`
+/// and `high`, and optionally for the realtime bands `rt0`, `rt1`, `rt2` and
+/// `rt3`. Naming none of the rt keys leaves the header's `rt_map` word 0; naming
+/// any writes all four bytes, each unnamed band taking the `high` level, and
+/// the image is then version 4.
+///
 /// `priorities` may also be its own `[sos.priorities]` table, which is no
 /// machine. `emit` and `priorities` stay in `[sos]` either way, because they are
 /// properties of the PROGRAM and not of the machine it is built for. A
@@ -471,6 +502,8 @@ func sos_config_from(sos: &TomlTable, manifest: String, requested: String) -> Re
     // `priorities` describes the PROGRAM, so it is read from `[sos]` whichever
     // spelling the per-machine keys use.
     let packed = try read_priorities(&sos, manifest)
+    let prio_map = packed.prio_map
+    let rt_map = packed.rt_map
 
     // Which table carries the per-machine keys, and which triple it is for.
     let flat_target = try in_manifest(manifest, sos.optional_string("target")) ?? ""
@@ -543,7 +576,8 @@ func sos_config_from(sos: &TomlTable, manifest: String, requested: String) -> Re
         native_features: defaults.native_features,
         linker_script: linker_script,
         native: toolchain.native ?? "",
-        prio_map: packed,
+        prio_map: prio_map,
+        rt_map: rt_map,
         device_base: device_base,
         device_len: device_len,
     )
@@ -761,6 +795,46 @@ public func pack_priorities(background: Int, low: Int, normal: Int, high: Int) -
     packed
 }
 
+/// The version an image with this `rt_map` is written at. The one place it is
+/// derived: a zero word is version 3, so an image naming no realtime level is
+/// byte-identical to one written before the word had meaning, and any other
+/// word is version 4, which a v3 loader refuses rather than drop the request.
+public func image_version(rt_map: UInt) -> UInt16 {
+    if rt_map == 0 {
+        return SOSIMG_VERSION_NO_RT_MAP
+    }
+    SOSIMG_VERSION
+}
+
+/// Pack the realtime levels into the header's `rt_map` word, low byte first.
+///
+/// A level of `RT_UNNAMED` is a band the manifest left out. When none is named
+/// the word is 0, which a loader reads as "each Rt band takes High's level".
+/// When any is named all four bytes are written, an unnamed band taking `high`,
+/// so a loader never has to tell an unnamed band from level 0.
+public func pack_realtime(rt0: Int, rt1: Int, rt2: Int, rt3: Int, high: Int) -> UInt {
+    let levels = [rt0, rt1, rt2, rt3]
+    var any_named = false
+    var i = 0
+    while i < RT_BAND_COUNT {
+        if levels[i] != RT_UNNAMED {
+            any_named = true
+        }
+        i = i + 1
+    }
+    if not any_named {
+        return 0
+    }
+    var packed: UInt = 0
+    i = 0
+    while i < RT_BAND_COUNT {
+        let level = if levels[i] == RT_UNNAMED { high } else { levels[i] }
+        packed = packed | ((level as UInt) << (BITS_PER_BAND * i))
+        i = i + 1
+    }
+    packed
+}
+
 // =============================================================================
 // Little-endian byte access — a module-private extension on `Data`
 // =============================================================================
@@ -853,7 +927,7 @@ extension Data {
         self.put_u8(h.seg_count as UInt)
         self.put_u8(h.arch as UInt)
         self.put_u32(h.prio_map as UInt)
-        self.put_u32(h.reserved0 as UInt)
+        self.put_u32(h.rt_map as UInt)
         self.put_u64(h.entry as UInt)
     }
 
@@ -1090,8 +1164,8 @@ public func arch_for_target(target: String) -> Result<SosimgArch, SosError> {
     return SosError(msg: "[sos] target: `{target}` is not a profile sosimg has an arch tag for")
 }
 
-/// Convert a linked ELF image into a sosimg carrying `prio_map`, tagged for
-/// `arch`, and asking for `device_len` bytes of MMIO at `device_base`.
+/// Convert a linked ELF image into a sosimg carrying `prio_map` and `rt_map`,
+/// tagged for `arch`, and asking for `device_len` bytes of MMIO at `device_base`.
 ///
 /// A DEVICE WINDOW IS A SEGMENT RECORD WITH NO BYTES, which is what lets the
 /// kernel walk one table and find both kinds. It carries `SegFlag.Device`
@@ -1100,7 +1174,7 @@ public func arch_for_target(target: String) -> Result<SosimgArch, SosError> {
 /// a region it cannot reach, and one that reads it installs the window.
 /// `device_len` of zero means the program asked for none and no record is
 /// emitted at all.
-public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
+public func elf_to_sosimg(elf: &Data, prio_map: UInt, rt_map: UInt, arch: SosimgArch,
                           device_base: UInt = 0,
                           device_len: UInt = 0) -> Result<Data, SosError> {
     let shape = try elf_shape(&elf)
@@ -1162,11 +1236,11 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
 
     let header = SosimgHeader(
         magic: SOSIMG_MAGIC,
-        version: SOSIMG_VERSION,
+        version: image_version(rt_map),
         seg_count: count as UInt8,
         arch: arch.tag(),
         prio_map: prio_map as UInt32,
-        reserved0: 0u32,
+        rt_map: rt_map as UInt32,
         entry: entry,
     )
     out.put_header(&header)
@@ -1207,7 +1281,7 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
 
 /// Read `elf_path`, convert it, and write the image to `img_path`, tagged for
 /// the profile it was linked for.
-public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt,
+public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt, rt_map: UInt,
                          arch: SosimgArch, device_base: UInt = 0,
                          device_len: UInt = 0) -> Result<Int, SosError> {
     var f = match File.open(elf_path) {
@@ -1218,7 +1292,7 @@ public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt,
         case Ok(bytes) -> move bytes,
         case Err(e) -> { return SosError(msg: "could not read {elf_path.as_string()}: {e}") }
     }
-    let img = try elf_to_sosimg(&elf, prio_map, arch, device_base, device_len)
+    let img = try elf_to_sosimg(&elf, prio_map, rt_map, arch, device_base, device_len)
     let size = img.len()
     let out = match File.create(img_path) {
         case Ok(handle) -> move handle,

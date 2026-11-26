@@ -7,6 +7,39 @@
 import blade.sosimg.{load_sos_config, pack_priorities}
 import std.path.{Path}
 
+func rt_map_of(dir: String) -> UInt {
+    match load_sos_config(Path(s: dir)) {
+        case Ok(found) -> {
+            guard let cfg = found else {
+                panic("{dir} declares [sos]")
+            }
+            cfg.rt_map
+        },
+        case Err(e) -> panic("{dir} should read: {e}")
+    }
+}
+
+// The realtime keys: none named leaves the word 0; any named fills all four
+// bytes, an unnamed band taking the `high` level as resolved.
+func check_realtime_levels() {
+    assert(rt_map_of("tests/fixtures/sosapp") == 0, "no rt key leaves rt_map 0")
+    assert(rt_map_of("tests/fixtures/sosdefaults") == 0, "defaults leave rt_map 0")
+    assert(rt_map_of("tests/fixtures/sosrt_all") == 0x0605_0403, "all four named, rt0 low byte")
+    // high is the default 1 here, so the three unnamed bands read 1.
+    assert(rt_map_of("tests/fixtures/sosrt_one") == 0x0101_0501, "one named, the rest take high")
+    // A manifest that sets high: its level fills the unnamed bands.
+    assert(rt_map_of("tests/fixtures/sosrt_high") == 0x0206_0606, "unnamed bands take the manifest's high")
+    assert(rt_map_of("tests/fixtures/sosrt_one_dotted") == rt_map_of("tests/fixtures/sosrt_one"),
+           "inline and [sos.priorities] spellings agree")
+    match load_sos_config(Path(s: "tests/fixtures/sosrt_bad")) {
+        case Ok(_) -> panic("rt2 = 8 should be refused"),
+        case Err(e) -> {
+            let said = "{e}"
+            assert(said.contains("[sos] priorities.rt2: level 8 is outside 0..7"), "the refusal names rt2 and the range")
+        }
+    }
+}
+
 func main() {
     match load_sos_config(Path(s: "tests/fixtures/sosapp")) {
         case Ok(found) -> {
@@ -59,6 +92,8 @@ func main() {
         },
         case Err(e) -> panic("a [sos.priorities] section should read: {e}")
     }
+
+    check_realtime_levels()
 
     // An unknown `[sos.<name>]` is refused by name, not counted as a machine.
     match load_sos_config(Path(s: "tests/fixtures/sosunknown_subtable")) {

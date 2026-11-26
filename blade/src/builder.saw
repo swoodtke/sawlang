@@ -1167,7 +1167,7 @@ extension Builder {
             case Err(e) -> { return BuildError(msg: "could not emit {image}: {e.text()}") }
         }
 
-        match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map, arch,
+        match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map, cfg.rt_map, arch,
                            cfg.device_base, cfg.device_len) {
             case Ok(size) -> {
                 record_build_stamp(&layout, &hash)

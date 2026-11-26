@@ -1,0 +1,9 @@
+[package]
+name = "sosrt_high"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "root.ld"
+priorities = { high = 6, rt3 = 2 }

@@ -16076,7 +16076,7 @@ image tag for; the error names it.
 | Key | Type | Where | Meaning |
 |---|---|---|---|
 | `emit` | string | `[sos]` | Required. The only value is `"sosimg"`. |
-| `priorities` | table | `[sos]` | The levels of the four bands `background`, `low`, `normal` and `high`, each an integer from 0 to 7. Defaults 0, 1, 1 and 1. A band left out takes its default. Written inline (`priorities = { low = 2 }`) or as a `[sos.priorities]` table, which read the same; stating both is an error. |
+| `priorities` | table | `[sos]` | The levels of the four bands `background`, `low`, `normal` and `high`, each an integer from 0 to 7. Defaults 0, 1, 1 and 1. A band left out takes its default. The realtime bands `rt0`, `rt1`, `rt2` and `rt3` take the same range and are optional: naming none leaves the image's `rt_map` word 0 (format version 3), and naming any writes all four, a band left out taking the `high` level (format version 4). Written inline (`priorities = { low = 2 }`) or as a `[sos.priorities]` table, which read the same; stating both is an error. |
 | `target` | string | `[sos]` | The triple, in the flat form. |
 | `linker-script` | string | machine | Required. The path passed to `ld.lld -T`. |
 | `native` | string | machine | The C and assembly sources compiled beside the Saw object, separated by spaces. Default: none. |

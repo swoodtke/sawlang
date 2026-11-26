@@ -63,12 +63,13 @@
 /// FIELD ORDER IS CHOSEN FOR THE OVERLAY, not for reading order. `entry` is
 /// last because it is the only 8-byte field, and putting it on an 8-byte
 /// boundary is what lets both profiles read this struct with one view
-/// construction and no interior padding. `reserved0` is that padding, spelled
-/// out — a hole in a wire struct is a field like any other (design 58).
+/// construction and no interior padding. `rt_map` is the word that puts it
+/// there (design 58).
 public struct SosimgHeader {
     /// `SOSIMG_MAGIC` — the bytes 'S','O','S','I' read as a little-endian word.
     magic: UInt32,
-    /// `SOSIMG_VERSION`. A loader refuses anything it does not know.
+    /// `SOSIMG_VERSION_NO_RT_MAP` or `SOSIMG_VERSION`. A loader refuses
+    /// anything it does not know.
     version: UInt16,
     /// How many `SosimgSeg` records follow. A loader bounds this against its
     /// own budget (the kernel's is its grant budget).
@@ -89,9 +90,11 @@ public struct SosimgHeader {
     /// launcher may honor, clamp or override it (§7). The kernel applies
     /// root's verbatim because root is trusted by construction (§12).
     prio_map: UInt32,
-    /// Zero. Present so `entry` lands 8-aligned; a later version can spend it
-    /// without moving anything.
-    reserved0: UInt32,
+    /// The realtime bands' levels, one byte per band, low byte first: Rt0,
+    /// Rt1, Rt2, Rt3. Zero means none is named, and a loader gives each Rt band
+    /// High's level. A nonzero word names all four, so a loader never has to
+    /// tell an unnamed band from level 0. A REQUEST, like `prio_map`.
+    rt_map: UInt32,
     /// ABSOLUTE load address of the first instruction, 64-bit since v3. Not an
     /// offset: nothing relocates on Profile A, so an offset would only be an
     /// addition every loader has to perform and re-validate.
@@ -137,8 +140,9 @@ static_assert(sizeof<SosimgSeg>() == 24, "sosimg segment record must be exactly 
 /// 'S','O','S','I' as a little-endian word.
 public static SOSIMG_MAGIC: UInt32 = 0x4953_4F53
 
-/// Version 3 widened `entry` and `load_addr` to 64 bits, taking the header from
-/// 16 bytes to 24 and each record from 20 to 24.
+/// The version of an image whose `rt_map` is zero. Version 3 widened `entry`
+/// and `load_addr` to 64 bits, taking the header from 16 bytes to 24 and each
+/// record from 20 to 24.
 ///
 /// Every version bump so far has been a REFUSAL boundary rather than a
 /// negotiation: v2 refused v1 because a v1 image made no statement about what
@@ -147,7 +151,13 @@ public static SOSIMG_MAGIC: UInt32 = 0x4953_4F53
 /// record that is safe to guess at, so a loader says the version is wrong and
 /// stops — which is a diagnostic, where guessing would be a jump into whatever
 /// the misread bytes pointed at.
-public static SOSIMG_VERSION: UInt16 = 3
+public static SOSIMG_VERSION_NO_RT_MAP: UInt16 = 3
+
+/// Version 4 gives the header's `rt_map` word meaning. A writer emits it only
+/// for an image whose `rt_map` is nonzero, so an image naming no realtime level
+/// stays version 3; a v3 loader then refuses an image that asks for realtime
+/// levels, where it would otherwise drop the request silently.
+public static SOSIMG_VERSION: UInt16 = 4
 
 /// The largest address a 32-bit loader can place.
 static WORD32_MAX: UInt64 = 0xFFFF_FFFFu64
@@ -247,9 +257,17 @@ extension SosimgHeader {
         self.magic == SOSIMG_MAGIC
     }
 
-    /// Is this a version this build understands?
-    public func has_known_version(&self) -> Bool {
-        self.version == SOSIMG_VERSION
+    /// Is this a version the calling loader implements?
+    ///
+    /// A loader that honours `rt_map` passes `reads_rt_map: true` and accepts
+    /// versions 3 and 4; any other loader accepts version 3 alone, so a
+    /// realtime request is refused rather than dropped. Either way a version-3
+    /// header must carry a zero `rt_map`.
+    public func has_known_version(&self, reads_rt_map: Bool = false) -> Bool {
+        if self.version == SOSIMG_VERSION_NO_RT_MAP {
+            return self.rt_map == 0
+        }
+        reads_rt_map && self.version == SOSIMG_VERSION
     }
 
     /// Was this image built for `arch`?
@@ -266,9 +284,11 @@ extension SosimgHeader {
     /// lives, how big it is, or what machine is reading it. A loader still has
     /// to check the arch tag, bound `seg_count` against its own budget and
     /// check every segment against its own memory map — those are target
-    /// decisions and stay with the target.
-    public func is_wellformed(&self) -> Bool {
-        self.has_magic() && self.has_known_version() && self.seg_count > 0
+    /// decisions and stay with the target. `reads_rt_map` is
+    /// `has_known_version`'s.
+    public func is_wellformed(&self, reads_rt_map: Bool = false) -> Bool {
+        self.has_magic() && self.has_known_version(reads_rt_map: reads_rt_map) &&
+            self.seg_count > 0
     }
 }
 

@@ -10,7 +10,7 @@ import imgformat.*
 func header(magic: UInt32, version: UInt16, seg_count: UInt8) -> SosimgHeader {
     SosimgHeader(magic: magic, version: version, seg_count: seg_count,
                  arch: SosimgArch.Riscv32 as UInt8, prio_map: 0,
-                 reserved0: 0, entry: 0x8000_0000)
+                 rt_map: 0, entry: 0x8000_0000)
 }
 
 func main() {
@@ -21,25 +21,26 @@ func main() {
     // 'S','O','S','I' as a little-endian word, and the version the loaders
     // in this tree understand.
     assert(SOSIMG_MAGIC == 0x4953_4F53, "the magic word spells SOSI")
-    assert(SOSIMG_VERSION == 3, "v3 is the current format")
+    assert(SOSIMG_VERSION == 4, "v4 is the current format")
+    assert(SOSIMG_VERSION_NO_RT_MAP == 3, "v3 is the one without an rt_map")
 
     let good = header(SOSIMG_MAGIC, SOSIMG_VERSION, 2)
     assert(good.has_magic(), "the magic word is recognized")
-    assert(good.has_known_version(), "the current version is known")
-    assert(good.is_wellformed(), "a well-formed header passes")
+    assert(good.has_known_version(reads_rt_map: true), "the current version is known")
+    assert(good.is_wellformed(reads_rt_map: true), "a well-formed header passes")
 
     // Each refusal on its own, so a regression names which rule went.
     let wrong_magic = header(0x4953_4F54, SOSIMG_VERSION, 2)
     assert(not wrong_magic.has_magic(), "a foreign magic word is refused")
-    assert(not wrong_magic.is_wellformed(), "...and fails the whole check")
+    assert(not wrong_magic.is_wellformed(reads_rt_map: true), "...and fails the whole check")
 
     let old_version = header(SOSIMG_MAGIC, 2, 2)
-    assert(not old_version.has_known_version(), "v2 is not read as v3")
-    assert(not old_version.is_wellformed(), "...and fails the whole check")
+    assert(not old_version.has_known_version(reads_rt_map: true), "v2 is not read as v3")
+    assert(not old_version.is_wellformed(reads_rt_map: true), "...and fails the whole check")
 
     // An image with nothing to load is not an image.
     let empty = header(SOSIMG_MAGIC, SOSIMG_VERSION, 0)
-    assert(not empty.is_wellformed(), "a segment-less header is refused")
+    assert(not empty.is_wellformed(reads_rt_map: true), "a segment-less header is refused")
 
     // The arch tag is compared RAW: a loader asks "is this mine", never "what
     // is it". An unregistered tag is simply nobody's.
@@ -58,10 +59,31 @@ func main() {
     assert(good.is_for_arch(SosimgArch.Xtensa as UInt8) == false, "a riscv32 header is not xtensa's")
     let xtensa = SosimgHeader(magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 1,
                               arch: SosimgArch.Xtensa as UInt8, prio_map: 0,
-                              reserved0: 0, entry: 0x4037_0000)
-    assert(xtensa.is_wellformed(), "an xtensa header is well-formed")
+                              rt_map: 0, entry: 0x4037_0000)
+    assert(xtensa.is_wellformed(reads_rt_map: true), "an xtensa header is well-formed")
     assert(xtensa.is_for_arch(SosimgArch.Xtensa as UInt8), "and claims xtensa")
     assert(not xtensa.is_for_arch(SosimgArch.Riscv32 as UInt8), "and not riscv32")
+    // `rt_map` is data: any word keeps a header well-formed, and the header
+    // stays the size the overlay rests on.
+    let realtime = SosimgHeader(magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 1,
+                                arch: SosimgArch.Riscv32 as UInt8, prio_map: 0,
+                                rt_map: 0x0706_0504, entry: 0x8000_0000)
+    assert(realtime.is_wellformed(reads_rt_map: true), "a header naming realtime levels is well-formed")
+    assert(realtime.rt_map == 0x0706_0504, "rt_map reads back as written")
+    // Version 4 is opt-in: a loader that does not honour `rt_map` refuses it,
+    // so the realtime request is never dropped silently.
+    assert(not good.has_known_version(), "a loader not reading rt_map refuses v4")
+    assert(not realtime.is_wellformed(), "...and fails the whole check")
+    // The word and the version agree: v3 carries none, v4 may carry any.
+    let v3_zero = header(SOSIMG_MAGIC, SOSIMG_VERSION_NO_RT_MAP, 1)
+    assert(v3_zero.is_wellformed(), "v3 with a zero rt_map is accepted by a v3 loader")
+    assert(v3_zero.is_wellformed(reads_rt_map: true), "...and by one reading rt_map")
+    let v3_named = SosimgHeader(magic: SOSIMG_MAGIC, version: SOSIMG_VERSION_NO_RT_MAP,
+                                seg_count: 1, arch: SosimgArch.Riscv32 as UInt8,
+                                prio_map: 0, rt_map: 1, entry: 0x8000_0000)
+    assert(not v3_named.has_known_version(), "v3 with a nonzero rt_map is refused")
+    assert(not v3_named.has_known_version(reads_rt_map: true), "...by either loader")
+    assert(not v3_named.is_wellformed(reads_rt_map: true), "...and fails the whole check")
     // The suffix is owed: `from(raw:)` does not adopt a bare literal the way
     // an ordinary `UInt8` parameter does.
     assert(SosimgArch.from(raw: 9u8).is_none(), "an unknown tag decodes to None")
