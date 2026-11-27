@@ -1,0 +1,13 @@
+// probe: custom
+// about: a runtime source may declare and call the background drive, alone and with its own signature: the entries are the program's, so in a runtime source the name is an ordinary extern (SL-1150)
+// Built with `sawc runtime --target arm64-apple-darwin --emit-ll`: the source
+// compiles, and its `.ll` declares the drive and defines neither entry.
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+@export("probe_runtime_drives")
+func drives() -> Int64 {
+    __saw_background_drive()
+}

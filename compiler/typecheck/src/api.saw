@@ -24,7 +24,7 @@ import sawtypecheck.conform.{tc_check_copy_policies, tc_check_test_only_copies,
                                  tc_extension_sets_from, tc_settle_conformances}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.dump.{tc_dump_module}
-import sawtypecheck.effects.{tc_check_effects, tc_check_hosted_imports}
+import sawtypecheck.effects.{tc_check_background_owner, tc_check_effects, tc_check_hosted_imports}
 import sawtypecheck.erasure.{tc_check_object_safety}
 import sawtypecheck.exhaust.{tc_check_exhaustive}
 import sawtypecheck.exports.{tc_check_exports}
@@ -152,6 +152,7 @@ public func tc_run_layer(p: &var TcProgram, layer: &var FrontLayer, inputs: &Fro
     tc_check_func_pointer_types(&var p, &layer)
     tc_check_target_atomics(&var p, &layer)
     tc_check_exports(&var p, &layer)
+    tc_check_background_owner(&var p, &layer)
     // A pass after the bodies that forms a type leaves no bound unanswered.
     tc_check_obligations(&var p)
     stagetime_end(StageTime.Typecheck)

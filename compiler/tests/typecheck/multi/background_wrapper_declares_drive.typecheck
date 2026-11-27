@@ -1,0 +1,48 @@
+(Module awrapper
+  (declarations
+    (extern __saw_background_drive 5:10 private (signature (params) -> Int64) (summary declared (suspends no) (sync-callable yes)))
+    (func wait_for_event 8:13 public (signature (params) -> Int64) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (wait_for_event 8:13
+      (9:5-9:29 Call.paren Int64 value temp (call awrapper.__saw_background_drive())))))
+
+(Module mruntime
+  (declarations
+    (extern __saw_background_drive 5:10 private (signature (params) -> Int64) (summary declared (suspends no) (sync-callable yes)))
+    (extern __saw_background_close 6:10 private (signature (params) -> Void) (summary declared (suspends no) (sync-callable yes)))
+    (func touch 9:13 public (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (touch 9:13
+      (10:5-10:6 IntLit Int value temp))))
+
+(Module main
+  (declarations
+    (func work 8:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func entry 13:6 private (signature (params (n Int owned)) -> Int64) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (work 8:6
+      (9:5-9:10 Binary Int value temp (op *))
+      (9:5-9:6 Name Int place copy)
+      (9:9-9:10 IntLit Int value temp))
+    (entry 13:6
+      (14:9-14:10 BindingName std.taskgroup.Task<Int> place temp)
+      (14:13-14:32 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (14:24-14:31 Call.paren Int value temp (call main.work(n: Int)))
+      (14:29-14:30 Name Int place copy)
+      (15:5-15:15 Call.paren Void value temp (call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Int>)))
+      (15:5-15:6 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (16:9-16:10 BindingName Int place temp)
+      (16:13-16:29 Call.paren Int value temp (call mruntime.touch()))
+      (17:5-17:30 Call.paren Int64 value temp (call awrapper.wait_for_event())))))

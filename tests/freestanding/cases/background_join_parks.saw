@@ -1,0 +1,34 @@
+// A task that joins one waiting on a channel nothing in the program sends to
+// parks, and the drive returns: it answers no-deadline, since the runtime may
+// yet deliver the event, where a nested sweep would have reported a deadlock.
+// The close then cancels the receive, and the joiner, whose join a cancel does
+// not end, takes the result.
+
+import fscore.*
+import fsdrive
+import std.channel.{Channel}
+import std.task.*
+
+func k(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> 0 - 1
+    }
+}
+
+func j(orders: Channel<Int>) {
+    let t = Task.spawn(k(orders))
+    report("j_joins", 1)
+    report("j_joined_value", t.join())
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let tj = Task.spawn(j(orders.copy()))
+    tj.detach()
+}

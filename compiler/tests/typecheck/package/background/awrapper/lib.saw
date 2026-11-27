@@ -1,0 +1,10 @@
+// A blocking call's wrapper: it declares the background drive alone, to call
+// it before the wait it wraps.
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+public func wait_for_event() -> Int64 {
+    __saw_background_drive()
+}

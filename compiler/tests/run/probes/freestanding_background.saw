@@ -1,0 +1,21 @@
+// probe: custom
+// about: a `--freestanding` object whose runtime declares both background entries defines them, and reaches the executor's seams through them when the program spawns (SL-1150)
+// Built with `--freestanding --target aarch64-unknown-none-elf -c` whole and with
+// `--codegen-units=module`: `__saw_background_drive` and `__saw_background_close`
+// are external definitions, and the reactor seams the drive and the close reach
+// are undefined for the runtime to provide.
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+}
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("probe_background_start")
+func start(n: Int) {
+    let t = Task.spawn(work(n))
+    t.detach()
+}

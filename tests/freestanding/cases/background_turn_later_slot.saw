@@ -1,0 +1,41 @@
+// A task spawned during a drive lands in a slot after its spawner's, ahead of
+// the walk: the spawner is in the first slot and a parked task in the second,
+// so the spawned task takes the third, and it still waits for the next drive.
+
+import fscore.*
+import fsdrive
+import std.channel.{Channel}
+import std.task.*
+
+func parked(orders: Channel<Int>) {
+    report("parked_parks", 1)
+    match orders.receive() {
+        case Ok(order) -> report("parked_got", order),
+        case Err(_) -> report("parked_receive_failed", 1)
+    }
+}
+
+func spawned() {
+    report("spawned_ran", 1)
+}
+
+func spawner() {
+    report("spawner_starts", 1)
+    yield_now()
+    report("spawner_spawns", 1)
+    let t = Task.spawn(spawned())
+    t.detach()
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let x = Task.spawn(spawner())
+    x.detach()
+    let orders = try! Channel<Int>()
+    let p = Task.spawn(parked(orders.copy()))
+    p.detach()
+}

@@ -1,0 +1,18 @@
+// flags: --std-root std --freestanding
+// A freestanding runtime that declares both background entries owns the
+// background group, so `Task.spawn` from an export is accepted (SL-1150).
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+}
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) {
+    let t = Task.spawn(work(n))
+    t.detach()
+}

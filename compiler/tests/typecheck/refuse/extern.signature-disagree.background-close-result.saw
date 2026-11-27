@@ -1,0 +1,14 @@
+// refuses: extern.signature-disagree at 8:10
+// flags: --std-root std --freestanding
+// message: `__saw_background_close` is declared here as `() -> Int64`, but the entry the compiler defines is `()`
+// a freestanding runtime declaring the background close with a result
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_background_close() -> Int64
+}
+
+@export("entry")
+func entry() -> Int64 {
+    __saw_background_close()
+}

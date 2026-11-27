@@ -136,6 +136,15 @@ public struct MonoProgram {
     spawn_box_item: Int
     spawn_background_item: Int
     spawn_close_item: Int
+    // The two bodies below are rooted at a spawn site only under a freestanding
+    // runtime that owns the background group: the bodies of the entries the
+    // compiler defines for it, its drive and its close (runtime/ABI.md, "The
+    // background group"); -1 otherwise.
+    spawn_drive_item: Int
+    spawn_runtime_close_item: Int
+    // Under such a runtime, the std function `__saw_main` calls first, which
+    // stands the deadlock report down; rooted with `main`, -1 otherwise.
+    runtime_owner_item: Int
     spawn_singleton: Int
     spawn_handle_items: Vector<Int>
     // What a `Thread.spawn` site's lowering calls (SL-765), by concrete call:
@@ -306,7 +315,9 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 static_parts: Vector<EvalValue>(), main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
                 length_item: -1, exec_item: -1, prints: false, print_failure_item: -1,
                 spawn_box_item: -1, spawn_background_item: -1,
-                spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(),
+                spawn_close_item: -1, spawn_drive_item: -1, spawn_runtime_close_item: -1,
+                runtime_owner_item: -1, spawn_singleton: -1,
+                spawn_handle_items: Vector<Int>(),
                 thread_spawns: Vector<MonoThreadSpawn>(), thread_spawn_of: Vector<Int>(),
                 drive_item: -1,
                 drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,

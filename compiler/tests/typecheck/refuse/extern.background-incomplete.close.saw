@@ -1,0 +1,13 @@
+// refuses: extern.background-incomplete at 7:10
+// flags: --std-root std --freestanding
+// message: `__saw_background_close` is declared here, but not `__saw_background_drive` in any module of this program
+// the background close declared alone
+
+extern "C" {
+    func __saw_background_close()
+}
+
+@export("entry")
+func entry() {
+    __saw_background_close()
+}

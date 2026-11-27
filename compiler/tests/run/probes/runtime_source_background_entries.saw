@@ -1,0 +1,15 @@
+// probe: custom
+// about: a runtime source may declare both background entries and call them: a runtime source is no freestanding program, so the declarations claim no group and the object defines neither entry (SL-1150)
+// Built with `sawc runtime --target arm64-apple-darwin --emit-ll`: the source
+// compiles, and its `.ll` declares both entries and defines neither.
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+}
+
+@export("probe_runtime_drives")
+func drives() -> Int64 {
+    __saw_background_close()
+    __saw_background_drive()
+}

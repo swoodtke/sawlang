@@ -385,6 +385,11 @@ struct TaskCell {
     // recorded sleeps (`take_sleep_order`): what breaks a tie between two
     // equal deadlines (`next_sleeper`).
     slept: UInt64
+    // The owning thread's drive count (`ExecutorRecord.drives`) when the task
+    // was spawned or last resumed: a background drive resumes only a task whose
+    // count is below its own, which fixes the tasks its turn may run when it
+    // begins (`in_turn`).
+    turn: UInt64
     descriptor: UnsafePointer<FrameDescriptor>
     result: UnsafePointer<UInt8>
     bytes: Int
@@ -1084,6 +1089,11 @@ struct ExecutorRecord {
     // order from (`take_sleep_order`). Only the record's own thread reads or
     // writes it.
     sleeps: UInt64
+    // How many background drives this thread has begun: a drive's walk takes
+    // the count it raised it to, and resumes only the tasks spawned and last
+    // resumed below it (`in_turn`). Only the record's own thread reads or
+    // writes it.
+    drives: UInt64
     // How many groups have been unlinked from this record's list, under its
     // latch, by whichever thread tears each down: a cooperative sleep queue
     // built before the count moved may name a freed group (`next_sleeper`).
@@ -1333,8 +1343,8 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     let raw = exec_alloc(size, align, "executor")
     let fresh = raw as UnsafePointer<ExecutorRecord>
     fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1, latch: 0,
-                              turns: 0, current: 0, sleeps: 0, regroups: 0, walks: 0, wake: SleepQueue(), worker: 0,
-                              pool_task: 0)
+                              turns: 0, current: 0, sleeps: 0, drives: 0, regroups: 0, walks: 0, wake: SleepQueue(),
+                              worker: 0, pool_task: 0)
     var linked = false
     while not linked {
         let head = EXEC_RECORDS.load()
@@ -1433,8 +1443,9 @@ public(package) func __saw_exec_task_box(descriptor: UnsafePointer<FrameDescript
     exec_alloc(descriptor[0].size, descriptor[0].align, "Task.spawn") as UnsafePointer<UInt8>
 }
 
-// A fresh cell for a task of `descriptor`, ready to run.
-func new_cell(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointer<TaskCell> {
+// A fresh cell for a task of `descriptor`, ready to run, spawned at its
+// owning thread's drive count `turn`.
+func new_cell(descriptor: UnsafePointer<FrameDescriptor>, turn: UInt64) unsafe -> UnsafePointer<TaskCell> {
     var align = alignof<TaskCell>()
     let result_align = descriptor[0].result_align
     if result_align > align {
@@ -1448,7 +1459,7 @@ func new_cell(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointe
     let context = TaskContext(park: 0 as UnsafePointer<Int>, cancel: 0 as UnsafePointer<Bool>,
                               task: raw as Int, deadline: 0)
     cell[0] = TaskCell(context: context, park: PARK_READY, cancel: false, unclaimed: false,
-                       holding: false, finished: 0, slept: 0, descriptor: descriptor, result: result,
+                       holding: false, finished: 0, slept: 0, turn: turn, descriptor: descriptor, result: result,
                        bytes: bytes, align: align, holds: 0)
     let park = (&cell[0].park) as UnsafePointer<Int>
     let cancel = (&cell[0].cancel) as UnsafePointer<Bool>
@@ -1614,7 +1625,8 @@ extension TaskGroup {
     func enqueue(&var self, descriptor: UnsafePointer<FrameDescriptor>,
                  frame: UnsafePointer<UInt8>, owned: Bool) unsafe -> TaskTicket {
         register(&var self)
-        let cell = new_cell(descriptor)
+        let owner = self.owner as UnsafePointer<ExecutorRecord>
+        let cell = new_cell(descriptor, owner[0].drives)
         let at = (&self) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
         let pool = self.engine()
         if pool == 0 {
@@ -2048,6 +2060,7 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     borrow var g[0].slots[slot].active = true
     borrow var g[0].slots[slot].runner = record as Int
     cell[0].park = PARK_UNSET
+    cell[0].turn = record[0].drives
     unlock_queue(at)
     let context = (&cell[0].context) as UnsafePointer<TaskContext>
     let outer = begin_turn(record, context)
@@ -2171,7 +2184,7 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, w
                   queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>,
                   cursor: UnsafePointer<WalkCursor>) unsafe {
     while not sweep_finished(term_group, term_slot, term_gen, waiter, waiter_order, queue, record) {
-        let end = groups_pass(term_group, term_slot, term_gen, waiter, waiter_order, queue, record, cursor)
+        let end = groups_pass(term_group, term_slot, term_gen, waiter, waiter_order, queue, record, cursor, 0)
         if end == PassEnd.Finished {
             return
         }
@@ -2208,10 +2221,24 @@ enum PassEnd {
 // One pass of the walk over the cooperative groups of `record`'s thread:
 // each woken frame has one turn, an expired sleeper's going to the sleeper
 // that wakes first (`walk_turn`), until the sweep is finished
-// (`sweep_finished`).
+// (`sweep_finished`). A sweep's pass, and a pool worker's own, passes `drive`
+// 0 and may resume any task. A background drive's passes the count it began
+// (`ExecutorRecord.drives`) and resumes only the tasks in its turn
+// (`in_turn`), so the pass resumes no task twice and none spawned during it.
+// The one exception is a turn that opens a sweep of its own, a teardown that
+// keeps its nested sweep (each case the spec's "A group's teardown in a task
+// parks" lists): that
+// sweep runs the thread's tasks as often as they wake, those spawned during the
+// drive included, and stamps each past the drive, so this pass resumes none of
+// what it ran.
+//
+// ENTRY POINTS:
+//   sweep_passes
+//   own_pass
+//   __saw_exec_runtime_drive_background
 func groups_pass(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, waiter_order: UInt64,
                  queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>,
-                 cursor: UnsafePointer<WalkCursor>) unsafe -> PassEnd {
+                 cursor: UnsafePointer<WalkCursor>, drive: UInt64) unsafe -> PassEnd {
     var resumed = false
     cursor[0].group = load_word((&record[0].groups) as UnsafePointer<Int>)
     cursor[0].slot = WALK_ENTER
@@ -2224,8 +2251,8 @@ func groups_pass(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int, wa
         }
         var moved = false
         while i >= 0 && not moved {
-            if g[0].runnable(i) {
-                let turn = walk_turn(g, i, waiter, waiter_order, queue, record)
+            if g[0].runnable(i) && in_turn(g, i, drive) {
+                let turn = walk_turn(g, i, waiter, waiter_order, queue, record, drive)
                 if turn.slot < 0 {
                     // The drive point's own sleep wakes next, which ends the
                     // sweep.
@@ -2273,7 +2300,7 @@ func own_pass(record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     var cursor = WalkCursor(group: 0, slot: WALK_ENTER, outer: record[0].walks)
     let at = (&cursor) as UnsafePointer<WalkCursor>
     record[0].walks = at as Int
-    let end = groups_pass(0, -1, 0, 0, 0, queue, record, at)
+    let end = groups_pass(0, -1, 0, 0, 0, queue, record, at, 0)
     record[0].walks = cursor.outer
     end != PassEnd.Idle
 }
@@ -2385,9 +2412,12 @@ func cooperative_sleeper(queue: UnsafePointer<SleepQueue>, bound: SleepKey, now:
 // at `g`: that slot's, unless it is an expired sleep and another expired
 // sleeper wakes ahead of it (`next_sleeper`) among `record`'s groups, or the
 // drive point's own park at `waiter`, whose turn is the pick with a negative
-// slot.
+// slot. In a background drive's walk (`turn` above 0) the pick is among the
+// sleepers in the drive's turn alone (`turn_sleeper`): one outside it wakes in
+// a later drive (`in_turn`), and the sleepers in it keep the sleep order.
 func walk_turn(g: UnsafePointer<TaskGroup>, slot: Int, waiter: Int, waiter_order: UInt64,
-               queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>) unsafe -> SleeperPick {
+               queue: UnsafePointer<SleepQueue>, record: UnsafePointer<ExecutorRecord>,
+               turn: UInt64) unsafe -> SleeperPick {
     let cell = g[0].cell_at(slot)
     let cx = (&cell[0].context) as UnsafePointer<TaskContext>
     let own = SleepKey(deadline: cell[0].context.deadline, order: cell[0].slept)
@@ -2397,6 +2427,9 @@ func walk_turn(g: UnsafePointer<TaskGroup>, slot: Int, waiter: Int, waiter_order
         return here
     }
     var pick = cooperative_sleeper(queue, own, now, record)
+    if pick.slot >= 0 && not in_turn(pick.group as UnsafePointer<TaskGroup>, pick.slot, turn) {
+        pick = turn_sleeper(queue, own, turn)
+    }
     if pick.slot < 0 {
         pick = here
     }
@@ -2408,6 +2441,43 @@ func walk_turn(g: UnsafePointer<TaskGroup>, slot: Int, waiter: Int, waiter_order
         }
     }
     pick
+}
+
+// THE DRIVE'S TURN: whether slot `slot` of the group at `g` may be resumed by
+// a walk of background drive `turn`. A sweep's walk (`turn` 0) may resume any
+// task. A drive's turn is the tasks that were spawned and last resumed before
+// it began, each stamped with its thread's drive count at those two points
+// (`TaskCell.turn`), so a task resumed once in the drive, or spawned during
+// it, waits for the next.
+//
+// ENTRY POINTS:
+//   groups_pass
+//   walk_turn
+//   turn_sleeper
+func in_turn(g: UnsafePointer<TaskGroup>, slot: Int, turn: UInt64) unsafe -> Bool {
+    if turn == 0 {
+        return true
+    }
+    g[0].cell_at(slot)[0].turn < turn
+}
+
+// The sleeper that wakes first ahead of `bound`, an expired sleep, among the
+// tasks in background drive `turn`'s turn, or none; each such sleep is due,
+// since its deadline is no later than `bound`'s. The queue's top may be
+// outside the turn while sleepers in it are due, so this scans the queue,
+// which the `cooperative_sleeper` call just before it left holding every timer
+// park of the thread's cooperative groups.
+func turn_sleeper(queue: UnsafePointer<SleepQueue>, bound: SleepKey, turn: UInt64) unsafe -> SleeperPick {
+    var best = SleeperPick(group: 0, slot: -1, key: bound)
+    var i = 0
+    while i < queue[0].entries.len() {
+        let e = queue[0].entries[i]
+        if precedes(e.key, best.key) && e.live() && in_turn(e.group as UnsafePointer<TaskGroup>, e.slot, turn) {
+            best = SleeperPick(group: e.group, slot: e.slot, key: e.key)
+        }
+        i = i + 1
+    }
+    best
 }
 
 // A sleep's place in the sleep order: its deadline, then its order.
@@ -3065,15 +3135,26 @@ func task_parked(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
 // state stays quiet while the first one ends the process.
 static DEADLOCK_REPORTED: Atomic<Int> = Atomic(0)
 
+// Nonzero once the program has been entered under a freestanding runtime that
+// owns the background group (`__saw_exec_runtime_owns_background`). Such a
+// runtime may deliver the event a quiescent program waits for, from outside
+// every Saw frame, so the deadlock walk cannot know the wait is for good.
+static BACKGROUND_RUNTIME: Atomic<Int> = Atomic(0)
+
 // The deadlock report: panics when the walk finds the process quiescent
 // twice, a nap apart, and returns otherwise. The second look costs a real
 // deadlock a nap and confirms what the first saw: a word set or a thread
-// started between them, which no count of resumes records, ends it.
+// started between them, which no count of resumes records, ends it. Under a
+// runtime that owns the background group it stands down and returns at once
+// (`BACKGROUND_RUNTIME`), so the wait goes to the runtime's own reactor poll.
 //
 // ENTRY POINTS:
 //   idle
 //   pool_wait
 func check_quiescent(waiter: Int, walker: UnsafePointer<ExecutorRecord>) unsafe {
+    if BACKGROUND_RUNTIME.load() != 0 {
+        return
+    }
     if not quiescent_now(waiter, walker) {
         return
     }
@@ -3959,6 +4040,154 @@ public(package) func __saw_exec_close_background() unsafe {
     // its run queue is given back.
     drop_in_place(g)
     g[0] = TaskGroup.unmade(0)
+}
+
+// The answer of a background drive that leaves no task live on the calling
+// thread's cooperative groups (runtime/ABI.md, "The background group").
+static DRIVE_NOTHING_LIVE: Int64 = -1
+
+// The answer of a background drive whose live tasks wait with no deadline:
+// on a descriptor, a channel, a join or an offload.
+static DRIVE_NO_DEADLINE: Int64 = 9_223_372_036_854_775_807
+
+/// Runs the calling thread's cooperative tasks for one bounded turn, those of
+/// every cooperative group on the thread, the background group's included,
+/// and answers when to drive again: the body of the entry
+/// `__saw_background_drive`, which a freestanding runtime that owns the
+/// background group calls.
+///
+/// The tasks the turn may run are fixed when it begins: each task spawned
+/// before then whose park has woken gets one resume, the expired sleepers
+/// among them in the sleep order, and a task spawned during the turn waits
+/// for the next one (`in_turn`). A ready descriptor is latched by one poll of
+/// the reactor with no timeout, when one exists, and a task whose park has not
+/// woken stays parked: a task that joins one that has not finished parks, as
+/// one whose group local's teardown waits for the group's tasks does, so the
+/// drive returns. The one exception to a single resume each is a teardown that
+/// keeps its nested sweep (in each case the spec's "A group's teardown in a
+/// task parks" lists), which runs
+/// the thread's tasks as often as they wake, those spawned during the drive
+/// included, and may block in the reactor's poll until the group's tasks
+/// finish; the drive then resumes none of what that sweep ran. The answer is
+/// `DRIVE_NOTHING_LIVE` when no task is live, 0 when one can run now,
+/// `DRIVE_NO_DEADLINE` when every live task waits with no deadline, and
+/// otherwise the earliest deadline among them, on the monotonic clock in
+/// nanoseconds.
+///
+/// Made inside a task's turn, it is a drive of its own with its own turn: the
+/// tasks further up the thread's stack are skipped, and counted live.
+public(package) func __saw_exec_runtime_drive_background() unsafe -> Int64 {
+    __saw_exec_runtime_owns_background()
+    let current = __saw_rt_thread_executor()
+    if current == 0 {
+        return DRIVE_NOTHING_LIVE
+    }
+    let record = current as UnsafePointer<ExecutorRecord>
+    let live = cooperative_live(record)
+    if live == 0 {
+        return DRIVE_NOTHING_LIVE
+    }
+    if REACTOR.load() != 0 {
+        reactor_poll(0)
+    }
+    enter_executor(record)
+    record[0].sweeps += 1
+    record[0].drives += 1
+    let turn = record[0].drives
+    let queue = (&record[0].wake) as UnsafePointer<SleepQueue>
+    var cursor = WalkCursor(group: 0, slot: WALK_ENTER, outer: record[0].walks)
+    let at = (&cursor) as UnsafePointer<WalkCursor>
+    record[0].walks = at as Int
+    let _ = groups_pass(0, -1, 0, 0, 0, queue, record, at, turn)
+    record[0].walks = cursor.outer
+    record[0].sweeps -= 1
+    leave_executor(record)
+    next_drive(record)
+}
+
+// How many tasks are live on `record`'s cooperative groups.
+func cooperative_live(record: UnsafePointer<ExecutorRecord>) unsafe -> Int {
+    var n = 0
+    var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        if g[0].engine() == 0 {
+            n = n + g[0].live_count()
+        }
+        cur = g[0].next
+    }
+    n
+}
+
+// The answer of a background drive that has made its turn on `record`'s
+// thread (`__saw_exec_runtime_drive_background`). A task active on the
+// thread's stack is live and runs when the frame below it returns.
+func next_drive(record: UnsafePointer<ExecutorRecord>) unsafe -> Int64 {
+    var live = false
+    var earliest = UInt64.max
+    var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        var i = -1
+        if g[0].engine() == 0 {
+            i = g[0].next_live(0)
+        }
+        while i >= 0 {
+            let s = g[0].slots[i]
+            if not s.done {
+                live = true
+                if not s.active {
+                    let cell = g[0].cell_at(i)
+                    let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+                    if park_wakes(cx) {
+                        return 0
+                    }
+                    let deadline = cell[0].context.deadline
+                    if bounded_by(park_word(cx), deadline) && deadline < earliest {
+                        earliest = deadline
+                    }
+                }
+            }
+            i = g[0].next_live(i + 1)
+        }
+        cur = g[0].next
+    }
+    if not live {
+        return DRIVE_NOTHING_LIVE
+    }
+    if earliest >= DRIVE_NO_DEADLINE as UInt64 {
+        return DRIVE_NO_DEADLINE
+    }
+    earliest as Int64
+}
+
+/// Closes the calling thread's background group for a freestanding runtime
+/// that owns it, as `__saw_exec_close_background` does at a hosted thread's
+/// end: the body of the entry `__saw_background_close`.
+///
+/// Panics when called inside a task's turn or a drive: the group's own tasks
+/// are then on this thread's stack, and the close waits for every one of
+/// them to finish.
+public(package) func __saw_exec_runtime_close_background() unsafe {
+    __saw_exec_runtime_owns_background()
+    let current = __saw_rt_thread_executor()
+    if current == 0 {
+        return
+    }
+    let record = current as UnsafePointer<ExecutorRecord>
+    if record[0].sweeps > 0 || record[0].current != 0 {
+        panic("executor: `__saw_background_close` was called inside a task or a drive; a runtime closes the background group on the thread's way out, outside every drive")
+    }
+    __saw_exec_close_background()
+}
+
+/// Records that the program runs under a freestanding runtime that owns the
+/// background group, so the deadlock report stands down: such a runtime may
+/// deliver, between its drives or from another thread, the event every task
+/// waits for. Called first by `__saw_main` in a program whose runtime declares
+/// both background entries, and by those entries' bodies.
+public(package) func __saw_exec_runtime_owns_background() {
+    BACKGROUND_RUNTIME.store(1)
 }
 
 /// Runs a suspending `main` whose frame is at `frame`: its root and every task

@@ -226,7 +226,8 @@ extension TcProfile {
 //     export_name_ok
 //     check_hosted_imports
 //     check_extern_profile
-//     task_spawn
+//     tc_check_background_owner
+//     owns_background
 //     add_roots
 //     llvm_build_exporting
 //     ll_lowering
@@ -244,6 +245,16 @@ public func tc_profile(runtime: Bool, provider: Bool, freestanding: Bool) -> TcP
         kind = TcProfileKind.FreestandingProgram
     }
     TcProfile(kind: kind)
+}
+
+// The two entries a freestanding runtime that owns the background group calls
+// (runtime/ABI.md, "The background group"): the drive and the close.
+public func tc_background_drive_symbol() -> String {
+    "__saw_background_drive"
+}
+
+public func tc_background_close_symbol() -> String {
+    "__saw_background_close"
 }
 
 // What the front end knows of the target a program is compiled for: its
@@ -1185,6 +1196,50 @@ extension TcProgram {
             m = m + 1
         }
         return -1
+    }
+
+    // Whether a module of the program, std aside, declares the extern `symbol`.
+    public func declares_extern(&self, symbol: String) -> Bool {
+        var d = 0
+        while d < self.res.decls.len() {
+            if self.is_program_extern(d, symbol) {
+                return true
+            }
+            d = d + 1
+        }
+        false
+    }
+
+    // Whether declaration `d` is an extern named `symbol` in an available
+    // module of the program, std aside.
+    public func is_program_extern(&self, d: Int, symbol: String) -> Bool {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Extern {
+            return false
+        }
+        let module = self.res.module(info.module)
+        module.available && module.kind != ResModuleKind.Std && self.name_text(info.name).equals(symbol)
+    }
+
+    // THE BACKGROUND OWNER: whether the compile's freestanding runtime owns the
+    // background group `Task.spawn` spawns into, which it declares by naming
+    // both entries the compiler then defines, `__saw_background_drive` and
+    // `__saw_background_close`, in an `extern "C"` block of any module of the
+    // program, together or apart (runtime/ABI.md, "The background group"). It
+    // reads every module loaded, so it is the program's answer only once the
+    // program's layer is loaded, after every package's: each entry point runs
+    // there or later. A hosted program's group is its C entry's and its
+    // threads'.
+    // ENTRY POINTS:
+    //     check_background_owner
+    //     add_roots
+    //     resolve_spawn
+    //     llvm_emit_program
+    public func owns_background(&self) -> Bool {
+        if self.profile.hosted() {
+            return false
+        }
+        self.declares_extern(tc_background_drive_symbol()) && self.declares_extern(tc_background_close_symbol())
     }
 
     // The owner and index of the generic parameter declared at `leaf`.

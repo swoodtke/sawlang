@@ -11447,6 +11447,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   a `join()` a pool's task makes of another pool's task, when the pool task
   it waits for waits for good and no cooperative task shares the waiting
   thread.
+  **Under a freestanding runtime that owns the background group the report
+  stands down** (runtime/ABI.md, "The background group"). That runtime may
+  deliver the event every task waits for, between its drives or from another
+  thread, and nothing in the program can tell, so a quiescent wait goes to the
+  runtime's reactor poll instead of panicking.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2, rebuilt as a
 live pool by design 225).** By default a `TaskGroup()` runs its children on ONE
@@ -12357,7 +12362,8 @@ before they touch the group. That holds for a `group.spawn` handle to a
 
 AT THE THREAD'S END that group cancels every member still live and joins them:
 at `main`'s return for `main`, and at the end of its body for a `Thread.spawn`
-thread, a pool's workers included, before a join of that thread returns. Cancel
+thread, a pool's workers included, before a join of that thread returns, and,
+freestanding, when the runtime closes it at the thread's end. Cancel
 first, because a background task is exactly the kind that loops forever and
 there is nobody left to ask it to stop; join after, because a cancelled task
 reaches its own completion through ordinary control flow, and that is where the
@@ -12439,10 +12445,21 @@ cancelled — `join()` waits for it and takes its result, `detach()` hands it to
 the process, `cancel()` asks it to stop
 ```
 
-`Task.spawn` needs the process-wide background group, which a freestanding
-runtime does not provide yet, so the freestanding profile refuses it and names
-the spelling that works there: a `TaskGroup` the author declares, whose scope
-says where the tasks end.
+Under the freestanding profile the background group is the runtime's. A
+runtime that owns it declares the two entries runtime/ABI.md defines in "The
+background group", `__saw_background_drive` and `__saw_background_close`, in
+`extern "C"` blocks of the program's modules, both in one module or each in its
+own, in the entry or in any package: it drives the group between its own waits
+and closes it at each thread's end, and `Task.spawn` is then allowed in every
+module of the program. The question is the whole program's, answered once every
+package is loaded, so the order packages are checked in never changes it, and a
+module may declare the drive alone, to call it, beside one that declares both.
+`main`'s return still closes the group, as it does hosted. Unless the program
+declares both, the profile refuses each `Task.spawn` where it is written
+(`spawn.freestanding`) and names the spelling that works there: a `TaskGroup`
+the author declares, whose scope says where the tasks end. A declaration of
+one entry with no module declaring the other is refused too
+(`extern.background-incomplete`).
 
 #### A group is a scope, and cannot be moved
 
@@ -16686,9 +16703,11 @@ the bodies a single-threaded environment writes. `TaskGroup(threads:)` and
 the gate seams beside them (`__saw_rt_pthread_*`): an environment with no
 threads defines none of them, and a program that reaches one fails at its
 link, naming the seam. A suspending `main` is driven by the entry executor
-inside `__saw_main` and reaches the same executor seams. `Task.spawn` (spawn
-into a `TaskGroup` instead) and a `blocking` extern stay refused under the
-profile (`spawn.freestanding`, `extern.freestanding-blocking`).
+inside `__saw_main` and reaches the same executor seams. `Task.spawn` is
+available when the environment's runtime owns the background group (the
+program's modules declare the two background entries); otherwise it is refused
+(`spawn.freestanding`), and a `TaskGroup` is the spelling that works. A
+`blocking` extern stays refused (`extern.freestanding-blocking`).
 
 **On aarch64 the freestanding profile turns Advanced SIMD OFF**
 (`-neon,-fp-armv8`, design 172). An AArch64 core traps every SIMD instruction at

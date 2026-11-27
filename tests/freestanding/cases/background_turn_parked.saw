@@ -1,0 +1,45 @@
+// A drive's turn beside a task parked with no deadline: the parked task is
+// live but cannot run, and a task spawned during a turn still waits for the
+// next drive.
+
+import fscore.*
+import fsdrive
+import std.channel.{Channel}
+import std.task.*
+
+func parked(orders: Channel<Int>) {
+    report("parked_parks", 1)
+    match orders.receive() {
+        case Ok(order) -> report("parked_got", order),
+        case Err(_) -> report("parked_receive_failed", 1)
+    }
+}
+
+func a3() {
+    report("a3_ran", 1)
+}
+
+func a2() {
+    report("a2_ran", 1)
+    let t = Task.spawn(a3())
+    t.detach()
+}
+
+func a1() {
+    report("a1_ran", 1)
+    let t = Task.spawn(a2())
+    t.detach()
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let p = Task.spawn(parked(orders.copy()))
+    p.detach()
+    let x = Task.spawn(a1())
+    x.detach()
+}

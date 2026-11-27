@@ -1,0 +1,34 @@
+(Module adrive
+  (declarations
+    (extern __saw_background_drive 4:10 private (signature (params) -> Int64) (summary declared (suspends no) (sync-callable yes)))
+    (func touch 7:13 public (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (touch 7:13
+      (8:5-8:6 IntLit Int value temp))))
+
+(Module main
+  (declarations
+    (extern __saw_background_close 8:10 private (signature (params) -> Void) (summary declared (suspends no) (sync-callable yes)))
+    (func work 11:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func entry 16:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (work 11:6
+      (12:5-12:10 Binary Int value temp (op *))
+      (12:5-12:6 Name Int place copy)
+      (12:9-12:10 IntLit Int value temp))
+    (entry 16:6
+      (17:9-17:10 BindingName std.taskgroup.Task<Int> place temp)
+      (17:13-17:32 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (17:24-17:31 Call.paren Int value temp (call main.work(n: Int)))
+      (17:29-17:30 Name Int place copy)
+      (18:5-18:15 Call.paren Void value temp (call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Int>)))
+      (18:5-18:6 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (19:5-19:19 Call.paren Int value temp (call adrive.touch())))))

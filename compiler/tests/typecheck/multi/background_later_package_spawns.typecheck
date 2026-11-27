@@ -1,0 +1,46 @@
+(Module mruntime
+  (declarations
+    (extern __saw_background_drive 5:10 private (signature (params) -> Int64) (summary declared (suspends no) (sync-callable yes)))
+    (extern __saw_background_close 6:10 private (signature (params) -> Void) (summary declared (suspends no) (sync-callable yes)))
+    (func touch 9:13 public (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (touch 9:13
+      (10:5-10:6 IntLit Int value temp))))
+
+(Module zspawn
+  (declarations
+    (func work 4:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func start_work 8:13 public (signature (params (n Int owned)) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (work 4:6
+      (5:5-5:10 Binary Int value temp (op *))
+      (5:5-5:6 Name Int place copy)
+      (5:9-5:10 IntLit Int value temp))
+    (start_work 8:13
+      (9:9-9:10 BindingName std.taskgroup.Task<Int> place temp)
+      (9:13-9:32 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (9:24-9:31 Call.paren Int value temp (call zspawn.work(n: Int)))
+      (9:29-9:30 Name Int place copy)
+      (10:5-10:15 Call.paren Void value temp (call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Int>)))
+      (10:5-10:6 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow))))
+
+(Module main
+  (declarations
+    (func entry 9:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (entry 9:6
+      (10:5-10:25 Call.paren Void value temp (call zspawn.start_work(n: Int)))
+      (10:23-10:24 Name Int place copy)
+      (11:5-11:21 Call.paren Int value temp (call mruntime.touch())))))

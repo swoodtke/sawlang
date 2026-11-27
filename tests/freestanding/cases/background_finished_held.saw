@@ -1,0 +1,29 @@
+// A task that has finished, whose handle still holds its result, is not live:
+// a drive that runs it to its end answers that nothing is live, and the join
+// after it takes the result. `main` is `blocking`, so its join is the thread
+// context's twin and `main` is no task the drive would count live.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+func work(n: Int) -> Int {
+    report("work_ran", 1)
+    n + 1
+}
+
+func main() blocking {
+    let h = Task.spawn(work(3))
+    let next = __saw_background_drive()
+    report("finished_held_nothing_live", if next == 0 - 1 { 1 } else { 0 })
+    report("joined", h.join())
+}
+
+@export("fs_after_main")
+func after_main() {
+    report("after_main", 1)
+}

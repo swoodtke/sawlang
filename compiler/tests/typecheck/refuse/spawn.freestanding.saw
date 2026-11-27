@@ -1,7 +1,7 @@
 // refuses: spawn.freestanding at 12:5
 // flags: --std-root std --freestanding
-// `Task.spawn` under the freestanding profile: the background task group it
-// spawns into is one a freestanding runtime does not provide yet
+// `Task.spawn` under the freestanding profile with a runtime that does not
+// declare the background entries: nothing would drive or close the group
 
 func work(n: Int) -> Int {
     n * 2

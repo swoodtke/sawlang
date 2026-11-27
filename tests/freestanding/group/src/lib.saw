@@ -1,0 +1,61 @@
+//! `fsgroup` — the start-up of a runtime that owns the background group.
+//!
+//! A case that spawns with `Task.spawn` imports this module in place of
+//! `fsentry`. The boot stub calls `fs_main`; this `fs_main` runs the program
+//! through its entry, `__saw_main`, then calls the case's `fs_after_main`, an
+//! export that runs outside `main` as a callback would, then drives the
+//! background group until no task can run before an event, closes it, prints
+//! the status and stops the machine with it. Declaring the two background
+//! entries below is what tells sawc this runtime owns the group, and sawc
+//! defines them in the program object (runtime/ABI.md, "The background group").
+//! It is the miniature of a kernel runtime's start-up, which drives the group
+//! before each wait of its own and closes it on the thread's way out.
+
+import fsrt
+
+extern "C" {
+    func __saw_main() -> Int32
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+    // The case's own export, which this start-up calls once `main` returned.
+    func fs_after_main()
+}
+
+// The drive's two fixed answers; any other is the deadline of the earliest
+// timed park, on the monotonic clock in nanoseconds.
+static NOTHING_LIVE: Int64 = -1
+static NO_DEADLINE: Int64 = 9_223_372_036_854_775_807
+
+// How many drives the start-up makes before it closes the group whatever it
+// holds: far past what any case needs, so a case whose tasks never settle
+// ends rather than spins.
+static DRIVE_LIMIT: Int = 1000
+
+/// Run the program, then its export, then drive and close the background
+/// group, and stop the machine with the status `main` returned.
+@export("fs_main")
+func start() {
+    let status = __saw_main()
+    fs_after_main()
+    var next = __saw_background_drive()
+    var drives = 1
+    while next != NOTHING_LIVE && next != NO_DEADLINE && drives < DRIVE_LIMIT {
+        // The wait a kernel makes in its own event loop: here, until the
+        // earliest deadline the drive answered.
+        while __saw_rt_clock_monotonic_nanos() < next {
+        }
+        next = __saw_background_drive()
+        drives = drives + 1
+    }
+    if next == NOTHING_LIVE {
+        print("fs group settled=nothing-live")
+    } else if next == NO_DEADLINE {
+        print("fs group settled=no-deadline")
+    } else {
+        print("fs group settled=limit")
+    }
+    __saw_background_close()
+    print("fs entry status={}", status)
+    fsrt.stop(status as UInt32)
+}

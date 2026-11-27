@@ -1,0 +1,41 @@
+// A group local's teardown inside a driven task parks, so the drive keeps its
+// one resume per task: `keeper` spawns `work`, which yields twice, into a
+// group whose scope then ends, and parks there until `work` finishes, while
+// `looper`, which reports each of its resumes, has one turn in each drive.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+func work() -> Int {
+    yield_now()
+    yield_now()
+    1
+}
+
+func keeper() {
+    var g = TaskGroup()
+    let h = g.spawn(work())
+    report("keeper_spawned", 1)
+}
+
+func looper() {
+    var i = 1
+    while i <= 4 {
+        report("looper_turn", i)
+        yield_now()
+        i = i + 1
+    }
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let k = Task.spawn(keeper())
+    k.detach()
+    let l = Task.spawn(looper())
+    l.detach()
+}

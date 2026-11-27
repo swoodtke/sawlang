@@ -988,6 +988,17 @@ aarch64-unknown-none-elf`, whole and with `--codegen-units=module`: `__saw_main`
 and the export that calls it through an `extern "C"` declaration are defined
 and external, the panic seam is undefined, and there is no C `main` and no
 argument accessor.
+`freestanding_background.saw` and `freestanding_background_quiet.saw` declare
+the two background entries in an `extern "C"` block, as a runtime that owns the
+background group does, and are built with `--freestanding -c -O0 --target
+aarch64-unknown-none-elf`, whole and with `--codegen-units=module`: both
+entries are defined and external, the reactor seams are undefined when the
+program spawns, and absent when it has no spawn site (SL-1150).
+`runtime_source_background_drive.saw` is a runtime source that declares the
+background drive alone and calls it, and `runtime_source_background_entries.saw`
+one that declares and calls both, each built with `sawc runtime --emit-ll`: each
+compiles, and its `.ll` declares what it names and defines neither entry, since
+the entries are a program's and a runtime source names them as ordinary externs.
 `bare_metal_object.saw` is built with `-c --target aarch64-unknown-none-elf`
 at -O0 and -O2, with the target's clang record the stage build wrote, whose
 absence fails the probe: the object must be an ELF64 AArch64 relocatable file whose export

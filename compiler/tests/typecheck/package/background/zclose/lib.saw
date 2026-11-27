@@ -1,0 +1,9 @@
+// The background close declared alone, in a package of its own.
+
+extern "C" {
+    func __saw_background_close()
+}
+
+public func touch() -> Int {
+    1
+}

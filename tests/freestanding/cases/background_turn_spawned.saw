@@ -1,0 +1,39 @@
+// The tasks a drive may run are fixed when it begins: two are live at the
+// first drive, so it runs both, and the task the first one spawns waits for
+// the second drive, as the one that task spawns waits for the third.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+func a3() {
+    report("a3_ran", 1)
+}
+
+func a2() {
+    report("a2_ran", 1)
+    let t = Task.spawn(a3())
+    t.detach()
+}
+
+func a1() {
+    report("a1_ran", 1)
+    let t = Task.spawn(a2())
+    t.detach()
+}
+
+func b() {
+    report("b_ran", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let x = Task.spawn(a1())
+    x.detach()
+    let y = Task.spawn(b())
+    y.detach()
+}

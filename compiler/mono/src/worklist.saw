@@ -186,7 +186,9 @@ extension MonoProgram {
 
     // The roots, in order: the entry module's `main`, never a test-only one
     // (`top_decl`), when the profile makes it the entry (a runtime's source
-    // roots its exports alone, and a `main` there is an ordinary function);
+    // roots its exports alone, and a `main` there is an ordinary function),
+    // and beside it, under a runtime that owns the background group, the std
+    // function the entry calls first to say so (`runtime_owner_item`);
     // each exported function, in
     // declaration order; each non-generic top-level function an `@section`
     // places, in declaration order; then the lang functions the backend's own lowering
@@ -200,6 +202,13 @@ extension MonoProgram {
             let main_decl = self.dp.bc.mir.tc.top_decl(entry, "main")
             if main_decl >= 0 {
                 self.main_item = self.root_item(main_decl, &none)
+            }
+            if self.main_item >= 0 && self.dp.bc.mir.tc.owns_background() {
+                let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
+                if m >= 0 {
+                    let owner = self.dp.bc.mir.tc.top_decl(m, "__saw_exec_runtime_owns_background")
+                    self.runtime_owner_item = self.root_item(owner, &none)
+                }
             }
         }
         var d = 0
@@ -2046,6 +2055,10 @@ extension MonoProgram {
         }
         if self.spawn_close_item < 0 {
             self.spawn_close_item = self.spawn_entry(k, m, "__saw_exec_close_background", info.node)
+        }
+        if self.spawn_drive_item < 0 && self.dp.bc.mir.tc.owns_background() {
+            self.spawn_drive_item = self.spawn_entry(k, m, "__saw_exec_runtime_drive_background", info.node)
+            self.spawn_runtime_close_item = self.spawn_entry(k, m, "__saw_exec_runtime_close_background", info.node)
         }
         if self.spawn_singleton < 0 {
             let provenance = self.dp.bc.mir.tc.top_decl(m, "TaskProvenance")

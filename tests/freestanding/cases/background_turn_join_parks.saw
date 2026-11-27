@@ -1,0 +1,53 @@
+// A join inside a driven task parks, so the drive keeps its one resume per
+// task: `joiner` joins `kid`, which yields three times, and `looper` reports
+// each of its resumes, one per drive; `spawned`, spawned during drive 1, runs
+// in drive 2, as `kid` does.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+func spawned() {
+    report("spawned_ran", 1)
+}
+
+func first() {
+    report("first_runs", 1)
+    let t = Task.spawn(spawned())
+    t.detach()
+}
+
+func kid() -> Int {
+    yield_now()
+    yield_now()
+    yield_now()
+    7
+}
+
+func joiner() {
+    let k = Task.spawn(kid())
+    report("joined", k.join())
+}
+
+func looper() {
+    var i = 1
+    while i <= 4 {
+        report("looper_turn", i)
+        yield_now()
+        i = i + 1
+    }
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let a = Task.spawn(first())
+    a.detach()
+    let j = Task.spawn(joiner())
+    j.detach()
+    let l = Task.spawn(looper())
+    l.detach()
+}

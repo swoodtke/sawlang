@@ -1,0 +1,18 @@
+// flags: --std-root std --freestanding --module-path awrapper=compiler/tests/typecheck/package/background/awrapper --module-path mruntime=compiler/tests/typecheck/package/background/mruntime
+// The background claim is the whole program's: a blocking call's wrapper
+// declares the drive alone, to call it, beside a package that declares both.
+
+import awrapper
+import mruntime
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) -> Int64 {
+    let t = Task.spawn(work(n))
+    t.detach()
+    let _ = mruntime.touch()
+    awrapper.wait_for_event()
+}

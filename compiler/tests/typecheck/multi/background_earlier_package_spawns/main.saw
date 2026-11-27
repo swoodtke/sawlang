@@ -1,0 +1,12 @@
+// flags: --std-root std --freestanding --module-path aspawn=compiler/tests/typecheck/package/background/aspawn --module-path mruntime=compiler/tests/typecheck/package/background/mruntime
+// The background claim is the whole program's: `Task.spawn` in a package
+// checked before the one that declares both entries.
+
+import aspawn
+import mruntime
+
+@export("entry")
+func entry(n: Int) -> Int {
+    aspawn.start_work(n)
+    mruntime.touch()
+}

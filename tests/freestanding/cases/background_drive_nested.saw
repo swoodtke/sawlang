@@ -1,0 +1,34 @@
+// A drive made inside a task's turn, as a runtime's blocking wrapper would
+// make one before it parks the thread: it is a nested sweep, so the other
+// task runs inside it and the calling task, further up the stack, is skipped.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+func other() {
+    report("other_ran", 1)
+}
+
+func caller() {
+    report("caller_before_drive", 1)
+    let next = __saw_background_drive()
+    report("caller_after_drive", 1)
+    report("nested_answer_nothing_live", if next == 0 - 1 { 1 } else { 0 })
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let a = Task.spawn(caller())
+    a.detach()
+    let b = Task.spawn(other())
+    b.detach()
+}

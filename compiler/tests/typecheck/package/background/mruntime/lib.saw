@@ -1,0 +1,11 @@
+// A runtime's package that declares both background entries: it owns the
+// background group for every program it is part of.
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+}
+
+public func touch() -> Int {
+    1
+}

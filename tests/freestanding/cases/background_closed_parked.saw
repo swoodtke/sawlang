@@ -1,0 +1,40 @@
+// A task an export spawned that waits on a channel no one sends to: the drive
+// answers that every live task waits with no deadline, and the start-up's
+// close cancels the task, which then reaches its end and releases the value it
+// held across the park.
+
+import fscore.*
+import fsgroup
+import std.channel.{Channel}
+import std.task.*
+
+struct Held {
+    id: Int
+}
+
+extension Held: NoCopy {
+    func deinit(&var self) {
+        report("released", self.id)
+    }
+}
+
+func waiter(orders: Channel<Int>) {
+    let held = Held(id: 4)
+    report("waiter_parks", held.id)
+    match orders.receive() {
+        case Ok(order) -> report("waiter_got", order),
+        case Err(_) -> report("waiter_receive_failed", 1)
+    }
+    report("waiter_cancelled", if cancelled() { 1 } else { 0 })
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let t = Task.spawn(waiter(orders.copy()))
+    t.detach()
+}

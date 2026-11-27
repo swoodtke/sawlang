@@ -1,0 +1,28 @@
+// Two timed parks: the drive answers the earlier deadline, ahead of the
+// clock, and once that task has run, the later one.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+func slow() {
+    sleep(Duration.ms(400))
+    report("slow_done", 1)
+}
+
+func quick() {
+    sleep(Duration.ms(40))
+    report("quick_done", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let s = Task.spawn(slow())
+    s.detach()
+    let q = Task.spawn(quick())
+    q.detach()
+}

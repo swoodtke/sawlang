@@ -2822,9 +2822,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   BORROWS ARE REFUSED AT THE FORM (ruling 7) — a `&`/`&var` argument of the
   spawned call and a borrow capture inside it are both clean errors, because
   there is no scope to end the borrow at. Spawn into a `TaskGroup`, or hand the
-  task an owned value, an `Arc` or a `Channel`. Freestanding refuses
-  `Task.spawn` outright: a freestanding runtime does not provide the
-  process-wide group yet, so spawn into a `TaskGroup`.
+  task an owned value, an `Arc` or a `Channel`. Freestanding, `Task.spawn`
+  compiles only when the runtime owns the background group (the program's
+  modules declare the two background entries); otherwise it is refused, so
+  spawn into a `TaskGroup`.
 - **A SPAWNED BRACE CAPTURES NOTHING IMPLICITLY (design 242 ruling 10).** The
   capture list IS the body's parameter list: each entry transfers at the spawn,
   by value, at its own copy tier, and `[move x]` is how a move-only value goes.
@@ -4350,8 +4351,16 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   channels; runtime/ABI.md "Freestanding executor set"), and the image names no
   thread, pthread or offload seam. `TaskGroup(threads:)` and `Thread.spawn`
   fail at LINK on a threadless environment, naming `__saw_rt_thread_spawn`;
-  `Task.spawn` stays refused. SUSPECT an older build, where every group reached
+  `Task.spawn` is refused unless the runtime owns the background group. SUSPECT an older build, where every group reached
   `pthread_mutex_lock` and the thread seams.
+- **A freestanding runtime that owns the background group (SL-1150)** declares both entries, one per line (a declaration list takes no `;`), in one module or two, in any package; the claim is the whole program's, so a wrapper may declare the drive alone to call it:
+  ```saw-fragment
+  extern "C" {
+      func __saw_background_drive() -> Int64
+      func __saw_background_close()
+  }
+  ```
+  It calls them: drive before each wait of its own (answer -1 nothing live, 0 run again, INT64_MAX wait on events, else a deadline), close at each thread's end. A drive runs only the tasks spawned before it began, each once (a task's join and a group local's teardown park, so the drive returns; only a teardown that keeps its nested sweep, in each case the spec's "A group's teardown in a task parks" lists, runs other tasks inside it); one spawned during it waits for the next. A runtime never drives from a seam's body: no seam runs program code on the caller's thread. The deadlock report stands down under such a runtime: a quiescent wait goes to its reactor poll. `main`'s return still closes the group.
 - **A freestanding `main` is the program's entry (SL-1143)**: the object defines `__saw_main() -> Int32`, which runs `main` under the exit-status contract and returns the status; the runtime's own `_start` calls it (from Saw, through an `extern "C"` declaration) and exits its own way. A suspending `main` reaches the executor set; `main` takes no parameters.
 - **A freestanding object defines `memcpy`/`memset`/`memmove` (and riscv32's 64-bit integer helpers) itself, weakly** (SL-948): the environment owes none of them, its own definition wins, a program's own `@export("memcpy")` replaces std's, and `+forced-atomics` is refused.
 - **On a target with no FP unit the object defines the 19 soft-float routines too** (`__adddf3` … `__floatundidf`, weakly, SL-948): no compiler-rt to link; a NaN result's bits are unspecified, and C passing a `Float` on aarch64 still builds with `-mgeneral-regs-only -mabi=aapcs-soft`.

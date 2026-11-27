@@ -11,7 +11,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
-import sawresolve.layer.{FrontLayer}
+import sawresolve.layer.{FrontLayer, FrontLayerKind}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResModuleKind, ResVis}
 import sawtypecheck.candidates.{tc_contains}
 // For the extension writing `generic_grants`.
@@ -32,7 +32,7 @@ import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_PAI
                                TcReceiver, TC_ITEM_CALL, TC_ITEM_CAPTURE, TC_ITEM_COPY, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.program.{TcProgram, tc_background_close_symbol, tc_background_drive_symbol}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.types.{TcKind, TcType}
@@ -40,6 +40,15 @@ import sawtypecheck.types.{TcKind, TcType}
 // Runs every check that reads the summaries (phase 3), over `layer`'s part.
 public func tc_check_effects(p: &var TcProgram, layer: &FrontLayer) {
     p.check_effects(&layer)
+}
+
+// The background group's claim, decided at the program's layer: the last one,
+// whose start every package's declarations precede, so the claim is the whole
+// program's whatever order the packages were checked in (`owns_background`).
+public func tc_check_background_owner(p: &var TcProgram, layer: &FrontLayer) {
+    if layer.kind == FrontLayerKind.Program && not p.profile.hosted() {
+        p.check_background_owner()
+    }
 }
 
 public func tc_check_hosted_imports(p: &var TcProgram, layer: &FrontLayer) {
@@ -1358,6 +1367,11 @@ extension TcProgram {
     // signature, and a hosted program, whose entry is internal and called once
     // by the C `main`, declares none. A runtime source has no entry.
     func check_entry_symbol(&var self, d: Int, symbol: String) -> Bool {
+        let drive = symbol.equals(tc_background_drive_symbol())
+        let background = drive || symbol.equals(tc_background_close_symbol())
+        if background && not self.is_std_decl(d) && not self.profile.runtime_source() {
+            return self.check_background_symbol(d, symbol, drive)
+        }
         if not symbol.equals("__saw_main") || self.is_std_decl(d) || not self.profile.main_entry() {
             return true
         }
@@ -1377,6 +1391,95 @@ extension TcProgram {
         try! msg.append("`, but the program entry the compiler defines for `main` is `() -> Int32`: the program calls one C function by that name, so every declaration of one symbol must agree on its parameters and its result; declare it `func __saw_main() -> Int32`")
         self.refuse_blocking_decl(d, "extern.signature-disagree", msg.build())
         false
+    }
+
+    // Whether the program's own extern `d`, named `symbol`, may stand beside the
+    // background entries the compiler defines for a freestanding runtime that
+    // owns the background group (runtime/ABI.md, "The background group"):
+    // `func __saw_background_drive() -> Int64` with `drive`, otherwise `func
+    // __saw_background_close()`. A hosted program's group is closed by its C
+    // entry and by each thread's end, so it declares neither. Whether a
+    // freestanding one declares the other entry too is the whole program's
+    // question (`check_background_owner`).
+    func check_background_symbol(&var self, d: Int, symbol: String, drive: Bool) -> Bool {
+        if self.profile.hosted() {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(symbol)
+            try! msg.append("` is an entry the compiler defines for a freestanding runtime that owns the background task group; under the hosted profile that group is closed at `main`'s return and at each thread's end, and no runtime drives it from outside")
+            self.refuse_blocking_decl(d, "extern.entry-hosted", msg.build())
+            return false
+        }
+        if self.background_signature_fits(d, drive) {
+            return true
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(symbol)
+        try! msg.append("` is declared here as `")
+        try! msg.append(self.extern_signature_text(d))
+        try! msg.append("`, but the entry the compiler defines is `")
+        try! msg.append(if drive { "() -> Int64" } else { "()" })
+        try! msg.append("`: the program calls one C function by that name, so every declaration of one symbol must agree on its parameters and its result")
+        self.refuse_blocking_decl(d, "extern.signature-disagree", msg.build())
+        false
+    }
+
+    // Whether extern `d` has the signature of the background drive, with
+    // `drive`, or of the close: no parameter, and `Int64` or `Void`, which a
+    // declaration with no result clause has. A variadic tail needs a parameter
+    // before it, so no parameter rules it out.
+    func background_signature_fits(&self, d: Int, drive: Bool) -> Bool {
+        let s = self.sigs[d]
+        if s.param_count != 0 || s.result < 0 {
+            return false
+        }
+        let result = self.nominal_decl(s.result)
+        if drive {
+            return result == self.known.int64
+        }
+        result == self.known.void_type
+    }
+
+    // THE BACKGROUND CLAIM over a freestanding program whose every module is
+    // loaded: unless some module declares both entries (`owns_background`),
+    // each `Task.spawn` is refused where it is written, in whichever package,
+    // and each well-formed declaration of the one entry declared is refused as
+    // incomplete. The program's own extern decides, so std's are not read.
+    // ENTRY POINTS:
+    //     tc_check_background_owner
+    func check_background_owner(&var self) {
+        if self.owns_background() {
+            return
+        }
+        let drive = self.declares_extern(tc_background_drive_symbol())
+        let close = self.declares_extern(tc_background_close_symbol())
+        if drive != close {
+            let symbol = if drive { tc_background_drive_symbol() } else { tc_background_close_symbol() }
+            let other = if drive { tc_background_close_symbol() } else { tc_background_drive_symbol() }
+            var d = 0
+            while d < self.res.decls.len() {
+                if self.is_program_extern(d, symbol) && self.background_signature_fits(d, drive) {
+                    var msg = StringBuilder()
+                    try! msg.append("`")
+                    try! msg.append(symbol)
+                    try! msg.append("` is declared here, but not `")
+                    try! msg.append(other)
+                    try! msg.append("` in any module of this program: a runtime that owns the background group declares both entries, the drive and the close, together or in different modules (runtime/ABI.md, \"The background group\")")
+                    self.refuse_blocking_decl(d, "extern.background-incomplete", msg.build())
+                }
+                d = d + 1
+            }
+        }
+        var k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if c.role == TcRole.Spawn && c.spelling >= 0 && self.name_text(c.spelling).equals("Task.spawn") {
+                let m = self.node_module(c.node)
+                self.refuse_in(m, c.node, "spawn.freestanding", "freestanding profile: `Task.spawn` needs the process-wide background task group, which a freestanding runtime provides only by driving and closing it through the entries `__saw_background_drive` and `__saw_background_close`, and no module of this program declares them (runtime/ABI.md, \"The background group\"); declare a `TaskGroup` and spawn into it with `group.spawn(work(...))`: the group is the scope that says where the tasks end")
+            }
+        }
     }
 
     // Whether declaration `d` is an extern of an available module.

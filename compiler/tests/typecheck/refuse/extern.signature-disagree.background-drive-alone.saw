@@ -1,0 +1,15 @@
+// refuses: extern.signature-disagree at 9:10
+// flags: --std-root std --freestanding
+// errors: 1
+// message: `__saw_background_drive` is declared here as `() -> Int`
+// the background drive declared alone and with the wrong result: refused for
+// its signature alone, since only a declaration that fits claims anything
+
+extern "C" {
+    func __saw_background_drive() -> Int
+}
+
+@export("entry")
+func entry() -> Int {
+    __saw_background_drive()
+}

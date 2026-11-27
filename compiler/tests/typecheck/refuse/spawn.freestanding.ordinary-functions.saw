@@ -1,0 +1,25 @@
+// refuses: spawn.freestanding at 21:13
+// flags: --std-root std --freestanding
+// message: no module of this program declares them
+// Ordinary functions named like the background entries claim no group: only
+// `extern "C"` declarations of the two entries say a runtime drives and closes
+// it
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+func __saw_background_drive() -> Int64 {
+    0
+}
+
+func __saw_background_close() {
+}
+
+@export("entry")
+func entry(n: Int) {
+    let t = Task.spawn(work(n))
+    t.detach()
+    let _ = __saw_background_drive()
+    __saw_background_close()
+}

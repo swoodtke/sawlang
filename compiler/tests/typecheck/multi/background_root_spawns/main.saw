@@ -1,0 +1,16 @@
+// flags: --std-root std --freestanding --module-path mruntime=compiler/tests/typecheck/package/background/mruntime
+// The background claim is the whole program's: `Task.spawn` in the entry,
+// both entries declared in a package.
+
+import mruntime
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) -> Int {
+    let t = Task.spawn(work(n))
+    t.detach()
+    mruntime.touch()
+}

@@ -1,0 +1,69 @@
+// A drive made inside a task's turn, as a blocking call's wrapper would, has a
+// turn of its own, and the drive it is nested in resumes none of what it ran.
+// In drive 1 `early` runs, spawns `spawned` and yields; `caller` then drives,
+// nested, which runs `early` again, `late` (which spawns `late_child` and
+// yields) and `spawned`; `late` comes after `caller` in the walk, so the outer
+// drive reaches it next, and leaves it, and `late_child`, for drive 2.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+func spawned() {
+    report("spawned_ran", 1)
+}
+
+func launch() {
+    let t = Task.spawn(spawned())
+    t.detach()
+}
+
+func early() {
+    report("early_turn", 1)
+    launch()
+    yield_now()
+    report("early_turn", 2)
+    yield_now()
+    report("early_turn", 3)
+}
+
+func caller() {
+    report("caller_before_drive", 1)
+    let next = __saw_background_drive()
+    report("caller_after_drive", 1)
+    report("nested_answer_now", if next == 0 { 1 } else { 0 })
+}
+
+func late_child() {
+    report("late_child_ran", 1)
+}
+
+func launch_late_child() {
+    let t = Task.spawn(late_child())
+    t.detach()
+}
+
+func late() {
+    report("late_turn", 1)
+    launch_late_child()
+    yield_now()
+    report("late_turn", 2)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let e = Task.spawn(early())
+    e.detach()
+    let c = Task.spawn(caller())
+    c.detach()
+    let l = Task.spawn(late())
+    l.detach()
+}

@@ -1,0 +1,12 @@
+// flags: --std-root std --freestanding --module-path mruntime=compiler/tests/typecheck/package/background/mruntime --module-path zspawn=compiler/tests/typecheck/package/background/zspawn
+// The background claim is the whole program's: `Task.spawn` in a package
+// checked after the one that declares both entries.
+
+import mruntime
+import zspawn
+
+@export("entry")
+func entry(n: Int) -> Int {
+    zspawn.start_work(n)
+    mruntime.touch()
+}

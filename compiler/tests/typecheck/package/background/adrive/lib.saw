@@ -1,0 +1,9 @@
+// The background drive declared alone, in a package of its own.
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+public func touch() -> Int {
+    1
+}

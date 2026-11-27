@@ -1443,6 +1443,123 @@ entry's own stack and allocates nothing; otherwise it is built through
 A `main` that suspends reaches the freestanding executor set (above) through
 the entry executor; a `main` that does not reaches none of it.
 
+## The background group (SL-1150)
+
+Not runtime seams: the compiler defines both entries below, and a freestanding
+runtime that owns the background group CALLS them. `Task.spawn` spawns into
+the calling thread's background group (`std/taskgroup.saw`), one per thread.
+Under the hosted profile nothing outside the program touches it: the C entry
+closes `main`'s at `main`'s return, and each `Thread.spawn` body's end closes
+its own. Under the freestanding profile, code also runs through an `@export`
+outside `main`, where nothing in the program would run a task it spawned or
+close the group, so the group is the runtime's: it drives the group's tasks
+between its own waits, and closes the group as each thread ends.
+
+A runtime says it owns the group by declaring both entries in `extern "C"`
+blocks of the program's modules, exactly as below: both in one module or each
+in its own, in the entry or in any package, whether or not those modules call
+them (a C start-up calls them and the program only declares them), and beside
+any other module that declares one of them to call it (a blocking call's
+wrapper that drives before its wait). The claim is the whole program's: sawc
+decides it once every package is loaded, so neither the order packages are
+checked in nor which of them spawns changes it. The object then defines both.
+Unless some module declares both, each `Task.spawn` is refused at compile time
+where it is written (`spawn.freestanding`), and a declaration of the one entry
+declared is refused (`extern.background-incomplete`); a declaration with
+another signature is refused (`extern.signature-disagree`); a hosted program
+declares neither (`extern.entry-hosted`). A program with no spawn site
+(`Task.spawn` or `group.spawn`) gets entries with nothing to do, which reach
+no executor seam: the drive answers `-1` and the close returns. A program with
+one reaches the freestanding executor set (above) through them, and a runtime
+missing a seam of that set fails at link, naming it.
+
+`__saw_main` keeps its own close: a task `main` spawned is cancelled and joined
+before `__saw_main` returns, as under the hosted profile. The runtime's drive
+and close are for what runs after it, or outside it.
+
+Both entries act on the calling thread's group (its executor word,
+`__saw_rt_thread_executor`), so a runtime with several threads that run Saw
+code drives and closes on each. Neither may be called from an interrupt or
+exception handler: the group and the executor record are read and written
+without a lock, by the thread they belong to, and a handler that interrupted
+one of their sections would find it half-written.
+
+### `__saw_background_drive() -> Int64`
+
+C: `int64_t __saw_background_drive(void)`. Runs the calling thread's
+cooperative tasks for one bounded turn, those of every cooperative group on
+the thread: the background group, every group its tasks keep, and a
+`TaskGroup` an export or `main` keeps. It answers when to drive again. When a
+reactor instance exists it polls it once with a zero timeout, so a ready
+descriptor is latched, and a task whose park has not woken stays parked. The
+tasks the turn may run are fixed when it begins: each task spawned before then
+whose park has woken gets one resume, to its next park, the expired sleepers
+among them in the sleep order (earliest deadline first, however late the drive
+finds them), and a task spawned during the turn waits for the next drive. A
+task that joins one that has not finished parks on the join, as a task's join
+does anywhere, so the drive returns, and a later drive resumes the joiner once
+the joined task has finished.
+
+A task whose `TaskGroup` local's scope ends while the group's tasks are live
+parks there too, and a later drive resumes it once they have finished. The one
+exception to a single resume per task is a teardown that keeps its nested
+sweep, in each case LANGUAGE_SPEC's "A group's teardown in a task parks" lists
+(Suspension and the coroutine transform). That sweep runs the thread's tasks
+until the group's have finished, resuming each as often as it wakes, those
+spawned during the drive included, and blocks in the reactor's poll while none
+can run. The drive returns once that teardown has, and resumes none of what the
+sweep ran. Between drives, thread context sweeps the same way:
+a `blocking` export the runtime calls, or a `blocking` `main`, whose waits,
+the join's twin among them, run the thread's tasks until they end.
+
+Under a runtime that owns the group the deadlock report stands down, from
+`__saw_main`'s first instruction, or in a program with no `main` from the first
+drive or close: a sweep that finds every task waiting on a channel or a join,
+with nothing in the program able to run, waits in the reactor's poll instead of
+panicking, since the event may be the runtime's to deliver, between its drives
+or from another thread. That poll is the runtime's, so a runtime that knows no
+event can come is the one to report it.
+
+The answer, on the monotonic clock of `__saw_rt_clock_monotonic_nanos`:
+
+| answer | meaning | the runtime then |
+|---|---|---|
+| `-1` | no task is live on the thread | waits on its own events alone |
+| `0` | a task can run now | drives again before it waits |
+| `INT64_MAX` | every live task waits on something with no deadline: a descriptor, a channel, a task's or a thread's join or an offload, or is further up the thread's stack | waits on its own events; drives again after a reactor wake or an event that may have readied a descriptor |
+| other | the earliest deadline among the live tasks' timed parks, in nanoseconds | waits no later than that instant, then drives again |
+
+Called on the thread whose tasks it runs: before the runtime blocks that thread
+in a wait of its own (the idle point of its event loop, or the wrapper of a
+blocking call), and again by the deadline it answered. It is never called from
+a seam's body: a drive runs the thread's tasks, and no seam runs program code on
+the caller's thread (the rule at the top of this document, which the compiler's
+window fence relies on). A blocking wrapper that drives is one the program
+reaches through an `extern` that is not a seam, a call the fence already counts
+as running tasks. Called inside a task's turn (such a wrapper that a task
+reached), it is a drive of its own,
+nested in that turn, with its own turn fixed when it begins: the tasks further
+up the thread's stack are skipped and counted live, so its answer is never
+`-1` while the calling task lives.
+
+### `__saw_background_close() -> void`
+
+C: `void __saw_background_close(void)`. Closes the calling thread's background
+group as the thread ends: every live task is cancelled, then joined, then
+released, as `main`'s return does under the hosted profile. Cancel first,
+because a background task may loop until asked to stop; join after, because a
+cancelled task finishes through its own code, which is where its values are
+released. The join waits as a sweep does, so it reaches the reactor's poll and
+the clock, and a task parked where a cancel does not wake it (a task's or a
+thread's join, an offload) holds it open until that wait ends. The group is left empty, and a
+later `Task.spawn` on the thread spawns into it again.
+
+Called once per thread, at that thread's end: for the thread that ran
+`__saw_main`, after it returned and after the runtime's last drive; for another
+thread, after the last Saw code it runs. Called inside a task's turn or a drive,
+it panics, since the group's tasks are then on the thread's stack and the close
+would wait for them. Does nothing on a thread that never spawned.
+
 ## Program arguments (design 81)
 
 The hosted C entry `main(argc, argv)` stashes its two arguments in two
@@ -1545,6 +1662,7 @@ a flag bit.
 | SL-898 | `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract with the same signatures: a program that cannot be executed is the spawn's answer `-(256 + tag)`, carrying exec's errno, where it was a child exiting 127; the child is found on PATH by `execvp`'s rules and executed with `execve`, with no `/bin/sh` fallback; and the child closes every descriptor it inherited but its standard three. SysError tag 24 (`NotExecutable`, `ENOEXEC`). A runtime that keeps the old answer is still correct, as the spawn section says. No symbol, no signature, no renumbering |
 | SL-910 | every descriptor the hosted runtime makes is close-on-exec (files, sockets, accepted connections, pipes, the reactor's own). No symbol, no signature |
 | SL-1143 | `__saw_main`, the program entry: not a seam, a definition the compiler makes in every object with a `main`, freestanding included, which a freestanding runtime's start-up calls. A freestanding `main` now reaches `__saw_rt_write_error` and the output lock pair when it returns a `Result`, and the executor set when it suspends. No seam's signature moved |
+| SL-1150 | `__saw_background_drive` and `__saw_background_close`, the background group's entries: not seams, definitions the compiler makes in a freestanding object whose runtime declares both, which that runtime calls. No seam's signature moved |
 | SL-933 | `__saw_rt_pthread_mutex_{lock,unlock,try_lock,destroy}` and `__saw_rt_pthread_cond_{wait,broadcast,destroy}`: seven new symbols, the operations on the gates std made through the two init seams, which std called as `pthread_*` directly. No existing signature moved |
 
 ## The compiler → executor boundary (design 118)
@@ -1561,7 +1679,9 @@ machine-checked.
 |---------|-------------|-------------|
 | enqueue | `TaskGroup.__enqueue(task: Box<any Resumable>, cell: Box<any __TaskCell>) -> Int` | the spawn helper `__spawn_<f>` |
 | handle identity | `TaskGroup.__gen_at(slot: Int) -> Int` | the spawn helper, after `__enqueue` |
-| background group | `__saw_bg_group() -> UnsafePointer<TaskGroup>`, `__saw_bg_close()` | the `Task.spawn` helper; the synthesized `main` of a program with a background spawn |
+| background group | `__saw_exec_background() -> UnsafePointer<TaskGroup>`, `__saw_exec_close_background()` | the `Task.spawn` helper; the synthesized `main` of a program with a background spawn; each thread's end |
+| background group, runtime's | `__saw_exec_runtime_drive_background() -> Int64`, `__saw_exec_runtime_close_background()` | the bodies of `__saw_background_drive` and `__saw_background_close`, which the compiler defines when a freestanding runtime declares both (above, "The background group") |
+| runtime's ownership | `__saw_exec_runtime_owns_background()` | `__saw_main`'s first call when a freestanding runtime declares both background entries, which stands the deadlock report down |
 | drive with spawns | `__saw_exec_run_root(rootbox)`, `__saw_exec_run_root_status(rootbox, cellbox, cellp) -> Int` | the entry executor of a suspending `main` in a program that spawns |
 | single-frame park | `__saw_exec_park(wake: Int, deadline: Int)` | the entry executor of a suspending `main` with no spawns; an `io_wait` or channel park outside any frame |
 | arm io | `__saw_exec_io_register(fd: Int, dir: Int, token: UnsafePointer<Int>)` | the `io_wait` and offload park lowerings; `io_wait` outside a frame (token `0`) |

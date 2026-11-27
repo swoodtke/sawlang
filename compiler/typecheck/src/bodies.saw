@@ -10492,13 +10492,11 @@ extension TcProgram {
     // argument is the task's root, a call of a free function that the task
     // makes; the form hands back `Task<T>` for a root of type `T`, `Void`
     // included. The background group has no scope to end a borrow at, so the
-    // root takes none. A freestanding runtime does not provide that group, so
-    // the form is refused there.
+    // root takes none. Freestanding, the group is the runtime's, and whether a
+    // runtime declares it owns it is decided once every package is loaded
+    // (`check_background_owner`), which refuses the form where it is written.
     func task_spawn(&var self, e: Int, args: &TcArgs) -> Int {
         let form = "Task.spawn"
-        if not self.profile.hosted() {
-            self.refuse(e, "spawn.freestanding", "freestanding profile: `Task.spawn` needs the process-wide background task group, which a freestanding runtime does not provide yet; declare a `TaskGroup` and spawn into it with `group.spawn(work(...))`: the group is the scope that says where the tasks end")
-        }
         let root = self.spawned_root(e, &args, form)
         if root < 0 {
             self.type_args_alone(&args)

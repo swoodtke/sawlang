@@ -1,0 +1,13 @@
+// refuses: spawn.freestanding at lib.saw:9:13
+// flags: --std-root std --freestanding --module-path aspawn=compiler/tests/typecheck/package/background/aspawn
+// message: no module of this program declares them
+// `Task.spawn` in a package of a program no module of which declares the
+// background entries: refused where the package writes it, once every
+// package is loaded
+
+import aspawn
+
+@export("entry")
+func entry(n: Int) {
+    aspawn.start_work(n)
+}

@@ -1,0 +1,68 @@
+// A drive's turn stays the one fixed when it began, across a drive nested in
+// it. Drive 1 parks `late` (14 ms) and `waiter` (10 ms). In drive 2 `spinner`
+// computes past both deadlines; the walk reaches `late`, and the sleep order
+// gives `waiter` its turn first, from a slot ahead of the walk: it parks on a
+// channel. `caller` then drives, nested, and sends to the channel after it, so
+// `waiter` can run when the walk reaches its slot. It had its turn in drive 2,
+// so it receives in drive 3.
+
+import fscore.*
+import fsdrive
+import std.channel.{Channel}
+import std.task.*
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+func spin_ms(ms: Int64) sync {
+    let until = __saw_rt_clock_monotonic_nanos() + ms * 1_000_000
+    while __saw_rt_clock_monotonic_nanos() < until {
+    }
+}
+
+func spinner() {
+    yield_now()
+    spin_ms(20)
+    report("spun", 1)
+}
+
+func late() {
+    sleep(Duration.ms(14))
+    report("late_woke", 1)
+}
+
+func caller(orders: Channel<Int>) {
+    yield_now()
+    let next = __saw_background_drive()
+    report("nested_no_deadline", if next == 9_223_372_036_854_775_807 { 1 } else { 0 })
+    try! orders.send(5)
+    report("caller_sent", 1)
+}
+
+func waiter(orders: Channel<Int>) {
+    sleep(Duration.ms(10))
+    report("waiter_woke", 1)
+    match orders.receive() {
+        case Ok(v) -> report("waiter_got", v),
+        case Err(_) -> report("waiter_receive_failed", 1)
+    }
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let s = Task.spawn(spinner())
+    s.detach()
+    let l = Task.spawn(late())
+    l.detach()
+    let c = Task.spawn(caller(orders.copy()))
+    c.detach()
+    let w = Task.spawn(waiter(orders.copy()))
+    w.detach()
+}

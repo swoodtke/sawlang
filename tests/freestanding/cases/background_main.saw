@@ -1,0 +1,39 @@
+// A sync `main` that spawns: `__saw_main` closes the background group at
+// `main`'s return, as a hosted program's C entry does, so the task first runs
+// at that close, cancelled. The export after `main` spawns into the same
+// group, emptied by the close, and the start-up's drives run that task
+// uncancelled. Each task's own value is released once, as its task ends.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+struct Held {
+    id: Int
+}
+
+extension Held: NoCopy {
+    func deinit(&var self) {
+        report("released", self.id)
+    }
+}
+
+func work(n: Int) {
+    let held = Held(id: n)
+    report("task_cancelled", if cancelled() { 1 } else { 0 })
+    report("task_n", held.id)
+}
+
+func main() -> Int {
+    let t = Task.spawn(work(3))
+    t.detach()
+    report("main_returns", 1)
+    7
+}
+
+@export("fs_after_main")
+func after_main() {
+    let t = Task.spawn(work(8))
+    t.detach()
+    report("after_main", 1)
+}

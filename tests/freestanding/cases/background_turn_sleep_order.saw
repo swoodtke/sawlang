@@ -1,0 +1,53 @@
+// The sleep order never gives a turn to a task outside the drive's turn: in
+// the second drive `first` runs and parks on a 1 ms sleep, `spinner` computes
+// for 12 ms, and the walk then reaches `sleeper`, parked since the first drive
+// on an 8 ms sleep. Both sleeps have expired and `first`'s is the earlier, but
+// `first` had its turn in this drive, so `sleeper` runs and `first` waits for
+// the third drive.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+func spin_ms(ms: Int64) sync {
+    let until = __saw_rt_clock_monotonic_nanos() + ms * 1_000_000
+    while __saw_rt_clock_monotonic_nanos() < until {
+    }
+}
+
+func first() {
+    report("first_turn", 1)
+    yield_now()
+    report("first_turn", 2)
+    sleep(Duration.ms(1))
+    report("first_turn", 3)
+}
+
+func spinner() {
+    yield_now()
+    spin_ms(12)
+    report("spun", 1)
+}
+
+func sleeper() {
+    sleep(Duration.ms(8))
+    report("sleeper_woke", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let f = Task.spawn(first())
+    f.detach()
+    let s = Task.spawn(spinner())
+    s.detach()
+    let w = Task.spawn(sleeper())
+    w.detach()
+}

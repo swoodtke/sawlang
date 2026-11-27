@@ -34,7 +34,7 @@ import sawtarget.layout.{Target, TargetKind, TargetLayout, target_mach_o}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.fold.{TcFold}
-import sawtypecheck.program.{TcProgram, TcSeams}
+import sawtypecheck.program.{TcProgram, TcSeams, tc_background_close_symbol, tc_background_drive_symbol}
 import sawtypecheck.typeops.{TcClient}
 
 // The program's `.ll`, or "" when the backend refused something, which the
@@ -73,7 +73,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     // source has no entry (its exports are the roots, and it belongs to
     // whatever it is linked into), a freestanding object with no `main` has
     // none, and a `-c` object of a program with no `main` has no C entry,
-    // which leaves the accessors to whatever it is linked with.
+    // which leaves the accessors to whatever it is linked with. A freestanding
+    // runtime that owns the background group declares its drive and close
+    // entries, and the object defines both whether or not the program spawns
+    // (`background_entries`).
     let profile = mono.dp.bc.mir.tc.profile
     let bt_accessor = profile.backtrace_table() && ll_reaches_extern(&mono, ll_bt_table_address())
     let c_entry = profile.c_entry() && (not object || mono.main_item >= 0)
@@ -88,6 +91,13 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         if mono.exec_item >= 0 {
             e.defines("__saw_frame_resume")
         }
+    }
+    // A freestanding runtime that owns the background group declares its two
+    // entries, and this object defines them (`background_entries`).
+    let background = mono.dp.bc.mir.tc.owns_background()
+    if background {
+        e.defines(tc_background_drive_symbol())
+        e.defines(tc_background_close_symbol())
     }
     if c_entry {
         e.defines("__saw_rt_get_argc")
@@ -198,6 +208,13 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         let defined = e.entry_point(&var mono, &var target, c_entry)
         entry = e.debug_artificial(&mono, defined)
     }
+    if background {
+        let entries = e.background_entries(&var mono)
+        var both = StringBuilder()
+        try! both.append(entry)
+        try! both.append(e.debug_artificial(&mono, entries))
+        entry = both.build()
+    }
     // Once every function is written, the error types its failing `try!`s
     // render are known, and each gets its helper.
     var h = 0
@@ -272,6 +289,43 @@ public func ll_saw_entry() -> String {
 }
 
 extension LlEmitter {
+    // THE BACKGROUND ENTRIES: `__saw_background_drive() -> i64` and
+    // `__saw_background_close()`, which a freestanding runtime that owns the
+    // background group calls (runtime/ABI.md, "The background group"). Each
+    // calls std's body when the program has a spawn site, and otherwise has
+    // nothing to drive or close: the drive answers that no task is live, so a
+    // runtime's declaration reaches no executor seam of its own.
+    func background_entries(&var self, mono: &var MonoProgram) -> String {
+        let attributes = ll_function_attributes("")
+        var out = StringBuilder()
+        try! out.append("define i64 @")
+        try! out.append(tc_background_drive_symbol())
+        try! out.append("()")
+        try! out.append(attributes)
+        try! out.append(" \{\nentry:\n")
+        if mono.spawn_drive_item >= 0 {
+            let drive = mono.spawn_drive_item
+            try! out.append("  %next = call i64 ")
+            try! out.append(self.plain_symbol(&var mono, drive))
+            try! out.append("()\n  ret i64 %next\n")
+        } else {
+            try! out.append("  ret i64 -1\n")
+        }
+        try! out.append("\}\n\ndefine void @")
+        try! out.append(tc_background_close_symbol())
+        try! out.append("()")
+        try! out.append(attributes)
+        try! out.append(" \{\nentry:\n")
+        if mono.spawn_runtime_close_item >= 0 {
+            let close = mono.spawn_runtime_close_item
+            try! out.append("  call void ")
+            try! out.append(self.plain_symbol(&var mono, close))
+            try! out.append("()\n")
+        }
+        try! out.append("  ret void\n\}\n\n")
+        out.build()
+    }
+
     // THE PROGRAM ENTRY: `__saw_main`, which runs the program's `main` and
     // returns 0 for a `Void` main, or the status `status_entry` computes from
     // an `Int` or a `Result`. A plain `main` is called, then the background
@@ -279,7 +333,9 @@ extension LlEmitter {
     // running; one with a lowered frame gets that frame on this function's
     // stack, at state 0, and is handed to the entry executor with its
     // descriptor, its result read from the frame once the executor returns,
-    // which has closed the group itself. With `c_entry`, the hosted C entry
+    // which has closed the group itself. Under a runtime that owns the
+    // background group it first calls std's record of that, which stands the
+    // deadlock report down. With `c_entry`, the hosted C entry
     // `main(argc, argv)` keeps both for the argument accessors (runtime/ABI.md,
     // "Program arguments") and returns what `__saw_main` returns, which is
     // then internal; otherwise `__saw_main` is the object's, for its
@@ -312,6 +368,12 @@ extension LlEmitter {
         try! out.append("()")
         try! out.append(attributes)
         try! out.append(" \{\nentry:\n")
+        if mono.runtime_owner_item >= 0 {
+            let owner = mono.runtime_owner_item
+            try! out.append("  call void ")
+            try! out.append(self.plain_symbol(&var mono, owner))
+            try! out.append("()\n")
+        }
         let body = self.entry_body(&var mono, &var target, result, &l, r)
         try! out.append(body)
         try! out.append("\}\n\n")

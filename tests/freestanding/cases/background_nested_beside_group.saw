@@ -1,0 +1,42 @@
+// A drive made inside a task's turn while that task keeps a `TaskGroup`: the
+// group, registered last, heads the thread's list and has no live task once
+// its one task is joined, and the drive still runs the background task beside
+// it, since it counts and walks every cooperative group on the thread. The
+// keeper spawns that task after its join, so only the nested drive can run it.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+func quick() -> Int {
+    1
+}
+
+func other() {
+    report("other_ran", 1)
+}
+
+func keeper() {
+    var g = TaskGroup()
+    let h = g.spawn(quick())
+    report("kept_joined", h.join())
+    let o = Task.spawn(other())
+    o.detach()
+    let next = __saw_background_drive()
+    report("keeper_after_drive", 1)
+    report("nested_no_deadline", if next == 9_223_372_036_854_775_807 { 1 } else { 0 })
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let k = Task.spawn(keeper())
+    k.detach()
+}

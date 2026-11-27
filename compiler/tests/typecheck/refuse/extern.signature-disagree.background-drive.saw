@@ -1,0 +1,14 @@
+// refuses: extern.signature-disagree at 7:10
+// flags: --std-root std --freestanding
+// message: `__saw_background_drive` is declared here as `() -> Int`, but the entry the compiler defines is `() -> Int64`
+// a freestanding runtime declaring the background drive with a result it does not return
+
+extern "C" {
+    func __saw_background_drive() -> Int
+    func __saw_background_close()
+}
+
+@export("entry")
+func entry() -> Int {
+    __saw_background_drive()
+}

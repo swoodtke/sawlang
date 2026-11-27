@@ -4779,6 +4779,87 @@ def check_freestanding_entry(failures, counts):
             counts["run freestanding entries"] = counts.get("run freestanding entries", 0) + 1
 
 
+BACKGROUND_PROBE = "freestanding_background.saw"
+BACKGROUND_QUIET_PROBE = "freestanding_background_quiet.saw"
+BACKGROUND_RUNTIME_SOURCE_PROBE = "runtime_source_background_drive.saw"
+BACKGROUND_RUNTIME_SOURCE_BOTH_PROBE = "runtime_source_background_entries.saw"
+BACKGROUND_ENTRIES = ("__saw_background_drive", "__saw_background_close")
+BACKGROUND_REACTOR_PREFIX = "__saw_rt_reactor_"
+
+
+def check_freestanding_background(quiet):
+    """The check of a probe that declares both background entries, built
+    `--freestanding -c` for the bare-metal target, whole and with
+    `--codegen-units=module`: each entry is `T`, and the reactor seams are
+    undefined when the program has a spawn site (`quiet` false) and absent
+    when it has none, where the declaration alone reaches no executor seam."""
+    def check(failures, counts):
+        probe = os.path.join(PROBES, BACKGROUND_QUIET_PROBE if quiet else BACKGROUND_PROBE)
+        problem = bare_metal_record_problem(rel(probe))
+        if problem:
+            failures.append(problem)
+            return
+        for flags in ([], ["--codegen-units=module"]):
+            where = "run %s %s" % (rel(probe), " ".join(flags) or "(whole)")
+            obj = os.path.join(OUT, os.path.splitext(os.path.basename(probe))[0] + ("_module" if flags else "") + ".o")
+            if os.path.exists(obj):
+                os.remove(obj)
+            r = subprocess.run([build.SAWC, "build", "--freestanding", "-c", "-O0", "--std-root", "std", "--target",
+                                BARE_METAL_TARGET] + flags + [rel(probe), "-o", obj], cwd=REPO,
+                               capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+            said = (r.stdout + r.stderr).strip()
+            if r.returncode != 0 or said or not os.path.exists(obj):
+                failures.append("%s: sawc build --freestanding -c exits %d: %s" % (where, r.returncode, said[:300]))
+                continue
+            symbols, why = object_symbols(obj, False)
+            if symbols is None:
+                failures.append("%s: nm cannot read the object: %s" % (where, why))
+                continue
+            problems = []
+            for name in BACKGROUND_ENTRIES:
+                if symbols.get(name) != "T":
+                    problems.append("`%s` is %s, not defined and external (T)" % (name, symbols.get(name, "absent")))
+            reactor = sorted(name for name in symbols if name.startswith(BACKGROUND_REACTOR_PREFIX))
+            if quiet and reactor:
+                problems.append("a program with no spawn site reaches %s" % ", ".join(reactor))
+            if not quiet and not reactor:
+                problems.append("a program with a spawn site reaches no reactor seam through the entries")
+            for problem in problems:
+                failures.append("%s: %s" % (where, problem))
+            if not problems:
+                counts["run freestanding background entries"] = counts.get("run freestanding background entries", 0) + 1
+    return check
+
+
+def check_runtime_source_background(name, declared):
+    """The check of a runtime source that declares the background entries
+    `declared` and calls them, built by `sawc runtime --emit-ll`: it compiles,
+    and its `.ll` declares each of them and defines neither background entry,
+    which are a program's, whether it declares one or both."""
+    def check(failures, counts):
+        probe = os.path.join(PROBES, name)
+        where = "run %s" % rel(probe)
+        r = subprocess.run([build.SAWC, "runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
+                            rel(probe)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: sawc runtime --emit-ll exits %d: %s" % (where, r.returncode,
+                                                                        (r.stdout + r.stderr).strip()[:300]))
+            return
+        problems = []
+        for entry in declared:
+            if not re.search(r"^declare \S+ @%s\(\)" % entry, r.stdout, re.M):
+                problems.append("the `.ll` does not declare `%s`" % entry)
+        for entry in BACKGROUND_ENTRIES:
+            if re.search(r"^define .*@%s\(" % entry, r.stdout, re.M):
+                problems.append("the `.ll` defines `%s`" % entry)
+        for problem in problems:
+            failures.append("%s: %s" % (where, problem))
+        if not problems:
+            counts["run runtime sources declaring a background entry"] = (
+                counts.get("run runtime sources declaring a background entry", 0) + 1)
+    return check
+
+
 # The runtime provider probes: the seams `probes/runtime_provider.saw` defines
 # itself, the line it prints through them, the libc symbol a freestanding
 # build of it leaves to its link, and the seam its twin
@@ -5622,6 +5703,12 @@ CUSTOM_PROBES = {
     XTENSA_WINDOWED_PROBE: check_xtensa_windowed,
     FREESTANDING_PROBE: check_freestanding_object,
     ENTRY_PROBE: check_freestanding_entry,
+    BACKGROUND_PROBE: check_freestanding_background(False),
+    BACKGROUND_QUIET_PROBE: check_freestanding_background(True),
+    BACKGROUND_RUNTIME_SOURCE_PROBE: check_runtime_source_background(BACKGROUND_RUNTIME_SOURCE_PROBE,
+                                                                     BACKGROUND_ENTRIES[:1]),
+    BACKGROUND_RUNTIME_SOURCE_BOTH_PROBE: check_runtime_source_background(BACKGROUND_RUNTIME_SOURCE_BOTH_PROBE,
+                                                                          BACKGROUND_ENTRIES),
     PROVIDER_PROBE: check_runtime_provider,
     PROVIDER_MISSING_PROBE: check_provider_missing_seam,
     COOPERATIVE_PROBE: check_cooperative_provider,

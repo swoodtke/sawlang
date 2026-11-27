@@ -1,0 +1,57 @@
+// The control of `background_turn_sleep_hidden`: the same tasks, with `x`
+// yielding in drive 2 instead of sleeping, so no sleeper outside the turn
+// heads the sleep queue, and `z`, due first, wakes first.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+func spin_ms(ms: Int64) sync {
+    let until = __saw_rt_clock_monotonic_nanos() + ms * 1_000_000
+    while __saw_rt_clock_monotonic_nanos() < until {
+    }
+}
+
+func x() {
+    report("x_turn", 1)
+    yield_now()
+    report("x_turn", 2)
+    yield_now()
+    report("x_turn", 3)
+}
+
+func spinner() {
+    yield_now()
+    spin_ms(12)
+    report("spun", 1)
+}
+
+func y() {
+    sleep(Duration.ms(8))
+    report("y_woke", 1)
+}
+
+func z() {
+    sleep(Duration.ms(5))
+    report("z_woke", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let a = Task.spawn(x())
+    a.detach()
+    let s = Task.spawn(spinner())
+    s.detach()
+    let b = Task.spawn(y())
+    b.detach()
+    let c = Task.spawn(z())
+    c.detach()
+}

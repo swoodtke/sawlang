@@ -1,0 +1,24 @@
+// A suspending `main` that spawns: the entry executor runs the task while
+// `main` sleeps, uncancelled, and closes the group at `main`'s return.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+func work(n: Int) {
+    report("task_cancelled", if cancelled() { 1 } else { 0 })
+    report("task_n", n)
+}
+
+func main() -> Int {
+    let t = Task.spawn(work(4))
+    t.detach()
+    sleep(Duration.ms(1))
+    report("main_returns", 1)
+    6
+}
+
+@export("fs_after_main")
+func after_main() {
+    report("after_main", 1)
+}

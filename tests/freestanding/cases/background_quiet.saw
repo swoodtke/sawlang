@@ -1,0 +1,15 @@
+// A runtime that owns the background group, under a program that never
+// spawns: the drive answers that nothing is live and the close does nothing,
+// and the object reaches no executor seam for the runtime's declaration alone.
+
+import fscore.*
+import fsgroup
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    report("after_main", 1)
+}

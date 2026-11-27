@@ -1,0 +1,15 @@
+// `Task.spawn` under a runtime that does not own the background group: the
+// start-up is `fsentry`, which declares neither background entry, so nothing
+// would drive or close the group, and the form is refused at compile time.
+
+import fscore.*
+import fsentry
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+func main() -> Int {
+    let h = Task.spawn(work(3))
+    h.join()
+}

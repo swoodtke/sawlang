@@ -1,0 +1,20 @@
+// flags: --std-root std --freestanding --module-path adrive=compiler/tests/typecheck/package/background/adrive
+// The background claim is the whole program's: the drive declared in a
+// package, the close in the entry.
+
+import adrive
+
+extern "C" {
+    func __saw_background_close()
+}
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) -> Int {
+    let t = Task.spawn(work(n))
+    t.detach()
+    adrive.touch()
+}

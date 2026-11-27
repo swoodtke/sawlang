@@ -19,6 +19,25 @@ stops the machine with `N`. The status therefore reaches the runner twice, as
 that line and as the exit device's status, which the runner reads as it does for
 any case that sets `expect_status`.
 
+The `background_*` cases import a fifth module, `fsgroup` (`group`), the
+miniature of a runtime that owns the background group (runtime/ABI.md, "The
+background group"). It declares `__saw_background_drive` and
+`__saw_background_close`, which is what lets `Task.spawn` compile, and its
+`fs_main` runs `__saw_main`, then the case's `fs_after_main` export (code that
+runs outside `main`, as a callback does), then drives the group until nothing
+can run before an event, closes it, prints `fs group settled=...` and the
+status, and stops the machine. `background_refused` imports `fsentry`, which
+declares neither entry, and must be refused at the `Task.spawn`. The cases
+about one drive's turn and answer import `fsdrive` (`drive`) instead: `fsgroup`
+with a drive and a close before `__saw_main`, on a thread with no executor
+yet, and every later drive numbered, `fs drive n=N` before it and
+`fs drive answer=CLASS` after, so a case's lines fall between the drives that
+ran them; after a deadline answer it waits 5 ms past the deadline. A case
+about an event the runtime delivers between drives imports `fshook` (`hook`):
+`fsdrive`'s numbering, with no drive before `__saw_main`, and after each drive
+a call to the case's `fs_between_drives(n)` export, whose answer 1 says it
+delivered an event, so a no-deadline answer drives again.
+
 ```
 tools/freestanding_runner.py                # every architecture that is on
 tools/freestanding_runner.py hello          # named cases

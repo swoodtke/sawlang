@@ -58,6 +58,9 @@ MODULES = {
     "fscore": os.path.join(FS_DIR, "core", "src"),
     "fsdata": os.path.join(FS_DIR, "data", "src"),
     "fsentry": os.path.join(FS_DIR, "entry", "src"),
+    "fsgroup": os.path.join(FS_DIR, "group", "src"),
+    "fsdrive": os.path.join(FS_DIR, "drive", "src"),
+    "fshook": os.path.join(FS_DIR, "hook", "src"),
 }
 
 QEMU_TIMEOUT_S = 20
@@ -291,7 +294,8 @@ def atomic_routines(case, arch):
 # would still compile and only be wrong on the profile nobody happened to be
 # building, so the check is mechanical. Comments count.
 
-ARCH_FREE_DIRS = [MODULES["fsrt"], MODULES["fscore"], MODULES["fsdata"], MODULES["fsentry"]]
+ARCH_FREE_DIRS = [MODULES["fsrt"], MODULES["fscore"], MODULES["fsdata"], MODULES["fsentry"], MODULES["fsgroup"],
+                  MODULES["fsdrive"], MODULES["fshook"]]
 
 ARCH_WORDS = [
     "riscv", "rv32", "rv64", "aarch64", "arm64", "armv8",
@@ -916,6 +920,253 @@ TEST_CASES = [
     {
         "name": "entry_parameters",
         "expect_compile_error": ["entry.parameters", "entry_parameters.saw:4:", "`main` takes no parameters"],
+    },
+    # --- the background group a runtime owns ---------------------------------
+    # Each case imports `fsgroup`, whose `fs_main` runs `__saw_main`, then the
+    # case's `fs_after_main` export, then drives the background group until
+    # nothing can run before an event, closes it, and stops the machine with
+    # `main`'s status (runtime/ABI.md, "The background group").
+    {
+        "name": "background_export_driven",
+        "expect_out": ["fs value main_entered=1", "fs value export_spawned=1",
+                       "fs value task_started_cancelled=0", "fs value task_finished_cancelled=0",
+                       "fs value task_n=5", "fs group settled=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_main",
+        "expect_out": ["fs value main_returns=1", "fs value task_cancelled=1", "fs value task_n=3",
+                       "fs value released=3", "fs value after_main=1", "fs value task_cancelled=0",
+                       "fs value task_n=8", "fs value released=8", "fs group settled=nothing-live",
+                       "fs entry status=7"],
+        "expect_clean_exit": False,
+        "expect_status": 7,
+    },
+    {
+        "name": "background_main_suspend",
+        "expect_out": ["fs value task_cancelled=0", "fs value task_n=4", "fs value main_returns=1",
+                       "fs value after_main=1", "fs group settled=nothing-live", "fs entry status=6"],
+        "expect_clean_exit": False,
+        "expect_status": 6,
+    },
+    {
+        "name": "background_closed_parked",
+        "expect_out": ["fs value main_entered=1", "fs value waiter_parks=4", "fs group settled=no-deadline",
+                       "fs value waiter_cancelled=1", "fs value released=4", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_drive_nested",
+        "expect_out": ["fs value caller_before_drive=1", "fs value other_ran=1", "fs value caller_after_drive=1",
+                       "fs value nested_answer_nothing_live=0", "fs group settled=nothing-live",
+                       "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_nested_beside_group",
+        "expect_out": ["fs value kept_joined=1", "fs value other_ran=1", "fs value keeper_after_drive=1",
+                       "fs value nested_no_deadline=1", "fs group settled=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_spawn_in_task",
+        "expect_out": ["fs value main_entered=1", "fs value inner_joined=5", "fs value outer_done=1",
+                       "fs value later_ran_cancelled=0", "fs value later_n=40", "fs group settled=nothing-live",
+                       "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_close_inside_task",
+        "expect_out": ["fs value closer_runs=1",
+                       "`__saw_background_close` was called inside a task or a drive"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
+    },
+    {
+        "name": "background_quiet",
+        "expect_out": ["fs value main_entered=1", "fs value after_main=1", "fs group settled=nothing-live",
+                       "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_refused",
+        "expect_compile_error": ["spawn.freestanding", "background_refused.saw:13:",
+                                 "no module of this program declares them"],
+    },
+    # Each case below imports `fsdrive`, `fsgroup` with every drive numbered:
+    # `fs drive n=N` before a drive and `fs drive answer=CLASS` after it, so a
+    # case's lines fall between the drives that ran them. Before `__saw_main`
+    # it drives and closes once, on a thread with no executor yet.
+    {
+        "name": "background_turn_spawned",
+        "expect_out": ["fs drive before_main=nothing-live", "fs drive close_before_main=1",
+                       "fs value main_entered=1",
+                       "fs drive n=1", "fs value a1_ran=1", "fs value b_ran=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value a2_ran=1", "fs drive answer=now",
+                       "fs drive n=3", "fs value a3_ran=1", "fs drive answer=nothing-live",
+                       "fs drive closed drives=3", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_parked",
+        "expect_out": ["fs drive n=1", "fs value parked_parks=1", "fs value a1_ran=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value a2_ran=1", "fs drive answer=now",
+                       "fs drive n=3", "fs value a3_ran=1", "fs drive answer=no-deadline",
+                       "fs value parked_receive_failed=1", "fs drive closed drives=3", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_later_slot",
+        "expect_out": ["fs drive n=1", "fs value spawner_starts=1", "fs value parked_parks=1",
+                       "fs drive answer=now",
+                       "fs drive n=2", "fs value spawner_spawns=1", "fs drive answer=now",
+                       "fs drive n=3", "fs value spawned_ran=1", "fs drive answer=no-deadline",
+                       "fs value parked_receive_failed=1", "fs drive closed drives=3", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_one_resume",
+        "expect_out": ["fs drive n=1", "fs drive answer=soon",
+                       "fs drive n=2", "fs value early_turn=1", "fs value late_resumed=1", "fs drive answer=now",
+                       "fs drive n=3", "fs value early_turn=2", "fs drive answer=now",
+                       "fs drive n=4", "fs value early_turn=3", "fs drive answer=no-deadline",
+                       "fs value parked_receive_failed=1", "fs drive closed drives=4", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_sleep_order",
+        "expect_out": ["fs drive n=1", "fs value first_turn=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value first_turn=2", "fs value spun=1", "fs value sleeper_woke=1",
+                       "fs drive answer=now",
+                       "fs drive n=3", "fs value first_turn=3", "fs drive answer=nothing-live",
+                       "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_nested_answer",
+        "expect_out": ["fs drive n=1", "fs value other_ran=1", "fs value nested_nothing_live=0",
+                       "fs value nested_run_again=0", "fs value nested_no_deadline=1",
+                       "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_finished_held",
+        "expect_out": ["fs value work_ran=1", "fs value finished_held_nothing_live=1", "fs value joined=4",
+                       "fs value after_main=1", "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_deadlines",
+        "expect_out": ["fs drive n=1", "fs drive answer=soon", "fs value quick_done=1", "fs drive answer=later",
+                       "fs value slow_done=1", "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        # `x`'s sleep heads the queue but had its turn; `z`, due first, wakes first.
+        "name": "background_turn_sleep_hidden",
+        "expect_out": ["fs drive n=2", "fs value x_turn=2", "fs value spun=1", "fs value z_woke=1",
+                       "fs value y_woke=1", "fs drive answer=now", "fs drive n=3", "fs value x_turn=3",
+                       "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_sleep_hidden_three",
+        "expect_out": ["fs drive n=2", "fs value x_turn=2", "fs value spun=1", "fs value woke_after_ms=3",
+                       "fs value woke_after_ms=5", "fs value woke_after_ms=8", "fs drive answer=now",
+                       "fs drive n=3", "fs value x_turn=3", "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_sleep_control",
+        "expect_out": ["fs drive n=2", "fs value x_turn=2", "fs value spun=1", "fs value z_woke=1",
+                       "fs value y_woke=1", "fs drive answer=now", "fs drive n=3", "fs value x_turn=3",
+                       "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_nested_twice",
+        "expect_out": ["fs drive n=1", "fs value early_turn=1", "fs value caller_before_drive=1",
+                       "fs value early_turn=2", "fs value late_turn=1", "fs value spawned_ran=1",
+                       "fs value caller_after_drive=1", "fs value nested_answer_now=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value early_turn=3", "fs value late_turn=2",
+                       "fs value late_child_ran=1", "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_outer_fixed",
+        "expect_out": ["fs drive n=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value spun=1", "fs value waiter_woke=1", "fs value late_woke=1",
+                       "fs value nested_no_deadline=1", "fs value caller_sent=1", "fs drive answer=now",
+                       "fs drive n=3", "fs value waiter_got=5", "fs drive answer=nothing-live",
+                       "fs drive closed drives=3", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_turn_join_parks",
+        "expect_out": ["fs drive n=1", "fs value first_runs=1", "fs value looper_turn=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value looper_turn=2", "fs value spawned_ran=1", "fs drive answer=now",
+                       "fs drive n=3", "fs value looper_turn=3", "fs drive answer=now",
+                       "fs drive n=4", "fs value looper_turn=4", "fs drive answer=now",
+                       "fs drive n=5", "fs value joined=7", "fs drive answer=nothing-live",
+                       "fs drive closed drives=5", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The teardown parks, so `looper` has one turn per drive.
+        "name": "background_turn_teardown_parks",
+        "expect_out": ["fs drive n=1", "fs value keeper_spawned=1", "fs value looper_turn=1", "fs drive answer=now",
+                       "fs drive n=2", "fs value looper_turn=2", "fs drive answer=now",
+                       "fs drive n=3", "fs value looper_turn=3", "fs drive answer=now",
+                       "fs drive n=4", "fs value looper_turn=4", "fs drive answer=now",
+                       "fs drive n=5", "fs drive answer=nothing-live", "fs drive closed drives=5",
+                       "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "background_join_parks",
+        "expect_out": ["fs drive n=1", "fs value j_joins=1", "fs drive answer=now",
+                       "fs drive n=2", "fs drive answer=no-deadline", "fs value j_joined_value=-1",
+                       "fs drive closed drives=2", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    # `fshook`: `fsdrive`'s numbering, and the case's callback between drives.
+    {
+        "name": "background_join_waits_on_runtime",
+        "expect_out": ["fs drive n=1", "fs value j_joins=1", "fs drive answer=now",
+                       "fs value callback_after_drive=1", "fs value s_saw_the_callback=1",
+                       "fs value j_joined_value=9", "fs drive answer=nothing-live", "fs entry status=0"],
+        "expect_clean_exit": True,
+    },
+    # Under an owning runtime a quiescent wait goes to the runtime's poll, which
+    # `fsrt` panics in, where `cooperative_deadlock` (no owner) reports.
+    {
+        # The teardown parks, the drive returns, and the close's sweep is the
+        # quiescent wait.
+        "name": "background_report_stands_down_teardown",
+        "expect_out": ["fs value keeper_tears_down=1", "fs group settled=no-deadline",
+                       "fs: an unbounded reactor poll with no wake pending would wait forever",
+                       "task group 1 slot 0 gen 1 channel-parked", "task group 2 slot 0 gen 1 joining",
+                       "in keeper"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
+    },
+    {
+        # Inside drive 1, before any `fs group settled` line: a `sync`
+        # helper's teardown keeps its nested sweep.
+        "name": "background_report_stands_down_nested_sweep",
+        "expect_out": ["fs value main_entered=1", "fs value keeper_tears_down=1",
+                       "fs: an unbounded reactor poll with no wake pending would wait forever",
+                       "task group 1 slot 0 gen 1 channel-parked", "task group 2 slot 0 gen 1 running"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
+    },
+    {
+        "name": "background_report_stands_down_join",
+        "expect_out": ["fs value reached_the_join=1",
+                       "fs: an unbounded reactor poll with no wake pending would wait forever",
+                       "task group 1 slot 0 gen 1 channel-parked"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
     },
     # --- the linker script ----------------------------------------------------
     {

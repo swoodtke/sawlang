@@ -1,0 +1,60 @@
+// The sleep order inside one drive when the queue's first expired sleeper is
+// outside the drive's turn. Drive 1: `x` yields, `spinner` yields, `y` sleeps
+// 8 ms, `z` sleeps 5 ms. Drive 2: `x` sleeps 1 ms, so its deadline heads the
+// sleep queue though `x` had its turn, `spinner` computes 12 ms, then the walk
+// reaches `y` and `z`, both past their deadlines: `z`'s is the earlier, so `z`
+// wakes first. `background_turn_sleep_control` is the same with `x` yielding.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+func spin_ms(ms: Int64) sync {
+    let until = __saw_rt_clock_monotonic_nanos() + ms * 1_000_000
+    while __saw_rt_clock_monotonic_nanos() < until {
+    }
+}
+
+func x() {
+    report("x_turn", 1)
+    yield_now()
+    report("x_turn", 2)
+    sleep(Duration.ms(1))
+    report("x_turn", 3)
+}
+
+func spinner() {
+    yield_now()
+    spin_ms(12)
+    report("spun", 1)
+}
+
+func y() {
+    sleep(Duration.ms(8))
+    report("y_woke", 1)
+}
+
+func z() {
+    sleep(Duration.ms(5))
+    report("z_woke", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let a = Task.spawn(x())
+    a.detach()
+    let s = Task.spawn(spinner())
+    s.detach()
+    let b = Task.spawn(y())
+    b.detach()
+    let c = Task.spawn(z())
+    c.detach()
+}

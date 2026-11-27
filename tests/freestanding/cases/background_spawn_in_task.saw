@@ -1,0 +1,36 @@
+// `Task.spawn` inside a background task's body spawns into the same group: the
+// inner task joins its outer one's turn when joined, and a detached one runs
+// at a later drive.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+func inner(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func later(n: Int) {
+    sleep(Duration.ms(1))
+    report("later_ran_cancelled", if cancelled() { 1 } else { 0 })
+    report("later_n", n)
+}
+
+func outer(n: Int) {
+    let joined = Task.spawn(inner(n))
+    report("inner_joined", joined.join())
+    let detached = Task.spawn(later(n * 10))
+    detached.detach()
+    report("outer_done", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let t = Task.spawn(outer(4))
+    t.detach()
+}

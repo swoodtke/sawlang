@@ -1,0 +1,11 @@
+// refuses: extern.background-incomplete at lib.saw:4:10
+// flags: --std-root std --freestanding --module-path adrive=compiler/tests/typecheck/package/background/adrive
+// message: `__saw_background_drive` is declared here, but not `__saw_background_close` in any module of this program
+// the background drive declared in a package, and the close nowhere in the program
+
+import adrive
+
+@export("entry")
+func entry() -> Int {
+    adrive.touch()
+}

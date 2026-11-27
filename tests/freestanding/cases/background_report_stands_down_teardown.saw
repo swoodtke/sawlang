@@ -1,0 +1,38 @@
+// The deadlock report stands down under a runtime that owns the background
+// group, at the group's close. A driven task's group local parks at its
+// teardown (`joining`) until the group's task finishes, and that task waits on
+// a channel only the runtime could feed, so the drive returns no-deadline. The
+// close cancels the background task, which no cancel wakes from that park, and
+// its sweep then waits for good: the wait goes to the runtime's reactor poll,
+// which in this suite's runtime has no event to deliver and panics, saying so.
+// `cooperative_deadlock` is the same wait with a runtime that does not own the
+// group, which reports a deadlock.
+
+import fscore.*
+import fsgroup
+import std.channel.{Channel}
+import std.task.*
+
+func k(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> 0 - 1
+    }
+}
+
+func keeper(orders: Channel<Int>) {
+    var g = TaskGroup()
+    let h = g.spawn(k(orders))
+    report("keeper_tears_down", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let t = Task.spawn(keeper(orders.copy()))
+    t.detach()
+}

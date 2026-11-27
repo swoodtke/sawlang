@@ -1,0 +1,86 @@
+//! `fsdrive` — the start-up of a runtime that owns the background group and
+//! says what each drive did.
+//!
+//! It is `fsgroup` with every drive numbered on the console: a line before each
+//! drive, `fs drive n=N`, and one after it naming the class of its answer,
+//! `fs drive answer=CLASS`, so a case's own lines fall between the drives that
+//! ran them. Before `__saw_main` it drives and closes once, on a thread with
+//! no executor yet. After a deadline answer it waits past the deadline by
+//! `PAST_DEADLINE_NANOS`, so every sleep due by then has expired at the next
+//! drive. It stops driving at nothing live or no deadline, then closes the
+//! group, prints `fs drive closed drives=N` and the status, and stops the
+//! machine with the status `main` returned.
+
+import fsrt
+
+extern "C" {
+    func __saw_main() -> Int32
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+    // The case's own export, which this start-up calls once `main` returned.
+    func fs_after_main()
+}
+
+static NOTHING_LIVE: Int64 = -1
+static NO_DEADLINE: Int64 = 9_223_372_036_854_775_807
+
+// How far ahead of the clock a deadline answer counts as `soon`.
+static SOON_NANOS: Int64 = 150_000_000
+
+// How long past a deadline answer the start-up waits before it drives again.
+static PAST_DEADLINE_NANOS: Int64 = 5_000_000
+
+// How many drives the start-up makes before it closes the group whatever it
+// holds, so a case whose tasks never settle ends rather than spins.
+static DRIVE_LIMIT: Int = 200
+
+/// The class of drive answer `next` read at clock reading `now`.
+func answer_class(next: Int64, now: Int64) -> String {
+    if next == NOTHING_LIVE {
+        return "nothing-live"
+    }
+    if next == 0 {
+        return "now"
+    }
+    if next == NO_DEADLINE {
+        return "no-deadline"
+    }
+    if next <= now {
+        return "past"
+    }
+    if next - now < SOON_NANOS {
+        return "soon"
+    }
+    "later"
+}
+
+/// Drive and close before the program runs, run it and its export, then drive
+/// the background group, numbering each drive, until no task can run before an
+/// event; close it and stop the machine with the status `main` returned.
+@export("fs_main")
+func start() {
+    let early = __saw_background_drive()
+    print("fs drive before_main={}", answer_class(early, __saw_rt_clock_monotonic_nanos()))
+    __saw_background_close()
+    print("fs drive close_before_main=1")
+    let status = __saw_main()
+    fs_after_main()
+    var drives = 0
+    var next: Int64 = 0
+    while next != NOTHING_LIVE && next != NO_DEADLINE && drives < DRIVE_LIMIT {
+        if next > 0 {
+            let until = next + PAST_DEADLINE_NANOS
+            while __saw_rt_clock_monotonic_nanos() < until {
+            }
+        }
+        drives = drives + 1
+        print("fs drive n={}", drives)
+        next = __saw_background_drive()
+        print("fs drive answer={}", answer_class(next, __saw_rt_clock_monotonic_nanos()))
+    }
+    __saw_background_close()
+    print("fs drive closed drives={}", drives)
+    print("fs entry status={}", status)
+    fsrt.stop(status as UInt32)
+}

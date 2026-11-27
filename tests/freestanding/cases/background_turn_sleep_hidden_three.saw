@@ -1,0 +1,56 @@
+// `background_turn_sleep_hidden` with three sleepers in the turn behind the
+// one outside it: `y` (8 ms), `z` (5 ms) and `w` (3 ms) are all past their
+// deadlines when the walk reaches `y`, the first of them, and they wake in
+// the sleep order, `w`, `z`, `y`, though `x`'s later 1 ms sleep heads the
+// queue.
+
+import fscore.*
+import fsdrive
+import std.task.*
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+func spin_ms(ms: Int64) sync {
+    let until = __saw_rt_clock_monotonic_nanos() + ms * 1_000_000
+    while __saw_rt_clock_monotonic_nanos() < until {
+    }
+}
+
+func x() {
+    report("x_turn", 1)
+    yield_now()
+    report("x_turn", 2)
+    sleep(Duration.ms(1))
+    report("x_turn", 3)
+}
+
+func spinner() {
+    yield_now()
+    spin_ms(12)
+    report("spun", 1)
+}
+
+func sleeper(ms: UInt64) {
+    sleep(Duration.ms(ms))
+    report("woke_after_ms", ms as Int)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let a = Task.spawn(x())
+    a.detach()
+    let s = Task.spawn(spinner())
+    s.detach()
+    let y = Task.spawn(sleeper(8))
+    y.detach()
+    let z = Task.spawn(sleeper(5))
+    z.detach()
+    let w = Task.spawn(sleeper(3))
+    w.detach()
+}

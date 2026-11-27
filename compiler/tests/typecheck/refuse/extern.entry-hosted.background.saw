@@ -1,0 +1,12 @@
+// refuses: extern.entry-hosted at 7:10
+// flags: --std-root std
+// message: `__saw_background_drive` is an entry the compiler defines for a freestanding runtime that owns the background task group
+// a hosted program declaring a background entry, which no runtime outside the program calls
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+func main() {
+    print("{}", __saw_background_drive())
+}

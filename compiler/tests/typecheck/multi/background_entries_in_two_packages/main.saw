@@ -1,0 +1,17 @@
+// flags: --std-root std --freestanding --module-path adrive=compiler/tests/typecheck/package/background/adrive --module-path zclose=compiler/tests/typecheck/package/background/zclose
+// The background claim is the whole program's: the drive declared in one
+// package and the close in another.
+
+import adrive
+import zclose
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) -> Int {
+    let t = Task.spawn(work(n))
+    t.detach()
+    adrive.touch() + zclose.touch()
+}

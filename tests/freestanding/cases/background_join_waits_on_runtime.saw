@@ -1,0 +1,67 @@
+// A task that joins one waiting for an event the runtime delivers between
+// drives parks, and the drive returns, so the runtime's callback runs: `j`
+// joins `k`, and `k` receives what `s` sends once the callback has set a flag.
+// `s` gives up after about 300 ms and sends -5, which a nested sweep inside
+// the drive would have made it do.
+
+import fscore.*
+import fshook
+import std.channel.{Channel}
+import std.task.*
+
+unsafe static var GO: Int = 0
+
+func go() unsafe -> Int {
+    GO
+}
+
+func k(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> 0 - 1
+    }
+}
+
+func s(orders: Channel<Int>) {
+    var tries = 0
+    while tries < 300 {
+        if go() == 1 {
+            report("s_saw_the_callback", 1)
+            try! orders.send(9)
+            return
+        }
+        sleep(Duration.ms(1))
+        tries = tries + 1
+    }
+    report("s_gave_up", 1)
+    try! orders.send(0 - 5)
+}
+
+func j(orders: Channel<Int>) {
+    let t = Task.spawn(k(orders))
+    report("j_joins", 1)
+    report("j_joined_value", t.join())
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let tj = Task.spawn(j(orders.copy()))
+    tj.detach()
+    let ts = Task.spawn(s(orders.copy()))
+    ts.detach()
+}
+
+@export("fs_between_drives")
+func between(n: Int) unsafe -> Int {
+    if GO == 1 {
+        return 0
+    }
+    report("callback_after_drive", n)
+    GO = 1
+    1
+}

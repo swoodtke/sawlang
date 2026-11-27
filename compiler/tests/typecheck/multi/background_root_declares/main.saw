@@ -1,0 +1,15 @@
+// flags: --std-root std --freestanding --module-path aspawn=compiler/tests/typecheck/package/background/aspawn
+// The background claim is the whole program's: `Task.spawn` in a package,
+// both entries declared in the entry, which is checked after every package.
+
+import aspawn
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+    func __saw_background_close()
+}
+
+@export("entry")
+func entry(n: Int) {
+    aspawn.start_work(n)
+}

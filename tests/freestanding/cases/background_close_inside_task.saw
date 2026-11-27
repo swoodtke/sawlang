@@ -1,0 +1,26 @@
+// The close called inside a task's turn: the task is on the thread's stack and
+// the close would wait for it to finish, so the close panics, naming why.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+extern "C" {
+    func __saw_background_close()
+}
+
+func closer() {
+    report("closer_runs", 1)
+    __saw_background_close()
+    report("closer_returned", 1)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let t = Task.spawn(closer())
+    t.detach()
+}

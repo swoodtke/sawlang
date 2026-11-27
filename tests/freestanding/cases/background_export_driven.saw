@@ -1,0 +1,27 @@
+// A task spawned by an export that runs after `main` returned: the start-up
+// drives the background group until nothing is live, so the task runs to its
+// end uncancelled, through two timed parks and a yield, before the close.
+
+import fscore.*
+import fsgroup
+import std.task.*
+
+func work(n: Int) {
+    report("task_started_cancelled", if cancelled() { 1 } else { 0 })
+    sleep(Duration.ms(1))
+    yield_now()
+    sleep(Duration.ms(1))
+    report("task_finished_cancelled", if cancelled() { 1 } else { 0 })
+    report("task_n", n)
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let t = Task.spawn(work(5))
+    t.detach()
+    report("export_spawned", 1)
+}

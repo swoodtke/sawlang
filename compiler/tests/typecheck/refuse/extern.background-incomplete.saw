@@ -1,0 +1,13 @@
+// refuses: extern.background-incomplete at 7:10
+// flags: --std-root std --freestanding
+// message: `__saw_background_drive` is declared here, but not `__saw_background_close`
+// a freestanding runtime declaring one background entry: it owns the group only by declaring both
+
+extern "C" {
+    func __saw_background_drive() -> Int64
+}
+
+@export("entry")
+func entry() -> Int64 {
+    __saw_background_drive()
+}

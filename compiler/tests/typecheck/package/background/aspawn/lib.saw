@@ -1,0 +1,11 @@
+// A package that spawns, whose name sorts before `mruntime`'s, so it is checked
+// before the package that declares the background entries.
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+public func start_work(n: Int) {
+    let t = Task.spawn(work(n))
+    t.detach()
+}

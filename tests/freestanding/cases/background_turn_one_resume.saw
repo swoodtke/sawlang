@@ -1,0 +1,50 @@
+// No task is resumed twice in one drive: `late` (first slot) and `early`
+// (second) both sleep, `early`'s deadline first, and both have expired at the
+// second drive. The walk reaches `late` and the sleep order gives `early` its
+// turn first; `early` yields, and the walk, reaching its slot again after
+// `late`'s turn, leaves it for the next drive. `parked` keeps a third task
+// live.
+
+import fscore.*
+import fsdrive
+import std.channel.{Channel}
+import std.task.*
+
+// `early`'s deadline is 4 ms ahead of `late`'s, so the order holds however
+// slowly the first drive parks the two; the start-up drives again 5 ms past
+// `early`'s deadline, when both have expired.
+func late() {
+    sleep(Duration.ms(14))
+    report("late_resumed", 1)
+}
+
+func early() {
+    sleep(Duration.ms(10))
+    report("early_turn", 1)
+    yield_now()
+    report("early_turn", 2)
+    yield_now()
+    report("early_turn", 3)
+}
+
+func parked(orders: Channel<Int>) {
+    match orders.receive() {
+        case Ok(v) -> report("parked_got", v),
+        case Err(_) -> report("parked_receive_failed", 1)
+    }
+}
+
+func main() {
+    report("main_entered", 1)
+}
+
+@export("fs_after_main")
+func after_main() {
+    let orders = try! Channel<Int>()
+    let l = Task.spawn(late())
+    l.detach()
+    let e = Task.spawn(early())
+    e.detach()
+    let p = Task.spawn(parked(orders.copy()))
+    p.detach()
+}
