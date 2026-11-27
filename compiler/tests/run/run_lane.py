@@ -5691,8 +5691,81 @@ def check_weak_export_call(failures, counts):
             counts["run weak export calls held at -O2"] = counts.get("run weak export calls held at -O2", 0) + 1
 
 
+# The probe whose two re-lend accessors (`at`) are inlined always, beside a
+# computed lend (`checked`) and a lend of a field (`head`) that are not: the
+# `.ll` names `alwaysinline` on exactly the forwarders' halves, and an -Oz
+# object defines no symbol of either `at`, while the slab's own accessor
+# stays, its bare-slab control still calling it. (SL-1199)
+RELEND_PROBE = "relend_accessor_inlined.saw"
+RELEND_FORWARDERS = ("RecordTable.at(", "BodyTable.at(")
+RELEND_KEPT = ("RecordTable.checked(", "RecordTable.head(", "Slab.[](")
+RELEND_TARGETS = (
+    ("riscv32-unknown-none-elf", ["--target-features", "+m,+a,+c"]),
+    (BARE_METAL_TARGET, []),
+)
+
+
+def check_relend_accessor_inlined(failures, counts):
+    """`probes/relend_accessor_inlined.saw` built -Oz --freestanding: in the
+    riscv32 `.ll`, each prologue and epilogue of `RELEND_FORWARDERS` names
+    `alwaysinline` and none of `RELEND_KEPT` does; in the riscv32 and the
+    arm64 object, no symbol holds a forwarder's name and one holds `Slab.[]`'s."""
+    probe = os.path.join(PROBES, RELEND_PROBE)
+    base = ["build", "-Oz", "-g0", "--freestanding", "--no-hidden-alloc", "--std-root", "std"]
+    for triple, extra in RELEND_TARGETS:
+        where = "run %s %s" % (rel(probe), triple)
+        flags = ["--target", triple] + extra
+        r = subprocess.run([build.SAWC] + base + flags + ["--emit-ll", rel(probe)], cwd=REPO, capture_output=True,
+                           text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s --emit-ll: exit %d: %s" % (where, r.returncode, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        halves = [line for line in r.stdout.split("\n")
+                  if line.startswith("define ") and ("@\"saw prologue " in line or "@\"saw epilogue " in line)]
+        problems = []
+        for name in RELEND_FORWARDERS:
+            found = [line for line in halves if name in line]
+            if len(found) != 2 or any("alwaysinline" not in line for line in found):
+                problems.append("`%s` has %d halves, not two each naming alwaysinline" % (name, len(found)))
+        for name in RELEND_KEPT:
+            found = [line for line in halves if name in line]
+            if not found or any("alwaysinline" in line for line in found):
+                problems.append("`%s` has %d halves, and none may name alwaysinline" % (name, len(found)))
+        if problems:
+            failures.append("%s --emit-ll: %s" % (where, "; ".join(problems)))
+            continue
+        clang = manifest_clang(triple) if os.path.exists(build.runtime_manifest(triple)) else None
+        if clang is None:
+            failures.append("%s: no clang record beside the stages; the stage build writes it" % where)
+            continue
+        obj = os.path.join(OUT, "relend_%s.o" % triple.split("-")[0])
+        if os.path.exists(obj):
+            os.remove(obj)
+        r = subprocess.run([build.SAWC] + base + flags + ["-c", rel(probe), "-o", obj], cwd=REPO,
+                           capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said or not os.path.exists(obj):
+            failures.append("%s -c: exit %d: %s" % (where, r.returncode, said[:300]))
+            continue
+        r = subprocess.run([clang_tool(clang, "llvm-nm"), obj], capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: llvm-nm exits %d: %s" % (where, r.returncode, r.stderr.strip()[:300]))
+            continue
+        symbols = r.stdout
+        present = [name for name in RELEND_FORWARDERS if name in symbols]
+        if present or "Slab.[](" not in symbols:
+            failures.append("%s: the object defines %s and %s `Slab.[]`'s prologue, not none and one"
+                            % (where, ", ".join(present) or "no forwarder", "holds" if "Slab.[](" in symbols
+                               else "lacks"))
+            continue
+        counts["run re-lend accessors inlined in an object"] = counts.get(
+            "run re-lend accessors inlined in an object", 0) + 1
+
+
 CUSTOM_PROBES = {
     WEAK_CALL_PROBE: check_weak_export_call,
+    RELEND_PROBE: check_relend_accessor_inlined,
     "main_error_bounded_no_hidden_alloc.saw": check_main_error_bounded,
     "main_error_whole_to_nonblocking_pipe.saw": check_main_error_whole_to_nonblocking_pipe,
     OBJECT_PROBE: check_object_output,

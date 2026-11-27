@@ -7,7 +7,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.attributes.{ll_function_attributes, ll_param_attributes, ll_weak_definition}
+import sawllvm.attributes.{ll_function_attributes, ll_param_attributes, ll_relend_forwarder, ll_weak_definition}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
 // For the extension writing `debug_begin`.
@@ -218,7 +218,11 @@ extension LlEmitter {
         }
         self.drive_storage(&var mono, k, &var prelude)
         try! head.append(")")
-        try! head.append(ll_function_attributes("", builtin: builtin))
+        var extra = ""
+        if ll_relend_forwarder(&mono, f) {
+            extra = "alwaysinline"
+        }
+        try! head.append(ll_function_attributes(extra, builtin: builtin))
         let section = self.item_section(&mono, k)
         self.note_placed_define(&mono, k, ll_symbol(&mono, k), section)
         try! head.append(section)

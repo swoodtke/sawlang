@@ -2,7 +2,7 @@
 // about an argument that LLVM can use, written after its parameter's type, and
 // what the target asks of every function, written after the parameter list.
 
-import sawmir.model.{MirFuncKind, MirTermKind}
+import sawmir.model.{MirCallKind, MirFuncKind, MirRvalueKind, MirStmtKind, MirTermKind}
 import sawparse.grammar.{Alt}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.model.{ResModuleKind}
@@ -174,6 +174,70 @@ public func ll_builtin_symbol(symbol: &String) -> Bool {
         k = k + 1
     }
     false
+}
+
+// THE RE-LEND FORWARDER FUNNEL: whether MIR function `f` is a half of an
+// accessor whose whole body is `lend` of a place reached through another
+// accessor's window (`lend self.slab[p]`), so each half only forwards to the
+// inner accessor's half. The shape: the prologue holds one window open that
+// is not conditional and no branch, the epilogue one window close, and
+// neither a statement beyond a plain copy, reference or conversion (no
+// arithmetic, drop or budget point). Inlining such a half never grows code,
+// but the target's inline threshold keeps it, so its definition names
+// `alwaysinline`; anything else keeps the default.
+//
+// ENTRY POINTS:
+//   LlEmitter.emit_function
+public func ll_relend_forwarder(mono: &MonoProgram, f: Int) -> Bool {
+    let info = mono.dp.bc.mir.funcs[f]
+    if (info.kind != MirFuncKind.Prologue && info.kind != MirFuncKind.Epilogue) || info.decl < 0 {
+        return false
+    }
+    let a = mono.dp.bc.mir.accessor_of[info.decl]
+    if a < 0 || mono.dp.bc.mir.accessors[a].epilogue < 0 {
+        return false
+    }
+    let acc = mono.dp.bc.mir.accessors[a]
+    let opens = ll_forwarder_half(&mono, acc.prologue, MirCallKind.WindowOpen)
+    opens && ll_forwarder_half(&mono, acc.epilogue, MirCallKind.WindowClose)
+}
+
+// Whether half `f` has exactly one window call of kind `want`, with no
+// absent edge, and only copy, reference and conversion statements.
+func ll_forwarder_half(mono: &MonoProgram, f: Int, want: MirCallKind) -> Bool {
+    let info = mono.dp.bc.mir.funcs[f]
+    if info.window_count != 1 {
+        return false
+    }
+    var calls = 0
+    var b = 0
+    while b < info.block_count {
+        let block = mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign {
+                return false
+            }
+            let kind = mono.dp.bc.mir.rvalues[stmt.rvalue].kind
+            if kind != MirRvalueKind.Use && kind != MirRvalueKind.Ref && kind != MirRvalueKind.Conversion {
+                return false
+            }
+        }
+        if block.term == MirTermKind.Switch || block.term == MirTermKind.Open || block.term == MirTermKind.Unreachable {
+            return false
+        }
+        if block.term == MirTermKind.Call {
+            let call = mono.dp.bc.mir.calls[block.call]
+            if call.kind != want || call.absent >= 0 {
+                return false
+            }
+            calls = calls + 1
+        }
+    }
+    calls == 1
 }
 
 // What closes the signature of every function the module defines: the

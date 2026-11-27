@@ -1,0 +1,78 @@
+// probe: custom
+// about: a `borrows` accessor whose whole body is `lend` through another accessor is always inlined, and one that is not that shape keeps its own prologue (SL-1199)
+// `RecordTable.at` and `BodyTable.at` only forward to `Slab.[]`, so their
+// prologues and epilogues name `alwaysinline` in the `.ll` and no -Oz
+// object (riscv32, arm64) defines them. `checked` computes its index and
+// `head` lends a field with no inner accessor: neither names it. `Slab.[]`
+// keeps its own halves, which the bare-slab control below still calls.
+
+type RecordIndex = Int
+type BodyIndex = Int
+
+struct Rec { state: UInt8, pid: UInt64, link: Int }
+struct Body { live: Bool, entry: UInt, count: Int }
+
+struct Slab<T, const N: Int> {
+    inline: [T; N],
+    ext_base: UInt,
+    total: Int,
+}
+
+extension Slab<T, N> {
+    func [](&var self, i: Int) unsafe borrows -> &var T {
+        if i < 0 || i >= self.total {
+            panic("Slab.[]: index out of range: {} (len {})", i, self.total)
+        }
+        if i < N {
+            lend self.inline[i]
+        } else {
+            let p = (self.ext_base + (((i - N) * sizeof<T>()) as UInt)) as UnsafePointer<T>
+            lend p[0]
+        }
+    }
+}
+
+struct RecordTable { private slab: Slab<Rec, 12> }
+struct BodyTable { private slab: Slab<Body, 3> }
+
+extension RecordTable {
+    func at(&var self, p: RecordIndex) unsafe borrows -> &var Rec {
+        lend self.slab[p]
+    }
+
+    func checked(&var self, p: RecordIndex) unsafe borrows -> &var Rec {
+        let next = p + 1
+        lend self.slab[next]
+    }
+
+    func head(&var self) borrows -> &var Rec {
+        lend self.slab.inline[0]
+    }
+}
+
+extension BodyTable {
+    func at(&var self, b: BodyIndex) unsafe borrows -> &var Body {
+        lend self.slab[b]
+    }
+}
+
+unsafe static var RECORDS: RecordTable = RecordTable(slab: Slab<Rec, 12>(
+    inline: [Rec(state: 0, pid: 0, link: 0); 12], ext_base: 0, total: 12))
+unsafe static var BODIES: BodyTable = BodyTable(slab: Slab<Body, 3>(
+    inline: [Body(live: false, entry: 0, count: 0); 3], ext_base: 0, total: 3))
+
+@export("probe_link_body")
+func link_body(p: Int, b: Int) unsafe {
+    RECORDS.at(RecordIndex(p)).link = b + 1
+    BODIES.at(BodyIndex(b)).live = true
+    RECORDS.checked(RecordIndex(p)).state = 1
+    RECORDS.head().pid = 7
+}
+
+unsafe static var BARE_RECORDS: Slab<Rec, 12> = Slab<Rec, 12>(
+    inline: [Rec(state: 0, pid: 0, link: 0); 12], ext_base: 0, total: 12)
+
+@export("probe_link_body_bare")
+func link_body_bare(p: Int) unsafe {
+    BARE_RECORDS[p].link = 1
+}
